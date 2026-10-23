@@ -54,3 +54,9 @@ Command line, for testing:
 ```bash
 build/joyport --import Fort_Apocalypse.tap
 ```
+
+## License
+
+Joyport's source code is released under the [MIT License](LICENSE): use, change
+and reuse any part of it. It contains no game data; the games stay the
+property of their rights holders.
