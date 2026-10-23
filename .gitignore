@@ -1,0 +1,14 @@
+# Game images and anything extracted from them are never committed.
+*.tap
+*.TAP
+*.t64
+*.d64
+*.g64
+*.prg
+*.adf
+*.ADF
+*.dms
+*.ipf
+/.analysis/
+/build/
+.DS_Store

@@ -1,0 +1,55 @@
+#pragma once
+#include "app/library.hpp"
+#include "platform/host.hpp"
+#include "platform/image.hpp"
+#include <filesystem>
+#include <string>
+#include <vector>
+
+// The launcher: the game shelves (one per machine), import and the
+// imported-content screen. Drawn with Joyport's own UI kit; no game graphics.
+namespace app {
+
+class Launcher {
+public:
+    explicit Launcher(Library& library);
+
+    enum class Request { none, choose_image, play };
+
+    // One frame of input. Returns what the main loop should do for it.
+    Request update(const platform::Controls& controls, double now);
+
+    // Imports an image (picked or dropped) and reports the outcome on screen.
+    void import(const std::filesystem::path& image, double now);
+    void show_error(std::string message, double now);
+    void show_message(std::string message, bool ok, double now);
+    // The selected game (the one to play after Request::play).
+    std::size_t selected() const { return selected_; }
+
+    platform::Image draw(double now) const;
+
+    // For headless previews.
+    void select(std::size_t game) { selected_ = std::min(game, library_.games().size() - 1); }
+    void open_details(std::size_t page = 0);
+
+private:
+    void move(int columns, int rows);
+    void activate();
+    void close_details();
+    void draw_card(platform::Image&, std::size_t game, int x, int y, double now) const;
+    void draw_details(platform::Image&) const;
+
+    Library& library_;
+    std::size_t selected_{};
+    bool details_{};
+    // Details pages: 0 lists the imported files, the rest show decoded data.
+    std::vector<Preview> previews_;
+    std::size_t page_{};
+    bool pending_choice_{}, pending_play_{};
+    std::string message_;
+    bool message_ok_{};
+    double message_time_{-10};
+    double selected_time_{};
+};
+
+} // namespace app
