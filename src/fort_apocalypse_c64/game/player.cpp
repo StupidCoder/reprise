@@ -134,6 +134,7 @@ void Game::camera() {
 void Game::copy_window() {
     // $A72C: 16 map rows from the camera's row, 40 cells from its column, to
     // screen rows 9-24.
+    window_ = {camera_column_ - 1, std::int8_t(camera_row_)};
     for (int r = 0; r < 16; ++r) {
         const int source = actor_index(camera_column_, std::int8_t(camera_row_) + r);
         for (int c = 0; c < 40; ++c) {
@@ -275,6 +276,7 @@ void Game::bullets() {
                 shot_sound_ = 0;
                 const u8 hit = map_at(at);
                 b.saved = hit;
+                happenings_.impacts.push_back({{column - 1, row}, b.state, hit, i < 2});
                 bool restore = true;
                 if (hit == 0x3F && level_ == 1) {
                     fort_ = 5; // the fort's core

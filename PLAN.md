@@ -80,7 +80,16 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
 6. **Sound** — in progress: the game's SID effects (engine, shots,
    explosions, rescue, missiles, refuelling, fuel alarm, title tones) drive
    a register-level SID; not yet compared with the original's output.
-7. **Optional: loading screen** — the tape's U.S. Gold loading screen is a
+7. **Enhanced mode** — first version done: a presentation layer
+   (`src/fort_apocalypse_c64/enhanced`) draws the game's picture again
+   without the player's sprite and the tank characters (the VIC collisions
+   still come from the original picture) and adds smooth banking, rocking
+   tanks, impact and explosion debris, a tumbling turret and shot-down
+   mines that fall and blow up on the ground, resampled
+   RotSprite-style onto the C64's double-wide pixel grid. Checked on
+   rendered runs (`REPLAY_ENHANCED=1`); the original mode's comparisons are
+   unchanged.
+8. **Optional: loading screen** — the tape's U.S. Gold loading screen is a
    display script plus a music stream that also patches memory. It could
    play during import, read from the imported data (the music player is
    native code to rewrite; its stream is data).
@@ -109,4 +118,6 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
   project folder yet.
 - Only TAP v0/v1 is read; T64/D64/G64/PRG imports come with games that need them.
 - Android build not started.
-- Enhancements: the enemy-pilot fix is the first option; more later.
+- Enhancements: the enemy-pilot fix and the enhanced mode so far. The
+  enhanced mode keeps no state in quick saves (effects restart on load) and
+  leaves the enemy helicopter's banking stepped.

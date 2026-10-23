@@ -58,6 +58,9 @@ struct Sprite {
     int x{}, y{};
     bool expand_x{};
     bool behind_foreground{}; // foreground graphics cover it
+    // Drawn into the picture. A sprite that is not drawn still collides, so
+    // a presentation layer can draw its own version of it.
+    bool drawn{true};
     std::uint8_t colour{};
     std::array<std::uint8_t, 63> data{};
 };
@@ -69,15 +72,27 @@ struct Collisions {
     std::uint8_t sprite_sprite{}, sprite_background{};
 };
 
+// What a picture is made of, for layers drawn on top of it: which pixels
+// are foreground graphics (they cover sprites behind them), and which line
+// of which character row each picture line shows.
+struct Layers {
+    std::array<bool, Picture::width * Picture::height> foreground{};
+    // Character row * 8 + line within it, or -1 where no row is shown (idle
+    // lines, the vertical border).
+    std::array<std::int16_t, Picture::height> source_line{};
+    std::array<std::uint8_t, Picture::height> xscroll{};
+};
+
 class TextFrame {
 public:
     static constexpr int columns = 40, rows = 25;
 
     struct Cell {
-        const Glyph* glyph{};      // nullptr: empty (all pixels background)
+        Glyph glyph{};             // a copy, so frames can be kept and copied
         std::uint8_t colour{};     // cell colour; bit 3 selects multicolour
     };
 
+    // A null glyph is an empty cell (all pixels background).
     void set(int column, int row, const Glyph* glyph, std::uint8_t colour);
     void set_glyph(int column, int row, const Glyph* glyph);
     void set_colour(int column, int row, std::uint8_t colour);
@@ -98,8 +113,10 @@ public:
     // where (raster & 7) == yscroll between rasters $30 and $F7), so a scroll
     // change in the middle of the screen moves, repeats or skips rows as on
     // the real machine.
-    Picture rasterise(Collisions* collisions = nullptr) const;
+    Picture rasterise(Collisions* collisions = nullptr, Layers* layers = nullptr) const;
 
+    const LineSetup& line(int y) const { return lines_[std::size_t(y)]; }
+    const Sprite& sprite(int index) const { return sprites_[std::size_t(index)]; }
     void set_sprite(int index, const Sprite& sprite) {
         sprites_[std::size_t(index)] = sprite;
         sprites_[std::size_t(index)].colour &= 15; // the VIC's colour registers have 4 bits

@@ -254,6 +254,9 @@ void Game::render() {
     }
     c64::Collisions hits;
     picture_ = frame.rasterise(&hits);
+    shown_frame_ = frame;
+    shown_screen_ = screen_;
+    shown_window_ = window_;
     latched_sprite_hits_ |= hits.sprite_sprite;
     latched_background_hits_ |= hits.sprite_background;
 }

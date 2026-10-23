@@ -9,6 +9,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <vector>
 
 // Fort Apocalypse, rebuilt: the whole game from the title screen on.
 //
@@ -124,6 +125,56 @@ public:
     // Returns false for addresses it does not know.
     bool debug_poke(std::uint16_t address, u8 value);
     c64::Sid& sid() { return sid_; }
+
+    // --- for presentation layers (the enhanced mode) ---------------------------
+    // Read-only views of what the last picture was drawn from, and what
+    // happened in the frame. Nothing here changes the game.
+    struct MapCell {
+        int column{}, row{}; // the map's own column (0-255) and row
+    };
+    struct ShotImpact {
+        MapCell cell;     // the cell the shot hit
+        u8 direction{};   // 1-5, as the shot flew (bullet_dx/dy)
+        u8 code{};        // the character it hit
+        bool by_player{};
+    };
+    struct TankDestroyed {
+        MapCell body;     // the left cell of the tank's three
+        u8 turret{};      // the turret character above its middle
+    };
+    struct MineDestroyed {
+        MapCell cell;     // the left of its two cells
+        std::array<u8, 2> look{}; // the two characters it showed
+        int direction{};  // 1 or -1, as it was flying
+    };
+    struct Happenings {
+        std::vector<ShotImpact> impacts;
+        std::vector<TankDestroyed> tanks;
+        std::vector<MineDestroyed> mines;
+    };
+    const Happenings& happenings() const { return happenings_; }
+    // The last picture as drawn: its character frame (cells, lines,
+    // sprites), the screen codes in it, and the map cell its playfield
+    // window starts with (screen column 0, row 9).
+    const c64::TextFrame& shown_frame() const { return shown_frame_; }
+    const std::array<u8, 1000>& shown_screen() const { return shown_screen_; }
+    MapCell shown_window() const { return shown_window_; }
+    static constexpr int window_first_row = 9;
+    // The map as the game addresses it, and the playfield characters now.
+    u8 map_code(int column, int row) const { return map_at(row * 256 + column); }
+    const c64::Glyph& playfield_glyph(u8 code) const { return glyphs_[code & 0x7F]; }
+    struct TankView {
+        bool on_map{};    // driving or exploding
+        bool exploding{};
+        MapCell body;
+        std::array<u8, 3> saved{}; // what its body covers
+    };
+    std::array<TankView, 6> tank_views() const;
+    // The turret character above a tank's middle, by where it points.
+    static constexpr u8 turret_left = 0x70, turret_right = 0x6F;
+    // The craft's bank step (0-17; bit 0 the rotor's frame).
+    u8 craft_bank() const { return bank_; }
+    bool craft_shown() const { return craft_ != Craft::inactive; }
 
 private:
     // --- frame -------------------------------------------------------------------
@@ -428,6 +479,12 @@ private:
 
     c64::Sid sid_;
     c64::Picture picture_{};
+
+    // The last picture's description, for presentation layers.
+    c64::TextFrame shown_frame_;
+    std::array<u8, 1000> shown_screen_{};
+    MapCell window_{}, shown_window_{};
+    Happenings happenings_;
 };
 
 } // namespace fort_apocalypse::game

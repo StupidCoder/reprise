@@ -81,6 +81,14 @@ int main(int argc, char** argv) {
         if (const char* v = std::getenv("REPLAY_FIXED_ENEMY"); v && *v == '1') {
             game.set_option(0, 1);
         }
+        // REPLAY_ENHANCED=1: the enhanced mode, recording its pictures.
+        const bool enhanced = [] {
+            const char* v = std::getenv("REPLAY_ENHANCED");
+            return v && *v == '1';
+        }();
+        if (enhanced) {
+            game.set_option(1, 1);
+        }
         // REPLAY_NOISE=<reference noise.bin>: use the original's random numbers,
         // each read site from its own queue (so the order in which the main
         // loop and the interrupts read them does not matter).
@@ -203,7 +211,7 @@ int main(int argc, char** argv) {
                     sound.push_back(std::int16_t(std::clamp(v, -1.0f, 1.0f) * 32767));
                 }
             }
-            const auto& picture = game.display();
+            const auto& picture = enhanced ? game.shown() : game.display();
             std::vector<std::uint8_t> packed(32001);
             for (std::size_t i = 0; i < picture.pixels.size(); i += 2) {
                 packed[i / 2] = std::uint8_t(picture.pixels[i] << 4 | picture.pixels[i + 1]);

@@ -74,6 +74,11 @@ void Game::mine_step(int slot) {
     for (int k = 0; k < 2; ++k) {
         const u8 code = map_at(cells() + k);
         if (code == 0x71 || code == 0x72 || code == 0x20) {
+            const int pair = (phase >> 3) & 6;
+            happenings_.mines.push_back({{m.column - 5, m.row},
+                                         {tables_.mine_characters[std::size_t(pair)],
+                                          tables_.mine_characters[std::size_t(pair + 1)]},
+                                         (m.direction & 0x80) ? -1 : 1});
             erase();
             m.state = 1;
             add_score(0x50, 0x00);
@@ -171,6 +176,7 @@ void Game::tank_step(int i) {
             const u8 code = map_at(at + k);
             if (code == 0x20 || code == 0x71 || code == 0x72) {
                 t.state = 4;
+                happenings_.tanks.push_back({{t.column - 5, t.row}, map_at(at - 256 + 1)});
                 for (int j = 2; j >= 0; --j) {
                     map_set(at + j, 0x20);
                 }
@@ -207,7 +213,7 @@ void Game::tank_step(int i) {
             map_set(at + k, tables_.tank_characters[std::size_t(k)]);
         }
         // The turret points at the player.
-        const u8 turret = (u8(column_ - t.column) & 0x80) ? 0x70 : 0x6F;
+        const u8 turret = (u8(column_ - t.column) & 0x80) ? turret_left : turret_right;
         map_set(at - 256 + 1, turret);
         return;
     }

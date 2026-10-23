@@ -2,6 +2,7 @@
 #include "app/game_module.hpp"
 #include "fort_apocalypse_c64/data/assets.hpp"
 #include "fort_apocalypse_c64/data/tables.hpp"
+#include "fort_apocalypse_c64/enhanced/enhanced.hpp"
 #include "fort_apocalypse_c64/game/game.hpp"
 #include <filesystem>
 #include <memory>
@@ -30,6 +31,10 @@ public:
 
     // The current frame's display window, for comparisons with the original.
     const c64::Picture& display() const { return game_->picture(); }
+    // What the player sees (the enhanced mode's picture when it is on).
+    const c64::Picture& shown() const {
+        return enhanced_mode_ ? enhanced_.picture() : game_->picture();
+    }
     Game& game() { return *game_; }
 
 private:
@@ -37,6 +42,8 @@ private:
     std::unique_ptr<const data::GameTables> tables_;
     std::unique_ptr<Game> game_, saved_;
     Options options_;
+    bool enhanced_mode_{};
+    enhanced::EnhancedView enhanced_;
     std::vector<float> mono_;
 };
 

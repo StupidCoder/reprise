@@ -63,6 +63,19 @@ bool Game::debug_poke(std::uint16_t address, u8 value) {
     }
 }
 
+std::array<Game::TankView, 6> Game::tank_views() const {
+    std::array<TankView, 6> views{};
+    for (std::size_t i = 0; i < tanks_.size(); ++i) {
+        const auto& t = tanks_[i];
+        auto& v = views[i];
+        v.on_map = t.state == 2 || t.state == 4;
+        v.exploding = t.state == 4;
+        v.body = {t.column - 5, t.row}; // object columns are map column + 5
+        v.saved = t.saved;
+    }
+    return views;
+}
+
 std::string Game::debug_objects() const {
     std::string out = "mines";
     char item[48];
@@ -105,6 +118,9 @@ u8 Game::noise(std::uint16_t site) {
 const c64::Picture& Game::tick(const Controls& controls, const Options& options) {
     controls_ = controls;
     options_ = options;
+    happenings_.impacts.clear();
+    happenings_.tanks.clear();
+    happenings_.mines.clear();
     top_ = vic_;
     const bool steps_now = scheduled_ && main_loop_running_ && !main_loop_starting_;
     if (steps_now) {

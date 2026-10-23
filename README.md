@@ -52,6 +52,13 @@ the game's options and the way back to the launcher.
   overlaps the first instruction of the enemy helicopter's climb routine, so
   it checks the wrong spot before climbing and often flies into rock.
   *Fixed* makes it check its own path.
+- **Enhanced mode** — modern motion drawn the old way, still on the C64's
+  pixel grid and in its 16 colours: the helicopter banks smoothly (its level
+  sprite turned instead of the stepped tilt shapes), tanks rock as they drive,
+  shots throw debris, destroyed tanks throw debris and toss their turret,
+  which tumbles and bounces off the landscape, and shot-down mines drop in an
+  arc, turning, and blow up where they hit the ground. The game itself plays exactly
+  the same; only the picture changes.
 
 ## Importing
 

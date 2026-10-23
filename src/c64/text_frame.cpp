@@ -17,13 +17,13 @@ platform::Image Picture::to_image(int margin_x, int margin_y) const {
 
 void TextFrame::set(int column, int row, const Glyph* glyph, std::uint8_t colour) {
     if (column >= 0 && column < columns && row >= 0 && row < rows) {
-        cells_[std::size_t(row * columns + column)] = {glyph, colour};
+        cells_[std::size_t(row * columns + column)] = {glyph ? *glyph : Glyph{}, colour};
     }
 }
 
 void TextFrame::set_glyph(int column, int row, const Glyph* glyph) {
     if (column >= 0 && column < columns && row >= 0 && row < rows) {
-        cells_[std::size_t(row * columns + column)].glyph = glyph;
+        cells_[std::size_t(row * columns + column)].glyph = glyph ? *glyph : Glyph{};
     }
 }
 
@@ -63,7 +63,7 @@ void TextFrame::set_lines(int first, int end, const LineSetup& setup) {
               lines_.begin() + std::clamp(end, 0, Picture::height), with_vic_colours(setup));
 }
 
-Picture TextFrame::rasterise(Collisions* collisions) const {
+Picture TextFrame::rasterise(Collisions* collisions, Layers* layers) const {
     constexpr int first_display_raster = 51; // the 25-row window starts here
     constexpr int window_left = 24;          // VIC x of the first display pixel
     constexpr int line_width = 504;          // VIC x positions per raster line
@@ -104,7 +104,7 @@ Picture TextFrame::rasterise(Collisions* collisions) const {
                 std::uint8_t bits, cell_colour;
                 if (display) {
                     const auto& c = cells_[std::size_t(buffered_row * columns + gx / 8)];
-                    bits = c.glyph ? (*c.glyph)[std::size_t(rc)] : 0;
+                    bits = c.glyph[std::size_t(rc)];
                     cell_colour = c.colour;
                 } else {
                     bits = idle_pattern_; // shown with colour 0, single colour
@@ -170,12 +170,19 @@ Picture TextFrame::rasterise(Collisions* collisions) const {
                     found.sprite_background |= h;
                 }
                 const auto& s = sprites_[std::size_t(winner[std::size_t(x)])];
-                if (on_graphics && (!s.behind_foreground || !fg)) {
+                if (on_graphics && s.drawn && (!s.behind_foreground || !fg)) {
                     colours[std::size_t(dx)] = s.colour;
                 }
             }
         }
 
+        if (in_window && layers) {
+            std::copy(foreground.begin(), foreground.end(),
+                      layers->foreground.begin() + y * Picture::width);
+            layers->source_line[std::size_t(y)] =
+                display && !line.covered ? std::int16_t(buffered_row * 8 + rc) : std::int16_t(-1);
+            layers->xscroll[std::size_t(y)] = line.xscroll;
+        }
         if (in_window) {
             auto* out = picture.pixels.data() + y * Picture::width;
             std::copy(colours.begin(), colours.end(), out);
