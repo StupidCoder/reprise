@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-VERSION = '0.1.0'
+VERSION = '0.2.0'
 BUILD = '1'
 
 root = Path(__file__).resolve().parents[1]

@@ -41,7 +41,7 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
 
 | Game | Machine | Image | State |
 | --- | --- | --- | --- |
-| Fort Apocalypse | C64 | `Fort_Apocalypse.tap` (MD5 `bec7409816865f3ad160af9984f127cd`) | tape import, graphics, reference harness, title and options done; game start next |
+| Fort Apocalypse | C64 | `Fort_Apocalypse.tap` (MD5 `bec7409816865f3ad160af9984f127cd`) | playable from title to debrief, compared with the original in scripted runs; pause menu with the enemy-pilot option |
 | Bruce Lee | C64 | — | planned |
 | Mindwalker | Amiga | — | planned |
 | Marble Madness | Amiga | — | planned (RetroReverse has prior analysis) |
@@ -68,10 +68,18 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
    original in five scripted runs except two CPU/beam race frames. The
    attract game and game start stop the module with a message. Play from
    the launcher (Enter; keys F1-F7 or 1-7, P = C64 space bar).
-5. **Gameplay** — Rocket Copter, bullets, enemy helicopter, tanks, homing
-   missiles, mines, prisoners, gates/walls/lasers/barriers, collision
-   matrix, difficulty variants, level progression, victory.
-6. **Sound** — the game's SID effects and music as a clean player.
+5. **Gameplay** — done: the whole game from the title on (craft, camera,
+   bullets, enemy helicopter with its climb bug, tanks, homing missiles,
+   mines, prisoners, depots, gates/walls/lasers/barriers, fort, three
+   levels, bonus, debrief and rank, attract game). Compared with the
+   original in scenario runs that set up a situation by poking the same
+   RAM in both and replay the original's random numbers and main-loop
+   schedule: flight, refuelling, rescue, both level exits, the fort, the
+   mission's end and the enemy's climb bug match frame for frame apart
+   from known sub-frame races (`.analysis/fort_apocalypse_c64/game_code.md`).
+6. **Sound** — in progress: the game's SID effects (engine, shots,
+   explosions, rescue, missiles, refuelling, fuel alarm, title tones) drive
+   a register-level SID; not yet compared with the original's output.
 7. **Optional: loading screen** — the tape's U.S. Gold loading screen is a
    display script plus a music stream that also patches memory. It could
    play during import, read from the imported data (the music player is
@@ -79,16 +87,17 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
 
 ## Open items
 
-- Fort Apocalypse: no sound yet (the title's two-voice tone is the first).
-- Fort Apocalypse: game start (modes 3/4: level setup, "ENTERING ..." screen)
-  is the next slice; the in-game screen split (HUD part scroll 7, playfield
-  part from raster $76) is recovered but not used yet.
-- No pause menu or quick save in the player yet; Esc returns to the launcher.
-
-- Fort Apocalypse: is the radar stream's spill over the mine tables
-  ($3500-$3532) observable? Settle when porting the mines.
+- Fort Apocalypse: not compared yet: the cavern teleport (mode $0A), hits
+  by tanks and missiles, losing the last life mid-level, sound output.
+- Fort Apocalypse: the level build's duration is modelled from measured
+  work (±10 raster lines); a build ending that close to the HUD interrupt
+  can start the life a frame early (the attract run does).
+- Fort Apocalypse: sub-frame races are not modelled: the main loop's work
+  against the beam (a mine half moved, "LOW ON FUEL" flicker), the
+  playfield colour write's position on raster $7F (fixed at pixel 92).
 - Fort Apocalypse: which code sets the in-play colour RAM to $0D (previews
   use the observed values).
+- Pause menu: quick save keeps one slot in memory while the app runs.
 - The terrain page in the details viewer shows the whole level reduced to
   fit; no panning or zoom yet.
 
@@ -100,4 +109,4 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
   project folder yet.
 - Only TAP v0/v1 is read; T64/D64/G64/PRG imports come with games that need them.
 - Android build not started.
-- No enhancements yet.
+- Enhancements: the enemy-pilot fix is the first option; more later.

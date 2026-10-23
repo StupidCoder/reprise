@@ -13,10 +13,12 @@ struct Host::Implementation {
     SDL_Window* window{};
     SDL_Renderer* renderer{};
     SDL_Texture* texture{};
+    SDL_Texture* overlay_texture{};
     int texture_width{}, texture_height{};
     // True while a UI screen is shown, whose logical presentation maps mouse
     // clicks into the UI design space.
     bool ui_shown{true};
+    SDL_FRect overlay_box{}; // where the last game overlay was shown (device pixels)
     SDL_Gamepad* gamepad{};
     SDL_AudioStream* audio{};
 
@@ -34,6 +36,7 @@ struct Host::Implementation {
         }
         SDL_DestroyAudioStream(audio);
         SDL_DestroyTexture(texture);
+        SDL_DestroyTexture(overlay_texture);
         SDL_DestroyRenderer(renderer);
         SDL_DestroyWindow(window);
         SDL_Quit();
@@ -111,19 +114,23 @@ Controls Host::poll() {
         if (event.type == SDL_EVENT_DROP_FILE && event.drop.data) {
             input.dropped_file = utf8_path(event.drop.data);
         }
-        if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button == SDL_BUTTON_LEFT &&
-            i.ui_shown) {
-            // UI screens use a ui_width x ui_height logical presentation.
+        if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button == SDL_BUTTON_LEFT) {
             SDL_ConvertEventToRenderCoordinates(i.renderer, &event);
             input.click = true;
-            input.mouse_x = int(std::floor(event.button.x));
-            input.mouse_y = int(std::floor(event.button.y));
+            if (i.ui_shown) {
+                // UI screens use a ui_width x ui_height logical presentation.
+                input.mouse_x = int(std::floor(event.button.x));
+                input.mouse_y = int(std::floor(event.button.y));
+            } else if (i.overlay_box.w > 0) {
+                input.mouse_x = int((event.button.x - i.overlay_box.x) * ui_width / i.overlay_box.w);
+                input.mouse_y = int((event.button.y - i.overlay_box.y) * ui_height / i.overlay_box.h);
+            }
         }
         if (event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
             const auto b = event.gbutton.button;
             input.accept |= b == SDL_GAMEPAD_BUTTON_SOUTH || b == SDL_GAMEPAD_BUTTON_START;
-            input.back |= b == SDL_GAMEPAD_BUTTON_GUIDE;
             input.back |= b == SDL_GAMEPAD_BUTTON_EAST || b == SDL_GAMEPAD_BUTTON_BACK;
+            input.menu |= b == SDL_GAMEPAD_BUTTON_GUIDE || b == SDL_GAMEPAD_BUTTON_BACK;
             input.nav_left |= b == SDL_GAMEPAD_BUTTON_DPAD_LEFT;
             input.nav_right |= b == SDL_GAMEPAD_BUTTON_DPAD_RIGHT;
             input.nav_up |= b == SDL_GAMEPAD_BUTTON_DPAD_UP;
@@ -133,8 +140,11 @@ Controls Host::poll() {
             const auto key = event.key.key;
             const bool shortcut = event.key.mod & (SDL_KMOD_CTRL | SDL_KMOD_GUI);
             input.quit |= shortcut && key == SDLK_Q;
+            input.quick_save |= shortcut && key == SDLK_S;
+            input.quick_load |= shortcut && key == SDLK_L;
             if (!shortcut) {
                 input.back |= key == SDLK_ESCAPE;
+                input.menu |= key == SDLK_ESCAPE;
                 input.accept |= key == SDLK_RETURN || key == SDLK_KP_ENTER;
                 input.remove |= key == SDLK_BACKSPACE || key == SDLK_DELETE;
                 input.info |= key == SDLK_I;
@@ -191,7 +201,7 @@ void Host::present(const Image& image) {
     SDL_RenderPresent(i.renderer);
 }
 
-void Host::present_game(const Image& frame, double pixel_aspect) {
+void Host::present_game(const Image& frame, double pixel_aspect, const Image* overlay, bool dim) {
     auto& i = *impl_;
     i.ui_shown = false;
     i.upload(frame);
@@ -205,8 +215,38 @@ void Host::present_game(const Image& frame, double pixel_aspect) {
     const double scale = std::min(cw / shown_width, double(ch) / frame.height);
     const float w = float(shown_width * scale), h = float(frame.height * scale);
     const SDL_FRect target{float(int((cw - w) / 2)), float(int((ch - h) / 2)), w, h};
+    const Uint8 brightness = dim ? 90 : 255;
+    SDL_SetTextureColorMod(i.texture, brightness, brightness, brightness);
     SDL_RenderTexture(i.renderer, i.texture, nullptr, &target);
+    SDL_SetTextureColorMod(i.texture, 255, 255, 255);
+    i.overlay_box = {};
+    if (overlay) {
+        if (!i.overlay_texture) {
+            i.overlay_texture = SDL_CreateTexture(i.renderer, SDL_PIXELFORMAT_RGBA32,
+                                                  SDL_TEXTUREACCESS_STREAMING, ui_width, ui_height);
+            SDL_SetTextureBlendMode(i.overlay_texture, SDL_BLENDMODE_BLEND);
+            SDL_SetTextureScaleMode(i.overlay_texture, SDL_SCALEMODE_NEAREST);
+        }
+        SDL_UpdateTexture(i.overlay_texture, nullptr, overlay->pixels.data(),
+                          overlay->width * int(sizeof(Color)));
+        const double ui_scale = std::min(double(cw) / ui_width, double(ch) / ui_height);
+        const float ow = float(ui_width * ui_scale), oh = float(ui_height * ui_scale);
+        const SDL_FRect box{float(int((cw - ow) / 2)), float(int((ch - oh) / 2)), ow, oh};
+        SDL_RenderTexture(i.renderer, i.overlay_texture, nullptr, &box);
+        // Mouse clicks map to the overlay's design space.
+        i.ui_shown = false;
+        i.overlay_box = box;
+    }
     SDL_RenderPresent(i.renderer);
+}
+
+void Host::pause_audio(bool paused) {
+    if (paused) {
+        SDL_PauseAudioStreamDevice(impl_->audio);
+    } else {
+        clear_audio();
+        SDL_ResumeAudioStreamDevice(impl_->audio);
+    }
 }
 
 void Host::audio(std::span<const float> samples) {

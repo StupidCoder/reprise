@@ -9,10 +9,14 @@
 #include "app/catalog.hpp"
 #include "app/launcher.hpp"
 #include "app/library.hpp"
+#include "app/pause_menu.hpp"
+#include "ui/draw.hpp"
 #include "platform/host.hpp"
 #include <algorithm>
 #include <cstdio>
+#include <map>
 #include <memory>
+#include <vector>
 #include <exception>
 #include <optional>
 #include <string_view>
@@ -22,6 +26,9 @@ struct Options {
     std::optional<std::filesystem::path> data, import_image, preview;
     std::size_t select{};
     std::optional<std::size_t> details; // page
+    // --pause-preview PAGE: play the selected game for a few seconds, then
+    // draw the pause menu (0) or its options page (1) over it to --preview.
+    std::optional<std::size_t> pause_page;
 };
 
 Options parse(int argc, char** argv) {
@@ -37,6 +44,8 @@ Options parse(int argc, char** argv) {
             options.preview = platform::utf8_path(argv[++i]);
         } else if (arg == "--select" && has_value) {
             options.select = std::size_t(std::stoul(argv[++i]));
+        } else if (arg == "--pause-preview" && has_value) {
+            options.pause_page = std::size_t(std::stoul(argv[++i]));
         } else if (arg == "--details" && has_value) {
             options.details = std::size_t(std::stoul(argv[++i]));
         }
@@ -60,6 +69,32 @@ int run(const Options& options) {
     }
 
     app::Launcher launcher(library);
+    if (options.preview && options.pause_page) {
+        const auto& entry = library.games()[options.select];
+        auto game = entry.start(library.content_directory(options.select));
+        for (int i = 0; i < 400; ++i) {
+            game->tick({});
+        }
+        app::PauseMenu menu;
+        menu.show(0);
+        if (*options.pause_page == 1) {
+            menu.show_options();
+        }
+        const auto overlay = menu.draw(*game, entry.title, 10);
+        platform::Image out(overlay.width, overlay.height);
+        const auto& frame = game->picture();
+        const int h = overlay.height, w = int(h * frame.width * game->pixel_aspect() / frame.height);
+        ui::picture(out, frame, (overlay.width - w) / 2, 0, w, h);
+        ui::blend_rect(out, 0, 0, out.width, out.height, {0, 0, 0}, 140);
+        for (std::size_t i = 0; i < out.pixels.size(); ++i) {
+            const auto c = overlay.pixels[i];
+            if (c.a) {
+                out.pixels[i] = c;
+            }
+        }
+        platform::save_png(out, *options.preview);
+        return 0;
+    }
     if (options.preview) {
         launcher.select(options.select);
         if (options.details) {
@@ -71,7 +106,28 @@ int run(const Options& options) {
 
     platform::Host host("Joyport");
     std::unique_ptr<app::GameModule> game;
-    double game_clock = 0;
+    std::size_t playing = 0;
+    app::PauseMenu menu;
+    double game_clock = 0, sample_credit = 0;
+    std::vector<float> audio;
+    // A game's options stay as the player set them while the app runs.
+    std::map<std::string, std::vector<int>> chosen;
+    auto remember_options = [&](const app::GameModule& module) {
+        auto& values = chosen[library.games()[playing].id];
+        values.clear();
+        for (const auto& o : module.options()) {
+            values.push_back(o.value);
+        }
+    };
+    auto restore_options = [&](app::GameModule& module) {
+        const auto it = chosen.find(library.games()[playing].id);
+        if (it == chosen.end()) {
+            return;
+        }
+        for (std::size_t i = 0; i < it->second.size(); ++i) {
+            module.set_option(i, it->second[i]);
+        }
+    };
     while (true) {
         const auto controls = host.poll();
         if (controls.quit) {
@@ -80,6 +136,57 @@ int run(const Options& options) {
         const double now = host.seconds();
 
         if (game) {
+            const auto& entry = library.games()[playing];
+            if (menu.open()) {
+                switch (menu.update(controls, *game, now)) {
+                case app::PauseMenu::Action::resume:
+                    host.pause_audio(false);
+                    game_clock = now;
+                    break;
+                case app::PauseMenu::Action::restart:
+                    game = entry.start(library.content_directory(playing));
+                    restore_options(*game);
+                    host.pause_audio(false);
+                    game_clock = now;
+                    break;
+                case app::PauseMenu::Action::save:
+                    game->save();
+                    menu.set_message("Saved.", now);
+                    break;
+                case app::PauseMenu::Action::load:
+                    menu.set_message(game->load() ? "Loaded." : "No quick save yet.", now);
+                    break;
+                case app::PauseMenu::Action::quit:
+                    game.reset();
+                    host.pause_audio(false);
+                    continue;
+                case app::PauseMenu::Action::none:
+                    break;
+                }
+                host.mute(menu.muted());
+                if (game) {
+                    remember_options(*game);
+                    const auto overlay = menu.draw(*game, entry.title, now);
+                    host.present_game(game->picture(), game->pixel_aspect(), &overlay, true);
+                }
+                continue;
+            }
+            if (controls.menu) {
+                menu.show(now);
+                host.pause_audio(true);
+                continue;
+            }
+            if (controls.toggle_mute) {
+                menu.toggle_muted();
+                host.mute(menu.muted());
+            }
+            if (controls.quick_save) {
+                game->save();
+            }
+            if (controls.quick_load) {
+                game->load();
+                game_clock = now;
+            }
             // Fixed steps at the original's frame rate; at most a few per
             // displayed frame, so a stall does not fast-forward the game.
             const app::GameInput input{controls.up,   controls.down, controls.left,
@@ -90,9 +197,16 @@ int run(const Options& options) {
             while (game_clock + game->step_seconds() <= now && game->stopped().empty()) {
                 game->tick(input);
                 game_clock += game->step_seconds();
+                // The sound of this frame.
+                sample_credit += game->step_seconds() * platform::Host::audio_sample_rate;
+                const int samples = int(sample_credit);
+                sample_credit -= samples;
+                audio.resize(std::size_t(samples) * 2);
+                game->audio(audio, platform::Host::audio_sample_rate);
+                host.audio(audio);
             }
-            if (controls.back || !game->stopped().empty()) {
-                launcher.show_message(game->stopped().empty() ? "" : game->stopped(), true, now);
+            if (!game->stopped().empty()) {
+                launcher.show_message(game->stopped(), true, now);
                 game.reset();
                 continue;
             }
@@ -115,8 +229,9 @@ int run(const Options& options) {
             break;
         case app::Launcher::Request::play:
             try {
-                game = library.games()[launcher.selected()].start(
-                    library.content_directory(launcher.selected()));
+                playing = launcher.selected();
+                game = library.games()[playing].start(library.content_directory(playing));
+                restore_options(*game);
                 game_clock = now;
             } catch (const std::exception& e) {
                 launcher.show_error(std::string("The game could not start: ") + e.what(), now);

@@ -1,6 +1,10 @@
 #pragma once
 #include "platform/image.hpp"
+#include <algorithm>
+#include <cstddef>
+#include <span>
 #include <string>
+#include <vector>
 
 // The contract between the Joyport launcher and a running game. The launcher
 // knows nothing about a game's objects; a module runs one frame at a time
@@ -12,6 +16,15 @@ namespace app {
 struct GameInput {
     bool up{}, down{}, left{}, right{}, fire{};
     bool f1{}, f3{}, f5{}, f7{}, space{};
+};
+
+// A setting the player can change in the pause menu (a fix or an
+// enhancement), with its choices; 0 is always the original behaviour.
+struct GameOption {
+    std::string name;
+    std::vector<std::string> choices;
+    int value{};
+    std::string description; // shown under the list
 };
 
 class GameModule {
@@ -26,6 +39,23 @@ public:
     virtual platform::Image picture() const = 0;
     // Displayed width / height of one picture pixel.
     virtual double pixel_aspect() const = 0;
+
+    // Interleaved stereo samples for the time of the last tick.
+    virtual void audio(std::span<float> stereo, int sample_rate) {
+        std::fill(stereo.begin(), stereo.end(), 0.0f);
+        (void)sample_rate;
+    }
+
+    // Quick save and load (kept while the game runs).
+    virtual bool save() { return false; }
+    virtual bool load() { return false; }
+    virtual bool has_save() const { return false; }
+
+    virtual std::vector<GameOption> options() const { return {}; }
+    virtual void set_option(std::size_t index, int value) {
+        (void)index;
+        (void)value;
+    }
 
     // Why the game stopped (a part not rebuilt yet), or empty while it runs.
     virtual std::string stopped() const { return {}; }

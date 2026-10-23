@@ -5,6 +5,8 @@ and Amiga games (C++20 + SDL 3; macOS first, Android later). A launcher lists
 the supported games; the user imports their own tape or disk image, and the
 game then runs on our own code, with optional enhancements. The collection
 grows one game at a time. See [PLAN.md](PLAN.md) for the roadmap and status.
+It lives in the Decomp workspace: also follow [../AGENTS.md](../AGENTS.md) and
+[../RECONSTRUCTION.md](../RECONSTRUCTION.md); the rules below add to them.
 
 ## Evidence and sources
 

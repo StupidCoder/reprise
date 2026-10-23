@@ -34,7 +34,7 @@ app::GameEntry entry() {
         .import = import::import_tape,
         .previews = previews,
         .start = game::start,
-        .progress = "Title and options screens rebuilt; the game itself comes next.",
+        .progress = "Playable from title to debrief; checked against the original in scripted runs.",
     };
 }
 

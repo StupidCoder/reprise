@@ -22,19 +22,26 @@ inline std::filesystem::path utf8_path(std::string_view text) {
 // letterboxed into the window.
 inline constexpr int ui_width = 960, ui_height = 640;
 
+// The modifier of keyboard shortcuts as the player sees it.
+#ifdef __APPLE__
+inline constexpr const char* shortcut_modifier = "Cmd";
+#else
+inline constexpr const char* shortcut_modifier = "Ctrl";
+#endif
+
 // Input for one frame: held joystick state plus edge-triggered UI events.
 // Keyboard: arrows/WASD = joystick, Space/Z = fire, Enter = accept/start,
 // Esc = menu/back, Backspace/Delete = remove, I = info, M = mute. The C64 keys games
 // use: F1/F3/F5/F7 (or 1/3/5/7) and P for the C64 space bar. Gamepads: A =
-// fire, Start = F7, Y = F3, X = F5.
+// fire, Start = F7, Y = F3, X = F5. Cmd/Ctrl+S and +L: quick save and load.
 struct Controls {
     // Held this frame (the game's joystick).
     bool left{}, right{}, up{}, down{}, fire{};
     bool f1{}, f3{}, f5{}, f7{}, c64_space{};
     // Pressed this frame (menus and shortcuts).
-    bool accept{}, back{}, remove{}, info{}, click{};
+    bool accept{}, back{}, menu{}, remove{}, info{}, click{};
     bool nav_left{}, nav_right{}, nav_up{}, nav_down{};
-    bool quit{}, toggle_mute{};
+    bool quit{}, toggle_mute{}, quick_save{}, quick_load{};
     // Mouse position of a click, in the UI design space.
     int mouse_x{}, mouse_y{};
     // A file dropped onto the window.
@@ -56,13 +63,17 @@ public:
     void present(const Image& image);
     // A game frame at its own small resolution, scaled to the window with
     // nearest-neighbour sampling and an aspect-correct pixel shape
-    // (`pixel_aspect` = displayed width / height of one pixel).
-    void present_game(const Image& frame, double pixel_aspect);
+    // (`pixel_aspect` = displayed width / height of one pixel). An overlay
+    // (ui_width x ui_height, with transparency) is letterboxed on top; `dim`
+    // darkens the frame under it.
+    void present_game(const Image& frame, double pixel_aspect, const Image* overlay = nullptr,
+                      bool dim = false);
 
     // Queues stereo samples; clear_audio() drops queued audio.
     void audio(std::span<const float> stereo_samples);
     void clear_audio();
     void mute(bool muted);
+    void pause_audio(bool paused);
 
     // Opens an asynchronous file picker for a game image; poll
     // take_file_choice() for the result.

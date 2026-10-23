@@ -37,6 +37,36 @@ struct LineSetup {
     // Fine scroll: the picture moves right by xscroll pixels; yscroll decides
     // on which lines character rows start (see rasterise()).
     std::uint8_t xscroll{0}, yscroll{3};
+    // When $D011 is rewritten early in this line (before cycle 14), the
+    // scroll value in effect before the write: a bad-line match in those
+    // first cycles still switches the VIC to display state.
+    int yscroll_before{-1};
+    // Hardware sprites switched on (bit n = sprite n). A sprite starts only
+    // if it is switched on in the line of its y position.
+    std::uint8_t sprites{0xFF};
+    // When the colour registers are rewritten during this line: the pixels
+    // left of this x still show the background and border colours before.
+    int background_from_x{0};
+    std::uint8_t background_before{}, border_before{};
+};
+
+// A hardware sprite as the VIC shows it: 24x21 single-colour pixels (three
+// bytes per row), placed by the VIC's coordinates (x 24 and y 51 are the
+// top left of the display window; the sprite starts on line y + 1).
+struct Sprite {
+    bool shown{};
+    int x{}, y{};
+    bool expand_x{};
+    bool behind_foreground{}; // foreground graphics cover it
+    std::uint8_t colour{};
+    std::array<std::uint8_t, 63> data{};
+};
+
+// The VIC's collision registers for one frame: sprites touching each other,
+// and sprites touching foreground graphics (multicolour pairs 10 and 11,
+// single-colour 1 bits), counted under the border too, as the chip does.
+struct Collisions {
+    std::uint8_t sprite_sprite{}, sprite_background{};
 };
 
 class TextFrame {
@@ -64,15 +94,22 @@ public:
 
     // Draws the cells line by line. Which character row and which of its
     // eight lines appear on a raster line follows the VIC-II's row
-    // sequencing (VC/VCBASE/RC, "bad lines" where (raster & 7) == yscroll
-    // between rasters $30 and $F7), so a scroll change in the middle of the
-    // screen moves, repeats or skips lines as on the real machine.
-    Picture rasterise() const;
+    // sequencing (VC/VCBASE/RC and the row buffer filled on "bad lines",
+    // where (raster & 7) == yscroll between rasters $30 and $F7), so a scroll
+    // change in the middle of the screen moves, repeats or skips rows as on
+    // the real machine.
+    Picture rasterise(Collisions* collisions = nullptr) const;
+
+    void set_sprite(int index, const Sprite& sprite) {
+        sprites_[std::size_t(index)] = sprite;
+        sprites_[std::size_t(index)].colour &= 15; // the VIC's colour registers have 4 bits
+    }
 
 private:
     std::array<Cell, columns * rows> cells_{};
     std::array<LineSetup, Picture::height> lines_{};
     std::uint8_t idle_pattern_{};
+    std::array<Sprite, 8> sprites_{};
 };
 
 } // namespace c64

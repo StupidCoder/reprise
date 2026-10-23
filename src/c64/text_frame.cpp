@@ -41,69 +41,148 @@ void TextFrame::clear() {
     cells_ = {};
 }
 
+namespace {
+// The VIC's colour registers have 4 bits; the rest of a written value is lost.
+LineSetup with_vic_colours(LineSetup setup) {
+    setup.background &= 15;
+    setup.shared1 &= 15;
+    setup.shared2 &= 15;
+    setup.border &= 15;
+    setup.background_before &= 15;
+    setup.border_before &= 15;
+    return setup;
+}
+} // namespace
+
 void TextFrame::set_lines(const LineSetup& setup) {
-    lines_.fill(setup);
+    lines_.fill(with_vic_colours(setup));
 }
 
 void TextFrame::set_lines(int first, int end, const LineSetup& setup) {
     std::fill(lines_.begin() + std::clamp(first, 0, Picture::height),
-              lines_.begin() + std::clamp(end, 0, Picture::height), setup);
+              lines_.begin() + std::clamp(end, 0, Picture::height), with_vic_colours(setup));
 }
 
-Picture TextFrame::rasterise() const {
+Picture TextFrame::rasterise(Collisions* collisions) const {
     constexpr int first_display_raster = 51; // the 25-row window starts here
+    constexpr int window_left = 24;          // VIC x of the first display pixel
+    constexpr int line_width = 504;          // VIC x positions per raster line
     auto setup_for = [&](int raster) -> const LineSetup& {
         return lines_[std::size_t(std::clamp(raster - first_display_raster, 0, Picture::height - 1))];
     };
 
     Picture picture;
     picture.border = lines_[0].border;
+    Collisions found;
     // Row sequencing from the first raster where bad lines can occur.
-    int vcbase = 0, rc = 0;
+    int vcbase = 0, rc = 0, buffered_row = 0;
     bool display = false;
-    for (int raster = 0x30; raster < first_display_raster + Picture::height; ++raster) {
+    for (int raster = 0x30; raster < 0x100 + 0x30; ++raster) {
         const auto& line = setup_for(raster);
-        const bool bad_line = raster <= 0xF7 && (raster & 7) == line.yscroll;
-        if (bad_line) {
+        const bool in_range = raster <= 0xF7;
+        const bool bad_line = in_range && (raster & 7) == line.yscroll;
+        const bool bad_early = in_range && line.yscroll_before >= 0 &&
+                               (raster & 7) == line.yscroll_before;
+        if (bad_line || bad_early) {
             display = true;
+        }
+        if (bad_line) { // cycle 14 with the new value: the row buffer is filled
             rc = 0;
+            buffered_row = std::min(vcbase / columns, rows - 1);
         }
         const int y = raster - first_display_raster;
-        if (y >= 0) {
-            std::array<std::uint8_t, Picture::width + 8> pixels{};
-            for (int column = 0; column < columns; ++column) {
+        const bool in_window = y >= 0 && y < Picture::height;
+
+        // Graphics: colour and foreground flag per display pixel.
+        std::array<std::uint8_t, Picture::width> colours{};
+        std::array<bool, Picture::width> foreground{};
+        colours.fill(line.background);
+        std::fill_n(colours.begin(), std::clamp(line.background_from_x, 0, Picture::width),
+                    line.background_before);
+        if (in_window && !line.covered) {
+            for (int gx = 0; gx + line.xscroll < Picture::width; ++gx) {
                 std::uint8_t bits, cell_colour;
-                const Cell* c = nullptr;
                 if (display) {
-                    c = &cells_[std::size_t(std::min(vcbase / columns, rows - 1) * columns + column)];
-                    bits = c->glyph ? (*c->glyph)[std::size_t(rc)] : 0;
-                    cell_colour = c->colour;
+                    const auto& c = cells_[std::size_t(buffered_row * columns + gx / 8)];
+                    bits = c.glyph ? (*c.glyph)[std::size_t(rc)] : 0;
+                    cell_colour = c.colour;
                 } else {
                     bits = idle_pattern_; // shown with colour 0, single colour
                     cell_colour = 0;
                 }
-                for (int px = 0; px < 8; ++px) {
-                    std::uint8_t colour;
-                    if (line.multicolour && (cell_colour & 8)) {
-                        const int pair = bits >> (6 - 2 * (px / 2)) & 3;
-                        const std::uint8_t by_pair[] = {line.background, line.shared1,
-                                                        line.shared2,
-                                                        std::uint8_t(cell_colour & 7)};
-                        colour = by_pair[pair];
-                    } else {
-                        colour = bits >> (7 - px) & 1 ? std::uint8_t(cell_colour & 15)
-                                                      : line.background;
-                    }
-                    pixels[std::size_t(column * 8 + px)] = colour;
+                const int px = gx & 7, x = gx + line.xscroll;
+                if (line.multicolour && (cell_colour & 8)) {
+                    const int pair = bits >> (6 - 2 * (px / 2)) & 3;
+                    const std::uint8_t background =
+                        x < line.background_from_x ? line.background_before : line.background;
+                    const std::uint8_t by_pair[] = {background, line.shared1, line.shared2,
+                                                    std::uint8_t(cell_colour & 7)};
+                    colours[std::size_t(x)] = by_pair[pair];
+                    foreground[std::size_t(x)] = pair >= 2;
+                } else {
+                    const bool set = bits >> (7 - px) & 1;
+                    colours[std::size_t(x)] = set ? std::uint8_t(cell_colour & 15)
+                                              : x < line.background_from_x ? line.background_before
+                                                                           : line.background;
+                    foreground[std::size_t(x)] = set;
                 }
             }
+        }
+
+        // Sprites: the lowest-numbered sprite with a pixel wins; collisions
+        // are counted over the whole line.
+        {
+            std::array<std::uint8_t, line_width> hits{};
+            std::array<std::int8_t, line_width> winner{};
+            winner.fill(-1);
+            for (int i = 0; i < 8; ++i) {
+                const auto& s = sprites_[std::size_t(i)];
+                const int row = raster - (s.y + 1);
+                if (!s.shown || row < 0 || row >= 21 || !(setup_for(s.y).sprites >> i & 1)) {
+                    continue;
+                }
+                const int scale = s.expand_x ? 2 : 1;
+                for (int bit = 0; bit < 24; ++bit) {
+                    if (!(s.data[std::size_t(row * 3 + bit / 8)] >> (7 - bit % 8) & 1)) {
+                        continue;
+                    }
+                    for (int k = 0; k < scale; ++k) {
+                        const int x = (s.x + bit * scale + k) % line_width;
+                        hits[std::size_t(x)] |= std::uint8_t(1 << i);
+                        if (winner[std::size_t(x)] < 0) {
+                            winner[std::size_t(x)] = std::int8_t(i);
+                        }
+                    }
+                }
+            }
+            for (int x = 0; x < line_width; ++x) {
+                const auto h = hits[std::size_t(x)];
+                if (!h) {
+                    continue;
+                }
+                if (h & (h - 1)) {
+                    found.sprite_sprite |= h;
+                }
+                const int dx = x - window_left;
+                const bool on_graphics = in_window && dx >= 0 && dx < Picture::width;
+                const bool fg = on_graphics && foreground[std::size_t(dx)];
+                if (fg) {
+                    found.sprite_background |= h;
+                }
+                const auto& s = sprites_[std::size_t(winner[std::size_t(x)])];
+                if (on_graphics && (!s.behind_foreground || !fg)) {
+                    colours[std::size_t(dx)] = s.colour;
+                }
+            }
+        }
+
+        if (in_window) {
             auto* out = picture.pixels.data() + y * Picture::width;
-            std::fill_n(out, line.xscroll, line.background);
-            std::copy_n(pixels.begin(), Picture::width - line.xscroll, out + line.xscroll);
+            std::copy(colours.begin(), colours.end(), out);
             if (line.covered) {
                 std::fill_n(out, Picture::width, line.border);
             } else if (line.narrow) {
-                std::fill_n(out, 7, line.border);
+                std::fill_n(out, 7, line.background_from_x > 0 ? line.border_before : line.border);
                 std::fill_n(out + Picture::width - 9, 9, line.border);
             }
         }
@@ -118,6 +197,9 @@ Picture TextFrame::rasterise() const {
         if (display) {
             rc = (rc + 1) & 7;
         }
+    }
+    if (collisions) {
+        *collisions = found;
     }
     return picture;
 }
