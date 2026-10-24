@@ -275,7 +275,10 @@ void Game::bullets() {
         auto& b = bullets_[std::size_t(i)];
         if (b.state != 0 && b.state != 7) {
             // The cell under the shot.
-            const u8 column = u8((u8(b.x - 0x30) >> 2) + camera_column_);
+            u8 column = u8((u8(b.x - 0x30) >> 2) + camera_column_);
+            if (options_.widescreen && b.x < 0x30) {
+                column = u8(((b.x - 0x30) >> 2) + camera_column_); // see Options::widescreen
+            }
             b.column = column;
             u8 a = std::int8_t(camera_row_) < 0 ? 0 : u8(~fine_y_ & 7);
             const u8 rows = u8(u8(a + b.y - 0x66) >> 3);

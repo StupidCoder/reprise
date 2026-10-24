@@ -415,6 +415,7 @@ void Game::show_men_to_rescue() {
 
 void Game::draw_depot(int column, int stage) {
     // $ACD5: five rows of six cells; stage s starts 6 * s bytes in.
+    depot_shown_stage_ = stage;
     int at = object_index(u8(column), 0x0B);
     int x = stage * 6;
     for (int row = 0; row < 5; ++row) {

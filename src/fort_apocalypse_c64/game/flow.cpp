@@ -95,6 +95,14 @@ std::array<Game::ShellView, 6> Game::shell_views() const {
     return views;
 }
 
+std::vector<Game::MapCell> Game::depot_cells() const {
+    // As refuel draws them (object columns are map column + 5).
+    if (level_ == 1) {
+        return {{0x82 - 5, 0x0B}};
+    }
+    return {{0x17 - 5, 0x0B}, {0xEE - 5, 0x0B}};
+}
+
 std::string Game::debug_objects() const {
     std::string out = "mines";
     char item[48];
@@ -706,6 +714,8 @@ void Game::build_level() {
     mine_cursor_ = 0;
     prisoner_cursor_ = 0;
     rock_draws_ = scanned_cells_ = 0;
+    depot_shown_stage_ = 4; // the levels' depots stand up
+    sink_view_.active = false;
     const auto& level = assets_.levels[level_ % 3];
     for (int row = 0; row < 40; ++row) {
         for (int column = 0; column < 256; ++column) {
@@ -897,6 +907,14 @@ void Game::after_bonus(int stage) {
         sound_off();
         mode_ = Mode::locked;
         sink_index_ = object_index(0x82, 0x28);
+        // For presentation: the block as it was before it moves.
+        sink_view_ = {true, {0x82 - 5, 0x28 - 4}, {}, 0};
+        for (int row = 0; row < 5; ++row) {
+            for (int i = 0; i < 6; ++i) {
+                sink_view_.look[std::size_t(row * 6 + i)] =
+                    map_at(sink_index_ - (4 - row) * 256 + i);
+            }
+        }
         sink_step(0);
         break;
     case 1:
@@ -918,9 +936,11 @@ void Game::sink_step(int stage) {
     const int shift = stage / 7, step = stage % 7;
     if (shift == 3) {
         mode_ = Mode::get_ready;
+        sink_view_.active = false;
         return;
     }
     if (step == 0) {
+        ++sink_view_.rows;
         int at = sink_index_;
         for (int row = 4; row >= 0; --row) {
             for (int i = 5; i >= 0; --i) {

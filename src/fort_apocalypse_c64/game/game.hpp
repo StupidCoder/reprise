@@ -77,6 +77,12 @@ struct Options {
     // climbs (the first byte of its routine at $A000 is corrupt), so it flies
     // up into rock and explodes. On: it probes its own column.
     bool fixed_enemy_climb{};
+    // The widescreen view shows the shots that have left the window. The
+    // original works out a shot's column with an unsigned subtraction
+    // ($A341), so past the window's left edge a shot tests cells 53-63
+    // columns to its right and hits nothing it flies over. On: its own
+    // column, so it hits what the wider view shows it reach.
+    bool widescreen{};
 };
 
 class Game {
@@ -188,6 +194,19 @@ public:
         u8 look{};        // its character, by the way it flies
     };
     std::array<ShellView, 6> shell_views() const;
+    // The fuel depots: their left top cell, and the stage of their sinking
+    // last drawn (4 standing up, 0 sunk; $ACD5).
+    std::vector<MapCell> depot_cells() const;
+    int depot_stage_shown() const { return depot_shown_stage_; }
+    // The landing pad sinking at the end of level 0 ($8C57): its 6x5 block
+    // as it was, and how many rows down it has moved.
+    struct SinkView {
+        bool active{};
+        MapCell top_left;
+        std::array<u8, 30> look{};
+        int rows{};
+    };
+    const SinkView& sink_view() const { return sink_view_; }
     // A widescreen view: the map cells around the playfield window as they
     // were copied with it (columns -wide_columns to 39 + wide_columns of
     // screen rows 9-24), and where the enemy would show off the window.
@@ -524,6 +543,8 @@ private:
     std::array<u8, 16 * wide_window_columns> wide_window_{}, shown_wide_window_{};
     WideEnemy wide_enemy_{}, shown_wide_enemy_{};
     Happenings happenings_;
+    int depot_shown_stage_{4};
+    SinkView sink_view_{};
 };
 
 } // namespace fort_apocalypse::game

@@ -85,8 +85,9 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
    picture again (the VIC collisions still come from the original picture).
    Smooth motion makes it a tilemap of the terrain with tanks, mines and
    shells taken out and drawn as objects where the game has them now,
-   gliding (tanks rocking on the ground's slope), and the craft banking
-   smoothly; the rules keep the original's cells (objects stamp characters
+   gliding (tanks rocking on the ground's slope, mines with their own
+   animation and a wobble), the fuel depots and the landing pad sinking
+   smoothly, and the craft banking smoothly; the rules keep the original's cells (objects stamp characters
    into the map, collisions read them). Particle effects add the debris,
    fire, tossed turrets and falling wrecks. Rotated art is resampled
    RotSprite-style onto the C64's double-wide pixel grid; unrotated art is
@@ -96,7 +97,10 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
    rasteriser takes any width) filled from a wide copy of the map taken
    with the original's window copy, one hidden column beyond each edge; the
    enemy shown where the game hides it outside its own range. From the
-   original screen's shape with its border to 21:9.
+   original screen's shape with its border to 21:9. One rule changes with
+   it: a shot past the window's left edge takes its real column (the
+   original's $A341 subtracts unsigned, so there it tests cells 53-63
+   columns to its right), and sprites past the left edge show there.
 9. **Optional: loading screen** — the tape's U.S. Gold loading screen is a
    display script plus a music stream that also patches memory. It could
    play during import, read from the imported data (the music player is

@@ -60,12 +60,18 @@ the game's options and the way back to the launcher.
   apart, its wreck falling in an arc.
 - **Smooth motion** — the helicopter banks smoothly (its level sprite turned
   instead of the stepped tilt shapes), tanks glide from cell to cell and rock
-  over the rough ground, and mines and shells glide instead of jumping.
+  over the rough ground, mines and shells glide instead of jumping (mines
+  wobbling as they fly), and the fuel depots and the landing pad sink
+  smoothly.
 - **Widescreen** — the picture fills the window to its edges, without the
   C64's border, and the playfield shows more of the map left and right, up
   to 21:9 (as in BlueStreak's Game Gear games). The HUD stays in the middle.
+  Shots that fly past the original window's left edge hit what the wider
+  view shows them cross; in the original they test cells far to their right
+  there (an unsigned subtraction), which no one could see.
 
-All of these change only the picture: the game plays exactly the same.
+All of these change only the picture (and widescreen the one shot rule
+above): the game plays exactly the same.
 
 ## Importing
 

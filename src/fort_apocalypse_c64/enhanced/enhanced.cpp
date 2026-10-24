@@ -47,6 +47,8 @@ void EnhancedView::reset() {
     tanks_ = {};
     mines_ = {};
     shells_ = {};
+    sink_drop_ = 0;
+    depot_drop_ = -1; // takes the depots' height as they are
     window_.reset();
     bank_ = -1;
     craft_shape_ = -1;
@@ -411,6 +413,29 @@ double EnhancedView::floor_slope(const Game& game, double left, double bottom) c
 
 void EnhancedView::hide_objects(c64::TextFrame& frame, const Game& game,
                                 const ScreenCodes& codes) const {
+    if (settings_.smooth) {
+        // The platforms are drawn on their own as they sink.
+        auto clear_block = [&](const Game::MapCell& top_left) {
+            const int first_column = game.shown_window().column - codes.extension;
+            for (int row = 0; row < 5; ++row) {
+                const int screen_row =
+                    top_left.row + row - game.shown_window().row + Game::window_first_row;
+                for (int i = 0; i < 6; ++i) {
+                    const int column = top_left.column + i - first_column;
+                    if (screen_row >= Game::window_first_row && screen_row < c64::TextFrame::rows &&
+                        column >= 0 && column < codes.columns) {
+                        frame.set_glyph(column, screen_row, nullptr);
+                    }
+                }
+            }
+        };
+        for (const auto& cell : game.depot_cells()) {
+            clear_block(cell);
+        }
+        if (game.sink_view().active) {
+            clear_block(game.sink_view().top_left);
+        }
+    }
     const auto window = game.shown_window();
     const int first_column = window.column - codes.extension; // the frame's column 0
     const auto& body = tables_.tank_characters;
@@ -531,12 +556,6 @@ void EnhancedView::draw_mines(const c64::TextFrame& frame, const Game& game, con
                               const Clip& clip) {
     const auto views = game.mine_views();
     const auto& line = frame.line(std::clamp(view.last_line() - 1, 0, c64::Picture::height - 1));
-    // The mine's first phase: its art in the left of the two characters.
-    Bitmap look(8, 8, 2);
-    for (int k = 0; k < 2; ++k) {
-        draw_character(look, k * 4, 0, game.playfield_glyph(tables_.mine_characters[std::size_t(k)]),
-                       0x0D, line.shared1, line.shared2);
-    }
     for (std::size_t i = 0; i < views.size(); ++i) {
         const auto& v = views[i];
         auto& x = mines_[i];
@@ -550,9 +569,63 @@ void EnhancedView::draw_mines(const c64::TextFrame& frame, const Game& game, con
             x = std::pair{target, v.cell.row};
         }
         x->first += std::clamp((target - x->first) * 0.3, -1.2, 1.2);
-        const double px = view.picture_x(x->first + 8);
-        draw_rotated(picture_, look, 8, 4, px, view.picture_y(v.cell.row * 8 + 4), 0,
-                     int(std::floor(px)) & 1, clip);
+        // The phase's own art (its light goes round), placed where it glides.
+        Bitmap look(8, 8, 2);
+        for (int k = 0; k < 2; ++k) {
+            const u8 code = tables_.mine_characters[std::size_t(v.phase * 2 + k)];
+            draw_character(look, k * 4, 0, game.playfield_glyph(code), 0x0D, line.shared1,
+                           line.shared2);
+        }
+        // It wobbles as it flies, rocking and bobbing, each mine its own way.
+        const double t = ticks_ * 0.13 + double(i) * 1.7;
+        const double rock = std::sin(t) * 10 * degrees;
+        const double bob = std::sin(ticks_ * 0.09 + double(i) * 2.3) * 1.5;
+        const double centre_x = 7 + v.phase * 2; // the art's middle in its two cells
+        const double px = view.picture_x(v.cell.column * 8 + (x->first - target) + centre_x);
+        draw_rotated(picture_, look, centre_x, 4.5, px, view.picture_y(v.cell.row * 8 + 4.5 + bob),
+                     rock, int(std::floor(px)) & 1, clip);
+    }
+}
+
+void EnhancedView::draw_platforms(const c64::TextFrame& frame, const Game& game,
+                                  const Viewport& view, const Clip& clip) {
+    const auto& line = frame.line(std::clamp(view.last_line() - 1, 0, c64::Picture::height - 1));
+    // A 6x5 block of characters drawn `drop` pixels down, cut off at its
+    // block's bottom: it sinks into the ground.
+    auto draw_block = [&](const Game::MapCell& top_left, const auto& code_at, double drop) {
+        Bitmap look(24, 40, 2);
+        for (int row = 0; row < 5; ++row) {
+            for (int i = 0; i < 6; ++i) {
+                draw_character(look, i * 4, row * 8, game.playfield_glyph(code_at(row, i)), 0x0D,
+                               line.shared1, line.shared2);
+            }
+        }
+        Clip block = clip;
+        block.last_line = std::min(
+            clip.last_line, int(std::floor(view.picture_y((top_left.row + 5) * 8.0))));
+        const double px = view.picture_x(top_left.column * 8 + 24);
+        draw_rotated(picture_, look, 24, 20, px, view.picture_y(top_left.row * 8 + 20 + drop), 0,
+                     int(std::floor(px)) & 1, block);
+    };
+    // The fuel depots: the game sinks them through five stages in a few
+    // frames (the screen only ever shows the first and the last); they
+    // sink smoothly instead, and rise again when the craft lifts off.
+    const auto& depot = tables_.depot;
+    const double target = (4 - game.depot_stage_shown()) * 8.0;
+    depot_drop_ = depot_drop_ < 0 ? target : depot_drop_ + std::clamp(target - depot_drop_, -1.0, 1.0);
+    for (const auto& cell : game.depot_cells()) {
+        draw_block(cell, [&](int row, int i) { return depot[std::size_t((4 + row) * 6 + i)]; },
+                   depot_drop_);
+    }
+    // The landing pad: the game moves it down a row at a time, 35 frames
+    // apart; it glides down instead.
+    const auto& sink = game.sink_view();
+    if (sink.active) {
+        sink_drop_ += std::clamp(sink.rows * 8.0 - sink_drop_, -8.0 / 35, 8.0 / 35);
+        draw_block(sink.top_left, [&](int row, int i) { return sink.look[std::size_t(row * 6 + i)]; },
+                   sink_drop_);
+    } else {
+        sink_drop_ = 0;
     }
 }
 
@@ -655,6 +728,7 @@ void EnhancedView::update(const Game& game, const Settings& settings) {
     if (mode != Mode::paused) {
         move_particles(game);
         move_wrecks(game);
+        ++ticks_;
     }
 
     // The picture again, without what is drawn anew.
@@ -692,6 +766,7 @@ void EnhancedView::update(const Game& game, const Settings& settings) {
     }
     const Clip clip{view.first_line(), view.last_line(), view.left(), view.right(), nullptr};
     if (settings.smooth) {
+        draw_platforms(frame, game, view, clip);
         draw_tanks(frame, game, view, clip);
         draw_mines(frame, game, view, clip);
         draw_shells(frame, game, view, clip);

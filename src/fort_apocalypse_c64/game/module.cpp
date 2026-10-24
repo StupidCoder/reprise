@@ -103,6 +103,7 @@ void Module::set_option(std::size_t index, int value) {
         smooth_ = value == 1;
     } else if (index == 3) {
         widescreen_ = value == 1;
+        options_.widescreen = widescreen_;
         if (!widescreen_) {
             wide_ = {};
         }

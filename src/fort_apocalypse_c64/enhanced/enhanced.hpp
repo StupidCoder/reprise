@@ -21,8 +21,9 @@
 //   degrees), with the front view in between;
 // - tanks gliding from cell to cell, rocking as they go, each step a jolt
 //   over a bump, settling on the slope of the rock under their tracks;
-// - mines gliding a pixel at a time instead of their two-pixel steps, and
-//   tanks' shells gliding from cell to cell.
+// - mines gliding a pixel at a time instead of their two-pixel steps,
+//   wobbling as they fly, and tanks' shells gliding from cell to cell;
+// - the fuel depots and the landing pad sinking smoothly.
 // With smooth motion the frame is a tilemap of the terrain with tanks, mines
 // and shells taken out, and those drawn on it as objects where the game has
 // them now. (The rules keep the original's cells: objects stamp their
@@ -112,6 +113,7 @@ private:
     void draw_tanks(const c64::TextFrame&, const game::Game&, const Viewport&, const Clip&);
     void draw_mines(const c64::TextFrame&, const game::Game&, const Viewport&, const Clip&);
     void draw_shells(const c64::TextFrame&, const game::Game&, const Viewport&, const Clip&);
+    void draw_platforms(const c64::TextFrame&, const game::Game&, const Viewport&, const Clip&);
 
     const data::Assets& assets_;
     const data::GameTables& tables_;
@@ -122,6 +124,8 @@ private:
     std::array<std::optional<std::pair<double, int>>, 39> mines_{}; // drawn at x, row
     std::array<std::optional<std::array<double, 2>>, 6> shells_{};  // drawn at x, y
     Settings settings_{};
+    long ticks_{};              // frames of play, for the mines' wobble
+    double depot_drop_{-1}, sink_drop_{}; // pixels the platforms are drawn sunk
     std::optional<game::Game::MapCell> window_;
     double bank_{-1}; // smoothed bank step 0-8 (-1: not yet seen)
     int craft_shape_{-1};  // the shape last drawn for the craft

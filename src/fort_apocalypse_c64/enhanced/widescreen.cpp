@@ -58,7 +58,13 @@ c64::TextFrame wide_frame(const Game& game, int columns) {
         }
     }
     for (int i = 0; i < 8; ++i) {
-        frame.set_sprite(i, shown.sprite(i));
+        // The game keeps sprite x in 9 bits: past the window's left edge a
+        // position wraps to 448-511, which the wider view shows on the left.
+        auto s = shown.sprite(i);
+        if (s.x >= 448) {
+            s.x -= 512;
+        }
+        frame.set_sprite(i, s);
     }
     // The enemy where the game hides it, but the wider view shows it.
     const auto enemy = game.shown_wide_enemy();
