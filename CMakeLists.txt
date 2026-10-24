@@ -56,6 +56,7 @@ add_library(fort_apocalypse_c64
     src/fort_apocalypse_c64/game/module.cpp
     src/fort_apocalypse_c64/enhanced/canvas.cpp
     src/fort_apocalypse_c64/enhanced/enhanced.cpp
+    src/fort_apocalypse_c64/enhanced/widescreen.cpp
     src/fort_apocalypse_c64/import/novaload.cpp
     src/fort_apocalypse_c64/import/tape_import.cpp)
 target_include_directories(fort_apocalypse_c64 PUBLIC ${SOURCE_ROOT})

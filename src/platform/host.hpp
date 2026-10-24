@@ -74,6 +74,8 @@ public:
     void clear_audio();
     void mute(bool muted);
     void pause_audio(bool paused);
+    // The window's drawing area in device pixels (width, height).
+    std::array<int, 2> canvas_size() const;
 
     // Opens an asynchronous file picker for a game image; poll
     // take_file_choice() for the result.

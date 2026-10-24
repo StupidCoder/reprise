@@ -257,6 +257,8 @@ void Game::render() {
     shown_frame_ = frame;
     shown_screen_ = screen_;
     shown_window_ = window_;
+    shown_wide_window_ = wide_window_;
+    shown_wide_enemy_ = wide_enemy_;
     latched_sprite_hits_ |= hits.sprite_sprite;
     latched_background_hits_ |= hits.sprite_background;
 }

@@ -52,13 +52,20 @@ the game's options and the way back to the launcher.
   overlaps the first instruction of the enemy helicopter's climb routine, so
   it checks the wrong spot before climbing and often flies into rock.
   *Fixed* makes it check its own path.
-- **Enhanced mode** — modern motion drawn the old way, still on the C64's
-  pixel grid and in its 16 colours: the helicopter banks smoothly (its level
-  sprite turned instead of the stepped tilt shapes), tanks rock as they drive,
-  shots throw debris, destroyed tanks throw debris and toss their turret,
-  which tumbles and bounces off the landscape, and shot-down mines drop in an
-  arc, turning, and blow up where they hit the ground. The game itself plays exactly
-  the same; only the picture changes.
+- **Particle effects** — debris and fire on the C64's pixel grid and in its 16
+  colours: shots, the tanks' shells and the enemy's shots throw debris where
+  they hit; destroyed tanks burst and toss their turret, which tumbles and
+  bounces off the landscape; shot-down mines drop in an arc, turning, and
+  blow up on the ground; a shot-down craft keeps its flashing but bursts
+  apart, its wreck falling in an arc.
+- **Smooth motion** — the helicopter banks smoothly (its level sprite turned
+  instead of the stepped tilt shapes), tanks glide from cell to cell and rock
+  over the rough ground, and mines and shells glide instead of jumping.
+- **Widescreen** — the picture fills the window to its edges, without the
+  C64's border, and the playfield shows more of the map left and right, up
+  to 21:9 (as in BlueStreak's Game Gear games). The HUD stays in the middle.
+
+All of these change only the picture: the game plays exactly the same.
 
 ## Importing
 

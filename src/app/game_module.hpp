@@ -39,6 +39,8 @@ public:
     virtual platform::Image picture() const = 0;
     // Displayed width / height of one picture pixel.
     virtual double pixel_aspect() const = 0;
+    // The window's drawing area, for a game whose view can widen to it.
+    virtual void set_canvas(int /*width*/, int /*height*/) {}
 
     // Interleaved stereo samples for the time of the last tick.
     virtual void audio(std::span<float> stereo, int sample_rate) {

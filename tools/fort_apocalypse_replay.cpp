@@ -10,6 +10,7 @@
 // The input script is fortref's: "<frame> <joy2> <joy1> [keys]".
 
 #include "fort_apocalypse_c64/game/module.hpp"
+#include "platform/host.hpp"
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -81,13 +82,32 @@ int main(int argc, char** argv) {
         if (const char* v = std::getenv("REPLAY_FIXED_ENEMY"); v && *v == '1') {
             game.set_option(0, 1);
         }
-        // REPLAY_ENHANCED=1: the enhanced mode, recording its pictures.
+        // REPLAY_ENHANCED=1: particle effects and smooth motion (=p: particles
+        // only, =s: smooth motion only), recording their pictures.
         const bool enhanced = [] {
             const char* v = std::getenv("REPLAY_ENHANCED");
-            return v && *v == '1';
+            return v && (*v == '1' || *v == 'p' || *v == 's');
         }();
         if (enhanced) {
-            game.set_option(1, 1);
+            const char v = *std::getenv("REPLAY_ENHANCED");
+            game.set_option(1, v != 's' ? 1 : 0);
+            game.set_option(2, v != 'p' ? 1 : 0);
+        }
+        // REPLAY_WIDE=<width>x<height>: the widescreen view for a window of
+        // that size. REPLAY_PNG=<frame>,...: what the player sees then, as
+        // <out>/shown-NNNNN.png (pictures.bin keeps standard pictures only).
+        if (const char* v = std::getenv("REPLAY_WIDE")) {
+            game.set_option(3, 1);
+            const std::string size = v;
+            const auto x = size.find('x');
+            game.set_canvas(std::stoi(size.substr(0, x)), std::stoi(size.substr(x + 1)));
+        }
+        std::vector<long> snapshots;
+        if (const char* v = std::getenv("REPLAY_PNG")) {
+            std::stringstream list(v);
+            for (std::string item; std::getline(list, item, ',');) {
+                snapshots.push_back(std::stol(item));
+            }
         }
         // REPLAY_NOISE=<reference noise.bin>: use the original's random numbers,
         // each read site from its own queue (so the order in which the main
@@ -211,7 +231,15 @@ int main(int argc, char** argv) {
                     sound.push_back(std::int16_t(std::clamp(v, -1.0f, 1.0f) * 32767));
                 }
             }
+            if (std::find(snapshots.begin(), snapshots.end(), frame) != snapshots.end()) {
+                char name[32];
+                std::snprintf(name, sizeof name, "/shown-%05ld.png", frame);
+                platform::save_png(game.picture(), out + name);
+            }
             const auto& picture = enhanced ? game.shown() : game.display();
+            if (picture.width != c64::Picture::standard_width) {
+                continue;
+            }
             std::vector<std::uint8_t> packed(32001);
             for (std::size_t i = 0; i < picture.pixels.size(); i += 2) {
                 packed[i / 2] = std::uint8_t(picture.pixels[i] << 4 | picture.pixels[i + 1]);

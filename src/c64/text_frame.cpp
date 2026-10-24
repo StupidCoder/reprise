@@ -5,40 +5,47 @@
 namespace c64 {
 
 platform::Image Picture::to_image(int margin_x, int margin_y) const {
-    platform::Image image(width + 2 * margin_x, height + 2 * margin_y);
+    return to_image(margin_x, margin_y, 0, width);
+}
+
+platform::Image Picture::to_image(int margin_x, int margin_y, int left, int shown) const {
+    platform::Image image(shown + 2 * margin_x, height + 2 * margin_y);
     std::fill(image.pixels.begin(), image.pixels.end(), colour(border));
     for (int y = 0; y < height; ++y) {
-        for (int x = 0; x < width; ++x) {
-            image.put(margin_x + x, margin_y + y, colour(at(x, y)));
+        for (int x = 0; x < shown; ++x) {
+            image.put(margin_x + x, margin_y + y, colour(at(left + x, y)));
         }
     }
     return image;
 }
 
+TextFrame::TextFrame(int columns)
+    : columns_(columns), cells_(std::size_t(columns * rows)) {}
+
 void TextFrame::set(int column, int row, const Glyph* glyph, std::uint8_t colour) {
-    if (column >= 0 && column < columns && row >= 0 && row < rows) {
-        cells_[std::size_t(row * columns + column)] = {glyph ? *glyph : Glyph{}, colour};
+    if (column >= 0 && column < columns_ && row >= 0 && row < rows) {
+        cells_[std::size_t(row * columns_ + column)] = {glyph ? *glyph : Glyph{}, colour};
     }
 }
 
 void TextFrame::set_glyph(int column, int row, const Glyph* glyph) {
-    if (column >= 0 && column < columns && row >= 0 && row < rows) {
-        cells_[std::size_t(row * columns + column)].glyph = glyph ? *glyph : Glyph{};
+    if (column >= 0 && column < columns_ && row >= 0 && row < rows) {
+        cells_[std::size_t(row * columns_ + column)].glyph = glyph ? *glyph : Glyph{};
     }
 }
 
 void TextFrame::set_colour(int column, int row, std::uint8_t colour) {
-    if (column >= 0 && column < columns && row >= 0 && row < rows) {
-        cells_[std::size_t(row * columns + column)].colour = colour;
+    if (column >= 0 && column < columns_ && row >= 0 && row < rows) {
+        cells_[std::size_t(row * columns_ + column)].colour = colour;
     }
 }
 
 const TextFrame::Cell& TextFrame::cell(int column, int row) const {
-    return cells_[std::size_t(row * columns + column)];
+    return cells_[std::size_t(row * columns_ + column)];
 }
 
 void TextFrame::clear() {
-    cells_ = {};
+    std::fill(cells_.begin(), cells_.end(), Cell{});
 }
 
 namespace {
@@ -71,8 +78,12 @@ Picture TextFrame::rasterise(Collisions* collisions, Layers* layers) const {
         return lines_[std::size_t(std::clamp(raster - first_display_raster, 0, Picture::height - 1))];
     };
 
-    Picture picture;
+    const int width = this->width(), extension = this->extension();
+    Picture picture(width);
     picture.border = lines_[0].border;
+    if (layers) {
+        layers->foreground.assign(std::size_t(width * Picture::height), false);
+    }
     Collisions found;
     // Row sequencing from the first raster where bad lines can occur.
     int vcbase = 0, rc = 0, buffered_row = 0;
@@ -88,22 +99,21 @@ Picture TextFrame::rasterise(Collisions* collisions, Layers* layers) const {
         }
         if (bad_line) { // cycle 14 with the new value: the row buffer is filled
             rc = 0;
-            buffered_row = std::min(vcbase / columns, rows - 1);
+            buffered_row = std::min(vcbase / columns_, rows - 1);
         }
         const int y = raster - first_display_raster;
         const bool in_window = y >= 0 && y < Picture::height;
 
         // Graphics: colour and foreground flag per display pixel.
-        std::array<std::uint8_t, Picture::width> colours{};
-        std::array<bool, Picture::width> foreground{};
-        colours.fill(line.background);
-        std::fill_n(colours.begin(), std::clamp(line.background_from_x, 0, Picture::width),
+        std::vector<std::uint8_t> colours(std::size_t(width), line.background);
+        std::vector<bool> foreground(colours.size());
+        std::fill_n(colours.begin(), std::clamp(line.background_from_x, 0, width),
                     line.background_before);
         if (in_window && !line.covered) {
-            for (int gx = 0; gx + line.xscroll < Picture::width; ++gx) {
+            for (int gx = 0; gx + line.xscroll < width; ++gx) {
                 std::uint8_t bits, cell_colour;
                 if (display) {
-                    const auto& c = cells_[std::size_t(buffered_row * columns + gx / 8)];
+                    const auto& c = cells_[std::size_t(buffered_row * columns_ + gx / 8)];
                     bits = c.glyph[std::size_t(rc)];
                     cell_colour = c.colour;
                 } else {
@@ -131,7 +141,7 @@ Picture TextFrame::rasterise(Collisions* collisions, Layers* layers) const {
 
         // Sprites: the lowest-numbered sprite with a pixel wins; collisions
         // are counted over the whole line.
-        {
+        if (extension == 0) {
             std::array<std::uint8_t, line_width> hits{};
             std::array<std::int8_t, line_width> winner{};
             winner.fill(-1);
@@ -164,7 +174,7 @@ Picture TextFrame::rasterise(Collisions* collisions, Layers* layers) const {
                     found.sprite_sprite |= h;
                 }
                 const int dx = x - window_left;
-                const bool on_graphics = in_window && dx >= 0 && dx < Picture::width;
+                const bool on_graphics = in_window && dx >= 0 && dx < width;
                 const bool fg = on_graphics && foreground[std::size_t(dx)];
                 if (fg) {
                     found.sprite_background |= h;
@@ -174,30 +184,54 @@ Picture TextFrame::rasterise(Collisions* collisions, Layers* layers) const {
                     colours[std::size_t(dx)] = s.colour;
                 }
             }
+        } else {
+            // A widescreen frame: sprites drawn at their place in the wider
+            // picture, without the VIC's wrap at the line's end. Collisions
+            // come from the game's standard frame.
+            for (int i = 7; i >= 0; --i) {
+                const auto& s = sprites_[std::size_t(i)];
+                const int row = raster - (s.y + 1);
+                if (!s.shown || !s.drawn || row < 0 || row >= 21 ||
+                    !(setup_for(s.y).sprites >> i & 1) || !in_window) {
+                    continue;
+                }
+                const int scale = s.expand_x ? 2 : 1;
+                for (int bit = 0; bit < 24; ++bit) {
+                    if (!(s.data[std::size_t(row * 3 + bit / 8)] >> (7 - bit % 8) & 1)) {
+                        continue;
+                    }
+                    for (int k = 0; k < scale; ++k) {
+                        const int x = s.x - window_left + extension + bit * scale + k;
+                        if (x >= 0 && x < width && (!s.behind_foreground || !foreground[std::size_t(x)])) {
+                            colours[std::size_t(x)] = s.colour;
+                        }
+                    }
+                }
+            }
         }
 
         if (in_window && layers) {
             std::copy(foreground.begin(), foreground.end(),
-                      layers->foreground.begin() + y * Picture::width);
+                      layers->foreground.begin() + y * width);
             layers->source_line[std::size_t(y)] =
                 display && !line.covered ? std::int16_t(buffered_row * 8 + rc) : std::int16_t(-1);
             layers->xscroll[std::size_t(y)] = line.xscroll;
         }
         if (in_window) {
-            auto* out = picture.pixels.data() + y * Picture::width;
+            auto* out = picture.pixels.data() + y * width;
             std::copy(colours.begin(), colours.end(), out);
             if (line.covered) {
-                std::fill_n(out, Picture::width, line.border);
+                std::fill_n(out, width, line.border);
             } else if (line.narrow) {
                 std::fill_n(out, 7, line.background_from_x > 0 ? line.border_before : line.border);
-                std::fill_n(out + Picture::width - 9, 9, line.border);
+                std::fill_n(out + width - 9, 9, line.border);
             }
         }
         // Cycle 58: after the eighth line of a row the next row's position is
         // taken and the VIC goes idle until the next bad line.
         if (rc == 7) {
             if (display) {
-                vcbase += columns;
+                vcbase += columns_;
             }
             display = bad_line;
         }

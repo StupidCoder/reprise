@@ -135,6 +135,18 @@ void Game::copy_window() {
     // $A72C: 16 map rows from the camera's row, 40 cells from its column, to
     // screen rows 9-24.
     window_ = {camera_column_ - 1, std::int8_t(camera_row_)};
+    // The widescreen view's copy (presentation only). Past the map's ends
+    // it repeats every 215 columns (columns 215-254 copy 0-39).
+    for (int r = 0; r < 16; ++r) {
+        for (int c = 0; c < wide_window_columns; ++c) {
+            int column = window_.column + c - wide_columns;
+            if (column < 0 || column > 255) {
+                column = (column % 215 + 215) % 215;
+            }
+            wide_window_[std::size_t(r * wide_window_columns + c)] =
+                map_at((window_.row + r) * 256 + column);
+        }
+    }
     for (int r = 0; r < 16; ++r) {
         const int source = actor_index(camera_column_, std::int8_t(camera_row_) + r);
         for (int c = 0; c < 40; ++c) {

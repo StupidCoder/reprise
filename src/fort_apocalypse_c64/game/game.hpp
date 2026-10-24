@@ -147,8 +147,14 @@ public:
         std::array<u8, 2> look{}; // the two characters it showed
         int direction{};  // 1 or -1, as it was flying
     };
+    struct ShellBurst {
+        MapCell cell;     // where the tank's shell burst
+        int direction{};  // -1 flying left, 1 right
+        u8 code{};        // the character it hit or lay over
+    };
     struct Happenings {
-        std::vector<ShotImpact> impacts;
+        std::vector<ShotImpact> impacts; // the craft's shots and the enemy's
+        std::vector<ShellBurst> shells;
         std::vector<TankDestroyed> tanks;
         std::vector<MineDestroyed> mines;
     };
@@ -170,11 +176,40 @@ public:
         std::array<u8, 3> saved{}; // what its body covers
     };
     std::array<TankView, 6> tank_views() const;
+    struct MineView {
+        bool flying{};
+        MapCell cell;     // the left of its two cells
+        int phase{};      // 0-3: two pixels further right each ($957B)
+    };
+    std::array<MineView, 39> mine_views() const;
+    struct ShellView {
+        bool flying{};
+        MapCell cell;
+        u8 look{};        // its character, by the way it flies
+    };
+    std::array<ShellView, 6> shell_views() const;
+    // A widescreen view: the map cells around the playfield window as they
+    // were copied with it (columns -wide_columns to 39 + wide_columns of
+    // screen rows 9-24), and where the enemy would show off the window.
+    static constexpr int wide_columns = 24, wide_window_columns = 40 + 2 * wide_columns;
+    u8 shown_wide_code(int screen_column, int screen_row) const {
+        return shown_wide_window_[std::size_t((screen_row - window_first_row) * wide_window_columns +
+                                              screen_column + wide_columns)];
+    }
+    struct WideEnemy {
+        bool placed{};
+        int sprite_x{}, sprite_y{}; // VIC coordinates, past the window too
+    };
+    WideEnemy shown_wide_enemy() const { return shown_wide_enemy_; }
+    // The last picture had the playfield part (rows 9-24 show the map).
+    bool shown_playfield() const { return split_active_; }
+    bool enemy_hidden() const { return enemy_.sprite == 1; }
     // The turret character above a tank's middle, by where it points.
     static constexpr u8 turret_left = 0x70, turret_right = 0x6F;
     // The craft's bank step (0-17; bit 0 the rotor's frame).
     u8 craft_bank() const { return bank_; }
     bool craft_shown() const { return craft_ != Craft::inactive; }
+    bool craft_crashing() const { return craft_ == Craft::crashing; }
 
 private:
     // --- frame -------------------------------------------------------------------
@@ -484,6 +519,10 @@ private:
     c64::TextFrame shown_frame_;
     std::array<u8, 1000> shown_screen_{};
     MapCell window_{}, shown_window_{};
+    // The playfield window with the widescreen view's columns around it,
+    // copied with the window ($A72C).
+    std::array<u8, 16 * wide_window_columns> wide_window_{}, shown_wide_window_{};
+    WideEnemy wide_enemy_{}, shown_wide_enemy_{};
     Happenings happenings_;
 };
 

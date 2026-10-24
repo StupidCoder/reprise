@@ -46,7 +46,8 @@ Bitmap scale2x(const Bitmap& in) {
 }
 
 Viewport::Viewport(const c64::Layers& layers, int window_column, int window_row,
-                   int window_first_row, const c64::TextFrame& frame) {
+                   int window_first_row, const c64::TextFrame& frame)
+    : right_(frame.width()) {
     // The playfield: lines showing character rows from the window's first.
     for (int y = 0; y < c64::Picture::height; ++y) {
         const int source = layers.source_line[std::size_t(y)];
@@ -60,7 +61,7 @@ Viewport::Viewport(const c64::Layers& layers, int window_column, int window_row,
             parity_ = xscroll & 1;
             if (frame.line(y).narrow) {
                 left_ = 7; // the 38-column window
-                right_ = c64::Picture::width - 9;
+                right_ = frame.width() - 9;
             }
         }
         if (playfield) {
@@ -78,7 +79,7 @@ void plot(c64::Picture& picture, int x, int y, u8 colour, const Clip& clip) {
         if (px < clip.left || px >= clip.right) {
             continue;
         }
-        const std::size_t at = std::size_t(y * c64::Picture::width + px);
+        const std::size_t at = std::size_t(y * picture.width + px);
         if (clip.behind && clip.behind->foreground[at]) {
             continue;
         }
@@ -88,11 +89,13 @@ void plot(c64::Picture& picture, int x, int y, u8 colour, const Clip& clip) {
 
 void draw_rotated(c64::Picture& picture, const Bitmap& bitmap, double pivot_x, double pivot_y,
                   double x, double y, double radians, int parity, const Clip& clip) {
-    constexpr int enlarge = 8;
-    const Bitmap big = scale2x(scale2x(scale2x(bitmap)));
+    // Unturned, the art is copied pixel for pixel.
+    const bool turned = std::abs(radians) > 1e-4;
+    const int enlarge = turned ? 8 : 1;
+    const Bitmap big = turned ? scale2x(scale2x(scale2x(bitmap))) : bitmap;
     // Hires pixels to the enlarged art's pixels.
     const double per_x = double(enlarge) / bitmap.pixel_width, per_y = enlarge;
-    const double c = std::cos(radians), s = std::sin(radians);
+    const double c = turned ? std::cos(radians) : 1, s = turned ? std::sin(radians) : 0;
     const double reach =
         std::hypot(double(bitmap.width * bitmap.pixel_width), double(bitmap.height)) + 2;
     const int top = std::max(clip.first_line, int(std::floor(y - reach)));

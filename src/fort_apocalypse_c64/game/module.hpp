@@ -3,6 +3,7 @@
 #include "fort_apocalypse_c64/data/assets.hpp"
 #include "fort_apocalypse_c64/data/tables.hpp"
 #include "fort_apocalypse_c64/enhanced/enhanced.hpp"
+#include "fort_apocalypse_c64/enhanced/widescreen.hpp"
 #include "fort_apocalypse_c64/game/game.hpp"
 #include <filesystem>
 #include <memory>
@@ -20,6 +21,7 @@ public:
     platform::Image picture() const override;
     // A PAL C64 pixel is slightly narrower than tall.
     double pixel_aspect() const override { return 0.9365; }
+    void set_canvas(int width, int height) override;
     void audio(std::span<float> stereo, int sample_rate) override;
 
     bool save() override;
@@ -32,9 +34,7 @@ public:
     // The current frame's display window, for comparisons with the original.
     const c64::Picture& display() const { return game_->picture(); }
     // What the player sees (the enhanced mode's picture when it is on).
-    const c64::Picture& shown() const {
-        return enhanced_mode_ ? enhanced_.picture() : game_->picture();
-    }
+    const c64::Picture& shown() const { return shown_; }
     Game& game() { return *game_; }
 
 private:
@@ -42,8 +42,11 @@ private:
     std::unique_ptr<const data::GameTables> tables_;
     std::unique_ptr<Game> game_, saved_;
     Options options_;
-    bool enhanced_mode_{};
+    bool particles_{}, smooth_{}, widescreen_{};
     enhanced::EnhancedView enhanced_;
+    enhanced::WideSize wide_{};
+    c64::Picture shown_{};
+    void draw();
     std::vector<float> mono_;
 };
 

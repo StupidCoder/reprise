@@ -235,6 +235,7 @@ void Game::restore_missile_cell(int i) {
 void Game::missile_detonate(int i) {
     // $96EB.
     auto& m = missiles_[std::size_t(i)];
+    happenings_.shells.push_back({{m.column - 5, m.row}, m.state == 4 ? -1 : 1, m.saved});
     restore_missile_cell(i);
     sound_explosion();
     m.state = 1;

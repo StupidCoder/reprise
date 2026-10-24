@@ -240,6 +240,12 @@ void Host::present_game(const Image& frame, double pixel_aspect, const Image* ov
     SDL_RenderPresent(i.renderer);
 }
 
+std::array<int, 2> Host::canvas_size() const {
+    int cw = ui_width, ch = ui_height;
+    SDL_GetRenderOutputSize(impl_->renderer, &cw, &ch);
+    return {cw, ch};
+}
+
 void Host::pause_audio(bool paused) {
     if (paused) {
         SDL_PauseAudioStreamDevice(impl_->audio);

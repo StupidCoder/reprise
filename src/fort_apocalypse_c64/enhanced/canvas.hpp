@@ -66,7 +66,7 @@ public:
 private:
     double origin_x_{}, origin_y_{};
     int parity_{};
-    int first_line_{-1}, last_line_{-1}, left_{0}, right_{c64::Picture::width};
+    int first_line_{-1}, last_line_{-1}, left_{0}, right_{};
 };
 
 // Where a layer may draw, and whether foreground graphics cover it.

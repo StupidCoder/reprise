@@ -196,6 +196,23 @@ void Game::enemy_up(u8 difference, u8 x_register) {
 void Game::enemy_visibility() {
     // $A1B0: on screen within $30 columns and $13 rows of the camera.
     auto hide = [&] { enemy_.sprite = 1; };
+    // For a widescreen view only: where it would be shown, left and right of
+    // the columns the game shows it in.
+    wide_enemy_ = {};
+    if (enemy_.state != 1) {
+        const u8 top = std::int8_t(camera_row_) < 0 ? 0 : camera_row_;
+        if (enemy_.row >= top && u8(enemy_.row - camera_row_) < 0x13) {
+            const int columns = ((int(enemy_.column) - int(camera_column_) + 128) & 255) - 128;
+            const int x = columns * 4 + 0x16 + ((fine_x_ & 7) >> 1) + enemy_.sub_x;
+            int y = u8(u8(enemy_.row - top) << 3) + 0x53 + (fine_y_ & 7);
+            if (std::int8_t(camera_row_) < 0) {
+                y += 8;
+            }
+            y += enemy_.sub_y;
+            // As set_sprite_position ($B0CB) places it, without its 8 bits.
+            wide_enemy_ = {true, (x - 0x24) * 2, y + 0x16};
+        }
+    }
     if (enemy_.state == 1) {
         hide();
         return;

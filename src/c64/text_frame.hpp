@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdint>
 #include <span>
+#include <vector>
 
 // Drawing C64 character screens. A game builds a TextFrame from its own
 // state every frame (which character, in which colour, in each of the 40x25
@@ -10,19 +11,28 @@
 // it into a Picture: the 320x200 display window as C64 colour numbers plus
 // the border colour. The TextFrame is a drawing surface only, never a
 // game's model of its screen.
+//
+// A frame can have more than 40 columns, for a widescreen view: the extra
+// columns lie evenly to the left and right of the C64's own 40, and the
+// picture grows with them (8 pixels a column). Sprites keep their VIC
+// coordinates relative to the original window.
 namespace c64 {
 
 using Glyph = std::array<std::uint8_t, 8>;
 
 struct Picture {
-    static constexpr int width = 320, height = 200;
-    std::array<std::uint8_t, width * height> pixels{};
+    static constexpr int standard_width = 320, height = 200;
+    int width{standard_width};
+    std::vector<std::uint8_t> pixels;
     std::uint8_t border{};
 
+    explicit Picture(int w = standard_width) : width(w), pixels(std::size_t(w * height)) {}
     std::uint8_t at(int x, int y) const { return pixels[std::size_t(y * width + x)]; }
 
-    // The picture with `margin` pixels of border around it, in RGB colours.
+    // The picture with `margin` pixels of border around it, in RGB colours;
+    // or `width` of its columns from `left`.
     platform::Image to_image(int margin_x, int margin_y) const;
+    platform::Image to_image(int margin_x, int margin_y, int left, int width) const;
 };
 
 // The colours, window and scroll that apply to one raster line.
@@ -76,7 +86,10 @@ struct Collisions {
 // are foreground graphics (they cover sprites behind them), and which line
 // of which character row each picture line shows.
 struct Layers {
-    std::array<bool, Picture::width * Picture::height> foreground{};
+    std::vector<bool> foreground; // picture width x height
+    bool foreground_at(int x, int y, int width) const {
+        return foreground[std::size_t(y * width + x)];
+    }
     // Character row * 8 + line within it, or -1 where no row is shown (idle
     // lines, the vertical border).
     std::array<std::int16_t, Picture::height> source_line{};
@@ -85,7 +98,13 @@ struct Layers {
 
 class TextFrame {
 public:
-    static constexpr int columns = 40, rows = 25;
+    static constexpr int standard_columns = 40, rows = 25;
+
+    explicit TextFrame(int columns = standard_columns);
+    int columns() const { return columns_; }
+    int width() const { return columns_ * 8; }
+    // Pixels left of the original window (0 for a standard frame).
+    int extension() const { return (columns_ - standard_columns) * 4; }
 
     struct Cell {
         Glyph glyph{};             // a copy, so frames can be kept and copied
@@ -106,6 +125,7 @@ public:
     // The byte the VIC shows on lines where no character row is active
     // ("idle" lines): the last byte of the video bank.
     void set_idle_pattern(std::uint8_t pattern) { idle_pattern_ = pattern; }
+    std::uint8_t idle_pattern() const { return idle_pattern_; }
 
     // Draws the cells line by line. Which character row and which of its
     // eight lines appear on a raster line follows the VIC-II's row
@@ -123,7 +143,8 @@ public:
     }
 
 private:
-    std::array<Cell, columns * rows> cells_{};
+    int columns_{standard_columns};
+    std::vector<Cell> cells_;
     std::array<LineSetup, Picture::height> lines_{};
     std::uint8_t idle_pattern_{};
     std::array<Sprite, 8> sprites_{};

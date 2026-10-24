@@ -76,6 +76,25 @@ std::array<Game::TankView, 6> Game::tank_views() const {
     return views;
 }
 
+std::array<Game::MineView, 39> Game::mine_views() const {
+    std::array<MineView, 39> views{};
+    for (std::size_t i = 0; i < mines_.size(); ++i) {
+        const auto& m = mines_[i];
+        views[i] = {(m.state & 0x0F) == 2, {m.column - 5, m.row}, (m.state >> 4) & 3};
+    }
+    return views;
+}
+
+std::array<Game::ShellView, 6> Game::shell_views() const {
+    std::array<ShellView, 6> views{};
+    for (std::size_t i = 0; i < missiles_.size(); ++i) {
+        const auto& m = missiles_[i];
+        views[i] = {m.state == 4 || m.state == 8, {m.column - 5, m.row},
+                    u8(m.state == 4 ? 0x71 : 0x72)};
+    }
+    return views;
+}
+
 std::string Game::debug_objects() const {
     std::string out = "mines";
     char item[48];
@@ -121,6 +140,7 @@ const c64::Picture& Game::tick(const Controls& controls, const Options& options)
     happenings_.impacts.clear();
     happenings_.tanks.clear();
     happenings_.mines.clear();
+    happenings_.shells.clear();
     top_ = vic_;
     const bool steps_now = scheduled_ && main_loop_running_ && !main_loop_starting_;
     if (steps_now) {

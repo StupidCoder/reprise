@@ -80,16 +80,24 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
 6. **Sound** — in progress: the game's SID effects (engine, shots,
    explosions, rescue, missiles, refuelling, fuel alarm, title tones) drive
    a register-level SID; not yet compared with the original's output.
-7. **Enhanced mode** — first version done: a presentation layer
-   (`src/fort_apocalypse_c64/enhanced`) draws the game's picture again
-   without the player's sprite and the tank characters (the VIC collisions
-   still come from the original picture) and adds smooth banking, rocking
-   tanks, impact and explosion debris, a tumbling turret and shot-down
-   mines that fall and blow up on the ground, resampled
-   RotSprite-style onto the C64's double-wide pixel grid. Checked on
-   rendered runs (`REPLAY_ENHANCED=1`); the original mode's comparisons are
-   unchanged.
-8. **Optional: loading screen** — the tape's U.S. Gold loading screen is a
+7. **Particle effects and smooth motion** — done, two options: a
+   presentation layer (`src/fort_apocalypse_c64/enhanced`) draws the game's
+   picture again (the VIC collisions still come from the original picture).
+   Smooth motion makes it a tilemap of the terrain with tanks, mines and
+   shells taken out and drawn as objects where the game has them now,
+   gliding (tanks rocking on the ground's slope), and the craft banking
+   smoothly; the rules keep the original's cells (objects stamp characters
+   into the map, collisions read them). Particle effects add the debris,
+   fire, tossed turrets and falling wrecks. Rotated art is resampled
+   RotSprite-style onto the C64's double-wide pixel grid; unrotated art is
+   copied as it is. Checked on rendered runs (`REPLAY_ENHANCED=1`, `=p`,
+   `=s`); the original mode's comparisons are unchanged.
+8. **Widescreen** — done: borderless, frames wider than 40 columns (the
+   rasteriser takes any width) filled from a wide copy of the map taken
+   with the original's window copy, one hidden column beyond each edge; the
+   enemy shown where the game hides it outside its own range. From the
+   original screen's shape with its border to 21:9.
+9. **Optional: loading screen** — the tape's U.S. Gold loading screen is a
    display script plus a music stream that also patches memory. It could
    play during import, read from the imported data (the music player is
    native code to rewrite; its stream is data).
@@ -118,6 +126,10 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
   project folder yet.
 - Only TAP v0/v1 is read; T64/D64/G64/PRG imports come with games that need them.
 - Android build not started.
-- Enhancements: the enemy-pilot fix and the enhanced mode so far. The
-  enhanced mode keeps no state in quick saves (effects restart on load) and
-  leaves the enemy helicopter's banking stepped.
+- Enhancements: the effects keep no state in quick saves (they restart on
+  load); the enemy helicopter's banking and the prisoners' running stay as
+  in the original. With smooth motion objects show where the game has them
+  now, while the craft's VIC collisions use the original picture, whose
+  copied screen lags up to 7 frames; touching may look slightly off.
+- Widescreen: shots are not seen past the original window (the game ends
+  them at its edges); not yet played in the app at full 21:9.

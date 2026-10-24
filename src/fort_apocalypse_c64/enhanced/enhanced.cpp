@@ -1,4 +1,5 @@
 #include "fort_apocalypse_c64/enhanced/enhanced.hpp"
+#include "fort_apocalypse_c64/enhanced/widescreen.hpp"
 #include <algorithm>
 #include <cmath>
 #include <numbers>
@@ -44,8 +45,15 @@ void EnhancedView::reset() {
     particles_.clear();
     wrecks_.clear();
     tanks_ = {};
+    mines_ = {};
+    shells_ = {};
     window_.reset();
     bank_ = -1;
+    craft_shape_ = -1;
+    craft_angle_ = 0;
+    was_crashing_ = false;
+    craft_at_.reset();
+    craft_velocity_ = {};
 }
 
 double EnhancedView::random(double low, double high) {
@@ -99,10 +107,15 @@ void EnhancedView::spawn_impact(const Game& game, const Game::ShotImpact& hit,
         uy = 1;
     }
     const double cx = hit.cell.column * 8 + 4 - ux * 4, cy = hit.cell.row * 8 + 4 - uy * 4;
+    spawn_hit_debris(game, hit.cell, hit.code, cx, cy, ux, uy, frame);
+}
+
+void EnhancedView::spawn_hit_debris(const Game& game, Game::MapCell cell, u8 code, double cx,
+                                    double cy, double ux, double uy, const c64::TextFrame& frame) {
     // Debris in the colours of what was hit.
     const auto window = game.shown_window();
-    const int screen_column = hit.cell.column - window.column;
-    const int screen_row = hit.cell.row - window.row + Game::window_first_row;
+    const int screen_column = cell.column - window.column;
+    const int screen_row = cell.row - window.row + Game::window_first_row;
     u8 cell_colour = 0x0D;
     if (screen_column >= 0 && screen_column < 40 && screen_row >= Game::window_first_row &&
         screen_row < 25) {
@@ -110,7 +123,7 @@ void EnhancedView::spawn_impact(const Game& game, const Game::ShotImpact& hit,
     }
     const auto& line = frame.line(c64::Picture::height - 1);
     Bitmap look(8, 8); // the colours only
-    draw_character(look, 0, 0, game.playfield_glyph(hit.code), cell_colour, line.shared1,
+    draw_character(look, 0, 0, game.playfield_glyph(code), cell_colour, line.shared1,
                    line.shared2);
     std::vector<u8> colours;
     for (u8 c : look.pixels) {
@@ -142,6 +155,58 @@ void EnhancedView::spawn_impact(const Game& game, const Game::ShotImpact& hit,
         p.fire = true;
         p.life = int(random(10, 20));
         particles_.push_back(p);
+    }
+}
+
+void EnhancedView::spawn_shell_burst(const Game& game, const Game::ShellBurst& shell,
+                                     const c64::TextFrame& frame) {
+    // A tank's shell flies flat; it bursts at its front.
+    const double ux = shell.direction, uy = 0;
+    const double cx = shell.cell.column * 8 + 4 + ux * 3, cy = shell.cell.row * 8 + 4;
+    spawn_hit_debris(game, shell.cell, shell.code, cx, cy, ux, uy, frame);
+    spawn_fire(cx, cy, 8, 1.8);
+}
+
+void EnhancedView::spawn_craft_wreck(const c64::TextFrame& frame, const Viewport& view,
+                                     const Game& game) {
+    (void)game;
+    const auto& s = frame.sprite(0);
+    const int shape = craft_shape_ >= 0 ? craft_shape_ : front_shape;
+    Wreck w;
+    w.craft_shape = shape;
+    w.bitmap = helicopter(assets_.helicopter[std::size_t(shape)], s.colour);
+    const double x = craft_at_ ? (*craft_at_)[0] : view.world_x(s.x - 24 + frame.extension() + 16);
+    const double y = craft_at_ ? (*craft_at_)[1] : view.world_y(s.y + 1 - 51 + 9);
+    w.x = x;
+    w.y = y;
+    w.angle = craft_angle_;
+    // It keeps its way, kicked up by the blast, and tumbles the way it goes.
+    w.vx = craft_velocity_[0] * 0.8 + random(-0.5, 0.5);
+    w.vy = std::min(craft_velocity_[1], 0.0) - random(1.8, 2.6);
+    w.spin = (w.vx < 0 ? -1 : 1) * random(0.015, 0.03);
+    w.radius = 6;
+    wrecks_.push_back(w);
+    // The explosion: much of the craft flies apart, with fire and sparks.
+    Bitmap pieces(32, data::SpriteShape::height);
+    for (int py = 0; py < pieces.height; ++py) {
+        for (int px = 0; px < pieces.width; ++px) {
+            pieces.put(px, py, w.bitmap.at(px / 2, py));
+        }
+    }
+    spawn_pieces(pieces, x - 16, y - 9, 0.8, x, y, 4.2);
+    for (int ring = 0; ring < 2; ++ring) {
+        for (int i = 0; i < 28; ++i) {
+            Particle p;
+            p.x = x + random(-4, 4);
+            p.y = y + random(-3, 3);
+            const double a = random(0, 2 * std::numbers::pi);
+            const double v = ring == 0 ? random(2.0, 4.5) : random(0.6, 2.0);
+            p.vx = std::cos(a) * v + w.vx * 0.3;
+            p.vy = std::sin(a) * v - 0.6;
+            p.fire = true;
+            p.life = int(ring == 0 ? random(18, 34) : random(30, 55));
+            particles_.push_back(p);
+        }
     }
 }
 
@@ -344,111 +409,156 @@ double EnhancedView::floor_slope(const Game& game, double left, double bottom) c
     return std::clamp(std::atan2(rise, span) / degrees, -10.0, 10.0);
 }
 
-std::vector<EnhancedView::ShownTank> EnhancedView::take_tanks(c64::TextFrame& frame,
-                                                               const Game& game) {
-    std::vector<ShownTank> shown;
-    const auto& screen = game.shown_screen();
+void EnhancedView::hide_objects(c64::TextFrame& frame, const Game& game,
+                                const ScreenCodes& codes) const {
     const auto window = game.shown_window();
-    const auto views = game.tank_views();
+    const int first_column = window.column - codes.extension; // the frame's column 0
     const auto& body = tables_.tank_characters;
+    const auto& mine = tables_.mine_characters;
+    const auto views = game.tank_views();
     auto is_turret = [](u8 code) { return code == Game::turret_left || code == Game::turret_right; };
-    for (int row = Game::window_first_row; row < 25; ++row) {
-        for (int column = 0; column + 2 < 40; ++column) {
-            const auto at = std::size_t(row * 40 + column);
-            if (screen[at] != body[0] || screen[at + 1] != body[1] || screen[at + 2] != body[2]) {
-                continue;
-            }
-            ShownTank t;
-            t.screen_column = column;
-            t.screen_row = row;
-            t.body = {body[0], body[1], body[2]};
-            if (row > Game::window_first_row && is_turret(screen[at - 40 + 1])) {
-                t.turret = screen[at - 40 + 1];
-            }
-            const Game::MapCell cell{window.column + column,
-                                     window.row + row - Game::window_first_row};
-            std::array<u8, 3> under{};
-            for (int i = 0; i < 6; ++i) {
-                const auto& v = views[std::size_t(i)];
-                if (v.on_map && !v.exploding && v.body.column == cell.column &&
-                    v.body.row == cell.row) {
-                    t.index = i;
-                    under = v.saved;
+    for (int row = Game::window_first_row; row < c64::TextFrame::rows; ++row) {
+        for (int column = 0; column < codes.columns; ++column) {
+            const u8 code = codes.at(column, row);
+            if (settings_.smooth) {
+                // Tanks and mines are drawn where they are, moving smoothly;
+                // what they cover shows instead.
+                const int k = int(std::find(body.begin(), body.end(), code) - body.begin());
+                if (k < 3) {
+                    u8 under = 0;
+                    for (const auto& v : views) {
+                        if (v.on_map && v.body.column + k == first_column + column &&
+                            v.body.row == window.row + row - Game::window_first_row) {
+                            under = v.saved[std::size_t(k)];
+                        }
+                    }
+                    frame.set_glyph(column, row, &game.playfield_glyph(under));
+                } else if (is_turret(code) || code == 0x71 || code == 0x72 ||
+                           (code != 0 && std::find(mine.begin(), mine.end(), code) != mine.end())) {
+                    frame.set_glyph(column, row, nullptr);
+                }
+            } else if (settings_.particles && is_turret(code)) {
+                // A turret without its tank under it was blown off: it flies
+                // as debris.
+                const bool on_tank = row + 1 < c64::TextFrame::rows && column > 0 &&
+                                     codes.at(column - 1, row + 1) == body[0] &&
+                                     codes.at(column, row + 1) == body[1];
+                if (!on_tank) {
+                    frame.set_glyph(column, row, nullptr);
                 }
             }
-            // The tank is drawn on its own; what it covers shows instead.
-            for (int k = 0; k < 3; ++k) {
-                frame.set_glyph(column + k, row, &game.playfield_glyph(under[std::size_t(k)]));
-            }
-            shown.push_back(t);
-            column += 2;
         }
     }
-    // Turrets go with their tank's picture; one without a tank under it was
-    // blown off and flies as debris.
-    for (int at = Game::window_first_row * 40; at < 1000; ++at) {
-        if (is_turret(screen[std::size_t(at)])) {
-            frame.set_glyph(at % 40, at / 40, nullptr);
-        }
-    }
-    return shown;
 }
 
-void EnhancedView::draw_tanks(const std::vector<ShownTank>& shown, const c64::TextFrame& frame,
-                              const Game& game, const Viewport& view, const Clip& clip) {
-    const auto window = game.shown_window();
-    for (const auto& t : shown) {
-        const int line_y = std::clamp(view.first_line() + 8 * (t.screen_row - Game::window_first_row),
-                                      0, c64::Picture::height - 1);
-        const auto& line = frame.line(line_y);
+void EnhancedView::draw_tanks(const c64::TextFrame& frame, const Game& game, const Viewport& view,
+                              const Clip& clip) {
+    const auto views = game.tank_views();
+    const auto& line = frame.line(std::clamp(view.last_line() - 1, 0, c64::Picture::height - 1));
+    for (std::size_t i = 0; i < views.size(); ++i) {
+        const auto& v = views[i];
+        auto& look_state = tanks_[i];
+        if (!v.on_map || v.exploding) {
+            look_state.column = -1;
+            continue;
+        }
         Bitmap look(12, 16, 2);
-        if (t.turret) {
-            draw_character(look, 4, 0, game.playfield_glyph(*t.turret),
-                           frame.cell(t.screen_column + 1, t.screen_row - 1).colour, line.shared1,
+        const u8 turret = game.map_code(v.body.column + 1, v.body.row - 1);
+        if (turret == Game::turret_left || turret == Game::turret_right) {
+            draw_character(look, 4, 0, game.playfield_glyph(turret), 0x0D, line.shared1,
                            line.shared2);
         }
         for (int k = 0; k < 3; ++k) {
-            draw_character(look, k * 4, 8, game.playfield_glyph(t.body[std::size_t(k)]),
-                           frame.cell(t.screen_column + k, t.screen_row).colour, line.shared1,
-                           line.shared2);
+            draw_character(look, k * 4, 8, game.playfield_glyph(tables_.tank_characters[std::size_t(k)]),
+                           0x0D, line.shared1, line.shared2);
         }
-        const int column = window.column + t.screen_column;
-        const int row = window.row + t.screen_row - Game::window_first_row;
-        double pitch = 0;
-        if (t.index >= 0) {
-            auto& look_state = tanks_[std::size_t(t.index)];
-            if (look_state.column != column || look_state.row != row) {
-                // A step onto the next cell jolts the body over a bump.
-                if (look_state.column >= 0) {
-                    look_state.spin += random(-1.6, 1.6);
-                }
-                look_state.column = column;
-                look_state.row = row;
-                look_state.target = floor_slope(game, column * 8, row * 8 + 8);
+        const double target = v.body.column * 8;
+        if (look_state.column < 0 || look_state.row != v.body.row ||
+            std::abs(target - look_state.x) > 24) {
+            look_state.x = target; // (re)appearing
+            look_state.pitch = look_state.spin = 0;
+        }
+        if (look_state.column != v.body.column || look_state.row != v.body.row) {
+            // A step onto the next cell jolts the body over a bump.
+            if (look_state.column >= 0) {
+                look_state.spin += random(-1.6, 1.6);
             }
-            // A damped spring about the ground's own slope.
-            look_state.spin += (look_state.target - look_state.pitch) * 0.08 - look_state.spin * 0.12;
-            look_state.pitch = std::clamp(look_state.pitch + look_state.spin, -12.0, 12.0);
-            pitch = look_state.pitch;
+            look_state.column = v.body.column;
+            look_state.row = v.body.row;
+            look_state.target = floor_slope(game, target, v.body.row * 8 + 8);
         }
+        // It rolls on towards its cell instead of jumping there.
+        look_state.x += std::clamp((target - look_state.x) * 0.25, -2.5, 2.5);
+        // A damped spring about the ground's own slope.
+        look_state.spin += (look_state.target - look_state.pitch) * 0.08 - look_state.spin * 0.12;
+        look_state.pitch = std::clamp(look_state.pitch + look_state.spin, -12.0, 12.0);
         // About the middle of its tracks.
-        const double wx = column * 8 + 12, wy = row * 8 + 8;
-        draw_rotated(picture_, look, 12, 16, view.picture_x(wx), view.picture_y(wy), pitch * degrees,
-                     view.grid_parity(), clip);
+        const double px = view.picture_x(look_state.x + 12);
+        draw_rotated(picture_, look, 12, 16, px, view.picture_y(v.body.row * 8 + 8),
+                     look_state.pitch * degrees, int(std::floor(px)) & 1, clip);
+    }
+}
+
+void EnhancedView::draw_shells(const c64::TextFrame& frame, const Game& game, const Viewport& view,
+                               const Clip& clip) {
+    const auto views = game.shell_views();
+    const auto& line = frame.line(std::clamp(view.last_line() - 1, 0, c64::Picture::height - 1));
+    for (std::size_t i = 0; i < views.size(); ++i) {
+        const auto& v = views[i];
+        auto& at = shells_[i];
+        if (!v.flying) {
+            at.reset();
+            continue;
+        }
+        // A cell a step, sideways and up or down: it glides there.
+        const std::array<double, 2> target{v.cell.column * 8.0, v.cell.row * 8.0};
+        if (!at || std::abs(target[0] - (*at)[0]) > 24 || std::abs(target[1] - (*at)[1]) > 24) {
+            at = target;
+        }
+        for (int k = 0; k < 2; ++k) {
+            (*at)[std::size_t(k)] +=
+                std::clamp((target[std::size_t(k)] - (*at)[std::size_t(k)]) * 0.25, -2.5, 2.5);
+        }
+        Bitmap look(4, 8, 2);
+        draw_character(look, 0, 0, game.playfield_glyph(v.look), 0x0D, line.shared1, line.shared2);
+        const double px = view.picture_x((*at)[0] + 4);
+        draw_rotated(picture_, look, 4, 4, px, view.picture_y((*at)[1] + 4), 0,
+                     int(std::floor(px)) & 1, clip);
+    }
+}
+
+void EnhancedView::draw_mines(const c64::TextFrame& frame, const Game& game, const Viewport& view,
+                              const Clip& clip) {
+    const auto views = game.mine_views();
+    const auto& line = frame.line(std::clamp(view.last_line() - 1, 0, c64::Picture::height - 1));
+    // The mine's first phase: its art in the left of the two characters.
+    Bitmap look(8, 8, 2);
+    for (int k = 0; k < 2; ++k) {
+        draw_character(look, k * 4, 0, game.playfield_glyph(tables_.mine_characters[std::size_t(k)]),
+                       0x0D, line.shared1, line.shared2);
+    }
+    for (std::size_t i = 0; i < views.size(); ++i) {
+        const auto& v = views[i];
+        auto& x = mines_[i];
+        if (!v.flying) {
+            x.reset();
+            continue;
+        }
+        // Each phase is two pixels on; it glides there instead.
+        const double target = v.cell.column * 8 + v.phase * 2;
+        if (!x || std::abs(target - x->first) > 16 || x->second != v.cell.row) {
+            x = std::pair{target, v.cell.row};
+        }
+        x->first += std::clamp((target - x->first) * 0.3, -1.2, 1.2);
+        const double px = view.picture_x(x->first + 8);
+        draw_rotated(picture_, look, 8, 4, px, view.picture_y(v.cell.row * 8 + 4), 0,
+                     int(std::floor(px)) & 1, clip);
     }
 }
 
 void EnhancedView::draw_craft(const c64::TextFrame& frame, const c64::Layers& layers,
                               const Game& game) {
     const auto& s = frame.sprite(0);
-    if (!s.shown || !game.craft_shown()) {
-        bank_ = -1;
-        return;
-    }
-    const int sprite_line = std::clamp(s.y - 51, 0, c64::Picture::height - 1);
-    if (!(frame.line(sprite_line).sprites & 1)) {
-        return; // the VIC would not start it
-    }
     const double target = game.craft_bank() >> 1;
     bank_ = bank_ < 0 ? target : bank_ + (target - bank_) * 0.3;
     if (std::abs(target - bank_) < 0.02) {
@@ -467,8 +577,8 @@ void EnhancedView::draw_craft(const c64::TextFrame& frame, const c64::Layers& la
     const auto look = helicopter(assets_.helicopter[std::size_t(shape)], s.colour);
     // VIC x 24 and y 51 are the window's top left; the sprite starts a line
     // below its y.
-    const int left = s.x - 24, top = s.y + 1 - 51;
-    Clip clip{0, c64::Picture::height, 0, c64::Picture::width, &layers};
+    const int left = s.x - 24 + frame.extension(), top = s.y + 1 - 51;
+    Clip clip{0, c64::Picture::height, 0, picture_.width, &layers};
     for (int y = 0; y < c64::Picture::height; ++y) {
         if (frame.line(y).covered) {
             clip.last_line = std::min(clip.last_line, y);
@@ -476,31 +586,71 @@ void EnhancedView::draw_craft(const c64::TextFrame& frame, const c64::Layers& la
     }
     if (frame.line(c64::Picture::height / 2).narrow) {
         clip.left = 7;
-        clip.right = c64::Picture::width - 9;
+        clip.right = picture_.width - 9;
     }
     draw_rotated(picture_, look, 16, 9, left + 16, top + 9, angle * degrees, left & 1, clip);
+    craft_shape_ = shape;
+    craft_angle_ = angle * degrees;
 }
 
-void EnhancedView::update(const Game& game) {
+bool EnhancedView::craft_on_screen(const c64::TextFrame& frame, const Game& game) const {
+    const auto& s = frame.sprite(0);
+    const int sprite_line = std::clamp(s.y - 51, 0, c64::Picture::height - 1);
+    // The VIC starts a sprite only if it is on in the line of its y.
+    return s.shown && game.craft_shown() && (frame.line(sprite_line).sprites & 1);
+}
+
+void EnhancedView::track_craft(const c64::TextFrame& frame, const Game& game, const Viewport& view) {
+    // Where it is, where it goes and how it looks, for a wreck.
+    const auto& s = frame.sprite(0);
+    if (!settings_.smooth) {
+        craft_shape_ = assets_.helicopter_tilt[std::min<u8>(game.craft_bank(), 17)];
+        craft_angle_ = 0;
+    }
+    const std::array<double, 2> at{view.world_x(s.x - 24 + frame.extension() + 16),
+                                   view.world_y(s.y + 1 - 51 + 9)};
+    if (craft_at_) {
+        for (int k = 0; k < 2; ++k) {
+            const double step = std::clamp(at[std::size_t(k)] - (*craft_at_)[std::size_t(k)], -4.0, 4.0);
+            craft_velocity_[std::size_t(k)] += (step - craft_velocity_[std::size_t(k)]) * 0.3;
+        }
+    }
+    craft_at_ = at;
+}
+
+void EnhancedView::update(const Game& game, const Settings& settings) {
+    settings_ = settings;
+    const int columns = std::max(0, settings.wide_columns);
     const auto& shown_frame = game.shown_frame();
     using game::Mode;
     const auto mode = game.mode();
-    if (mode != Mode::playing && mode != Mode::locked && mode != Mode::teleport &&
-        mode != Mode::paused) {
+    // The play's modes; a crash's last frame already has the next life's
+    // mode, with the crash still on screen.
+    const bool in_play = mode == Mode::playing || mode == Mode::locked ||
+                         mode == Mode::teleport || mode == Mode::paused || game.craft_crashing();
+    if ((!settings.particles && !settings.smooth) || !in_play) {
         // Texts and the title: the effects end with the play.
         reset();
-        picture_ = game.picture();
+        picture_ = columns ? wide_frame(game, columns).rasterise() : game.picture();
         return;
     }
     follow_window(game.shown_window());
-    for (const auto& hit : game.happenings().impacts) {
-        spawn_impact(game, hit, shown_frame);
-    }
-    for (const auto& tank : game.happenings().tanks) {
-        spawn_tank_debris(game, tank, shown_frame);
-    }
-    for (const auto& mine : game.happenings().mines) {
-        spawn_mine_wreck(game, mine, shown_frame);
+    if (settings.particles) {
+        for (const auto& hit : game.happenings().impacts) {
+            spawn_impact(game, hit, shown_frame);
+        }
+        for (const auto& tank : game.happenings().tanks) {
+            spawn_tank_debris(game, tank, shown_frame);
+        }
+        for (const auto& mine : game.happenings().mines) {
+            spawn_mine_wreck(game, mine, shown_frame);
+        }
+        for (const auto& shell : game.happenings().shells) {
+            spawn_shell_burst(game, shell, shown_frame);
+        }
+    } else {
+        particles_.clear();
+        wrecks_.clear();
     }
     if (mode != Mode::paused) {
         move_particles(game);
@@ -508,31 +658,53 @@ void EnhancedView::update(const Game& game) {
     }
 
     // The picture again, without what is drawn anew.
-    c64::TextFrame frame = shown_frame;
-    const auto tanks = take_tanks(frame, game);
-    auto craft = frame.sprite(0);
-    const bool own_craft = craft.shown && game.craft_shown();
-    if (own_craft) {
-        craft.drawn = false;
+    c64::TextFrame frame = wide_frame(game, columns);
+    hide_objects(frame, game, screen_codes(game, columns));
+    const bool crashing = game.craft_crashing();
+    const bool craft_shown = craft_on_screen(frame, game);
+    // Smooth motion draws the flying craft; particle effects its wreck.
+    const bool own_craft =
+        craft_shown && ((settings.smooth && !crashing) || (settings.particles && crashing));
+    if (craft_shown) {
+        auto craft = frame.sprite(0);
+        craft.drawn = !own_craft;
         frame.set_sprite(0, craft);
     }
     c64::Layers layers;
     picture_ = frame.rasterise(nullptr, &layers);
     const auto window = game.shown_window();
-    const Viewport view(layers, window.column, window.row, Game::window_first_row, frame);
+    const Viewport view(layers, window.column - columns, window.row, Game::window_first_row, frame);
     if (!view.valid()) {
         return; // no playfield on screen (title, texts)
     }
-    if (own_craft) {
-        draw_craft(frame, layers, game);
+    if (!craft_shown || crashing) {
+        bank_ = -1;
+    }
+    if (settings.particles && crashing && !was_crashing_) {
+        spawn_craft_wreck(frame, view, game);
+    }
+    was_crashing_ = crashing;
+    if (craft_shown && !crashing) {
+        if (settings.smooth) {
+            draw_craft(frame, layers, game);
+        }
+        track_craft(frame, game, view);
     }
     const Clip clip{view.first_line(), view.last_line(), view.left(), view.right(), nullptr};
-    draw_tanks(tanks, frame, game, view, clip);
+    if (settings.smooth) {
+        draw_tanks(frame, game, view, clip);
+        draw_mines(frame, game, view, clip);
+        draw_shells(frame, game, view, clip);
+    }
     for (const auto& t : wrecks_) {
         if (!t.explodes && t.age > 220 && (t.age & 2)) {
             continue; // blinking out
         }
-        draw_rotated(picture_, t.bitmap, t.bitmap.width * t.bitmap.pixel_width / 2.0,
+        const Bitmap look = t.craft_shape >= 0
+                                ? helicopter(assets_.helicopter[std::size_t(t.craft_shape)],
+                                             frame.sprite(0).colour) // it keeps flashing
+                                : t.bitmap;
+        draw_rotated(picture_, look, t.bitmap.width * t.bitmap.pixel_width / 2.0,
                      t.bitmap.height / 2.0, view.picture_x(t.x), view.picture_y(t.y), t.angle,
                      view.grid_parity(), clip);
     }

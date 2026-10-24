@@ -193,6 +193,8 @@ int run(const Options& options) {
                                        controls.right, controls.fire, controls.f1,
                                        controls.f3,   controls.f5,   controls.f7,
                                        controls.c64_space};
+            const auto canvas = host.canvas_size();
+            game->set_canvas(canvas[0], canvas[1]);
             game_clock = std::max(game_clock, now - 4 * game->step_seconds());
             while (game_clock + game->step_seconds() <= now && game->stopped().empty()) {
                 game->tick(input);
