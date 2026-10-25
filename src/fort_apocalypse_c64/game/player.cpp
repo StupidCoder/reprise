@@ -364,7 +364,7 @@ void Game::terrain_contact() {
             craft_ = Craft::flying;
             return;
         }
-        crash_timer_ = 0x1E;
+        crash_timer_ = crash_frames;
         sound_explosion();
         craft_ = Craft::crashing;
     };

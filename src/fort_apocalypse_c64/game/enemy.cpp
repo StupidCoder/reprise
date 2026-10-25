@@ -234,7 +234,10 @@ void Game::enemy_visibility() {
     }
     enemy_.y = u8(y + enemy_.sub_y);
     u8 state = 3;
-    const u8 s = sprite_hits_, b = background_hits_;
+    // The VIC counts the rock's pair-01 pixels (most of it) as background,
+    // so in the original the enemy flies through much of the rock unharmed;
+    // the fixed pilot crashes on any of it.
+    const u8 s = sprite_hits_, b = options_.fixed_enemy_climb ? graphics_hits_ : background_hits_;
     const bool shot = (s & 2) && (s & 0x0C) && !(s & 1);
     if (((b & 2) || shot) && enemy_.state != 4) {
         state = 4;

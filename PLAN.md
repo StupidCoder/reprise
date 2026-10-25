@@ -86,10 +86,13 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
    Smooth motion makes it a tilemap of the terrain with tanks, mines and
    shells taken out and drawn as objects where the game has them now,
    gliding (tanks rocking on the ground's slope, mines with their own
-   animation and a wobble), the fuel depots and the landing pad sinking
-   smoothly, and the craft banking smoothly; the rules keep the original's cells (objects stamp characters
+   animation and a wobble, the men running), the fuel depots and the
+   landing pad sinking smoothly, tanks that come back rising out of the
+   ground, and the craft banking smoothly; the rules keep the original's cells (objects stamp characters
    into the map, collisions read them). Particle effects add the debris,
-   fire, tossed turrets and falling wrecks. Rotated art is resampled
+   fire, tossed turrets and falling wrecks; wrecks bounce off the
+   landscape by its surface direction (pushed out of rock they start in),
+   and both helicopters leave one. Rotated art is resampled
    RotSprite-style onto the C64's double-wide pixel grid; unrotated art is
    copied as it is. Checked on rendered runs (`REPLAY_ENHANCED=1`, `=p`,
    `=s`); the original mode's comparisons are unchanged.
@@ -101,7 +104,10 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
    it: a shot past the window's left edge takes its real column (the
    original's $A341 subtracts unsigned, so there it tests cells 53-63
    columns to its right), and sprites past the left edge show there.
-9. **Optional: loading screen** — the tape's U.S. Gold loading screen is a
+9. **VHS tape look** — done: a shared CPU filter (`src/ui/vhs.cpp`, about
+   3-4 ms a frame at twice the picture's size) with four levels, an option
+   of the pause menu. Previews with `REPLAY_VHS=<1-4>` and `REPLAY_PNG`.
+10. **Optional: loading screen** — the tape's U.S. Gold loading screen is a
    display script plus a music stream that also patches memory. It could
    play during import, read from the imported data (the music player is
    native code to rewrite; its stream is data).
@@ -135,5 +141,13 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
   in the original. With smooth motion objects show where the game has them
   now, while the craft's VIC collisions use the original picture, whose
   copied screen lags up to 7 frames; touching may look slightly off.
+- Crash hold (particle effects): the game itself waits on the crash's last
+  frame while the wreck settles (its SID voices gated off); from the
+  crash's first frame a copy of the game is shown (the crashed craft put
+  where the wreck is, so its camera follows it; the HUD from the real game)
+  and is dropped. Not yet tried with the
+  enemy or shells hitting things in that copy (their effects show, their
+  outcome is lost).
+- VHS tape: not tried in the app's window yet (rendered previews only).
 - Widescreen: shots are not seen past the original window (the game ends
   them at its edges); not yet played in the app at full 21:9.

@@ -59,6 +59,9 @@ bool Game::debug_poke(std::uint16_t address, u8 value) {
     case 0x6E: enemy_.state = value; return true;
     case 0x76: enemy_.column = value; return true;
     case 0x77: enemy_.row = value; return true;
+    case 0xBE: case 0xBF: case 0xC0: case 0xC1: case 0xC2: case 0xC3:
+        tanks_[std::size_t(address - 0xBE)].state = value; // $BE,X
+        return true;
     default: return false;
     }
 }
@@ -101,6 +104,15 @@ std::vector<Game::MapCell> Game::depot_cells() const {
         return {{0x82 - 5, 0x0B}};
     }
     return {{0x17 - 5, 0x0B}, {0xEE - 5, 0x0B}};
+}
+
+std::array<Game::PrisonerView, 8> Game::prisoner_views() const {
+    std::array<PrisonerView, 8> views{};
+    for (std::size_t i = 0; i < prisoners_.size(); ++i) {
+        const auto& p = prisoners_[i];
+        views[i] = {p.state != 1, {p.column - 5, p.row}, (p.motion & 0x80) != 0}; // running or boarding
+    }
+    return views;
 }
 
 std::string Game::debug_objects() const {
@@ -311,7 +323,8 @@ void Game::hud_interrupt() {
     vic_.sprites = 1;
     sprite_hits_ = latched_sprite_hits_; // reading the latches clears them
     background_hits_ = latched_background_hits_;
-    latched_sprite_hits_ = latched_background_hits_ = 0;
+    graphics_hits_ = latched_graphics_hits_;
+    latched_sprite_hits_ = latched_background_hits_ = latched_graphics_hits_ = 0;
     camera();
     if (!interrupt_cut_short_) {
         draw_counters();
@@ -836,8 +849,8 @@ void Game::finish_life_start(int stage) {
         // the craft appears and play begins.
         craft_ = Craft::appearing;
         mode_ = Mode::playing;
-        sprite_hits_ = background_hits_ = 0;
-        latched_sprite_hits_ = latched_background_hits_ = 0;
+        sprite_hits_ = background_hits_ = graphics_hits_ = 0;
+        latched_sprite_hits_ = latched_background_hits_ = latched_graphics_hits_ = 0;
         sound_engine_on();
         return;
     }
@@ -980,7 +993,7 @@ void Game::teleport_land() {
     x_ = p.sprite_x;
     y_ = p.sprite_y;
     bank_ = 8;
-    background_hits_ = 0;
+    background_hits_ = graphics_hits_ = 0;
     mode_ = Mode::playing;
 }
 

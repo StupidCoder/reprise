@@ -10,6 +10,8 @@
 #include "app/launcher.hpp"
 #include "app/library.hpp"
 #include "app/pause_menu.hpp"
+#include "app/saved_options.hpp"
+#include "platform/files.hpp"
 #include "ui/draw.hpp"
 #include "platform/host.hpp"
 #include <algorithm>
@@ -55,8 +57,8 @@ Options parse(int argc, char** argv) {
 }
 
 int run(const Options& options) {
-    app::Library library(options.data ? *options.data : platform::data_directory(),
-                         app::catalog());
+    const auto data = options.data ? *options.data : platform::data_directory();
+    app::Library library(data, app::catalog());
 
     if (options.import_image) {
         const auto outcome = library.import(*options.import_image, std::nullopt);
@@ -110,23 +112,29 @@ int run(const Options& options) {
     app::PauseMenu menu;
     double game_clock = 0, sample_credit = 0;
     std::vector<float> audio;
-    // A game's options stay as the player set them while the app runs.
-    std::map<std::string, std::vector<int>> chosen;
+    // A game's options stay as the player set them, also for the next
+    // launch: written to the data folder when they change.
+    const auto options_folder = data / "options";
+    std::map<std::string, std::string> written; // per game, what its file holds
+    auto options_file = [&] { return options_folder / (library.games()[playing].id + ".txt"); };
     auto remember_options = [&](const app::GameModule& module) {
-        auto& values = chosen[library.games()[playing].id];
-        values.clear();
-        for (const auto& o : module.options()) {
-            values.push_back(o.value);
+        const auto text = app::options_text(module);
+        auto& last = written[library.games()[playing].id];
+        if (text == last) {
+            return;
+        }
+        try {
+            std::filesystem::create_directories(options_folder);
+            platform::write_text(options_file(), text);
+            last = text;
+        } catch (const std::exception&) {
+            // Not written (a read-only data folder): the choices last only
+            // until the game is started again.
         }
     };
     auto restore_options = [&](app::GameModule& module) {
-        const auto it = chosen.find(library.games()[playing].id);
-        if (it == chosen.end()) {
-            return;
-        }
-        for (std::size_t i = 0; i < it->second.size(); ++i) {
-            module.set_option(i, it->second[i]);
-        }
+        app::restore_options(module, options_file());
+        written[library.games()[playing].id] = app::options_text(module);
     };
     while (true) {
         const auto controls = host.poll();

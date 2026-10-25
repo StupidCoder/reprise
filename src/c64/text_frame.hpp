@@ -80,6 +80,9 @@ struct Sprite {
 // single-colour 1 bits), counted under the border too, as the chip does.
 struct Collisions {
     std::uint8_t sprite_sprite{}, sprite_background{};
+    // Not a VIC register: sprites over any graphics pixel, also multicolour
+    // pair 01 (which the VIC counts as background), for enhancements.
+    std::uint8_t sprite_graphics{};
 };
 
 // What a picture is made of, for layers drawn on top of it: which pixels

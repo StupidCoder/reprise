@@ -43,10 +43,24 @@ private:
     std::unique_ptr<Game> game_, saved_;
     Options options_;
     bool particles_{}, smooth_{}, widescreen_{};
+    // With particle effects, a crash's last frame holds until the wreck has
+    // come to rest (or fire or the space bar is pressed): the game waits.
+    // From the crash's first frame a copy of the game is shown instead,
+    // playing on (tanks, mines, the enemy, the men) with the crash kept open
+    // and its camera following the wreck; it is dropped when the real game
+    // goes on: the next life starts with "GET READY", where the real game's
+    // world takes over.
+    bool holding_{}, held_this_crash_{}, hold_button_{}, after_hold_{}, skip_{};
+    int hold_frames_{};
+    std::unique_ptr<Game> world_;
+    // The VHS tape look's level (0 = off) and the frames it animates by.
+    int vhs_{};
+    long frames_{};
     enhanced::EnhancedView enhanced_;
     enhanced::WideSize wide_{};
     c64::Picture shown_{};
     void draw();
+    void crash_tick(const app::GameInput&, bool pressed);
     std::vector<float> mono_;
 };
 

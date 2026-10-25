@@ -103,6 +103,10 @@ int main(int argc, char** argv) {
             game.set_canvas(std::stoi(size.substr(0, x)), std::stoi(size.substr(x + 1)));
         }
         std::vector<long> snapshots;
+        // REPLAY_VHS=<level>: the VHS tape look (1-4) in those pictures.
+        if (const char* v = std::getenv("REPLAY_VHS")) {
+            game.set_option(4, std::atoi(v));
+        }
         if (const char* v = std::getenv("REPLAY_PNG")) {
             std::stringstream list(v);
             for (std::string item; std::getline(list, item, ',');) {

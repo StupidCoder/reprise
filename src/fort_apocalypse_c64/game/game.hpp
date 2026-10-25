@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -127,7 +128,7 @@ public:
     // For comparisons with the original: set a value under its zero-page
     // address (the craft's checkpoint $5D-$63, level $5C, fuel $9B/$9C, men
     // left $EB, lives $F9, fort $ED, the enemy's state $6E, column $76 and
-    // row $77), as the reference harness pokes RAM.
+    // row $77, the tanks' states $BE-$C3), as the reference harness pokes RAM.
     // Returns false for addresses it does not know.
     bool debug_poke(std::uint16_t address, u8 value);
     c64::Sid& sid() { return sid_; }
@@ -172,6 +173,8 @@ public:
     const std::array<u8, 1000>& shown_screen() const { return shown_screen_; }
     MapCell shown_window() const { return shown_window_; }
     static constexpr int window_first_row = 9;
+    // Display lines above the playfield's split (raster $77): the HUD.
+    static constexpr int hud_lines = 0x77 - 51;
     // The map as the game addresses it, and the playfield characters now.
     u8 map_code(int column, int row) const { return map_at(row * 256 + column); }
     const c64::Glyph& playfield_glyph(u8 code) const { return glyphs_[code & 0x7F]; }
@@ -194,6 +197,12 @@ public:
         u8 look{};        // its character, by the way it flies
     };
     std::array<ShellView, 6> shell_views() const;
+    struct PrisonerView {
+        bool running{};   // or boarding: he shows until he is taken in
+        MapCell feet;     // his lower cell (the torso is the one above)
+        bool left{};      // running left
+    };
+    std::array<PrisonerView, 8> prisoner_views() const;
     // The fuel depots: their left top cell, and the stage of their sinking
     // last drawn (4 standing up, 0 sunk; $ACD5).
     std::vector<MapCell> depot_cells() const;
@@ -223,12 +232,37 @@ public:
     // The last picture had the playfield part (rows 9-24 show the map).
     bool shown_playfield() const { return split_active_; }
     bool enemy_hidden() const { return enemy_.sprite == 1; }
+    bool enemy_exploding() const { return enemy_.state == 4; }
     // The turret character above a tank's middle, by where it points.
     static constexpr u8 turret_left = 0x70, turret_right = 0x6F;
     // The craft's bank step (0-17; bit 0 the rotor's frame).
     u8 craft_bank() const { return bank_; }
     bool craft_shown() const { return craft_ != Craft::inactive; }
     bool craft_crashing() const { return craft_ == Craft::crashing; }
+    // Frames of the crash still to go ($3F; the HUD interrupt counts it).
+    static constexpr int crash_frames = 0x1E; // a crash's length
+    // For a copy the effects show during a crash (while the real game runs
+    // it and then waits on its last frame): the crash does not end, the rest
+    // plays on. The crashed craft is put where its wreck is (the sprite
+    // position the game would give it, VIC coordinates), so the camera
+    // follows the wreck by its own rules; without one (it burst) the craft
+    // stays inside the camera's still zone ($A64D), so the camera rests.
+    void prolong_crash(const std::optional<std::array<int, 2>>& wreck_sprite) {
+        if (!craft_crashing()) {
+            return;
+        }
+        crash_timer_ = 2;
+        if (wreck_sprite) {
+            x_ = u8(std::clamp((*wreck_sprite)[0] / 2 + 0x24, 0, 255));
+            y_ = u8(std::clamp((*wreck_sprite)[1] - 0x16, 0, 255));
+        } else {
+            // (One line above its lower edge: the crash still sinks it by
+            // one every other frame.)
+            x_ = std::clamp<u8>(x_, 0x6E, 0x82);
+            y_ = std::clamp<u8>(y_, 0x92, 0xA5);
+        }
+    }
+    int crash_frames_left() const { return crash_timer_; }
 
 private:
     // --- frame -------------------------------------------------------------------
@@ -454,6 +488,9 @@ private:
     // The VIC's collision latches, as read by the interrupt ($68, $73).
     u8 sprite_hits_{}, background_hits_{};
     u8 latched_sprite_hits_{}, latched_background_hits_{};
+    // Sprites over any rock pixel, also those the VIC counts as background
+    // (for the fixed enemy pilot).
+    u8 graphics_hits_{}, latched_graphics_hits_{};
 
     struct Bullet {
         u8 state{}; // 0 free, 1-5 flying (direction), 7 splash

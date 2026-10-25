@@ -26,8 +26,8 @@ target_include_directories(platform PUBLIC ${SOURCE_ROOT})
 target_link_libraries(platform PUBLIC SDL3::SDL3)
 target_compile_options(platform PRIVATE ${PROJECT_WARNINGS})
 
-# --- ui: the launcher's drawing kit --------------------------------------------
-add_library(ui src/ui/draw.cpp)
+# --- ui: the launcher's drawing kit and shared picture filters --------------------------------------------
+add_library(ui src/ui/draw.cpp src/ui/vhs.cpp)
 target_include_directories(ui PUBLIC ${SOURCE_ROOT})
 target_compile_options(ui PRIVATE ${PROJECT_WARNINGS})
 
@@ -60,7 +60,7 @@ add_library(fort_apocalypse_c64
     src/fort_apocalypse_c64/import/novaload.cpp
     src/fort_apocalypse_c64/import/tape_import.cpp)
 target_include_directories(fort_apocalypse_c64 PUBLIC ${SOURCE_ROOT})
-target_link_libraries(fort_apocalypse_c64 PUBLIC c64 platform)
+target_link_libraries(fort_apocalypse_c64 PUBLIC c64 platform ui)
 target_compile_options(fort_apocalypse_c64 PRIVATE ${PROJECT_WARNINGS})
 
 # --- joyport: the launcher application -----------------------------------------
@@ -69,8 +69,9 @@ add_executable(joyport
     src/app/catalog.cpp
     src/app/library.cpp
     src/app/launcher.cpp
-    src/app/pause_menu.cpp)
-target_link_libraries(joyport PRIVATE ui fort_apocalypse_c64)
+    src/app/pause_menu.cpp
+    src/app/saved_options.cpp)
+target_link_libraries(joyport PRIVATE fort_apocalypse_c64 ui)
 target_compile_options(joyport PRIVATE ${PROJECT_WARNINGS})
 
 # --- tools ---------------------------------------------------------------------

@@ -106,7 +106,7 @@ Picture TextFrame::rasterise(Collisions* collisions, Layers* layers) const {
 
         // Graphics: colour and foreground flag per display pixel.
         std::vector<std::uint8_t> colours(std::size_t(width), line.background);
-        std::vector<bool> foreground(colours.size());
+        std::vector<bool> foreground(colours.size()), graphics(colours.size());
         std::fill_n(colours.begin(), std::clamp(line.background_from_x, 0, width),
                     line.background_before);
         if (in_window && !line.covered) {
@@ -129,12 +129,14 @@ Picture TextFrame::rasterise(Collisions* collisions, Layers* layers) const {
                                                     std::uint8_t(cell_colour & 7)};
                     colours[std::size_t(x)] = by_pair[pair];
                     foreground[std::size_t(x)] = pair >= 2;
+                    graphics[std::size_t(x)] = pair != 0;
                 } else {
                     const bool set = bits >> (7 - px) & 1;
                     colours[std::size_t(x)] = set ? std::uint8_t(cell_colour & 15)
                                               : x < line.background_from_x ? line.background_before
                                                                            : line.background;
                     foreground[std::size_t(x)] = set;
+                    graphics[std::size_t(x)] = set;
                 }
             }
         }
@@ -178,6 +180,9 @@ Picture TextFrame::rasterise(Collisions* collisions, Layers* layers) const {
                 const bool fg = on_graphics && foreground[std::size_t(dx)];
                 if (fg) {
                     found.sprite_background |= h;
+                }
+                if (on_graphics && graphics[std::size_t(dx)]) {
+                    found.sprite_graphics |= h;
                 }
                 const auto& s = sprites_[std::size_t(winner[std::size_t(x)])];
                 if (on_graphics && s.drawn && (!s.behind_foreground || !fg)) {

@@ -204,7 +204,7 @@ void Game::render() {
         // $77 at cycle 7-11, its colours in raster $7F before the display
         // starts. (Its first write, $D022/$D023 = 0 at the end of raster $76,
         // only reaches the right part of that line, which is blank in play.)
-        constexpr int split = 0x77 - 51, colours = 0x7F - 51, bottom = 247 - 51;
+        constexpr int split = hud_lines, colours = 0x7F - 51, bottom = 247 - 51;
         auto first = setup(split_);
         first.yscroll_before = top_.yscroll;
         frame.set_lines(split, split + 1, first);
@@ -261,6 +261,7 @@ void Game::render() {
     shown_wide_enemy_ = wide_enemy_;
     latched_sprite_hits_ |= hits.sprite_sprite;
     latched_background_hits_ |= hits.sprite_background;
+    latched_graphics_hits_ |= hits.sprite_graphics;
 }
 
 } // namespace fort_apocalypse::game
