@@ -49,6 +49,7 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
 | Cannon Fodder | Amiga | — | planned |
 | Rock 'n Roll | Amiga | — | planned |
 | Wings of Fury | Amiga | — | planned |
+| Tower of Babel | Amiga | — | planned; original interpretive shell cover added, importer and gameplay not implemented |
 
 ## Fort Apocalypse (C64) milestones
 

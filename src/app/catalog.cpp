@@ -20,6 +20,8 @@ std::vector<GameEntry> catalog() {
          .media = "the disk images (ADF)"},
         {.id = "rock_n_roll_amiga", .title = "Rock 'n Roll", .machine = Machine::amiga,
          .media = "the disk image (ADF)"},
+        {.id = "tower_of_babel_amiga", .title = "Tower of Babel", .machine = Machine::amiga,
+         .media = "the disk image (ADF)"},
         {.id = "wings_of_fury_amiga", .title = "Wings of Fury", .machine = Machine::amiga,
          .media = "the disk image (ADF)"},
     };
