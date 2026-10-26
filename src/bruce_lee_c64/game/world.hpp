@@ -107,6 +107,9 @@ public:
     std::uint32_t score{};   // $41-$43, 24 bits
     std::uint8_t lives{};    // $28 ("FALLS")
     std::array<std::uint8_t, 3> flame_timers{}; // $0101-$0103
+    // Not the original's: deaths by deadly cells and fireballs per actor,
+    // counted for the presentation layer (the gore option).
+    std::array<std::uint32_t, 3> hazard_deaths{};
     std::array<std::uint8_t, 3> fall_hits{};    // $4F52: landing-on hits left
     std::uint8_t fall_hit_refresh{};            // $4EF9
     std::array<std::int8_t, 5> sprite_owner{};  // $4F4D: actor per sprite (-1 none)
@@ -136,6 +139,12 @@ public:
     std::uint8_t band_counter{};      // $44 as $3181 finds it (observed 0)
     std::uint8_t blink{};        // $43AA: the "1UP" blink timer
     std::uint8_t collision_latch{}; // the VIC's sprite-sprite register (read clears)
+    // Cheats (pause menu; not in the original): a lost fall is not counted;
+    // the Ninja's and the Yamo's hits on Bruce are ignored (they still strike).
+    struct Cheats {
+        bool infinite_lives{};
+        bool harmless_enemies{};
+    } cheats;
     // Frame counters ($7F, and $80/$81 every 256 frames) and the idle count
     // ($82): only the random numbers read them.
     std::uint8_t frames_low{};

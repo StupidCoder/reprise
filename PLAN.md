@@ -207,9 +207,36 @@ Notes: `.analysis/bruce_lee_c64/` (`disk.md` loader and protection,
    from a view of the game's variables (`random_source.cpp`): 95.5 % of the
    bytes the draws read equal the recorded ones at pass starts; the native
    demo follows the original's.
-7. **Enhancements** — started: smooth motion, particle effects (blows,
-   lanterns, crumbling floors, fireball embers), VHS look; all off by
-   default (`src/bruce_lee_c64/enhanced`).
+7. **Enhancements** — smooth motion (actors, fireballs, the lift a row at
+   a time), particle effects (blows, lanterns, crumbling floors with
+   crawling cracks, fireball embers), light effects (lantern glow following
+   its flame, in-between flame frames, hit flash), gore (defeated enemies
+   and deaths by deadly cells or fireballs burst, Bruce hidden while he
+   dies; `World::hazard_deaths` counts those for the presentation layer;
+   pieces land on pixel pair 01, the terrain probe's ground), widescreen
+   (`enhanced/wide_view.cpp`: each side shows the room behind a door on
+   that edge, or one whose facing door leads here, from a copy of the world
+   entered empty and run 8 passes, dimmed one palette step; each door pair
+   is an anchor (Bruce's y here, dy; exact from the return exit's place
+   where the other room has a door back, else door row x 8 + 26) and the height follows Bruce's y
+   between anchors, eased, so it meets whichever door he takes (room 8's
+   two west doors are 128 lines apart, room 7's 64); exits scroll 20 frames, to the glimpsed
+   place when the new room was beside, else a playfield height for falls),
+   VHS look; all off by default
+   (`src/bruce_lee_c64/enhanced`). Preview: `bruce_lee_replay effects
+   <content> <script> <frames> <out> <room> <first saved frame>` (all
+   upgrades on, Bruce put into the room; `BL_WIDE=<width>` for the
+   widescreen view, `BL_FALL_TO=<room>` fakes a fall 60 frames in,
+   `BL_TRACE_BRUCE=1`, `BL_TRACE_CRUMBLES=1`,
+   `BL_TRACE_DEATHS=1`; deaths walking right in rooms 8, 9, 12, 16, left
+   in 5, 13, 17; standing in room 18 for a fireball). Cheats
+   page: infinite lives, enemy hits don't count. Preview `BL_AT=x,y` puts
+   Bruce at a place on the jump (seams of rooms 7/8 checked to the pixel
+   at their upper doors). Widescreen not yet
+   checked on a real fall or climb (only the faked one), nor with two
+   players. `run` takes `BL_CANVAS=w,h`. Still only ideas: movers
+   and sliders scrolling smoothly, room 18's flashing as a glow, room 19's
+   colour wave, softer sky bands, sprite outlines.
 
 ## Open items
 

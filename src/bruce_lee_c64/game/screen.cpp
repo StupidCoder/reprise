@@ -150,7 +150,8 @@ c64::Sprite pose_sprite(const data::Pose& pose) {
 c64::TextFrame world_frame(const World& world, const SpritePlaces* places) {
     const auto& assets = world.assets;
     const auto& room = assets.rooms[std::size_t(world.room)];
-    const auto& charset = world.charsets[std::size_t(world.charset_index())];
+    const auto& charset = places && places->charset ? *places->charset
+                                                    : world.charsets[std::size_t(world.charset_index())];
     c64::TextFrame frame;
     for (int row = 0; row < Playfield::rows; ++row) {
         for (int column = 0; column < Playfield::columns; ++column) {
@@ -164,7 +165,7 @@ c64::TextFrame world_frame(const World& world, const SpritePlaces* places) {
     // left; the second layer of some frames likewise), y = y + $1D.
     for (int slot = 0; slot < 3; ++slot) {
         const Actor& a = world.actors.slots[std::size_t(slot)];
-        if (!a.present()) {
+        if (!a.present() || (places && places->hidden[std::size_t(slot)])) {
             continue;
         }
         const auto codes = a.sprite_codes;
@@ -190,6 +191,9 @@ c64::TextFrame world_frame(const World& world, const SpritePlaces* places) {
             }
             if (force_black) {
                 sprite.colour = 0;
+            }
+            if (places && places->actor_colour[std::size_t(slot)]) {
+                sprite.colour = *places->actor_colour[std::size_t(slot)];
             }
             frame.set_sprite(assets.sprite_slot_of_code[std::size_t(code - 3)], sprite);
         };

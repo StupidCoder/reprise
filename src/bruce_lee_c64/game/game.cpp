@@ -394,8 +394,10 @@ void Game::play_tick(const app::GameInput& in) {
                     options.yamo_player = false;
                     world.clock = 0x20;
                     effects_.request(sid_, sound_give_up);
-                    world.lives = world.lives >= 5 ? std::uint8_t(world.lives - 5) : 0;
-                    other_player_.lives = other_player_.lives >= 5 ? std::uint8_t(other_player_.lives - 5) : 0;
+                    if (!world.cheats.infinite_lives) {
+                        world.lives = world.lives >= 5 ? std::uint8_t(world.lives - 5) : 0;
+                        other_player_.lives = other_player_.lives >= 5 ? std::uint8_t(other_player_.lives - 5) : 0;
+                    }
                     world.draw_status();
                     yamo_idle_ = 0;
                 }

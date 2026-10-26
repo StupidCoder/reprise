@@ -879,6 +879,7 @@ void World::script_room_18() {
         const std::uint8_t collisions = collision_latch; // $D01E
         collision_latch = 0;
         if ((collisions & 0x03) && (collisions & 0xC0) && bruce.move != move::dying) {
+            ++hazard_deaths[0];
             bruce.move = move::dying; // $406A
             bruce.step = 0x10;
         }

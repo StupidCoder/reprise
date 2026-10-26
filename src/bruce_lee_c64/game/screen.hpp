@@ -32,6 +32,11 @@ class World;
 struct SpritePlaces {
     std::array<std::optional<std::array<double, 2>>, 3> actors;
     std::array<std::optional<std::array<double, 2>>, 2> fireballs;
+    // An actor's sprites drawn in one colour (the hit flash), and the room
+    // charset to draw with (the smooth lift's glyphs).
+    std::array<std::optional<std::uint8_t>, 3> actor_colour;
+    std::array<bool, 3> hidden{}; // not drawn (burst into pieces)
+    const data::Charset* charset{};
 };
 // The play screen drawn from a game in progress: the playfield, the colour
 // bands and the actors' sprites ($25CF).

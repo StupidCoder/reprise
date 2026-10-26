@@ -54,6 +54,8 @@
 #include "bruce_lee_c64/game/module.hpp"
 #include "bruce_lee_c64/game/screen.hpp"
 #include "bruce_lee_c64/game/world.hpp"
+#include "bruce_lee_c64/enhanced/effects.hpp"
+#include "bruce_lee_c64/enhanced/wide_view.hpp"
 #include <algorithm>
 #include <deque>
 #include <fstream>
@@ -538,6 +540,11 @@ int run(const std::string& content, const std::string& script, int frames, const
             if (std::sscanf(item.c_str(), "%d=%d", &index, &value) == 2) module->set_option(std::size_t(index), value);
         }
     }
+    // BL_CANVAS=width,height: the window the picture is for (the widescreen view).
+    if (const char* canvas = std::getenv("BL_CANVAS")) {
+        int w, h;
+        if (std::sscanf(canvas, "%d,%d", &w, &h) == 2) module->set_canvas(w, h);
+    }
     std::map<int, int> changes;
     std::ifstream f(script);
     std::string line;
@@ -564,7 +571,7 @@ int run(const std::string& content, const std::string& script, int frames, const
         in.f7 = joy & 256;
         in.space = joy & 512;
         module->tick(in);
-        if (frame % 50 == 0 || std::getenv("BL_EVERY_FRAME")) {
+        if (frame % 50 == 0 || (std::getenv("BL_EVERY_FRAME") && frame >= std::atoi(std::getenv("BL_EVERY_FRAME")))) {
             char name[64];
             std::snprintf(name, sizeof name, "/native-%05d.png", frame);
             platform::save_png(module->picture(), platform::utf8_path(out + name));
@@ -572,6 +579,95 @@ int run(const std::string& content, const std::string& script, int frames, const
         if (!module->stopped().empty()) {
             std::printf("stopped at frame %d: %s\n", frame, module->stopped().c_str());
             break;
+        }
+    }
+    return 0;
+}
+
+// Enhancements preview: the game with every visual upgrade (and the gore
+// option) on, Bruce put into `room` at its start place once play begins,
+// the enemies' hits not counting; a picture every frame from `from`.
+int effects_preview(const std::string& content, const std::string& script, int frames, const std::string& out,
+                    int room, int from) {
+    const auto assets = data::load_assets(platform::utf8_path(content));
+    game::Game g(assets);
+    g.start();
+    g.world.cheats.harmless_enemies = true;
+    enhanced::Effects effects;
+    const enhanced::Settings settings{true, true, true, true};
+    std::map<int, int> changes;
+    std::ifstream f(script);
+    std::string line;
+    while (std::getline(f, line)) {
+        if (auto h = line.find('#'); h != std::string::npos) line.resize(h);
+        std::istringstream in(line);
+        int frame, joy;
+        if (in >> frame >> joy) changes[frame] = joy;
+    }
+    std::filesystem::create_directories(platform::utf8_path(out));
+    int joy = 0;
+    bool moved = room < 0;
+    int jumped = -1;
+    for (int frame = 0; frame < frames; ++frame) {
+        if (auto it = changes.find(frame); it != changes.end()) joy = it->second;
+        app::GameInput in;
+        in.up = joy & 1;
+        in.down = joy & 2;
+        in.left = joy & 4;
+        in.right = joy & 8;
+        in.fire = joy & 16;
+        in.f7 = joy & 256;
+        g.tick(in);
+        if (!moved && g.in_play() && frame > 400) {
+            // BL_AT=x,y: Bruce's place there instead of the room's start.
+            int at_x = assets.start_x[std::size_t(room)], at_y = assets.start_y[std::size_t(room)];
+            if (const char* at = std::getenv("BL_AT")) std::sscanf(at, "%d,%d", &at_x, &at_y);
+            g.world.enter_room(room, std::uint8_t(at_x), std::uint8_t(at_y), false);
+            moved = true;
+            jumped = frame;
+        }
+        // BL_FALL_TO=room: 60 frames after the jump Bruce drops out at the
+        // bottom into that room (the widescreen view's falls).
+        if (const char* fall = std::getenv("BL_FALL_TO"); fall && jumped >= 0) {
+            if (frame == jumped + 59) {
+                g.world.actors.slots[0].y = 0xC6;
+            } else if (frame == jumped + 60) {
+                g.world.enter_room(std::atoi(fall), g.world.actors.slots[0].x, 0x32, false);
+            }
+        }
+        effects.update(g, settings);
+        if (std::getenv("BL_TRACE_BRUCE")) {
+            const auto& b = g.world.actors.slots[0];
+            std::printf("frame %d room %d bruce x %d y %d move %d\n", frame, g.world.room, b.x, b.y, b.move);
+        }
+        if (std::getenv("BL_TRACE_DEATHS")) {
+            static std::array<std::uint32_t, 3> seen{};
+            for (std::size_t slot = 0; slot < 3; ++slot) {
+                if (g.world.hazard_deaths[slot] != seen[slot]) {
+                    std::printf("frame %d room %d hazard death slot %zu\n", frame, g.world.room, slot);
+                    seen[slot] = g.world.hazard_deaths[slot];
+                }
+            }
+        }
+        for (const auto& c : g.world.crumbles) {
+            if (c.timer && std::getenv("BL_TRACE_CRUMBLES")) {
+                std::printf("frame %d room %d crumble timer %d row %d column %d\n", frame, g.world.room, c.timer, c.row, c.column);
+            }
+        }
+        // BL_WIDE=width: the widescreen view of that width instead.
+        static const int wide = std::getenv("BL_WIDE") ? std::atoi(std::getenv("BL_WIDE")) : 0;
+        static enhanced::WideView view;
+        if (frame == jumped) {
+            view = {}; // (the jump is not an exit)
+        }
+        if (wide) {
+            view.update(g, effects.picture(), wide);
+        }
+        if (frame >= from) {
+            char name[64];
+            std::snprintf(name, sizeof name, "/native-%05d.png", frame);
+            platform::save_png(wide ? view.picture().to_image(0, 0) : effects.picture().to_image(32, 35),
+                               platform::utf8_path(out + name));
         }
     }
     return 0;
@@ -1109,6 +1205,9 @@ int main(int argc, char** argv) {
         }
         if (cmd == "run" && argc == 6) {
             return run(argv[2], argv[3], std::atoi(argv[4]), argv[5]);
+        }
+        if (cmd == "effects" && argc == 8) {
+            return effects_preview(argv[2], argv[3], std::atoi(argv[4]), argv[5], std::atoi(argv[6]), std::atoi(argv[7]));
         }
         if (cmd == "pass" && argc == 5) {
             return pass_check(argv[2], argv[3], argv[4]);

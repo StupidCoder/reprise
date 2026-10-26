@@ -80,6 +80,7 @@ add_library(bruce_lee_c64
     src/bruce_lee_c64/game/sound.cpp
     src/bruce_lee_c64/game/random_source.cpp
     src/bruce_lee_c64/enhanced/effects.cpp
+    src/bruce_lee_c64/enhanced/wide_view.cpp
     src/bruce_lee_c64/game/game.cpp
     src/bruce_lee_c64/game/module.cpp
     src/bruce_lee_c64/import/disk_import.cpp)

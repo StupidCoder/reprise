@@ -405,6 +405,7 @@ World::RowScan World::scan_row(int slot, int map_row, std::uint8_t& touching, Pa
                 continue;
             }
             pending_sounds.push_back(sound_death);
+            ++hazard_deaths[std::size_t(slot)];
             if (slot != 0) {
                 remove_actor(slot); // the remaining cells are still tested
             } else {
@@ -584,6 +585,9 @@ void World::combat(std::uint8_t collisions) {
             const int y = sprite_owner[std::size_t(bit)];
             if (y < 0) {
                 continue;
+            }
+            if (cheats.harmless_enemies && x == 0 && y != 0) {
+                continue; // cheat: the enemies' blows do not land on Bruce
             }
             const Actor& att = s[std::size_t(y)];
             const std::uint8_t by_bruce = y == 0 ? 0x80 : 0;
@@ -918,7 +922,9 @@ void World::enter_room(int new_room, std::uint8_t x, std::uint8_t y, bool carry_
 // $183E: a fall counted down; below zero ($28 goes negative) the game is
 // over for this player. Otherwise everyone's energy is full again.
 bool World::lose_life() {
-    --lives;
+    if (!cheats.infinite_lives) {
+        --lives;
+    }
     if (negative(lives)) {
         return false;
     }

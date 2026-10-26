@@ -156,14 +156,39 @@ fire ends a pause, F1 abandons the game.
 - **Title music** — the title plays its tune every fifth time it comes up;
   *Off* is the original's S key.
 - **Smooth motion** — Bruce, the Ninja, the Yamo and room 18's fireballs
-  glide over the three frames between the game's steps instead of jumping.
+  glide over the three frames between the game's steps instead of jumping;
+  the lift scrolls one row at a time instead of two.
 - **Particle effects** — sparks where a blow lands, a burst of light from a
-  lantern taken, the pieces of a crumbling floor, embers behind the
+  lantern taken, cracks crawling across a crumbling floor before it opens
+  (and closing as it mends) and its falling pieces, embers behind the
   fireballs; on the C64's pixel grid and in its colours.
+- **Light effects** — a soft light around each hanging lantern (dithered,
+  in yellow and light grey) that brightens and dims with the lantern's
+  flame, flames that lick up for two frames instead of blinking from one
+  pattern to the next, and a white flash on whoever a blow lands on.
+- **Gore** — a defeated Ninja or Yamo, and anyone (Bruce too) caught by
+  spikes, a laser or another deadly cell or by a fireball, bursts into
+  bloody pieces that fly, bounce on the floors, lie there and fade. Not in
+  the original (which just lets the body lie and vanish), so it is its own
+  option.
+- **Widescreen** — the picture fills the window (up to 21:9), and where
+  the C64 has its border the rooms beside the one you're in show through,
+  dimmed and still, lined up with this room's doors (where two doors into
+  the same room are further apart on one side than the other, the
+  neighbour slides up or down as Bruce moves between them, so it meets
+  whichever door he reaches). Taking an exit
+  scrolls the view over (or down, for a fall): the old room dims as the
+  new one lights up. The rooms don't make one consistent map, so each room
+  shows the neighbours its own doors lead to.
 - **VHS look** — the shared tape filter.
 
 Again only the picture changes: the game's places, collisions and sounds
 are the original's.
+
+The options page's **Cheats** page (not in the original): *Infinite lives*
+(a lost fall is not counted) and *Enemy hits don't count* (the Ninja and
+the Yamo still strike and land on Bruce, but their hits do him no harm;
+falls, flames and other hazards still do).
 
 ## Importing
 
