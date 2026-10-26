@@ -33,7 +33,7 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
 | `src/platform` | SDL 3 host: window, input, audio, file picker, data folder, SHA-256 | started |
 | `src/ui` | own pixel font, drawing primitives | started |
 | `src/app` | catalog, library and import pipeline, launcher screen | started |
-| `src/c64` | TAP reader, KERNAL tape decoder, PRG files | started |
+| `src/c64` | TAP reader, KERNAL tape decoder, PRG files, G64 reader (GCR sectors, raw tracks, CBM DOS directory and files) | started |
 | `src/c64` | VIC-II-style picture building blocks (charset/sprite decoders, palette), SID sound | planned |
 | `src/amiga` | ADF/AmigaDOS reader, hunk loader, IFF, Paula sound | planned |
 
@@ -42,9 +42,13 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
 | Game | Machine | Image | State |
 | --- | --- | --- | --- |
 | Fort Apocalypse | C64 | `Fort_Apocalypse.tap` (MD5 `bec7409816865f3ad160af9984f127cd`) | playable from title to debrief, compared with the original in scripted runs; pause menu with the enemy-pilot option |
-| Bruce Lee | C64 | — | planned |
+| Bruce Lee | C64 | `Bruce_Lee_(Original).g64` (MD5 `8cbfd1595cdc18a8e68fe4d43eec6aa8`) | playable from the title to the end and the next round, with sound, the demo and both two-player modes; compared with the original pass by pass (actors, rooms, screen, SID); smooth motion, particle and VHS options |
 | Mindwalker | Amiga | — | planned |
 | Marble Madness | Amiga | — | planned (RetroReverse has prior analysis) |
+| Wizball | C64 | `Wizball.g64` (MD5 `73e1a136da4b6972d39f00817b86983e`) | disk import and asset decoding (levels, tiles, charsets, sprites) with launcher previews; game not rebuilt yet |
+| Cannon Fodder | Amiga | — | planned |
+| Rock 'n Roll | Amiga | — | planned |
+| Wings of Fury | Amiga | — | planned |
 
 ## Fort Apocalypse (C64) milestones
 
@@ -112,6 +116,59 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
    play during import, read from the imported data (the music player is
    native code to rewrite; its stream is data).
 
+## Bruce Lee (C64) milestones
+
+Notes: `.analysis/bruce_lee_c64/` (`disk.md` loader and protection,
+`game.md` memory map and assets).
+
+1. **Reference run** — done. `harness/blref` boots the G64 on RetroReverse's
+   C64 + 1541 core with the real 1541 DOS. The disk's protection reads a
+   block with weak bits on track 18; the core has no weak bits, so the
+   harness refills long zero-bit runs with noise. Boot to the game's entry in
+   about 185 s of emulated time; checkpoint `entry.state`.
+2. **Disk import** — done. G64 → GCR sectors → the loader's three encrypted
+   stages re-implemented (KERNAL pointer trick, XOR chains keyed from the
+   disk's code, sector order, page move, the loader's own checks and
+   checksum) → `game.prg`, `high.prg`, `loading.prg`, recognised by SHA-256.
+   Equal byte for byte to the emulator's RAM at the game's entry.
+3. **Asset decoding** — started. Four charsets (equal to the game's
+   $A000-$BFFF), 21 room maps with colours (room 0 equal to the game's
+   screen), the loading picture, the text font (the C64 character ROM's
+   upper-case glyphs, kept in `src/c64/character_rom.cpp` by decision,
+   arranged and patched as the game's init does; equal to the game's
+   $8800-$8BFF); shown in the launcher's viewer and exported by
+   `bruce_lee_assets`. Next: sprites, room headers and links, sound data,
+   the title screen.
+4. **Game** — in progress. Rebuilt in `src/bruce_lee_c64/game/`: terrain
+   probe, actors (Bruce, Ninja, Yamo: moves, decisions, poses), combat,
+   lanterns, hazards, exits, scoring and extra falls, lives, every room's
+   setup and script (`rooms.cpp`: openings, movers, sliders, the lift,
+   crumbling floors, room 13's pieces, room 18's fireballs and face, room
+   19's end and the next round). Checked with `tools/bruce_lee_replay
+   lockstep` against harness runs: the attract demo (to its end), a
+   scripted game (1435 passes, a death), and the room tour
+   (`.analysis/bruce_lee_c64/tools/tour.sh`: room 0's exits poked to lead
+   to each room, lanterns intact or all poked as taken). Next: title and
+   attract cycle, player screen, game over, two-player modes, sound.
+5. **Front end and sound** — done. Title with its options and music
+   (`front.cpp`, `sound.cpp`: the "Micropearl" music player and the
+   effect player rewritten, streams and tables read from the high block),
+   attract demo, player and game-over screens, pause, F1, the two-player
+   modes (turns with state swaps; the Yamo on a second joystick, its
+   give-up rule), the "1UP" blink, the idle pause. The title, player and
+   game-over pictures are pixel-identical to the original's; the title's
+   music matches the original's SID writes over the whole title, the
+   effects over a whole scripted game (`bruce_lee_replay music`,
+   `lockstep` with `BL_SID`).
+6. **Random numbers** — the original reads them from its zero page and
+   page 1 (a new game clears the pointer's high byte), so the native draws
+   from a view of the game's variables (`random_source.cpp`): 95.5 % of the
+   bytes the draws read equal the recorded ones at pass starts; the native
+   demo follows the original's.
+7. **Enhancements** — started: smooth motion, particle effects (blows,
+   lanterns, crumbling floors, fireball embers), VHS look; all off by
+   default (`src/bruce_lee_c64/enhanced`).
+
 ## Open items
 
 - Fort Apocalypse: not compared yet: the cavern teleport (mode $0A), hits
@@ -132,9 +189,43 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
   only been exercised from the command line (`joyport --import`) so far.
 - Only one dump of Fort Apocalypse has been tried; other dumps of the same
   release should work (recognised by content), other releases are rejected.
-- Images for Bruce Lee, Mindwalker and Marble Madness are not in the
-  project folder yet.
-- Only TAP v0/v1 is read; T64/D64/G64/PRG imports come with games that need them.
+- Images for Mindwalker, Marble Madness, Wizball, Cannon Fodder, Rock 'n Roll and Wings of Fury are not in the project folder yet.
+- Bruce Lee: not compared with the original yet: the two-player modes
+  (needs a harness run with both joysticks), the idle pause (11 minutes),
+  the pause key. Not rebuilt: the idle pause's colour cycling ($1675,
+  `$0153` room header bytes), the V key's version line (`toggle_version_line`
+  exists, the launcher passes no V key), the title's joystick-hand messages
+  (the hand modes are pause-menu options instead), the S key (an option).
+- Bruce Lee: the random numbers' view of pages 0 and 1 gives temporaries
+  as 0 (95.5 % of bytes as recorded): the native's numbers are not the
+  original's exactly; the Y the room 18/19 draws use is not measured (0).
+- Bruce Lee: the music player's first note after a tune restarts comes a
+  frame later than the listing suggests (kept as observed, not understood).
+- Bruce Lee: the alternating two-player mode uses the main joystick for
+  both players (the original reads port 2 for player 2).
+- Bruce Lee: not modelled exactly: which frame's stick a pass reads
+  (native: the next frame; the original 13-47k cycles into the pass; the
+  lockstep takes it from the log), passes stretched by stretches with
+  interrupts off (the lockstep counts the logged frame work), the
+  interrupt's random-counter steps inside a pass, the SID noise behind the
+  random table; the band counter `$44` that `$3181` copies into the first
+  extra fall's mark (seen 0 only); a second enemy leaving through an exit
+  in the same pass (a second stack slip, not modelled); Bruce's map row
+  for the slip when he is skipped (dying).
+- Bruce Lee: whether the first probe after a lost life uses charset 0
+  (`$07D0` → `$7C` = $A0) depends on whether an interrupt falls between
+  the pass start and Bruce's probe; the app assumes it does not fall
+  (charset 0). In the room 15 tour run the original's probe after the
+  restart reports no ladder although `$7C` is $A0 and the native, probing
+  charset 0 there, finds one: not understood yet.
+- Bruce Lee: several poses share one collision-mask address in the
+  original (`$117F`/`$1251`, e.g. poses 0 and 42-54 at $9000), so the last
+  mask built there applies to all; the native keeps one mask per pose (to
+  check which poses differ).
+- Bruce Lee: `$430E` (lift speed), `$4375`/`$437F` and the room-18 state
+  are not in the harness's tick records; the lockstep starts them from
+  defaults. Only one disk image tried.
+- Only TAP v0/v1 and G64 v0 are read; T64/D64/PRG imports come with games that need them.
 - Android build not started.
 - Enhancements: the effects keep no state in quick saves (they restart on
   load); the enemy helicopter's banking and the prisoners' running stay as
@@ -151,3 +242,29 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
 - VHS tape: not tried in the app's window yet (rendered previews only).
 - Widescreen: shots are not seen past the original window (the game ends
   them at its edges); not yet played in the app at full 21:9.
+
+## Wizball (C64) milestones
+
+Notes: `.analysis/wizball_c64/` (`disk.md` loader and protection, `game.md`
+memory map, display, levels, code overview, open items).
+
+1. **Reference run** — done. `harness/wizref` (Bruce Lee's harness adapted:
+   pass marker, several write ranges, tick ranges) boots the G64 to the
+   game's entry $6389 in about 84 s; checkpoints `entry.state` and
+   `play1.state`. The game runs an unstable opcode (LXA at $B58B) that the
+   core lacks; the harness finishes it with magic constant $EE.
+2. **Disk import** — done. The disk is plain CBM DOS: LOADER → "F" (checks
+   that sector 22/10 fails to read, the protection) → fast loader of the
+   file "WIZBALL" unchanged. The import keeps `wizball.prg` ($0400-$FD00),
+   recognised by SHA-256; equal to the emulator's RAM at the entry.
+3. **Asset decoding** — started. Level map (16 x 96 tiles, two 45-tile
+   levels per 4-row block), 249 tiles of 5 x 5 characters, the eleven
+   places (map position, characters $A0-$FE, painted colours), the
+   playfield and front-end charsets, 128 sprite frames; launcher viewer and
+   `wizball_assets` export. Checked against the game's memory in play.
+   Next: raster lists, sound data, front-end screens, sprite naming.
+4. **Game** — not started (front end first, then play).
+
+Open items: see `game.md` and `disk.md` (places 8-10, undecoded tables,
+sprite colour byte, the LXA routine's chip dependence, other releases).
+

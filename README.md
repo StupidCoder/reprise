@@ -13,9 +13,13 @@ not affiliated with or endorsed by the games' publishers.
 | Game | Machine | State |
 | --- | --- | --- |
 | Fort Apocalypse | C64 | Playable from the title to the debrief; compared frame by frame with the original in scripted runs |
-| Bruce Lee | C64 | Planned |
+| Bruce Lee | C64 | Playable from the title through all 20 rooms to the end, with sound, the demo and both two-player modes; compared pass by pass with the original in scripted runs |
 | Mindwalker | Amiga | Planned |
 | Marble Madness | Amiga | Planned |
+| Wizball | C64 | Import and decoded graphics (game in progress) |
+| Cannon Fodder | Amiga | Planned |
+| Rock 'n Roll | Amiga | Planned |
+| Wings of Fury | Amiga | Planned |
 
 See [PLAN.md](PLAN.md) for the roadmap.
 
@@ -102,6 +106,27 @@ next time you start it.
 All of these change only the picture (and widescreen the one shot rule
 above): the game plays exactly the same.
 
+### Bruce Lee keys and options
+
+On the title: F3 one or two players taking turns, F5 the Yamo played by a
+second player (the second gamepad, or the numeric keypad: 8 4 6 2 and 0
+for fire), F7 or fire to begin. In play: P (the C64's space bar) pauses,
+fire ends a pause, F1 abandons the game.
+
+- **Joystick 1 / Joystick 2** — *Left-handed* turns the stick a quarter, as
+  the title's L and R keys do on the C64 (an "L" shows in the status line).
+- **Title music** — the title plays its tune every fifth time it comes up;
+  *Off* is the original's S key.
+- **Smooth motion** — Bruce, the Ninja, the Yamo and room 18's fireballs
+  glide over the three frames between the game's steps instead of jumping.
+- **Particle effects** — sparks where a blow lands, a burst of light from a
+  lantern taken, the pieces of a crumbling floor, embers behind the
+  fireballs; on the C64's pixel grid and in its colours.
+- **VHS look** — the shared tape filter.
+
+Again only the picture changes: the game's places, collisions and sounds
+are the original's.
+
 ## Importing
 
 Select a game and press Enter to choose its image, or drop the image onto the
@@ -115,8 +140,14 @@ Command line, for testing:
 build/joyport --import Fort_Apocalypse.tap
 ```
 
+Bruce Lee is imported from a G64 image of the original disk (a raw copy of
+the disk's tracks; a D64 cannot hold its copy protection, and cracked
+versions are different programs).
+
 ## License
 
 Joyport's source code is released under the [MIT License](LICENSE): use, change
-and reuse any part of it. It contains no game data; the games stay the
+and reuse any part of it. One exception: `src/c64/character_rom.cpp` holds 64
+character shapes from the Commodore 64's character ROM (Bruce Lee shows its
+text with them); they are not Joyport's work and not covered by that licence. It contains no game data; the games stay the
 property of their rights holders.

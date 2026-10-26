@@ -35,6 +35,8 @@ target_compile_options(ui PRIVATE ${PROJECT_WARNINGS})
 add_library(c64
     src/c64/tape_image.cpp
     src/c64/kernal_tape.cpp
+    src/c64/disk_image.cpp
+    src/c64/character_rom.cpp
     src/c64/text_frame.cpp
     src/c64/sid.cpp)
 target_include_directories(c64 PUBLIC ${SOURCE_ROOT})
@@ -63,6 +65,37 @@ target_include_directories(fort_apocalypse_c64 PUBLIC ${SOURCE_ROOT})
 target_link_libraries(fort_apocalypse_c64 PUBLIC c64 platform ui)
 target_compile_options(fort_apocalypse_c64 PRIVATE ${PROJECT_WARNINGS})
 
+# --- bruce_lee_c64: Bruce Lee (C64) ---------------------------------------------
+add_library(bruce_lee_c64
+    src/bruce_lee_c64/entry.cpp
+    src/bruce_lee_c64/data/assets.cpp
+    src/bruce_lee_c64/data/preview.cpp
+    src/bruce_lee_c64/game/screen.cpp
+    src/bruce_lee_c64/game/terrain.cpp
+    src/bruce_lee_c64/game/actor.cpp
+    src/bruce_lee_c64/game/world.cpp
+    src/bruce_lee_c64/game/rooms.cpp
+    src/bruce_lee_c64/game/front.cpp
+    src/bruce_lee_c64/game/sound.cpp
+    src/bruce_lee_c64/game/random_source.cpp
+    src/bruce_lee_c64/enhanced/effects.cpp
+    src/bruce_lee_c64/game/game.cpp
+    src/bruce_lee_c64/game/module.cpp
+    src/bruce_lee_c64/import/disk_import.cpp)
+target_include_directories(bruce_lee_c64 PUBLIC ${SOURCE_ROOT})
+target_link_libraries(bruce_lee_c64 PUBLIC c64 platform ui)
+target_compile_options(bruce_lee_c64 PRIVATE ${PROJECT_WARNINGS})
+
+# --- wizball_c64: Wizball (C64) ------------------------------------------------
+add_library(wizball_c64
+    src/wizball_c64/entry.cpp
+    src/wizball_c64/data/assets.cpp
+    src/wizball_c64/data/preview.cpp
+    src/wizball_c64/import/disk_import.cpp)
+target_include_directories(wizball_c64 PUBLIC ${SOURCE_ROOT})
+target_link_libraries(wizball_c64 PUBLIC c64 platform ui)
+target_compile_options(wizball_c64 PRIVATE ${PROJECT_WARNINGS})
+
 # --- joyport: the launcher application -----------------------------------------
 add_executable(joyport
     src/app/main.cpp
@@ -71,13 +104,25 @@ add_executable(joyport
     src/app/launcher.cpp
     src/app/pause_menu.cpp
     src/app/saved_options.cpp)
-target_link_libraries(joyport PRIVATE fort_apocalypse_c64 ui)
+target_link_libraries(joyport PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 ui)
 target_compile_options(joyport PRIVATE ${PROJECT_WARNINGS})
 
 # --- tools ---------------------------------------------------------------------
 add_executable(fort_apocalypse_assets tools/fort_apocalypse_assets.cpp)
 target_link_libraries(fort_apocalypse_assets PRIVATE fort_apocalypse_c64)
 target_compile_options(fort_apocalypse_assets PRIVATE ${PROJECT_WARNINGS})
+
+add_executable(bruce_lee_assets tools/bruce_lee_assets.cpp)
+target_link_libraries(bruce_lee_assets PRIVATE bruce_lee_c64)
+target_compile_options(bruce_lee_assets PRIVATE ${PROJECT_WARNINGS})
+
+add_executable(wizball_assets tools/wizball_assets.cpp)
+target_link_libraries(wizball_assets PRIVATE wizball_c64)
+target_compile_options(wizball_assets PRIVATE ${PROJECT_WARNINGS})
+
+add_executable(bruce_lee_replay tools/bruce_lee_replay.cpp)
+target_link_libraries(bruce_lee_replay PRIVATE bruce_lee_c64)
+target_compile_options(bruce_lee_replay PRIVATE ${PROJECT_WARNINGS})
 
 add_executable(fort_apocalypse_replay tools/fort_apocalypse_replay.cpp)
 target_link_libraries(fort_apocalypse_replay PRIVATE fort_apocalypse_c64)

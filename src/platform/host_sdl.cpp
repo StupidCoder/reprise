@@ -20,6 +20,7 @@ struct Host::Implementation {
     bool ui_shown{true};
     SDL_FRect overlay_box{}; // where the last game overlay was shown (device pixels)
     SDL_Gamepad* gamepad{};
+    SDL_Gamepad* gamepad2{}; // a second one: the second joystick
     SDL_AudioStream* audio{};
 
     struct Dialog {
@@ -34,6 +35,9 @@ struct Host::Implementation {
         if (gamepad) {
             SDL_CloseGamepad(gamepad);
         }
+        if (gamepad2) {
+            SDL_CloseGamepad(gamepad2);
+        }
         SDL_DestroyAudioStream(audio);
         SDL_DestroyTexture(texture);
         SDL_DestroyTexture(overlay_texture);
@@ -43,17 +47,30 @@ struct Host::Implementation {
     }
 
     void connect() {
-        if (gamepad && SDL_GamepadConnected(gamepad)) {
+        const bool first = gamepad && SDL_GamepadConnected(gamepad);
+        const bool second = gamepad2 && SDL_GamepadConnected(gamepad2);
+        if (first && second) {
             return;
         }
-        if (gamepad) {
-            SDL_CloseGamepad(gamepad);
-            gamepad = nullptr;
+        for (auto* pad : {&gamepad, &gamepad2}) {
+            if (*pad && !SDL_GamepadConnected(*pad)) {
+                SDL_CloseGamepad(*pad);
+                *pad = nullptr;
+            }
         }
         int count = 0;
         auto ids = SDL_GetGamepads(&count);
-        if (count) {
-            gamepad = SDL_OpenGamepad(ids[0]);
+        for (int n = 0; n < count; ++n) {
+            const auto id = ids[n];
+            const bool open = (gamepad && SDL_GetGamepadID(gamepad) == id) || (gamepad2 && SDL_GetGamepadID(gamepad2) == id);
+            if (open) {
+                continue;
+            }
+            if (!gamepad) {
+                gamepad = SDL_OpenGamepad(id);
+            } else if (!gamepad2) {
+                gamepad2 = SDL_OpenGamepad(id);
+            }
         }
         SDL_free(ids);
     }
@@ -181,6 +198,22 @@ Controls Host::poll() {
         input.f7 |= button(SDL_GAMEPAD_BUTTON_START);
         input.f3 |= button(SDL_GAMEPAD_BUTTON_NORTH);
         input.f5 |= button(SDL_GAMEPAD_BUTTON_WEST);
+    }
+    // The second joystick: the numeric keypad (8 4 6 2, fire 0) or a second gamepad.
+    input.up2 = k[SDL_SCANCODE_KP_8];
+    input.down2 = k[SDL_SCANCODE_KP_2] || k[SDL_SCANCODE_KP_5];
+    input.left2 = k[SDL_SCANCODE_KP_4];
+    input.right2 = k[SDL_SCANCODE_KP_6];
+    input.fire2 = k[SDL_SCANCODE_KP_0];
+    if (i.gamepad2) {
+        auto button = [&](SDL_GamepadButton b) { return SDL_GetGamepadButton(i.gamepad2, b); };
+        const int x = SDL_GetGamepadAxis(i.gamepad2, SDL_GAMEPAD_AXIS_LEFTX);
+        const int y = SDL_GetGamepadAxis(i.gamepad2, SDL_GAMEPAD_AXIS_LEFTY);
+        input.left2 |= button(SDL_GAMEPAD_BUTTON_DPAD_LEFT) || x < -12000;
+        input.right2 |= button(SDL_GAMEPAD_BUTTON_DPAD_RIGHT) || x > 12000;
+        input.up2 |= button(SDL_GAMEPAD_BUTTON_DPAD_UP) || y < -12000;
+        input.down2 |= button(SDL_GAMEPAD_BUTTON_DPAD_DOWN) || y > 12000;
+        input.fire2 |= button(SDL_GAMEPAD_BUTTON_SOUTH);
     }
     return input;
 }

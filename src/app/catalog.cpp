@@ -1,5 +1,7 @@
 #include "app/catalog.hpp"
+#include "bruce_lee_c64/entry.hpp"
 #include "fort_apocalypse_c64/entry.hpp"
+#include "wizball_c64/entry.hpp"
 
 namespace app {
 
@@ -8,11 +10,17 @@ std::vector<GameEntry> catalog() {
     // heading for.
     return {
         fort_apocalypse::entry(),
-        {.id = "bruce_lee_c64", .title = "Bruce Lee", .machine = Machine::c64,
-         .media = "the tape or disk image"},
+        bruce_lee::entry(),
+        wizball::entry(),
         {.id = "mindwalker_amiga", .title = "Mindwalker", .machine = Machine::amiga,
          .media = "the disk image (ADF)"},
         {.id = "marble_madness_amiga", .title = "Marble Madness", .machine = Machine::amiga,
+         .media = "the disk image (ADF)"},
+        {.id = "cannon_fodder_amiga", .title = "Cannon Fodder", .machine = Machine::amiga,
+         .media = "the disk images (ADF)"},
+        {.id = "rock_n_roll_amiga", .title = "Rock 'n Roll", .machine = Machine::amiga,
+         .media = "the disk image (ADF)"},
+        {.id = "wings_of_fury_amiga", .title = "Wings of Fury", .machine = Machine::amiga,
          .media = "the disk image (ADF)"},
     };
 }

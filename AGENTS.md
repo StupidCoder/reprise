@@ -73,6 +73,10 @@ tools/               build, packaging and command-line tools
 - Never commit or bundle game images or extracted game data. Imported content
   lives in the user's data folder
   (`~/Library/Application Support/NativeReconstruction/Joyport/`).
+- Exception (owner's decision, 2026-10-25): the 64 upper-case glyphs of the
+  C64 character ROM that Bruce Lee copies for its text live in
+  `src/c64/character_rom.cpp`, marked as not covered by the MIT licence. Add
+  no other firmware or ROM contents without asking.
 - Real game titles appear only to name the game a dump belongs to
   (descriptive use). Don't use the original logos or box art in Joyport's own
   interface, and nothing should suggest a publisher's endorsement.

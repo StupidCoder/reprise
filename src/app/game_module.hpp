@@ -16,6 +16,9 @@ namespace app {
 struct GameInput {
     bool up{}, down{}, left{}, right{}, fire{};
     bool f1{}, f3{}, f5{}, f7{}, space{};
+    // A second joystick (a second gamepad or the numeric keypad), for games
+    // with a second player at the same time.
+    bool up2{}, down2{}, left2{}, right2{}, fire2{};
 };
 
 // A setting the player can change in the pause menu (a fix or an

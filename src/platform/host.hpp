@@ -38,6 +38,7 @@ struct Controls {
     // Held this frame (the game's joystick).
     bool left{}, right{}, up{}, down{}, fire{};
     bool f1{}, f3{}, f5{}, f7{}, c64_space{};
+    bool left2{}, right2{}, up2{}, down2{}, fire2{}; // the second joystick
     // Pressed this frame (menus and shortcuts).
     bool accept{}, back{}, menu{}, remove{}, info{}, click{};
     bool nav_left{}, nav_right{}, nav_up{}, nav_down{};
