@@ -75,6 +75,9 @@ void World::frame() {
             ++clock;
         }
     }
+    if (carnage_on()) {
+        carnage_frame();
+    }
 }
 
 // $40A9: three flames, each a random pattern in rows 2-3 of some glyphs,
@@ -270,6 +273,9 @@ void World::remove_actor(int slot) {
         }
     }
     enemy_timer_for(slot);
+    if (carnage_on() && slot != 0 && negative(a.d1)) {
+        carnage_beaten(slot); // carnage mode: the next comes sooner
+    }
 }
 
 // $521B
@@ -568,7 +574,9 @@ void World::combat(std::uint8_t collisions) {
         const std::uint8_t r = std::uint8_t(d - reach);
         return d >= reach && !negative(r);
     };
+    std::array<int, 3> struck_by{-1, -1, -1}; // (carnage mode: who landed it)
     auto strike_lands = [&](int victim, int attacker) { // $2B2B
+        struck_by[std::size_t(victim)] = attacker;
         hit[std::size_t(attacker)] |= 1;
         s[std::size_t(victim)].facing = s[std::size_t(attacker)].facing ^ 1;
     };
@@ -578,8 +586,9 @@ void World::combat(std::uint8_t collisions) {
                 continue;
             }
             const auto m = s[std::size_t(x)].move;
-            if (m == move::bump || m == move::duck || m == move::pushed_back || m == move::thrown ||
-                m == move::dying || m == 0x1B) {
+            if ((m == move::bump || m == move::duck || m == move::pushed_back || m == move::thrown ||
+                 m == move::dying || m == 0x1B) &&
+                !flying(x)) { // carnage mode: an enemy in the air can be hit again
                 continue;
             }
             const int y = sprite_owner[std::size_t(bit)];
@@ -726,6 +735,11 @@ void World::combat(std::uint8_t collisions) {
             }
             defeated();
         }
+        if (carnage_on() && x != 0 && (h & 0x80) && (h & 0x0E)) {
+            carnage_launch(x, 0, h); // carnage mode: Bruce's blow sends it flying
+        } else if (carnage_on() && x == 0 && struck_by[0] == 1 && (h & 0x0E)) {
+            carnage_launch(0, 1, h); // carnage mode: and the Yamo's sends Bruce
+        }
     }
 }
 
@@ -834,6 +848,11 @@ void World::new_game() {
 
 // $09AE-$0B34 and $335B: the room's map, its lanterns, its colours.
 void World::enter_room(int new_room, std::uint8_t x, std::uint8_t y, bool carry_enemies) {
+    // (Carnage mode: flights, waves, falling pieces end with the room.)
+    carnage.flights = {};
+    carnage.returned = {};
+    carnage.chunks.clear();
+    carnage.wave = 0;
     // $09E8: with rooms 12, 14 and 16 cleared, room 11 leads on to room 13.
     if (new_room == 11 && cleared(12) && cleared(14) && cleared(16)) {
         enter_room(13, assets.start_x[13], assets.start_y[13], carry_enemies);
@@ -1061,6 +1080,10 @@ PassEvents World::run_pass() {
         }
         if (room == 19) {
             actors.slots[0].stick = clock >= 2 ? stick::none : stick::up; // the last room walks Bruce
+        }
+        if (flying(slot)) {
+            actors.choose_pose(slot, aw); // carnage mode: the flight moves it
+            continue;
         }
         actors.update(slot, aw);
         actors.choose_pose(slot, aw);

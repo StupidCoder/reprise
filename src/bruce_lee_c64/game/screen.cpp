@@ -226,6 +226,25 @@ c64::TextFrame world_frame(const World& world, const SpritePlaces* places) {
             }
             frame.set_sprite(6 + int(i), sprite);
         }
+        // Carnage mode: fireballs sent back at the face. Only in pictures
+        // for showing (with places): the game's own picture, whose sprite
+        // collisions the rules read, never has them.
+        for (std::size_t i = 0; places && i < world.carnage.returned.size(); ++i) {
+            const auto& r = world.carnage.returned[i];
+            if (!r.active || world.fireballs[i].active) {
+                continue;
+            }
+            c64::Sprite sprite;
+            sprite.shown = true;
+            sprite.expand_x = true;
+            sprite.colour = r.colour;
+            for (std::size_t row = 0; row < r.shape.size(); ++row) {
+                sprite.data[3 * row] = r.shape[row];
+            }
+            sprite.x = int(std::lround(2 * r.x));
+            sprite.y = int(std::lround(r.y)) + 0x1D;
+            frame.set_sprite(6 + int(i), sprite);
+        }
     }
     return frame;
 }

@@ -185,6 +185,22 @@ fire ends a pause, F1 abandons the game.
 Again only the picture changes: the game's places, collisions and sounds
 are the original's.
 
+The **Carnage** page (not the original game, and not in the attract demo):
+*Carnage mode* — Bruce's blows send the Ninja and the Yamo flying in arcs,
+and the Yamo's blows send Bruce. They bounce off the walls and floors
+(hard hits hurt), smash the decoration they fly through into its own
+pixels (a statue whose pedestal breaks topples and bursts on the floor,
+crushing whoever is under it), knock each other over, and die where the
+game's own hazards kill. Each enemy beaten brings the next sooner
+(*WAVE 2*, *3*, …). In the wizard's room a blow sends a fireball back up
+into his face (1000 points). Hits in quick succession build a combo that
+scores; big hits hold the picture for a moment and shake it. Only
+decoration breaks (nothing Bruce can stand on, climb or take).
+
+The in-game options leave out the original's own settings (the
+joysticks' handedness, the title tune every fifth time): they stay at its
+defaults.
+
 The options page's **Cheats** page (not in the original): *Infinite lives*
 (a lost fall is not counted) and *Enemy hits don't count* (the Ninja and
 the Yamo still strike and land on Bruce, but their hits do him no harm;

@@ -75,6 +75,7 @@ add_library(bruce_lee_c64
     src/bruce_lee_c64/game/terrain.cpp
     src/bruce_lee_c64/game/actor.cpp
     src/bruce_lee_c64/game/world.cpp
+    src/bruce_lee_c64/game/carnage.cpp
     src/bruce_lee_c64/game/rooms.cpp
     src/bruce_lee_c64/game/front.cpp
     src/bruce_lee_c64/game/sound.cpp

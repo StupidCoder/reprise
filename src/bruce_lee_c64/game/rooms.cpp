@@ -876,6 +876,9 @@ void World::script_room_18() {
         room_counters[1] = 0x50;
     } else {
         step_fireballs();
+        if (carnage_on()) {
+            carnage_fireballs(); // carnage mode: a blow sends one back
+        }
         const std::uint8_t collisions = collision_latch; // $D01E
         collision_latch = 0;
         if ((collisions & 0x03) && (collisions & 0xC0) && bruce.move != move::dying) {

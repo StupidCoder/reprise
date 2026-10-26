@@ -110,6 +110,68 @@ public:
     // Not the original's: deaths by deadly cells and fireballs per actor,
     // counted for the presentation layer (the gore option).
     std::array<std::uint32_t, 3> hazard_deaths{};
+
+    // Carnage mode (not the original game; not in the attract game,
+    // carnage.cpp): Bruce's blows send the Ninja and the Yamo flying (and
+    // the Yamo's send Bruce). A flying actor keeps its thrown move while the
+    // flight moves it, bounces off the room's walls and floors (and hurts on
+    // each hard hit), smashes the decoration it flies through (what stood
+    // on it topples and falls), knocks over an enemy, and dies where the
+    // game's own rules kill (deadly cells) or when its energy is gone as it
+    // lands. Blows and hits in quick succession build a combo that scores;
+    // each enemy beaten brings the next sooner (waves); in room 18 a blow
+    // sends a fireball back at the wizard's face. All its random numbers
+    // are its own.
+    struct Carnage {
+        bool on{};
+        struct Flight {
+            bool active{};
+            double x{}, y{}, vx{}, vy{}; // actor units (x in pixel pairs, y in lines), per frame
+            int age{};
+        };
+        std::array<Flight, 3> flights{};
+        int combo{}, combo_frames{}; // hits in the run; frames since the last
+        int wave{};                  // enemies beaten in this room: the next come sooner
+        // Room 18: fireballs a blow sent back up at the wizard's face
+        // (sprite units, as the game's fireballs: x in pixel pairs).
+        struct Returned {
+            bool active{};
+            double x{}, y{}, vx{}, vy{};
+            std::array<std::uint8_t, 4> shape{};
+            std::uint8_t colour{};
+        };
+        std::array<Returned, 2> returned{};
+        // Decoration that lost what it stood on, falling as one piece.
+        struct Chunk {
+            struct Cell {
+                int column{}, row{}; // within the piece
+                data::Glyph glyph{};
+            };
+            std::uint32_t id{};
+            double x{}, y{}, vy{};   // picture pixels: its top left
+            int columns{}, rows{};
+            std::vector<Cell> cells;
+        };
+        std::vector<Chunk> chunks;
+        std::uint32_t next_chunk{1};
+        // What happened, for the presentation: kept for a while, numbered.
+        struct Event {
+            // (chunk, landed: `strength` is the piece's id; wave: the count;
+            // returned: a fireball sent back, face: it hit the face.)
+            enum class Kind { launch, impact, smash, knock, combo, chunk, landed, wave, returned, face } kind{};
+            std::uint32_t id{};
+            double x{}, y{};          // picture pixels
+            int strength{};           // 1-3 (impact, launch, knock); combo count; smash: the cell's column
+            int row{};                // smash: the cell's screen row
+            data::Glyph glyph{};      // smash: the pixels that broke off
+            double vx{};              // which way the body flew
+        };
+        std::vector<Event> events;
+        std::uint32_t next_id{1};
+        std::uint32_t seed{0x2545F491};
+    } carnage;
+    bool carnage_on() const { return carnage.on && playing; }
+    bool flying(int slot) const { return carnage_on() && carnage.flights[std::size_t(slot)].active; }
     std::array<std::uint8_t, 3> fall_hits{};    // $4F52: landing-on hits left
     std::uint8_t fall_hit_refresh{};            // $4EF9
     std::array<std::int8_t, 5> sprite_owner{};  // $4F4D: actor per sprite (-1 none)
@@ -228,6 +290,22 @@ private:
     std::uint8_t code_at(int index) const;
     void combat(std::uint8_t collisions); // $29B0
     void remove_actor(int slot);          // $2FFE
+    // Carnage mode (carnage.cpp).
+    void carnage_launch(int slot, int attacker, std::uint8_t hit);
+    void carnage_frame();
+    void carnage_fly(int slot);
+    void carnage_event(Carnage::Event);
+    void carnage_hit(int strength);       // the combo and its score
+    bool carnage_solid(int px, int py, bool walls) const;
+    void carnage_smash(int slot);
+    int carnage_empty_code() const;
+    bool carnage_decor(const Cell&) const;
+    void carnage_topple(int column, int row);
+    void carnage_chunks();
+    void carnage_fireballs(); // room 18, before its fireballs are tested
+    void carnage_returned();
+    void carnage_beaten(int slot); // an enemy out of energy taken away
+    std::uint8_t carnage_random();
     void enemy_timer_for(int slot);       // $0D36
     void after_actors(PassEvents&);       // $2D42
     void add_score(std::uint32_t points); // $3172

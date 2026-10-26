@@ -230,7 +230,29 @@ Notes: `.analysis/bruce_lee_c64/` (`disk.md` loader and protection,
    `BL_TRACE_BRUCE=1`, `BL_TRACE_CRUMBLES=1`,
    `BL_TRACE_DEATHS=1`; deaths walking right in rooms 8, 9, 12, 16, left
    in 5, 13, 17; standing in room 18 for a fireball). Cheats
-   page: infinite lives, enemy hits don't count. Preview `BL_AT=x,y` puts
+   page: infinite lives, enemy hits don't count. Carnage page: carnage
+   mode, first slice (`game/carnage.cpp`, `World::Carnage`): Bruce's blows
+   launch the enemy (kick > chop > low strike, harder out of energy) in a
+   per-frame flight that keeps the thrown move (so pose, deadly cells,
+   exits and the out-of-energy removal stay the game's own); bounces on
+   pixel pair 01, hard hits cost energy; decoration (cells only in pairs
+   00/10, never tested by an actor rule) smashes; a flying enemy knocks the
+   other over and can be hit again (juggle); combo scores 50 x count from
+   the second hit; events feed debris, dust, "xN" popups, hit-stop and
+   shake. Off: pictures identical to the previous build in the attract
+   demo, three scripted games and a run with upgrades on (180 each).
+   Second slice: the Yamo's blows launch Bruce (Bruce's flights score
+   nothing, hurt half); objects only break (decoration pieces of 4-80
+   cells, bodies faster than 2.2); a small piece (up to 40 cells, nothing
+   the game keeps touching it) left with nothing under it falls and bursts,
+   knocking over whoever it hits; each enemy beaten shortens both enemy
+   timers (halved per wave up to /8, at least 3) with a WAVE popup; room
+   18: a blow meeting a fireball sends it to the face (1000 points; the
+   game's fireball waits 12 passes; drawn only in shown pictures, never in
+   the one the collisions read); combo points capped at 10 hits. Preview
+   `BL_CARNAGE=1`, `BL_TRACE_CARNAGE=1`, `BL_HARMFUL=1` (enemy hits land).
+   Open: room 10's stone courses and columns count as objects and break;
+   more than one Ninja at a time would need more actor slots (not done). Preview `BL_AT=x,y` puts
    Bruce at a place on the jump (seams of rooms 7/8 checked to the pixel
    at their upper doors). Widescreen not yet
    checked on a real fall or climb (only the faked one), nor with two

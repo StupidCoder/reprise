@@ -4,6 +4,7 @@
 #include <array>
 #include <cstdint>
 #include <random>
+#include <string>
 #include <vector>
 
 // The optional visual upgrades: a presentation layer that draws the play
@@ -67,6 +68,8 @@ private:
     void step_particles(const game::World&, const c64::Layers&);
     int pixel_pair(const game::World&, const c64::Layers&, int x, int y) const;
     void watch_defeats(const game::World&);
+    void carnage(const game::World&);
+    void draw_popups(const game::World&);
     void watch_hazards(const game::World&);
     static std::array<double, 2> body_middle(const game::World&, const game::Actor&);
     void draw_particles();
@@ -84,6 +87,8 @@ private:
     std::array<std::uint8_t, 3> moves_{};
     std::array<std::uint8_t, 3> crumble_timers_{};
     std::uint8_t fragment_colour_{};
+    // One-colour tables for pieces of any colour (smashed decoration).
+    static constexpr std::array<std::uint8_t, 16> debris_colours_{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
 
     // Light effects.
     std::array<int, 3> flash_{};               // frames of white left per actor
@@ -105,6 +110,24 @@ private:
     std::array<bool, 3> was_defeated_{};
     std::array<std::array<double, 2>, 3> last_place_{};
     std::array<std::uint32_t, 3> hazard_deaths_{};
+    // Carnage mode: the last of its events shown, and the combo counts
+    // floating up from where they were scored.
+    std::uint32_t carnage_seen_{};
+    struct Popup {
+        double x{}, y{};
+        std::string text;
+        int age{};
+    };
+    std::vector<Popup> popups_;
+    // Falling decoration as it looked (0xFF: nothing), where it was last.
+    struct ChunkPicture {
+        std::uint32_t id{};
+        int width{}, height{};
+        std::vector<std::uint8_t> pixels;
+        double x{}, y{};
+    };
+    std::vector<ChunkPicture> chunks_;
+    void draw_chunks(const game::World&);
     bool bruce_burst_{};                       // Bruce in pieces until his dying move ends
 
     c64::Picture picture_;

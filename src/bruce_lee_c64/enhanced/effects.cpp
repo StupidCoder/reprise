@@ -4,6 +4,7 @@
 #include <bit>
 #include <cmath>
 #include <cstdlib>
+#include <string>
 
 namespace bruce_lee::enhanced {
 namespace {
@@ -31,6 +32,8 @@ constexpr std::uint8_t ember_colours[] = {7, 8, 8, 2, 9, 9};
 constexpr std::uint8_t gib_colours[] = {2, 2, 2, 2, 2, 2, 2, 2, 9, 9};
 constexpr std::uint8_t light_gib_colours[] = {10, 10, 10, 10, 2, 2, 2, 2, 9, 9}; // seen on brown rooms too
 constexpr std::uint8_t spray_colours[] = {10, 2, 2, 2, 9};
+constexpr std::uint8_t dust_colours[] = {15, 12, 12, 11, 11};
+constexpr int popup_frames = 50;
 
 // The flame glyphs $40A9 changes: rows 2-3 of the lower halves of the
 // lantern characters $13, $31 and $14 (and of $06 and $67 in rooms 19 and
@@ -153,6 +156,8 @@ void Effects::events(const game::World& world, Settings settings) {
     const bool same_room = known_ && world.room == room_;
     if (!same_room) {
         particles_.clear();
+        popups_.clear();
+        chunks_.clear();
     }
     if (settings.gibs && same_room) {
         watch_defeats(world);
@@ -238,6 +243,184 @@ void Effects::watch_hazards(const game::World& world) {
     if (!bruce.present() || bruce.move != game::move::dying) {
         bruce_burst_ = false;
     }
+}
+
+// Carnage mode's events since the last frame: sparks where a body is sent
+// flying or knocks over the other, dust where it hits hard, the smashed
+// decoration falling apart pixel by pixel in its own colours (from the last
+// picture, which still shows it), and the combo floating up.
+void Effects::carnage(const game::World& world) {
+    for (const auto& e : world.carnage.events) {
+        if (e.id <= carnage_seen_) {
+            continue;
+        }
+        carnage_seen_ = e.id;
+        using Kind = game::World::Carnage::Event::Kind;
+        switch (e.kind) {
+        case Kind::launch:
+        case Kind::knock:
+            spark(e.x, e.y, 5 + 3 * e.strength);
+            break;
+        case Kind::impact:
+            for (int i = 0; i < 4 + 4 * e.strength; ++i) {
+                particles_.push_back({e.x + random(-6, 6), e.y + random(0, 6), random(-1.2, 1.2) - e.vx * 0.3,
+                                      random(-1.4, -0.2), 0.05, 0, int(random(14, 28)), dust_colours,
+                                      int(std::size(dust_colours))});
+            }
+            spark(e.x, e.y, 2 * e.strength);
+            break;
+        case Kind::smash:
+            for (int line = 0; line < 8; ++line) {
+                for (int p = 0; p < 4; ++p) {
+                    if (((e.glyph[std::size_t(line)] >> (6 - 2 * p)) & 3) == 0) {
+                        continue;
+                    }
+                    const int x = 8 * e.strength + 2 * p, y = 8 * e.row + line;
+                    if (x < 0 || x >= picture_.width || y < 0 || y >= c64::Picture::height) {
+                        continue;
+                    }
+                    // One colour per piece, kept in a table of its own.
+                    const std::uint8_t colour = picture_.at(x, y);
+                    Particle piece{double(x), double(y), e.vx * random(0.3, 0.9) + random(-0.6, 0.6),
+                                   random(-2.2, -0.3), 0.16, 0, int(random(70, 130)), &debris_colours_[colour & 15], 1};
+                    piece.bounces = true;
+                    particles_.push_back(piece);
+                }
+            }
+            break;
+        case Kind::combo:
+            popups_.push_back({e.x, e.y, "x" + std::to_string(e.strength), 0});
+            break;
+        case Kind::wave:
+            popups_.push_back({e.x, e.y, "WAVE " + std::to_string(e.strength), 0});
+            break;
+        case Kind::returned:
+            spark(e.x, e.y, 8);
+            break;
+        case Kind::face:
+            burst(e.x, e.y);
+            burst(e.x, e.y + 6);
+            spark(e.x, e.y, 16);
+            popups_.push_back({e.x, e.y + 10, "1000", 0});
+            break;
+        case Kind::chunk: {
+            // The piece as the last picture shows it.
+            for (const auto& c : world.carnage.chunks) {
+                if (int(c.id) != e.strength) {
+                    continue;
+                }
+                ChunkPicture pic{c.id, 8 * c.columns, 8 * c.rows, {}, c.x, c.y};
+                pic.pixels.assign(std::size_t(pic.width * pic.height), 0xFF);
+                for (const auto& cell : c.cells) {
+                    for (int line = 0; line < 8; ++line) {
+                        for (int p = 0; p < 4; ++p) {
+                            if (((cell.glyph[std::size_t(line)] >> (6 - 2 * p)) & 3) == 0) {
+                                continue;
+                            }
+                            const int px = 8 * cell.column + 2 * p, py = 8 * cell.row + line;
+                            const int sx = int(c.x) + px, sy = int(c.y) + py;
+                            if (sx < 0 || sx + 1 >= picture_.width || sy < 0 || sy >= c64::Picture::height) {
+                                continue;
+                            }
+                            pic.pixels[std::size_t(py * pic.width + px)] = picture_.at(sx, sy);
+                            pic.pixels[std::size_t(py * pic.width + px + 1)] = picture_.at(sx + 1, sy);
+                        }
+                    }
+                }
+                chunks_.push_back(std::move(pic));
+            }
+            break;
+        }
+        case Kind::landed:
+            for (auto it = chunks_.begin(); it != chunks_.end(); ++it) {
+                if (int(it->id) != e.strength) {
+                    continue;
+                }
+                // It bursts into its pixels (pairs), thrown out sideways.
+                const double left = e.x - it->width / 2.0, top = e.y - it->height;
+                for (int y = 0; y < it->height; ++y) {
+                    for (int x = 0; x < it->width; x += 2) {
+                        const std::uint8_t colour = it->pixels[std::size_t(y * it->width + x)];
+                        if (colour == 0xFF || (rng_() & 1)) {
+                            continue; // (every other pair is enough)
+                        }
+                        Particle piece{left + x, top + y, (x - it->width / 2.0) * 0.06 + random(-0.8, 0.8),
+                                       random(-2.6, -0.4), 0.16, 0, int(random(70, 130)),
+                                       &debris_colours_[colour & 15], 1};
+                        piece.bounces = true;
+                        particles_.push_back(piece);
+                    }
+                }
+                chunks_.erase(it);
+                break;
+            }
+            break;
+        }
+    }
+}
+
+// The falling pieces, where the game has them now.
+void Effects::draw_chunks(const game::World& world) {
+    for (auto& pic : chunks_) {
+        for (const auto& c : world.carnage.chunks) {
+            if (c.id == pic.id) {
+                pic.x = c.x;
+                pic.y = c.y;
+            }
+        }
+        for (int y = 0; y < pic.height; ++y) {
+            const int sy = int(pic.y) + y;
+            if (sy < 24 || sy >= c64::Picture::height) {
+                continue;
+            }
+            for (int x = 0; x < pic.width; ++x) {
+                const int sx = int(pic.x) + x;
+                const std::uint8_t colour = pic.pixels[std::size_t(y * pic.width + x)];
+                if (colour != 0xFF && sx >= 0 && sx < picture_.width) {
+                    picture_.pixels[std::size_t(sy * picture_.width + sx)] = colour;
+                }
+            }
+        }
+    }
+}
+
+// Popups ("x3", "WAVE 2", "1000") in the game's own text font, rising and
+// fading out.
+void Effects::draw_popups(const game::World& world) {
+    const auto& font = world.assets.text;
+    for (auto& p : popups_) {
+        const std::string& text = p.text;
+        const int width = 8 * int(text.size());
+        const int left = std::clamp(int(p.x) - width / 2, 0, picture_.width - width);
+        const int top = int(p.y - p.age * 0.4);
+        // Flashing white and yellow, light grey as it fades.
+        const std::uint8_t colour = p.age > popup_frames * 2 / 3 ? 15 : (p.age / 3) % 2 ? 7 : 1;
+        for (std::size_t i = 0; i < text.size(); ++i) {
+            // The font's codes: the ROM's screen codes plus $20 (letters
+            // in capitals, the font's only ones).
+            const char ch = text[i];
+            const int screen = ch == 'x'               ? 0x18
+                               : ch >= 'A' && ch <= 'Z' ? ch - 'A' + 1
+                               : ch >= '0' && ch <= '9' ? ch
+                                                        : 0x20;
+            const auto& glyph = font[std::size_t((screen + 0x20) & 0x3F)];
+            for (int line = 0; line < 8; ++line) {
+                for (int bit = 0; bit < 8; ++bit) {
+                    if (!(glyph[std::size_t(line)] >> (7 - bit) & 1)) {
+                        continue;
+                    }
+                    for (int shadow = 1; shadow >= 0; --shadow) {
+                        const int x = left + 8 * int(i) + bit + shadow, y = top + line + shadow;
+                        if (x >= 0 && x < picture_.width && y >= 24 && y < c64::Picture::height) {
+                            picture_.pixels[std::size_t(y * picture_.width + x)] = shadow ? 0 : colour;
+                        }
+                    }
+                }
+            }
+        }
+        ++p.age;
+    }
+    std::erase_if(popups_, [](const Popup& p) { return p.age >= popup_frames; });
 }
 
 // The Ninja or the Yamo out (energy gone, $2FFE takes it away): it bursts
@@ -540,6 +723,8 @@ void Effects::update(const game::Game& game, Settings settings) {
     if (!game.in_play()) {
         known_ = false;
         particles_.clear();
+        popups_.clear();
+        chunks_.clear();
         for (auto& g : actors_) g.valid = false;
         for (auto& g : fireballs_) g.valid = false;
         picture_ = game.picture();
@@ -609,6 +794,13 @@ void Effects::update(const game::Game& game, Settings settings) {
         hazard_deaths_ = world.hazard_deaths;
         bruce_burst_ = false;
     }
+    // (Before the new picture: smashed decoration takes its colours from
+    // the last one.)
+    if (world.carnage_on() && known_ && world.room == room_) {
+        carnage(world);
+    } else if (!world.carnage.events.empty()) {
+        carnage_seen_ = world.carnage.events.back().id;
+    }
     c64::Layers layers;
     picture_ = game::world_frame(world, &places).rasterise(nullptr, &layers);
     if (settings.lights) {
@@ -617,7 +809,7 @@ void Effects::update(const game::Game& game, Settings settings) {
     if (settings.particles) {
         cracks(world, layers);
     }
-    if (settings.particles || settings.gibs) {
+    if (settings.particles || settings.gibs || world.carnage_on()) {
         events(world, settings);
         if (!game.paused()) {
             for (std::size_t i = 0; i < 2 && settings.particles; ++i) {
@@ -630,10 +822,21 @@ void Effects::update(const game::Game& game, Settings settings) {
             }
             step_particles(world, layers);
         }
+        if (!game.paused()) {
+            for (const auto& r : world.carnage.returned) {
+                if (r.active) {
+                    ember(2 * r.x - 16, r.y + 0x1D - 51 + 4); // the trail of a fireball sent back
+                }
+            }
+        }
+        draw_chunks(world);
         draw_particles();
+        draw_popups(world);
     } else {
         known_ = false;
         particles_.clear();
+        popups_.clear();
+        chunks_.clear();
     }
 }
 

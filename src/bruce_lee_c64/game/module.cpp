@@ -3,6 +3,8 @@
 #include "bruce_lee_c64/enhanced/wide_view.hpp"
 #include "bruce_lee_c64/game/game.hpp"
 #include "ui/vhs.hpp"
+#include <algorithm>
+#include <cmath>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -21,14 +23,23 @@ public:
     double pixel_aspect() const override { return 0.9365; }
     void tick(const app::GameInput& in) override {
         game_->world.cheats = cheats_; // also after a quick load
-        game_->tick(in);
+        game_->world.carnage.on = carnage_;
         ++frames_;
+        shake_ *= 0.8;
+        if (hit_stop_ > 0) {
+            --hit_stop_; // carnage mode: the picture holds on a big hit
+            shaken_ = shake(shown());
+            return;
+        }
+        game_->tick(in);
         if (enhanced()) {
             effects_.update(*game_, settings_);
         }
         if (widescreen_) {
             wide_view_.update(*game_, enhanced() ? effects_.picture() : game_->picture(), wide_.width);
         }
+        carnage_feel();
+        shaken_ = shake(shown());
     }
     void set_canvas(int width, int height) override {
         canvas_ = {width, height};
@@ -37,8 +48,8 @@ public:
     platform::Image picture() const override {
         // Widescreen: the picture to the window's edges (some border above
         // and below only in windows narrower than the display window).
-        auto image = widescreen_ ? wide_view_.picture().to_image(0, wide_.margin_y)
-                                 : (enhanced() ? effects_.picture() : game_->picture()).to_image(32, 35);
+        const auto& shown = shaken_.pixels.empty() ? this->shown() : shaken_;
+        auto image = widescreen_ ? shown.to_image(0, wide_.margin_y) : shown.to_image(32, 35);
         return vhs_ ? ui::vhs(image, frames_, vhs_) : image;
     }
 
@@ -64,17 +75,11 @@ public:
     }
     bool has_save() const override { return saved_.has_value(); }
 
-    // The original's own choices that it sets with keys the launcher does
-    // not pass on: L / R (shift for joystick 2) on the title, S in play.
+    // The upgrades, carnage mode and cheats. (The original's own choices,
+    // set with keys the launcher does not pass on, L / R on the title and S
+    // in play, stay at their defaults.)
     std::vector<app::GameOption> options() const override {
-        const auto& o = game_->options;
         return {
-            {"Joystick 1", {"Right-handed", "Left-handed"}, o.left_handed[0] ? 1 : 0,
-             "Left-handed turns the stick a quarter, as the title's L key does (R sets it back)."},
-            {"Joystick 2", {"Right-handed", "Left-handed"}, o.left_handed[1] ? 1 : 0,
-             "The same for the second joystick (the Yamo's player)."},
-            {"Title music", {"On", "Off"}, o.title_music ? 0 : 1,
-             "The title plays its tune every fifth time it comes up; the S key in play turns that off."},
             {"Smooth motion", {"Off", "On"}, settings_.smooth ? 1 : 0,
              "Bruce, the Ninja, the Yamo and the fireballs glide over the three frames between the game's "
              "steps instead of jumping, and the lift scrolls a row at a time. The game's own places and "
@@ -94,6 +99,13 @@ public:
              "are in show through, dimmed and still; taking an exit scrolls over to the next room."},
             {"VHS look", {"Off", "Light", "Medium", "Heavy", "Broken"}, vhs_,
              "A worn video tape's colour bleed and noise (shared with the other games)."},
+            {"Carnage mode", {"Off", "On"}, carnage_ ? 1 : 0,
+             "Not the original game: Bruce's blows send the Ninja and the Yamo flying (and the Yamo's "
+             "send Bruce); they bounce off the walls and floors, smash the decoration (statues topple), "
+             "knock each other over and die on the room's hazards; enemies come back sooner in waves; "
+             "in the wizard's room a blow sends a fireball back at his face; hits in quick succession "
+             "build a combo that scores.",
+             "Carnage"},
             {"Infinite lives", {"Off", "On"}, cheats_.infinite_lives ? 1 : 0,
              "A lost fall is not counted: the game never ends.", "Cheats"},
             {"Enemy hits don't count", {"Off", "On"}, cheats_.harmless_enemies ? 1 : 0,
@@ -102,39 +114,85 @@ public:
         };
     }
     void set_option(std::size_t index, int value) override {
-        auto& o = game_->options;
-        if (index < 2) {
-            o.left_handed[index] = value != 0;
-        } else if (index == 2) {
-            o.title_music = value == 0;
-        } else if (index == 3) {
-            settings_.smooth = value != 0;
-        } else if (index == 4) {
-            settings_.particles = value != 0;
-        } else if (index == 5) {
-            settings_.lights = value != 0;
-        } else if (index == 6) {
-            settings_.gibs = value != 0;
-        } else if (index == 7) {
+        // (In the order options() lists them. The original's own settings,
+        // the joysticks' handedness and the title tune, keep its defaults.)
+        switch (index) {
+        case 0: settings_.smooth = value != 0; break;
+        case 1: settings_.particles = value != 0; break;
+        case 2: settings_.lights = value != 0; break;
+        case 3: settings_.gibs = value != 0; break;
+        case 4:
             widescreen_ = value != 0;
             if (widescreen_) {
                 wide_view_ = {};
                 wide_view_.update(*game_, enhanced() ? effects_.picture() : game_->picture(), wide_.width);
             }
-        } else if (index == 8) {
-            vhs_ = value;
-        } else if (index == 9) {
-            cheats_.infinite_lives = value != 0;
-        } else if (index == 10) {
-            cheats_.harmless_enemies = value != 0;
+            break;
+        case 5: vhs_ = value; break;
+        case 6: carnage_ = value != 0; break;
+        case 7: cheats_.infinite_lives = value != 0; break;
+        case 8: cheats_.harmless_enemies = value != 0; break;
+        default: break;
         }
     }
 
 private:
+    // The picture as the options make it (before any shake).
+    const c64::Picture& shown() const {
+        return widescreen_ ? wide_view_.picture() : enhanced() ? effects_.picture() : game_->picture();
+    }
+    // Carnage mode's feel: new big hits stop the picture for a few frames
+    // and shake it.
+    void carnage_feel() {
+        for (const auto& e : game_->world.carnage.events) {
+            if (e.id <= carnage_seen_) {
+                continue;
+            }
+            carnage_seen_ = e.id;
+            using Kind = World::Carnage::Event::Kind;
+            if (e.kind == Kind::launch || e.kind == Kind::impact || e.kind == Kind::knock || e.kind == Kind::face) {
+                constexpr int stops[] = {0, 0, 2, 4};
+                constexpr double shakes[] = {0, 0.8, 2.0, 4.0};
+                const int s = std::clamp(e.strength, 0, 3);
+                hit_stop_ = std::max(hit_stop_, stops[s]);
+                shake_ = std::min(6.0, shake_ + shakes[s]);
+            }
+        }
+    }
+    c64::Picture shake(const c64::Picture& p) const {
+        const int dx = int(std::lround(shake_ * std::sin(frames_ * 2.3))) & ~1; // whole pixel pairs
+        const int dy = int(std::lround(shake_ * std::cos(frames_ * 1.7)));
+        if (dx == 0 && dy == 0) {
+            return p;
+        }
+        c64::Picture out(p.width);
+        out.border = p.border;
+        std::fill(out.pixels.begin(), out.pixels.end(), p.border);
+        for (int y = 0; y < c64::Picture::height; ++y) {
+            const int sy = y - dy;
+            if (sy < 0 || sy >= c64::Picture::height) {
+                continue;
+            }
+            for (int x = 0; x < p.width; ++x) {
+                const int sx = x - dx;
+                if (sx >= 0 && sx < p.width) {
+                    out.pixels[std::size_t(y * p.width + x)] = p.at(sx, sy);
+                }
+            }
+        }
+        return out;
+    }
+    bool carnage_{};
+    std::uint32_t carnage_seen_{};
+    int hit_stop_{};
+    double shake_{};
+    c64::Picture shaken_ = c64::Picture(0);
     data::Assets assets_;
     std::optional<Game> game_;
     std::optional<Game> saved_;
-    bool enhanced() const { return settings_.smooth || settings_.particles || settings_.lights || settings_.gibs; }
+    bool enhanced() const {
+        return settings_.smooth || settings_.particles || settings_.lights || settings_.gibs || carnage_;
+    }
     std::vector<float> mono_;
     enhanced::Effects effects_;
     enhanced::Settings settings_;

@@ -592,7 +592,9 @@ int effects_preview(const std::string& content, const std::string& script, int f
     const auto assets = data::load_assets(platform::utf8_path(content));
     game::Game g(assets);
     g.start();
-    g.world.cheats.harmless_enemies = true;
+    g.world.cheats.harmless_enemies = std::getenv("BL_HARMFUL") == nullptr; // BL_HARMFUL: enemy hits land
+    g.world.carnage.on = std::getenv("BL_CARNAGE") != nullptr; // carnage mode
+    std::uint32_t carnage_seen = 0;
     enhanced::Effects effects;
     const enhanced::Settings settings{true, true, true, true};
     std::map<int, int> changes;
@@ -636,6 +638,24 @@ int effects_preview(const std::string& content, const std::string& script, int f
             }
         }
         effects.update(g, settings);
+        if (std::getenv("BL_TRACE_CARNAGE")) {
+            static bool bruce_flying = false;
+            if (g.world.carnage.flights[0].active != bruce_flying) {
+                bruce_flying = g.world.carnage.flights[0].active;
+                std::printf("frame %d room %d bruce %s at %d,%d energy %d\n", frame, g.world.room,
+                            bruce_flying ? "flies" : "lands", g.world.actors.slots[0].x, g.world.actors.slots[0].y,
+                            g.world.actors.slots[0].d1);
+            }
+            static const char* kinds[] = {"launch", "impact", "smash",  "knock",    "combo",
+                                          "chunk",  "landed", "wave",   "returned", "face"};
+            for (const auto& e : g.world.carnage.events) {
+                if (e.id > carnage_seen) {
+                    std::printf("frame %d room %d %s strength %d at %.0f,%.0f\n", frame, g.world.room,
+                                kinds[int(e.kind)], e.strength, e.x, e.y);
+                    carnage_seen = e.id;
+                }
+            }
+        }
         if (std::getenv("BL_TRACE_BRUCE")) {
             const auto& b = g.world.actors.slots[0];
             std::printf("frame %d room %d bruce x %d y %d move %d\n", frame, g.world.room, b.x, b.y, b.move);
