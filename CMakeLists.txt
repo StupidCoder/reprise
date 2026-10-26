@@ -42,6 +42,15 @@ add_library(c64
 target_include_directories(c64 PUBLIC ${SOURCE_ROOT})
 target_compile_options(c64 PRIVATE ${PROJECT_WARNINGS})
 
+# --- amiga: formats and helpers shared by the Amiga games -----------------------
+add_library(amiga
+    src/amiga/adf.cpp
+    src/amiga/hunk.cpp
+    src/amiga/byte_run1.cpp
+    src/amiga/iff.cpp)
+target_include_directories(amiga PUBLIC ${SOURCE_ROOT})
+target_compile_options(amiga PRIVATE ${PROJECT_WARNINGS})
+
 # --- fort_apocalypse_c64: Fort Apocalypse (C64) --------------------------------
 add_library(fort_apocalypse_c64
     src/fort_apocalypse_c64/entry.cpp
@@ -122,6 +131,17 @@ target_include_directories(wizball_c64 PUBLIC ${SOURCE_ROOT})
 target_link_libraries(wizball_c64 PUBLIC c64 platform ui)
 target_compile_options(wizball_c64 PRIVATE ${PROJECT_WARNINGS})
 
+# --- marble_madness_amiga: Marble Madness (Amiga) -------------------------------
+add_library(marble_madness_amiga
+    src/marble_madness_amiga/entry.cpp
+    src/marble_madness_amiga/data/assets.cpp
+    src/marble_madness_amiga/data/preview.cpp
+    src/marble_madness_amiga/import/loader_cipher.cpp
+    src/marble_madness_amiga/import/disk_import.cpp)
+target_include_directories(marble_madness_amiga PUBLIC ${SOURCE_ROOT})
+target_link_libraries(marble_madness_amiga PUBLIC amiga platform ui)
+target_compile_options(marble_madness_amiga PRIVATE ${PROJECT_WARNINGS})
+
 # --- joyport: the launcher application -----------------------------------------
 add_executable(joyport
     src/app/main.cpp
@@ -130,7 +150,7 @@ add_executable(joyport
     src/app/launcher.cpp
     src/app/pause_menu.cpp
     src/app/saved_options.cpp)
-target_link_libraries(joyport PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 ui)
+target_link_libraries(joyport PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga ui)
 target_compile_options(joyport PRIVATE ${PROJECT_WARNINGS})
 
 # --- tools ---------------------------------------------------------------------
@@ -157,3 +177,11 @@ target_compile_options(bruce_lee_replay PRIVATE ${PROJECT_WARNINGS})
 add_executable(fort_apocalypse_replay tools/fort_apocalypse_replay.cpp)
 target_link_libraries(fort_apocalypse_replay PRIVATE fort_apocalypse_c64)
 target_compile_options(fort_apocalypse_replay PRIVATE ${PROJECT_WARNINGS})
+
+add_executable(amiga_disk tools/amiga_disk.cpp)
+target_link_libraries(amiga_disk PRIVATE amiga)
+target_compile_options(amiga_disk PRIVATE ${PROJECT_WARNINGS})
+
+add_executable(marble_madness_assets tools/marble_madness_assets.cpp)
+target_link_libraries(marble_madness_assets PRIVATE marble_madness_amiga)
+target_compile_options(marble_madness_assets PRIVATE ${PROJECT_WARNINGS})

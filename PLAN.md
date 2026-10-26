@@ -35,7 +35,7 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
 | `src/app` | catalog, library and import pipeline, launcher screen | started |
 | `src/c64` | TAP reader, KERNAL tape decoder, PRG files, G64 reader (GCR sectors, raw tracks, CBM DOS directory and files) | started |
 | `src/c64` | VIC-II-style picture building blocks (charset/sprite decoders, palette), SID sound | planned |
-| `src/amiga` | ADF/AmigaDOS reader, hunk loader, IFF, Paula sound | planned |
+| `src/amiga` | ADF/AmigaDOS (OFS/FFS) reader, hunk load files, ByteRun1, IFF ILBM | started; Paula sound planned |
 
 ## Games
 
@@ -44,7 +44,7 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
 | Fort Apocalypse | C64 | `Fort_Apocalypse.tap` (MD5 `bec7409816865f3ad160af9984f127cd`) | playable from title to debrief, compared with the original in scripted runs; pause menu with the enemy-pilot option |
 | Bruce Lee | C64 | `Bruce_Lee_(Original).g64` (MD5 `8cbfd1595cdc18a8e68fe4d43eec6aa8`) | playable from the title to the end and the next round, with sound, the demo and both two-player modes; compared with the original pass by pass (actors, rooms, screen, SID); smooth motion, particle and VHS options |
 | Mindwalker | Amiga | — | planned |
-| Marble Madness | Amiga | — | planned (RetroReverse has prior analysis) |
+| Marble Madness | Amiga | `Marble_Madness.adf` (MD5 `735dc697d64b3eeaa000778eb0b1153a`) | disk import (both encrypted programs decrypted, checked against the original's memory); courses, tiles, object and sprite libraries and the title picture decoded with launcher previews; not playable yet |
 | Wizball | C64 | `Wizball.g64` (MD5 `73e1a136da4b6972d39f00817b86983e`) | disk import, asset decoding with launcher previews; play rebuilt and checked in lockstep (places, enemies, catellite, tunnels, lives, bonus wave, Wizlab, level flight, round end, sound and music); front end, high scores and keys rebuilt |
 | Cannon Fodder | Amiga | — | planned |
 | Rock 'n Roll | Amiga | — | planned |
@@ -280,7 +280,7 @@ Notes: `.analysis/bruce_lee_c64/` (`disk.md` loader and protection,
   only been exercised from the command line (`joyport --import`) so far.
 - Only one dump of Fort Apocalypse has been tried; other dumps of the same
   release should work (recognised by content), other releases are rejected.
-- Images for Mindwalker, Marble Madness, Cannon Fodder, Rock 'n Roll and Wings of Fury are not in the project folder yet.
+- Images for Mindwalker, Cannon Fodder, Rock 'n Roll and Wings of Fury are not in the project folder yet.
 - Bruce Lee: not compared with the original yet: the two-player modes
   (needs a harness run with both joysticks), the idle pause (11 minutes),
   the pause key. Not rebuilt: the idle pause's colour cycling ($1675,
@@ -499,3 +499,26 @@ undecoded tables, sprite colour byte, the LXA routine's chip dependence,
 other releases; catellite catches and left tunnels not exercised by a run;
 blank frames around set-ups; known picture differences listed in play.md).
 
+## Marble Madness (Amiga) milestones
+
+Notes: `.analysis/marble_madness_amiga/` (`disk.md` boot chain, cipher,
+protection and the reference check; `formats.md` file formats; `game.md`
+program map, plan and open items). RetroReverse's earlier writeup of the
+same disk is used as a guide; claims are checked against the image's code.
+
+1. **Disk import** — done. ADF → AmigaDOS files (`src/amiga`) → c/zzz's
+   cipher rebuilt (`import/loader_cipher.cpp`: key table, the Kickstart 1.x
+   vector protection, keystream, the launcher's checksum of c/xxx, c/xxx's
+   key) → `program.hunks` (347 hunks, recognised by SHA-256) plus 35 data
+   files and the title picture. Checked in FS-UAE (KS 1.3): every code hunk
+   equals the running original's memory, all 1,443 checked relocations
+   right (`harness/memcheck.py`).
+2. **Asset decoding** — started. Tile maps (tiles, map, palette), image
+   libraries (sprites and scenery), title picture; launcher viewer and
+   `marble_madness_assets export`. Next: Track files (height field,
+   placements, display bands, scripts), sprite colour ramps, sound.
+3. **Reference harness** — FS-UAE with the GDB stub for memory checks
+   (needs a window). A frame-stepping, scriptable harness is still to be
+   chosen.
+4. **Game** — not started: physics, objects, scroll and picture, sound, the
+   two-player race, front end.

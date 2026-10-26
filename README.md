@@ -15,7 +15,7 @@ not affiliated with or endorsed by the games' publishers.
 | Fort Apocalypse | C64 | Playable from the title to the debrief; compared frame by frame with the original in scripted runs |
 | Bruce Lee | C64 | Playable from the title through all 20 rooms to the end, with sound, the demo and both two-player modes; compared pass by pass with the original in scripted runs |
 | Mindwalker | Amiga | Planned |
-| Marble Madness | Amiga | Planned |
+| Marble Madness | Amiga | Disk import (encrypted program decrypted) and decoded courses, tiles, objects, sprites and title picture in the viewer; not playable yet |
 | Wizball | C64 | Whole game rebuilt from the title: menu, wiztips, play through levels, bonus waves, the Wizlab and round ends (compared pass by pass with the original), game over, high scores, pause and volume keys; widescreen option |
 | Cannon Fodder | Amiga | Planned |
 | Rock 'n Roll | Amiga | Planned |
