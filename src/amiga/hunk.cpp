@@ -173,4 +173,41 @@ std::vector<std::uint8_t> relocate(const LoadFile& file, std::uint32_t base, std
     return image;
 }
 
+LoadedImage::LoadedImage(const LoadFile& file, std::uint32_t base, std::uint32_t gap) : base_(base) {
+    bytes_ = relocate(file, base, hunks_, gap);
+    for (const auto& h : file.hunks) {
+        sizes_.push_back(h.size);
+    }
+}
+
+std::uint32_t LoadedImage::first_filled_hunk() const {
+    for (std::size_t i = 0; i < hunks_.size(); ++i) {
+        if (sizes_[i] > 0) {
+            return hunks_[i];
+        }
+    }
+    throw std::runtime_error("A program file on the disk has no contents.");
+}
+
+std::uint8_t LoadedImage::u8(std::uint32_t address) const {
+    if (!contains(address)) {
+        throw std::runtime_error("A data file on the disk points outside itself.");
+    }
+    return bytes_[address - base_];
+}
+
+std::uint16_t LoadedImage::u16(std::uint32_t address) const {
+    if (!contains(address, 2)) {
+        throw std::runtime_error("A data file on the disk points outside itself.");
+    }
+    return read_be16(bytes_, address - base_);
+}
+
+std::uint32_t LoadedImage::u32(std::uint32_t address) const {
+    if (!contains(address, 4)) {
+        throw std::runtime_error("A data file on the disk points outside itself.");
+    }
+    return read_be32(bytes_, address - base_);
+}
+
 } // namespace amiga

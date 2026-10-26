@@ -51,6 +51,9 @@ with tempfile.TemporaryDirectory(prefix='package-', dir=root / 'build') as temp:
         'NSHighResolutionCapable': True,
     }))
 
+    # Original cover illustrations and redistributable interface fonts only.
+    shutil.copytree(root / 'resources', contents / 'Resources', dirs_exist_ok=True)
+
     # Bundle SDL (the only non-system library) and point the executable at it.
     external = [p for p in linked_libraries(executable) if not is_system(p)]
     assert len(external) == 1 and Path(external[0]).name == 'libSDL3.0.dylib', external

@@ -1,5 +1,5 @@
 #include "app/pause_menu.hpp"
-#include "ui/draw.hpp"
+#include "ui/shelf.hpp"
 #include <algorithm>
 #include <array>
 
@@ -7,30 +7,29 @@ namespace app {
 using platform::Color;
 using platform::Image;
 
+namespace s = ui::shelf;
 namespace {
-constexpr int panel_x = 250, panel_y = 48, panel_w = 460, panel_h = 560;
-constexpr int title_y = 70, subtitle_y = 114, footer_y = 572;
-constexpr int row_x = 274, row_w = 412, row_h = 38, first_row = 148, row_step = 44;
-constexpr Color ink{232, 236, 248}, muted_ink{138, 146, 178}, accent{255, 214, 92},
-    panel_colour{20, 23, 44}, row_colour{30, 34, 62}, good{124, 222, 140};
-
-int row_at(int x, int y, int count) {
-    if (x < row_x || x >= row_x + row_w || y < first_row) {
-        return -1;
-    }
-    const int row = (y - first_row) / row_step;
-    return row < count && (y - first_row) % row_step < row_h ? row : -1;
+constexpr int panel_x = 146, panel_y = 28, panel_w = 668, panel_h = 584;
+constexpr int row_x = 170, row_w = 370, row_h = 39, first_row = 184, row_step = 44;
+constexpr int visible_rows = 8;
+int first_visible(int selected, int count) {
+    return std::clamp(selected - visible_rows + 1, 0, std::max(0, count - visible_rows));
 }
-
-void row(Image& im, int index, const std::string& label, const std::string& right, bool selected,
-         bool disabled) {
-    const int y = first_row + index * row_step;
-    ui::rect(im, row_x, y, row_w, row_h, selected ? accent : row_colour);
-    const Color c = selected ? Color{16, 18, 36} : disabled ? muted_ink : ink;
-    ui::text(im, label, row_x + 16, y + 10, 2, c);
-    if (!right.empty()) {
-        ui::text_right(im, right, row_x + row_w - 16, y + 10, 2, c);
-    }
+int row_at(int x, int y, int count, int first = 0) {
+    if (x < row_x || x >= row_x + row_w || y < first_row) return -1;
+    const int row = (y - first_row) / row_step;
+    return row < visible_rows && row + first < count && (y - first_row) % row_step < row_h ? row + first : -1;
+}
+void row(Image& im, int slot, const std::string& label, const std::string& right, bool selected, bool disabled) {
+    const int y = first_row + slot * row_step;
+    ui::rounded(im, row_x, y, row_w, row_h, 6, selected ? s::cobalt : s::paper);
+    const Color c = selected ? s::white : disabled ? s::muted : s::ink;
+    const int rw = right.empty() ? 0 : s::width(right, 14, true) + 22;
+    s::clipped(im, label, row_x + 13, y + 9, row_w - rw - 26, 16, c, selected);
+    if (!right.empty()) s::right(im, right, row_x + row_w - 13, y + 11, 14, c, true);
+}
+bool hit(const platform::Controls& in, int x, int y, int w, int h) {
+    return in.click && in.mouse_x >= x && in.mouse_x < x + w && in.mouse_y >= y && in.mouse_y < y + h;
 }
 } // namespace
 
@@ -60,22 +59,34 @@ void PauseMenu::show(double now) {
     options_page_ = false;
     group_.clear();
     selection_ = 0;
-    opened_ = now;
+    help_page_ = false;
+    option_selection_ = 0;
+    (void)now;
 }
 
 PauseMenu::Action PauseMenu::update(const platform::Controls& in, GameModule& module, double now) {
+    if (help_page_) {
+        if (in.back || in.accept || in.info || hit(in, 690, 557, 98, 32)) help_page_ = false;
+        return Action::none;
+    }
+    if (options_page_ && (in.info || hit(in, 578, 498, 202, 30))) { help_page_ = true; return Action::none; }
     if (options_page_) {
         const auto options = module.options();
         const auto rows = option_rows(module);
         const int count = int(rows.size());
         option_selection_ = (option_selection_ + count + in.nav_down - in.nav_up) % count;
-        int clicked = in.click ? row_at(in.mouse_x, in.mouse_y, count) : -1;
+        option_selection_ = std::clamp(option_selection_, 0, count - 1);
+        const int old_first = first_visible(option_selection_, count);
+        if (in.wheel || in.page_up || in.page_down || hit(in, 572, 557, 40, 32) || hit(in, 626, 557, 40, 32))
+            option_selection_ = std::clamp(option_selection_ + in.wheel +
+                (int(in.page_down || hit(in, 626, 557, 40, 32)) - int(in.page_up || hit(in, 572, 557, 40, 32))) * visible_rows, 0, count - 1);
+        int clicked = in.click ? row_at(in.mouse_x, in.mouse_y, count, old_first) : -1;
         if (clicked >= 0) {
             option_selection_ = clicked;
         }
         const auto& chosen = rows[std::size_t(option_selection_)];
         const bool pressed = in.accept || clicked >= 0;
-        const bool back = in.back || (pressed && chosen.option < 0 && chosen.group.empty());
+        const bool back = in.back || hit(in, 690, 557, 98, 32) || (pressed && chosen.option < 0 && chosen.group.empty());
         if (back) {
             if (group_.empty()) {
                 options_page_ = false;
@@ -100,13 +111,14 @@ PauseMenu::Action PauseMenu::update(const platform::Controls& in, GameModule& mo
             }
             return Action::none;
         }
+        if (chosen.option < 0) return Action::none;
         const auto& o = options[std::size_t(chosen.option)];
         const int n = int(o.choices.size());
         int step = in.nav_right - in.nav_left;
         if (pressed) {
             step = 1;
         }
-        if (step) {
+        if (step && n > 0) {
             module.set_option(std::size_t(chosen.option), (o.value + step + n) % n);
         }
         (void)now;
@@ -117,7 +129,7 @@ PauseMenu::Action PauseMenu::update(const platform::Controls& in, GameModule& mo
     if (clicked >= 0) {
         selection_ = clicked;
     }
-    if (in.back) {
+    if (in.back || hit(in, 690, 557, 98, 32)) {
         open_ = false;
         return Action::resume;
     }
@@ -149,80 +161,78 @@ PauseMenu::Action PauseMenu::update(const platform::Controls& in, GameModule& mo
     }
 }
 
-Image PauseMenu::draw(const GameModule& module, const std::string& title, double now) const {
+Image PauseMenu::draw(const GameModule& module, const std::string& title, double now, const std::string& cover_id) const {
     Image im(platform::ui_width, platform::ui_height);
     ui::fill(im, {0, 0, 0, 0});
-    // The panel slides in from the left.
-    const double in = ui::ease_out((now - opened_) / 0.22);
-    const int dx = int((1 - in) * -520);
-    ui::rect(im, panel_x + 8 + dx, panel_y + 8, panel_w, panel_h, {4, 5, 10});
-    ui::rect(im, panel_x + dx, panel_y, panel_w, panel_h, accent);
-    ui::rect(im, panel_x + 4 + dx, panel_y + 4, panel_w - 8, panel_h - 8, panel_colour);
-    Image menu(platform::ui_width, platform::ui_height);
-    ui::fill(menu, {0, 0, 0, 0});
+    // Stable bounds keep pointer hit targets aligned even on the opening frame.
+    ui::rounded(im, panel_x + 4, panel_y + 6, panel_w, panel_h, 12, {12, 26, 30, 120});
+    ui::rounded(im, panel_x, panel_y, panel_w, panel_h, 12, s::card);
+    s::cover(im, cover_id, 170, 48, 620, 78);
+    const std::string heading = options_page_ ? (group_.empty() ? "Options" : group_) : "Paused";
+    s::text(im, heading, 170, 137, 28, s::ink, true);
+    s::right(im, title, 790, 148, 16, s::muted);
+    ui::rect(im, 558, 184, 1, 346, s::line);
+    std::string description;
+    std::string help_title;
     if (options_page_) {
-        ui::text(menu, group_.empty() ? "Options" : group_, row_x, title_y, 4, ink);
-        ui::text(menu, title, row_x, subtitle_y, 2, muted_ink);
         const auto options = module.options();
         const auto rows = option_rows(module);
-        std::string description;
-        for (std::size_t i = 0; i < rows.size(); ++i) {
-            const auto& r = rows[i];
-            const bool selected = option_selection_ == int(i);
+        const int selected_index = std::clamp(option_selection_, 0, int(rows.size()) - 1);
+        const int first = first_visible(selected_index, int(rows.size()));
+        for (int i = first; i < std::min(first + visible_rows, int(rows.size())); ++i) {
+            const auto& r = rows[std::size_t(i)];
+            const bool selected = selected_index == i;
             if (r.option >= 0) {
                 const auto& o = options[std::size_t(r.option)];
-                row(menu, int(i), o.name, std::string(1, ui::icon_left) + " " +
-                                              o.choices[std::size_t(o.value)] + " " + ui::icon_right,
-                    selected, false);
-                if (selected) {
-                    description = o.description;
-                }
+                row(im, i - first, o.name, "<  " + o.choices[std::size_t(o.value)] + "  >", selected, false);
+                if (selected) { description = o.description; help_title = o.name; }
             } else if (!r.group.empty()) {
-                row(menu, int(i), r.group, std::string(1, ui::icon_right), selected, false);
-                if (selected) {
-                    description = "More options: " + r.group + ".";
-                }
+                row(im, i - first, r.group, ">", selected, false);
+                if (selected) { description = "Open the " + r.group + " settings."; help_title = r.group; }
             } else {
-                row(menu, int(i), "Back", "", selected, false);
-                if (selected) {
-                    description = group_.empty() ? "Return to the pause menu." : "Return to the options.";
-                }
+                row(im, i - first, "Back", "", selected, false);
+                if (selected) { description = group_.empty() ? "Return to the pause menu." : "Return to the options."; help_title = "Back"; }
             }
         }
-        ui::wrapped(menu, description, row_x, first_row + int(rows.size()) * row_step + 16, row_w,
-                    4, 2, muted_ink);
-        ui::text(menu, "Left/Right or Enter: change   Esc: back", row_x, footer_y, 2, muted_ink);
+        if (rows.size() > visible_rows) {
+            const int track_h = visible_rows * row_step - 5;
+            ui::rect(im, 547, first_row, 3, track_h, s::paper);
+            const int thumb_h = track_h * visible_rows / int(rows.size());
+            ui::rect(im, 547, first_row + (track_h - thumb_h) * first / (int(rows.size()) - visible_rows), 3, thumb_h, s::muted);
+        }
+        s::wrap(im, "Left / Right or Enter to change. Settings are saved automatically.", 578, 446, 202, 3, 13);
+        s::button(im, "Read more  /  I", 578, 498, 202, 30);
     } else {
-        ui::text(menu, "Paused", row_x, title_y, 4, ink);
-        ui::text(menu, title, row_x, subtitle_y, 2, muted_ink);
-        const std::array<std::string, items> labels = {
-            "Resume", "Restart game", "Quick save", "Quick load",
-            muted_ ? "Sound: off" : "Sound: on", std::string("Options ") + ui::icon_right,
-            "Return to launcher"};
+        const std::array<std::string, items> labels = {"Resume", "Restart game", "Quick save", "Quick load",
+            muted_ ? "Sound: off" : "Sound: on", "Options", "Return to library"};
         const std::string mod = platform::shortcut_modifier;
-        const std::array<std::string, items> keys = {
-            "Esc", "", mod + "+S", module.has_save() ? mod + "+L" : "Empty", "M", "", ""};
-        for (int i = 0; i < items; ++i) {
-            row(menu, i, labels[std::size_t(i)], keys[std::size_t(i)], selection_ == i,
-                i == load_item && !module.has_save());
-        }
-        if (!message_.empty() && now - message_time_ < 3) {
-            ui::text(menu, message_, row_x, footer_y - 32, 2, good);
-        }
-        ui::text(menu, "Arrows, Enter or the mouse", row_x, footer_y, 2, muted_ink);
+        const std::array<std::string, items> keys = {"Esc", "", mod + "+S", module.has_save() ? mod + "+L" : "Empty", "M", ">", ""};
+        const std::array<std::string, items> descriptions = {
+            "Pick up exactly where you left off.", "Start this game again from its beginning.",
+            "Keep a snapshot of your progress so you can return to it later.",
+            module.has_save() ? "Continue from your last quick save." : "There is no quick save for this game yet.",
+            "Turn the game's sound on or off.", "Adjust presentation, enhancements and game options.",
+            "Close this game and browse your collection."};
+        for (int i = 0; i < items; ++i) row(im, i, labels[std::size_t(i)], keys[std::size_t(i)], selection_ == i,
+                                           i == load_item && !module.has_save());
+        help_title = labels[std::size_t(selection_)];
+        description = descriptions[std::size_t(selection_)];
+        if (!message_.empty() && now - message_time_ < 3) s::wrap(im, message_, 578, 450, 202, 4, 14, s::green);
     }
-    for (int y = 0; y < im.height; ++y) {
-        for (int x = 0; x < im.width; ++x) {
-            const int sx = x - dx;
-            if (sx < 0 || sx >= im.width) {
-                continue;
-            }
-            const auto c = menu.pixels[std::size_t(y * im.width + sx)];
-            if (c.a) {
-                im.pixels[std::size_t(y * im.width + x)] = c;
-            }
-        }
+    s::wrap(im, help_title, 578, 190, 202, 2, 19, s::ink);
+    s::wrap(im, description, 578, 248, 202, 9, 15);
+    if (help_page_) {
+        ui::rect(im, 170, 182, 620, 352, s::card);
+        s::text(im, help_title, 170, 188, 23, s::ink, true);
+        s::wrap(im, description, 170, 234, 610, 14, 16);
     }
+    ui::rect(im, 170, 545, 620, 1, s::line);
+    s::text(im, help_page_ ? "Esc or Enter: back to options" : "Arrows: choose    Enter: select", 170, 564, 14, s::muted);
+    if (options_page_ && !help_page_ && option_rows(module).size() > visible_rows) {
+        s::button(im, "Up", 572, 557, 40, 32);
+        s::button(im, "Down", 626, 557, 40, 32);
+    }
+    s::button(im, options_page_ ? "Back" : "Resume", 690, 557, 98, 32);
     return im;
 }
 

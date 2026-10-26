@@ -7,8 +7,8 @@
 #include <string>
 #include <vector>
 
-// The launcher: the game shelves (one per machine), import and the
-// imported-content screen. Drawn with Joyport's own UI kit; no game graphics.
+// The collector's shelf: filtered, scrollable covers and imported-content details.
+// Cover illustrations are original UI assets, separate from imported game data.
 namespace app {
 
 class Launcher {
@@ -30,11 +30,15 @@ public:
     platform::Image draw(double now) const;
 
     // For headless previews.
-    void select(std::size_t game) { selected_ = std::min(game, library_.games().size() - 1); }
+    void select(std::size_t game);
     void open_details(std::size_t page = 0);
 
 private:
     void move(int columns, int rows);
+    std::vector<std::size_t> visible_games() const;
+    void set_filter(int filter);
+    void reveal_selection();
+    std::string status(std::size_t game) const;
     void activate();
     void close_details();
     void draw_card(platform::Image&, std::size_t game, int x, int y, double now) const;
@@ -51,7 +55,9 @@ private:
     std::string message_;
     bool message_ok_{};
     double message_time_{-10};
-    double selected_time_{};
+    int filter_{}, first_row_{};
+    bool sidebar_focus_{};
+    std::string details_error_;
 };
 
 } // namespace app

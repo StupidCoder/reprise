@@ -1,6 +1,7 @@
 #include "marble_madness_amiga/entry.hpp"
 #include "marble_madness_amiga/data/assets.hpp"
 #include "marble_madness_amiga/data/preview.hpp"
+#include "marble_madness_amiga/game/module.hpp"
 #include "marble_madness_amiga/import/disk_import.hpp"
 #include <string>
 
@@ -39,8 +40,11 @@ app::GameEntry entry() {
         .media = "the disk image (ADF)",
         .import = import::import_disk,
         .previews = previews,
-        .progress = "Disk import (both encrypted programs decrypted) and the decoded courses, tiles, objects, "
-                    "sprites and title picture in the viewer. Not playable yet.",
+        .start = game::start,
+        .progress = "Early play: the courses in order with the original's marble physics, ground, edges, falls, "
+                    "zones, timer and Practice's rails (matching the original update for update). Not rebuilt yet: "
+                    "the title and score screens, sound, moving obstacles, creatures and most of the picture's "
+                    "details.",
     };
 }
 

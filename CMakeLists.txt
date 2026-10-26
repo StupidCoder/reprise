@@ -7,7 +7,7 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-find_package(SDL3 3.2 CONFIG REQUIRED)
+find_package(SDL3 3.4 CONFIG REQUIRED)
 
 if(MSVC)
     set(PROJECT_WARNINGS /W4)
@@ -21,13 +21,16 @@ set(SOURCE_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/src)
 # --- platform: host services (window, input, audio, files) --------------------
 add_library(platform
     src/platform/host_sdl.cpp
-    src/platform/sha256.cpp)
+    src/platform/sha256.cpp
+    src/platform/resources.cpp
+    src/platform/type.cpp)
 target_include_directories(platform PUBLIC ${SOURCE_ROOT})
 target_link_libraries(platform PUBLIC SDL3::SDL3)
 target_compile_options(platform PRIVATE ${PROJECT_WARNINGS})
 
 # --- ui: the launcher's drawing kit and shared picture filters --------------------------------------------
-add_library(ui src/ui/draw.cpp src/ui/vhs.cpp)
+add_library(ui src/ui/draw.cpp src/ui/vhs.cpp src/ui/shelf.cpp)
+target_link_libraries(ui PUBLIC platform)
 target_include_directories(ui PUBLIC ${SOURCE_ROOT})
 target_compile_options(ui PRIVATE ${PROJECT_WARNINGS})
 
@@ -47,7 +50,8 @@ add_library(amiga
     src/amiga/adf.cpp
     src/amiga/hunk.cpp
     src/amiga/byte_run1.cpp
-    src/amiga/iff.cpp)
+    src/amiga/iff.cpp
+    src/amiga/paula.cpp)
 target_include_directories(amiga PUBLIC ${SOURCE_ROOT})
 target_compile_options(amiga PRIVATE ${PROJECT_WARNINGS})
 
@@ -136,6 +140,19 @@ add_library(marble_madness_amiga
     src/marble_madness_amiga/entry.cpp
     src/marble_madness_amiga/data/assets.cpp
     src/marble_madness_amiga/data/preview.cpp
+    src/marble_madness_amiga/data/game_files.cpp
+    src/marble_madness_amiga/game/terrain.cpp
+    src/marble_madness_amiga/game/probe.cpp
+    src/marble_madness_amiga/game/regions.cpp
+    src/marble_madness_amiga/game/race.cpp
+    src/marble_madness_amiga/game/marble_rules.cpp
+    src/marble_madness_amiga/game/marble_covers.cpp
+    src/marble_madness_amiga/sound/effects.cpp
+    src/marble_madness_amiga/sound/music.cpp
+    src/marble_madness_amiga/sound/sound_board.cpp
+    src/marble_madness_amiga/game/marble_shine.cpp
+    src/marble_madness_amiga/game/view.cpp
+    src/marble_madness_amiga/game/module.cpp
     src/marble_madness_amiga/import/loader_cipher.cpp
     src/marble_madness_amiga/import/disk_import.cpp)
 target_include_directories(marble_madness_amiga PUBLIC ${SOURCE_ROOT})
@@ -185,3 +202,24 @@ target_compile_options(amiga_disk PRIVATE ${PROJECT_WARNINGS})
 add_executable(marble_madness_assets tools/marble_madness_assets.cpp)
 target_link_libraries(marble_madness_assets PRIVATE marble_madness_amiga)
 target_compile_options(marble_madness_assets PRIVATE ${PROJECT_WARNINGS})
+
+# The same resources are used by loose builds and packaged hosts. Android may
+# place their contents in assets/; access goes through SDL IO.
+add_custom_target(joyport_resources ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_CURRENT_SOURCE_DIR}/resources $<TARGET_FILE_DIR:joyport>/resources)
+add_dependencies(joyport joyport_resources)
+
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(shell_checks tests/shell.cpp src/app/catalog.cpp src/app/library.cpp
+        src/app/launcher.cpp src/app/pause_menu.cpp)
+    target_link_libraries(shell_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga ui)
+    target_compile_options(shell_checks PRIVATE ${PROJECT_WARNINGS})
+    add_dependencies(shell_checks joyport_resources)
+    add_test(NAME shell_navigation COMMAND shell_checks)
+endif()
+
+add_executable(marble_madness_replay tools/marble_madness_replay.cpp)
+target_link_libraries(marble_madness_replay PRIVATE marble_madness_amiga)
+target_compile_options(marble_madness_replay PRIVATE ${PROJECT_WARNINGS})

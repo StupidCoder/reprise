@@ -15,7 +15,7 @@ not affiliated with or endorsed by the games' publishers.
 | Fort Apocalypse | C64 | Playable from the title to the debrief; compared frame by frame with the original in scripted runs |
 | Bruce Lee | C64 | Playable from the title through all 20 rooms to the end, with sound, the demo and both two-player modes; compared pass by pass with the original in scripted runs |
 | Mindwalker | Amiga | Planned |
-| Marble Madness | Amiga | Disk import (encrypted program decrypted) and decoded courses, tiles, objects, sprites and title picture in the viewer; not playable yet |
+| Marble Madness | Amiga | Practice complete in play: the original's marble physics, ground, course scripts, wall covers, drop bonus, music and sound effects (compared update for update and request for request with the original); later courses run without their creatures and special regions; not yet: score screens, front end |
 | Wizball | C64 | Whole game rebuilt from the title: menu, wiztips, play through levels, bonus waves, the Wizlab and round ends (compared pass by pass with the original), game over, high scores, pause and volume keys; widescreen option |
 | Cannon Fodder | Amiga | Planned |
 | Rock 'n Roll | Amiga | Planned |
@@ -25,7 +25,7 @@ See [PLAN.md](PLAN.md) for the roadmap.
 
 ## Building
 
-You need CMake 3.24 or later, Ninja, a C++20 compiler and SDL 3.2 or later
+You need CMake 3.24 or later, Ninja, a C++20 compiler and SDL 3.4 or later
 (`brew install sdl3 cmake ninja`).
 
 ```bash
@@ -39,6 +39,32 @@ open build/Joyport.app
 Or double-click `Play Joyport.command`, which builds on first use. Imported
 content is stored in
 `~/Library/Application Support/NativeReconstruction/Joyport/`.
+
+## Collector's shelf interface
+
+The library uses original screenprinted cover illustrations, a warm grey palette,
+and bundled Lato typography. Everything in the shell, details and pause/options
+screens is drawn through SDL; no native platform UI controls or system fonts are
+used for these screens. `stb_truetype` rasterizes the bundled fonts portably. SDL
+loads the covers and fonts through its resource IO, including Android assets.
+Android packaging and device testing remain future work.
+
+Use the sidebar to filter All games, Commodore 64, Amiga or Planned. Arrow keys
+navigate the cards; Left from the first column enters the filters and Right
+returns to the cards. Scroll, use Page Up/Down (gamepad shoulders), or click the
+page arrows to reach the rest of the library. Enter activates the selected game;
+I or Details opens its details, including planned titles. The details screen's
+Left/Right buttons browse decoded data and Up/Down scroll imported files.
+
+Pause and options use the same visual style. Long option lists scroll with the
+selection, mouse wheel, Page Up/Down or the on-screen Up/Down buttons. Read more
+(or I) displays a setting's full description; Esc returns. Game visuals and
+original in-game title screens remain the game's own.
+
+Interface assets and their licences/provenance are in `resources/`. The bundle
+includes those assets; source-tree files are not needed to launch it. Fonts:
+[Lato](https://github.com/google/fonts/tree/main/ofl/lato), SIL Open Font License;
+renderer: [stb_truetype](https://github.com/nothings/stb), MIT/public domain.
 
 ## Playing
 

@@ -264,6 +264,7 @@ void Host::present(const Image& image) {
     auto& i = *impl_;
     i.ui_shown = true;
     i.upload(image);
+    SDL_SetTextureScaleMode(i.texture, SDL_SCALEMODE_LINEAR);
     SDL_SetRenderLogicalPresentation(i.renderer, image.width, image.height,
                                      SDL_LOGICAL_PRESENTATION_LETTERBOX);
     SDL_SetRenderDrawColor(i.renderer, 0, 0, 0, 255);
@@ -276,6 +277,7 @@ void Host::present_game(const Image& frame, double pixel_aspect, const Image* ov
     auto& i = *impl_;
     i.ui_shown = false;
     i.upload(frame);
+    SDL_SetTextureScaleMode(i.texture, SDL_SCALEMODE_NEAREST);
     // Without a logical presentation the renderer works in device pixels.
     SDL_SetRenderLogicalPresentation(i.renderer, 0, 0, SDL_LOGICAL_PRESENTATION_DISABLED);
     int cw = ui_width, ch = ui_height;
@@ -296,7 +298,7 @@ void Host::present_game(const Image& frame, double pixel_aspect, const Image* ov
             i.overlay_texture = SDL_CreateTexture(i.renderer, SDL_PIXELFORMAT_RGBA32,
                                                   SDL_TEXTUREACCESS_STREAMING, ui_width, ui_height);
             SDL_SetTextureBlendMode(i.overlay_texture, SDL_BLENDMODE_BLEND);
-            SDL_SetTextureScaleMode(i.overlay_texture, SDL_SCALEMODE_NEAREST);
+            SDL_SetTextureScaleMode(i.overlay_texture, SDL_SCALEMODE_LINEAR);
         }
         SDL_UpdateTexture(i.overlay_texture, nullptr, overlay->pixels.data(),
                           overlay->width * int(sizeof(Color)));

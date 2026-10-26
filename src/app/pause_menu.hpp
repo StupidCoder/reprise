@@ -33,7 +33,7 @@ public:
     bool muted() const { return muted_; }
     void toggle_muted() { muted_ = !muted_; }
 
-    platform::Image draw(const GameModule&, const std::string& title, double now) const;
+    platform::Image draw(const GameModule&, const std::string& title, double now, const std::string& cover_id) const;
 
 private:
     enum Item { resume_item, restart_item, save_item, load_item, sound_item, options_item, quit_item, items };
@@ -46,10 +46,9 @@ private:
     };
     std::vector<OptionRow> option_rows(const GameModule&) const;
 
-    bool open_{}, options_page_{}, muted_{};
+    bool open_{}, options_page_{}, muted_{}, help_page_{};
     std::string group_; // the group whose page is shown ("": the options page)
     int selection_{}, option_selection_{};
-    double opened_{};
     std::string message_;
     double message_time_{-10};
 };

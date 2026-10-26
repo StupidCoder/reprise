@@ -94,7 +94,7 @@ int run(const Options& options) {
                 }
             }
         }
-        const auto overlay = menu.draw(*game, entry.title, 10);
+        const auto overlay = menu.draw(*game, entry.title, 10, entry.id);
         platform::Image out(overlay.width, overlay.height);
         const auto& frame = game->picture();
         const int h = overlay.height, w = int(h * frame.width * game->pixel_aspect() / frame.height);
@@ -191,7 +191,7 @@ int run(const Options& options) {
                 host.mute(menu.muted());
                 if (game) {
                     remember_options(*game);
-                    const auto overlay = menu.draw(*game, entry.title, now);
+                    const auto overlay = menu.draw(*game, entry.title, now, entry.id);
                     host.present_game(game->picture(), game->pixel_aspect(), &overlay, true);
                 }
                 continue;

@@ -44,7 +44,7 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
 | Fort Apocalypse | C64 | `Fort_Apocalypse.tap` (MD5 `bec7409816865f3ad160af9984f127cd`) | playable from title to debrief, compared with the original in scripted runs; pause menu with the enemy-pilot option |
 | Bruce Lee | C64 | `Bruce_Lee_(Original).g64` (MD5 `8cbfd1595cdc18a8e68fe4d43eec6aa8`) | playable from the title to the end and the next round, with sound, the demo and both two-player modes; compared with the original pass by pass (actors, rooms, screen, SID); smooth motion, particle and VHS options |
 | Mindwalker | Amiga | — | planned |
-| Marble Madness | Amiga | `Marble_Madness.adf` (MD5 `735dc697d64b3eeaa000778eb0b1153a`) | disk import (both encrypted programs decrypted, checked against the original's memory); courses, tiles, object and sprite libraries and the title picture decoded with launcher previews; not playable yet |
+| Marble Madness | Amiga | `Marble_Madness.adf` (MD5 `735dc697d64b3eeaa000778eb0b1153a`) | disk import (both encrypted programs decrypted, checked against the original's memory); asset previews; Practice complete in play with the original's physics, wall covers, drop bonus, music and effects (compared with the original update for update and request for request); other courses run without their creatures and special regions |
 | Wizball | C64 | `Wizball.g64` (MD5 `73e1a136da4b6972d39f00817b86983e`) | disk import, asset decoding with launcher previews; play rebuilt and checked in lockstep (places, enemies, catellite, tunnels, lives, bonus wave, Wizlab, level flight, round end, sound and music); front end, high scores and keys rebuilt |
 | Cannon Fodder | Amiga | — | planned |
 | Rock 'n Roll | Amiga | — | planned |
@@ -517,8 +517,49 @@ same disk is used as a guide; claims are checked against the image's code.
    libraries (sprites and scenery), title picture; launcher viewer and
    `marble_madness_assets export`. Next: Track files (height field,
    placements, display bands, scripts), sprite colour ramps, sound.
-3. **Reference harness** — FS-UAE with the GDB stub for memory checks
-   (needs a window). A frame-stepping, scriptable harness is still to be
-   chosen.
-4. **Game** — not started: physics, objects, scroll and picture, sound, the
-   two-player race, front end.
+3. **Reference harness** — done for play: `harness/mmref.py` drives FS-UAE
+   (GDB stub, KS 1.3): starts a race from the options screen, stops at
+   every world update, records the marble records and globals, injects
+   scripted joystick pushes, captures the window and the copper list on
+   request. `marble_madness_replay lockstep` compares the rebuilt race.
+4. **Play** — in progress (notes: `play.md`). Rebuilt from the code: the
+   height map (encoder, dictionary, animated vertices), the ground probe,
+   regions (activation, script interpreter, frame pictures and height
+   patches, Practice's contact codes), the marble (input, speed cap,
+   friction, slope, walls, edges, falling, landing, breaking, respawn,
+   zones, goal, clocks, score), scroll, the shine, the view (playfield ring,
+   colour bands, goal colours, region sprites, marble, bonus picture, score
+   bar), the wall covers that hide the marble ($11EC42 / $1114F8), the
+   respawn sparkles, Practice's drop bonus and its marker. Practice matches
+   the original update for update in three recordings (roll, fall, respawn,
+   rails, goal, finish; a drop bonus), cover lists included; its picture is
+   pixel-identical at the captured moments, with the marble behind walls.
+   Playable in the app (courses in order, steering option).
+5. **Sound** — done for Practice (`src/marble_madness_amiga/sound`, notes in
+   `play.md`): the course's sound table, the effect synthesiser (segments,
+   envelopes, priorities, channel pairs), the 8-voice music player with the
+   8SVX instrument, on a model of the four channels (`src/amiga/paula`).
+   The audio.device requests equal the original's in recorded runs (all of
+   them; one-blank shifts where the original's world update reaches a sound
+   call before or after a vertical blank).
+   Next: the other courses' regions and creatures, the between-race screens
+   and front end, the score bar's font (Kickstart topaz: to be decided).
+
+## Launcher visual exploration (2026-10-26)
+
+Two AI-generated design proposals and their exact prompts are saved in
+`design/launcher-concepts/NOTES.md`. These are concepts only, not implemented
+UI or recovered game artwork. The user selected the collector's shelf direction;
+the planned-game artwork pass is documented in `design/planned-covers/NOTES.md`.
+
+Implemented: two-column scrolling/filterable SDL library, all eight standalone
+screenprinted covers, redesigned details and pause/options pages, bundled portable
+Lato typography, selection-aware scrolling and full option-description view.
+The former clipped fifth Amiga card is reachable by keyboard, pointer paging,
+mouse wheel and the shared gamepad navigation events. No macOS UI/font APIs.
+Source licences and artwork provenance ship in `resources/`.
+
+Validation: build/package, synthetic navigation tests and visual/live checks are
+recorded in `.analysis/shell-design/validation/REPORT.md`. Open: Android packaging
+and device validation, and a physical-gamepad interaction check on the new UI.
+The shell currently retains the existing 960x640 letterboxed logical canvas.
