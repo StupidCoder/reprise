@@ -39,6 +39,12 @@ struct Controls {
     bool left{}, right{}, up{}, down{}, fire{};
     bool f1{}, f3{}, f5{}, f7{}, c64_space{};
     bool left2{}, right2{}, up2{}, down2{}, fire2{}; // the second joystick
+    // The C64 keyboard as a game that scans it sees it, held this frame:
+    // index row * 8 + column of the C64 key matrix. Letters, digits and
+    // punctuation by their character, Return, Backspace = DEL, Tab = RUN/STOP,
+    // ] = the up arrow.
+    // (The C64 space bar stays on c64_space.)
+    std::array<bool, 64> c64_keys{};
     // Pressed this frame (menus and shortcuts).
     bool accept{}, back{}, menu{}, remove{}, info{}, click{};
     bool nav_left{}, nav_right{}, nav_up{}, nav_down{};

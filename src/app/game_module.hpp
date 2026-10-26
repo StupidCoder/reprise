@@ -1,6 +1,7 @@
 #pragma once
 #include "platform/image.hpp"
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <span>
 #include <string>
@@ -19,6 +20,8 @@ struct GameInput {
     // A second joystick (a second gamepad or the numeric keypad), for games
     // with a second player at the same time.
     bool up2{}, down2{}, left2{}, right2{}, fire2{};
+    // The C64 keyboard matrix, held (index row * 8 + column; see Controls).
+    std::array<bool, 64> c64_keys{};
 };
 
 // A setting the player can change in the pause menu (a fix or an

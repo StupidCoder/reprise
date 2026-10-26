@@ -209,7 +209,7 @@ int run(const Options& options) {
             const app::GameInput input{controls.up,    controls.down,  controls.left,  controls.right,
                                        controls.fire,  controls.f1,    controls.f3,    controls.f5,
                                        controls.f7,    controls.c64_space, controls.up2, controls.down2,
-                                       controls.left2, controls.right2, controls.fire2};
+                                       controls.left2, controls.right2, controls.fire2, controls.c64_keys};
             const auto canvas = host.canvas_size();
             game->set_canvas(canvas[0], canvas[1]);
             game_clock = std::max(game_clock, now - 4 * game->step_seconds());

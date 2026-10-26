@@ -186,6 +186,31 @@ Controls Host::poll() {
     input.f5 = k[SDL_SCANCODE_F5] || (letters && k[SDL_SCANCODE_5]);
     input.f7 = k[SDL_SCANCODE_F7] || (letters && k[SDL_SCANCODE_7]);
     input.c64_space = letters && k[SDL_SCANCODE_P];
+    if (letters) {
+        // The C64 key matrix (row * 8 + column).
+        static constexpr struct {
+            SDL_Scancode scancode;
+            int key;
+        } c64_map[] = {
+            {SDL_SCANCODE_BACKSPACE, 0},  {SDL_SCANCODE_RETURN, 1},     {SDL_SCANCODE_KP_ENTER, 1},
+            {SDL_SCANCODE_3, 8},          {SDL_SCANCODE_W, 9},          {SDL_SCANCODE_A, 10},
+            {SDL_SCANCODE_4, 11},         {SDL_SCANCODE_Z, 12},         {SDL_SCANCODE_S, 13},
+            {SDL_SCANCODE_E, 14},         {SDL_SCANCODE_5, 16},         {SDL_SCANCODE_R, 17},
+            {SDL_SCANCODE_D, 18},         {SDL_SCANCODE_6, 19},         {SDL_SCANCODE_C, 20},
+            {SDL_SCANCODE_F, 21},         {SDL_SCANCODE_T, 22},         {SDL_SCANCODE_X, 23},
+            {SDL_SCANCODE_7, 24},         {SDL_SCANCODE_Y, 25},         {SDL_SCANCODE_G, 26},
+            {SDL_SCANCODE_8, 27},         {SDL_SCANCODE_B, 28},         {SDL_SCANCODE_H, 29},
+            {SDL_SCANCODE_U, 30},         {SDL_SCANCODE_V, 31},         {SDL_SCANCODE_9, 32},
+            {SDL_SCANCODE_I, 33},         {SDL_SCANCODE_J, 34},         {SDL_SCANCODE_0, 35},
+            {SDL_SCANCODE_M, 36},         {SDL_SCANCODE_K, 37},         {SDL_SCANCODE_O, 38},
+            {SDL_SCANCODE_N, 39},         {SDL_SCANCODE_P, 41},         {SDL_SCANCODE_L, 42},
+            {SDL_SCANCODE_MINUS, 43},     {SDL_SCANCODE_PERIOD, 44},    {SDL_SCANCODE_APOSTROPHE, 45},
+            {SDL_SCANCODE_COMMA, 47},     {SDL_SCANCODE_SEMICOLON, 50}, {SDL_SCANCODE_EQUALS, 53}, {SDL_SCANCODE_RIGHTBRACKET, 54},
+            {SDL_SCANCODE_SLASH, 55},     {SDL_SCANCODE_1, 56},         {SDL_SCANCODE_2, 59},
+            {SDL_SCANCODE_Q, 62},         {SDL_SCANCODE_TAB, 63},
+        };
+        for (const auto& m : c64_map) input.c64_keys[std::size_t(m.key)] = input.c64_keys[std::size_t(m.key)] || k[m.scancode];
+    }
     if (i.gamepad) {
         auto button = [&](SDL_GamepadButton b) { return SDL_GetGamepadButton(i.gamepad, b); };
         const int x = SDL_GetGamepadAxis(i.gamepad, SDL_GAMEPAD_AXIS_LEFTX);

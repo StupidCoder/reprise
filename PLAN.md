@@ -45,7 +45,7 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
 | Bruce Lee | C64 | `Bruce_Lee_(Original).g64` (MD5 `8cbfd1595cdc18a8e68fe4d43eec6aa8`) | playable from the title to the end and the next round, with sound, the demo and both two-player modes; compared with the original pass by pass (actors, rooms, screen, SID); smooth motion, particle and VHS options |
 | Mindwalker | Amiga | — | planned |
 | Marble Madness | Amiga | — | planned (RetroReverse has prior analysis) |
-| Wizball | C64 | `Wizball.g64` (MD5 `73e1a136da4b6972d39f00817b86983e`) | disk import and asset decoding (levels, tiles, charsets, sprites) with launcher previews; game not rebuilt yet |
+| Wizball | C64 | `Wizball.g64` (MD5 `73e1a136da4b6972d39f00817b86983e`) | disk import, asset decoding with launcher previews; play rebuilt and checked in lockstep (places, enemies, catellite, tunnels, lives, bonus wave, Wizlab, level flight, round end, sound and music); front end, high scores and keys rebuilt |
 | Cannon Fodder | Amiga | — | planned |
 | Rock 'n Roll | Amiga | — | planned |
 | Wings of Fury | Amiga | — | planned |
@@ -258,7 +258,7 @@ Notes: `.analysis/bruce_lee_c64/` (`disk.md` loader and protection,
   only been exercised from the command line (`joyport --import`) so far.
 - Only one dump of Fort Apocalypse has been tried; other dumps of the same
   release should work (recognised by content), other releases are rejected.
-- Images for Mindwalker, Marble Madness, Wizball, Cannon Fodder, Rock 'n Roll and Wings of Fury are not in the project folder yet.
+- Images for Mindwalker, Marble Madness, Cannon Fodder, Rock 'n Roll and Wings of Fury are not in the project folder yet.
 - Bruce Lee: not compared with the original yet: the two-player modes
   (needs a harness run with both joysticks), the idle pause (11 minutes),
   the pause key. Not rebuilt: the idle pause's colour cycling ($1675,
@@ -315,7 +315,8 @@ Notes: `.analysis/bruce_lee_c64/` (`disk.md` loader and protection,
 ## Wizball (C64) milestones
 
 Notes: `.analysis/wizball_c64/` (`disk.md` loader and protection, `game.md`
-memory map, display, levels, code overview, open items).
+memory map, display, levels, code overview, open items; `play.md` the
+rebuilt play, `front.md` the front end).
 
 1. **Reference run** — done. `harness/wizref` (Bruce Lee's harness adapted:
    pass marker, several write ranges, tick ranges) boots the G64 to the
@@ -332,8 +333,89 @@ memory map, display, levels, code overview, open items).
    playfield and front-end charsets, 128 sprite frames; launcher viewer and
    `wizball_assets` export. Checked against the game's memory in play.
    Next: raster lists, sound data, front-end screens, sprite naming.
-4. **Game** — not started (front end first, then play).
+4. **Play** — in progress (notes: `play.md`). Rebuilt and compared pass by
+   pass with the original (`tools/wizball_replay lockstep`, runs of up to
+   9718 passes, pictures pixel-exact): the scrolling places and stars, the
+   wiz (bounce, spin, thrust, antigravity, landscape), enemies (templates,
+   spawn lists, motion, firing, droppers, pearls), shots and blazers, the
+   tokens and powers, the catellite, death and lives, tunnels and the place
+   change, sound effects and the tune player.
+   Also done: the end of a place (vanish, bonus wave from the wave script,
+   kill count), the Wizlab (permanent weapons, painting), the level-complete
+   flight, the round end; checked in runs of up to 9118 passes through
+   three clears, a level change and a round end.
+5. **Front end and keys** — done (notes: `front.md`). Title with the top
+   scores, menu of modes, three wiztips pages, player screen, game-over
+   message, high-score entry with names, start-place keys and the cheat
+   sequence, pause/quit (RUN/STOP = Tab, Q) and shot volume (↑ = `]`,
+   =). Pictures compared with the original (wiztips to 1 px; title and
+   score entry apart from raster races and colour phases), set-up times
+   measured. The module runs the whole game from the title.
+6. **Enhancements** — started (options, all off by default):
+   - Widescreen: while a place scrolls (play, vanish, game over), the
+     landscape and sky run on to the window's sides up to 21:9, from the
+     map as the game lays it in (`Playfield::side_column`); only as far as
+     the game's own view reaches at a place's ends (black beyond); cleared
+     places stay empty; sprites outside the window show where they are
+     (80 pixels either side). Other screens keep their border at the
+     sides. Preview: `WIZ_WIDE=<columns> wizball_replay front ...`.
+     Checked: side columns move with the window every frame.
+   - VHS look (shared).
+   - Cheats: the game's own invincibility without the key sequence (the
+     option also keeps the catellite from taking hits; the original's own
+     cheat does not), infinite lives, all start places on the title's keys.
+   - Effects (`src/wizball_c64/enhanced/effects.cpp`, drawn over the play
+     picture, reading the game only): explosion debris in the explosion
+     sprite's colours ($A891 frames $5F-$5C) with a short dithered ring of
+     light, paint drops (a falling droplet's drip trail; drops of its paint
+     thrown up where it bursts, $A925, landing again), pickup sparkles (a
+     pearl, life or token taken, a droplet the catellite catches), wiz
+     effects (a ring of light sweeping out with the smart bomb's strobe;
+     sparkles shed by the wiz's rings as it fades out and in; a shimmering
+     field for the shield, the catellite's too; a glow along the wizspray's
+     flickering rings; a larger light ring on its burst, under Explosions),
+     blazer glow (under Shot streaks), catellite effects (sparks per hit, a
+     burst when lost), tunnel sparkles (sinking, the exit rising, the slide
+     out), cauldron bubbles, the blackout's fade (three steps through
+     darker C64 colours after each bump; a `blackout_fade` parameter of
+     Play::picture), the flight's text glow, Wizlab sparkles (the weapon's
+     token; paint rising from the colour cauldron), menu star trails; the
+     bonus wave and the flight now have the effects and widescreen (a
+     cleared place's side columns are sky),
+     shot streaks and impact sparks (the wiz's and catellite's shot
+     characters; the aliens' shot dots and the wiz's death pieces trail
+     back along their flight and spark on the landscape), smooth star drift
+     (the five drifting stars at single pixels from their sub-character
+     position). Preview: `wizball_replay run <content> <script> <frames>
+     <dir> <frames>` with `WIZ_OPTIONS=1=1,2=1,3=1` (`WIZ_CANVAS=w,h` for
+     widescreen); `front` with `WIZ_LOG_EXPLOSIONS=1` lists object states,
+     `WIZ_INVINCIBLE=1` plays on, `WIZ_DROPPERS=1` makes every alien a
+     paint dropper (place 1's aliens turn to pearls), `WIZ_LOG_SHOTS=1`
+     counts alien shots, `WIZ_PEARLS_AT=<frame>` gives six pearls (the
+     light to the smart bomb; fx bomb script waggles it off at ~717;
+     `frame:n` for other tokens), `WIZ_PAINT_AT=f1,f2,...` completes the
+     place's colour (three give a flight), `WIZ_TUNNEL_AT`,
+     `WIZ_BLACKOUT_AT`, `WIZ_CAT_HIT_EVERY` + `WIZ_CAT_OPEN`, logs
+     `WIZ_LOG_CAT`, `WIZ_LOG_BLACKOUT`, `WIZ_LOG_STARS`; stage, tunnel and
+     Wizlab weapon changes are always printed, `WIZ_EFFECTS=1` draws all effects into the PNGs
+     (first explosion of the long test run at frame 3752, a splash at 725
+     with droppers, alien shots from 3672).
+   - Quick save and load: the whole state (front end, game, sound, the
+     random numbers); `wizball_replay savetest <content> <frame> <frames>`
+     checks that after a load pictures and sound equal a run that went on
+     from the save (0 differing frames at 50/200/1500/3000).
+   Open: the bonus wave, the Wizlab and the flight are not widened; the
+   sky pattern in the side columns continues the edge column's (the game's
+   own pattern has seams where columns were prepared).
+7. **Player modes** — done: the two-player team's split control (the
+   catellite on the other joystick, $697D) added; modes 1-4 match the
+   original pass by pass through six lives and the game-over messages
+   between them (play.md, "Player modes"). Bug found and fixed on the
+   way: the game-over message blacked out the wrong cells and missed the
+   sprite table's colours.
 
-Open items: see `game.md` and `disk.md` (places 8-10, undecoded tables,
-sprite colour byte, the LXA routine's chip dependence, other releases).
+Open items: see `game.md`, `play.md` and `disk.md` (places 8-10,
+undecoded tables, sprite colour byte, the LXA routine's chip dependence,
+other releases; catellite catches and left tunnels not exercised by a run;
+blank frames around set-ups; known picture differences listed in play.md).
 

@@ -1,6 +1,7 @@
 #include "wizball_c64/entry.hpp"
 #include "wizball_c64/data/assets.hpp"
 #include "wizball_c64/data/preview.hpp"
+#include "wizball_c64/game/module.hpp"
 #include "wizball_c64/import/disk_import.hpp"
 #include <string>
 
@@ -34,7 +35,10 @@ app::GameEntry entry() {
         .media = "the disk image (G64)",
         .import = import::import_disk,
         .previews = previews,
-        .progress = "Import and the decoded levels, characters and sprites; the game itself is not rebuilt yet.",
+        .start = game::start,
+        .progress = "The whole game from the title: menu, wiztips, play (places, enemies, the catellite, tunnels, bonus "
+                    "waves, the Wizlab, level flights, round ends) matching the original pass for pass, high scores "
+                    "with names, pause (Tab = RUN/STOP, Q quits) and shot volume (] and =). Options: widescreen, thirteen effects (explosions, shots, paint, stars, pickups, catellite, tunnels, cauldrons, wiz, blackout, flight, Wizlab, menu stars), VHS look, cheats, quick save.",
     };
 }
 

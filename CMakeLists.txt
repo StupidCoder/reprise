@@ -93,6 +93,27 @@ add_library(wizball_c64
     src/wizball_c64/entry.cpp
     src/wizball_c64/data/assets.cpp
     src/wizball_c64/data/preview.cpp
+    src/wizball_c64/game/display.cpp
+    src/wizball_c64/enhanced/effects.cpp
+    src/wizball_c64/game/random_source.cpp
+    src/wizball_c64/game/playfield.cpp
+    src/wizball_c64/game/wiz.cpp
+    src/wizball_c64/game/catellite.cpp
+    src/wizball_c64/game/tunnel.cpp
+    src/wizball_c64/game/clear.cpp
+    src/wizball_c64/game/lab.cpp
+    src/wizball_c64/game/flight.cpp
+    src/wizball_c64/game/colour_runs.cpp
+    src/wizball_c64/game/scores.cpp
+    src/wizball_c64/game/front_end.cpp
+    src/wizball_c64/game/front_picture.cpp
+    src/wizball_c64/game/play.cpp
+    src/wizball_c64/game/picture.cpp
+    src/wizball_c64/game/sound.cpp
+    src/wizball_c64/game/music.cpp
+    src/wizball_c64/game/module.cpp
+    src/wizball_c64/game/objects.cpp
+    src/wizball_c64/game/combat.cpp
     src/wizball_c64/import/disk_import.cpp)
 target_include_directories(wizball_c64 PUBLIC ${SOURCE_ROOT})
 target_link_libraries(wizball_c64 PUBLIC c64 platform ui)
@@ -117,6 +138,10 @@ target_compile_options(fort_apocalypse_assets PRIVATE ${PROJECT_WARNINGS})
 add_executable(bruce_lee_assets tools/bruce_lee_assets.cpp)
 target_link_libraries(bruce_lee_assets PRIVATE bruce_lee_c64)
 target_compile_options(bruce_lee_assets PRIVATE ${PROJECT_WARNINGS})
+
+add_executable(wizball_replay tools/wizball_replay.cpp)
+target_link_libraries(wizball_replay PRIVATE wizball_c64)
+target_compile_options(wizball_replay PRIVATE ${PROJECT_WARNINGS})
 
 add_executable(wizball_assets tools/wizball_assets.cpp)
 target_link_libraries(wizball_assets PRIVATE wizball_c64)

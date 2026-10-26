@@ -2,6 +2,7 @@
 #include "platform/files.hpp"
 #include <algorithm>
 #include <stdexcept>
+#include <string>
 
 namespace wizball::data {
 namespace {
@@ -28,7 +29,7 @@ std::uint8_t GameImage::byte(std::uint16_t address) const {
 
 std::span<const std::uint8_t> GameImage::bytes(std::uint16_t address, std::size_t count) const {
     if (address < game_.load_address || address - game_.load_address + count > game_.bytes.size()) {
-        throw std::runtime_error("Wizball data read outside the game file.");
+        throw std::runtime_error("Wizball data read outside the game file ($" + std::to_string(address) + ").");
     }
     return std::span(game_.bytes).subspan(address - game_.load_address, count);
 }
