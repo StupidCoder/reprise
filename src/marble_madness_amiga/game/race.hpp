@@ -63,6 +63,13 @@ public:
     // $1005EA: 0 a race, 1 the attract demo, other values between races.
     int game_mode{};
 
+    // Not the original game (pause menu cheats).
+    struct Cheats {
+        bool stop_timer{};  // the race clock stands still
+        bool safe_falls{};  // drops onto the course never break the marble
+    };
+    Cheats cheats;
+
     // Colour values the game has written into the Track's copper lists
     // (instruction address -> colour), over the stored ones.
     const std::map<std::uint32_t, std::uint16_t>& copper_colours() const { return copper_colours_; }

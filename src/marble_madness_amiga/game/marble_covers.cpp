@@ -36,15 +36,15 @@ std::int16_t s16(std::int32_t v) { return std::int16_t(v); }
 
 } // namespace
 
-// $11F486: a marble is shown while its sprite is on screen horizontally and
-// not covered completely.
+// $11F486: a marble is shown while its height on the screen is within
+// -$10..$FF and it is not covered completely.
 void Race::check_visible(Marble& m) {
     m.sprite_flag = 0;
-    const std::int16_t screen_x = s16(m.screen[0] >> 16);
+    const std::int16_t screen_y = s16(m.screen[0]);
     for (auto& c : m.covers) {
         c.cell = -1;
     }
-    if (screen_x > -0x10 && screen_x < 0x100) {
+    if (screen_y > -0x10 && screen_y < 0x100) {
         m.sprite_flag = 1;
         build_covers(m);
     }

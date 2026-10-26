@@ -20,7 +20,7 @@ constexpr double update_seconds = 2.0 / 50.0;
 constexpr std::uint32_t finish_sounds = 0x102124;
 constexpr int out_of_time_sound = 0x19;
 
-enum Option { steering = 0, vhs_look = 1 };
+enum Option { steering = 0, vhs_look = 1, stop_timer = 2, safe_falls = 3 };
 
 // One player racing the courses in order. The front end (title, options,
 // score screens, two players) is not rebuilt yet: a finished course starts
@@ -36,6 +36,7 @@ public:
     double pixel_aspect() const override { return 1.0; }
 
     void tick(const app::GameInput& in) override {
+        race_->cheats = cheats_;
         race_->update({next_push_, Push{}});
         view_->update(*race_);
         // The controls are read at the end of an update for the next one.
@@ -64,13 +65,28 @@ public:
                 {.name = "VHS look",
                  .choices = {"Off", "Light", "Medium", "Heavy", "Broken"},
                  .value = vhs_,
-                 .description = "A worn video tape's colour bleed and noise (shared with the other games)."}};
+                 .description = "A worn video tape's colour bleed and noise (shared with the other games)."},
+                {.name = "Stop the timer",
+                 .choices = {"Off", "On"},
+                 .value = cheats_.stop_timer ? 1 : 0,
+                 .description = "The race clock stands still: there is all the time in the world.",
+                 .group = "Cheats"},
+                {.name = "Unbreakable marble",
+                 .choices = {"Off", "On"},
+                 .value = cheats_.safe_falls ? 1 : 0,
+                 .description = "Drops from high places never break the marble: it bounces on and rolls away. "
+                                "Rolling off the course into nothing still costs a marble.",
+                 .group = "Cheats"}};
     }
     void set_option(std::size_t index, int value) override {
         if (index == steering) {
             steering_ = value;
         } else if (index == vhs_look) {
             vhs_ = value;
+        } else if (index == stop_timer) {
+            cheats_.stop_timer = value != 0;
+        } else if (index == safe_falls) {
+            cheats_.safe_falls = value != 0;
         }
     }
 
@@ -148,6 +164,7 @@ private:
     Push next_push_{};
     int steering_{};
     int vhs_{};
+    Race::Cheats cheats_;
     long frames_{};
     int wait_{};
 };

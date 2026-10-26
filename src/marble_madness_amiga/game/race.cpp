@@ -110,7 +110,7 @@ void Race::update(const std::array<Push, 2>& pushes) {
 void Race::count_down() {
     for (int i = 0; i < players_; ++i) {
         Marble& m = marbles[std::size_t(i)];
-        if (m.mode == Marble::dizzy || m.timer_frames == -1) {
+        if (m.mode == Marble::dizzy || m.timer_frames == -1 || cheats.stop_timer) {
             continue;
         }
         m.timer_frames = std::int8_t(m.timer_frames - 2);
@@ -514,7 +514,9 @@ void Race::roll(Marble& m) {
     }
     if (m.air == 2) {
         if (ground < m.z) {
-            if (m.fall_start_z - m.z > 0x800000) {
+            // (Cheat: a long drop onto ground lands; into nothing it is
+            // still lost.)
+            if (m.fall_start_z - m.z > 0x800000 && !(cheats.safe_falls && ground > 0)) {
                 // Fell too far: lost.
                 if (player) {
                     sound_stop();

@@ -433,6 +433,10 @@ void Race::land(Marble& m, int impact) {
     }
     const auto& md = files_->marble_data();
     const int bounce = std::int8_t(m.bounce);
+    if (cheats.safe_falls && bounce + ((std::int8_t(m.delay) - bounce) >> 1) >= 0x20) {
+        // Cheat: the hardest landing that still bounces.
+        m.delay = std::int8_t(0x3E - bounce);
+    }
     if (bounce + ((std::int8_t(m.delay) - bounce) >> 1) < 0x20) {
         if (before != Marble::landing) {
             m.animation_tick = 0;

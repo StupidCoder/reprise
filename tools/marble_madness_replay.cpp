@@ -308,6 +308,11 @@ int trace(int argc, char** argv) {
         if (space != std::string::npos) steps.emplace_back(std::stoi(line.substr(0, space)), line.substr(space + 1));
     }
     const int limit = argc > 5 ? std::stoi(argv[5]) : 2000;
+    // MM_CHEATS=timer,falls: try the pause menu's cheats.
+    if (const char* cheats = std::getenv("MM_CHEATS")) {
+        race.cheats.stop_timer = std::strstr(cheats, "timer") != nullptr;
+        race.cheats.safe_falls = std::strstr(cheats, "falls") != nullptr;
+    }
     int update = 0;
     std::string last;
     for (const auto& [count, keys] : steps) {
@@ -318,8 +323,8 @@ int trace(int argc, char** argv) {
                          game::Push{}});
             const auto& m = race.marbles[0];
             char line[160];
-            std::snprintf(line, sizeof line, "mode %d air %d zone %d region %d status %d score %d", m.mode, m.air,
-                          m.feature, m.region_code, m.status, m.score);
+            std::snprintf(line, sizeof line, "mode %d air %d zone %d region %d status %d score %d time %d", m.mode,
+                          m.air, m.feature, m.region_code, m.status, m.score, m.time);
             if (line != last) {
                 std::printf("%5d %-3s at %4d,%4d z %5d: %s\n", update, keys.c_str(), m.x >> 16, m.y >> 16, m.z >> 16, line);
                 last = line;
