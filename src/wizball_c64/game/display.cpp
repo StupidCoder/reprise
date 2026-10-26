@@ -37,6 +37,10 @@ void Display::set_side(int row, int column, std::uint8_t code, std::uint8_t colo
     side_colours_[std::size_t(i)] = colour;
 }
 
+void Display::set_cell_art(int row, int column, const CellArt& art) {
+    cell_art_.push_back({row * 128 + column + 64, art});
+}
+
 void Display::clear_sprites() {
     for (auto& changes : sprites_) {
         changes.clear();
@@ -71,6 +75,15 @@ platform::Image Display::render() const {
             if (screen >= 0 && screen < int(screens.size())) matrix = &screens[std::size_t(screen)];
         }
         const bool closed = !vertical_border_open && (r < text_top || r >= text_top + 200);
+        // Carnage mode's drawn cells on this character row.
+        std::array<const CellArt*, 128> arts{};
+        bool any_art = false;
+        if (row >= 0)
+            for (const auto& [key, art] : cell_art_)
+                if (key / 128 == row) {
+                    arts[std::size_t(key % 128)] = &art;
+                    any_art = true;
+                }
         for (int x = 0; x < frame_width; ++x) {
             const std::size_t at = std::size_t(r * frame_width + x);
             if (closed || x < left || x >= right) {
@@ -92,6 +105,18 @@ platform::Image Display::render() const {
                 if (i < 0) continue;
                 code = side_codes_[std::size_t(i)];
                 cell_colour = side_colours_[std::size_t(i)] & 15;
+            }
+            if (any_art && column >= -64 && column < 64 && arts[std::size_t(column + 64)]) {
+                const auto v = (*arts[std::size_t(column + 64)])[std::size_t(sub * 4 + (bit >> 1))];
+                if (v & 0x10) {
+                    colour[at] = std::uint8_t(v & 15);
+                    foreground[at] = true;
+                } else {
+                    const std::uint8_t c[4] = {set.background, set.shared1, set.shared2, std::uint8_t(cell_colour & 7)};
+                    colour[at] = c[v & 3];
+                    foreground[at] = (v & 3) >= 2;
+                }
+                continue;
             }
             const auto byte = (*set.charset)[code][std::size_t(sub)];
             if (set.multicolour && (cell_colour & 8)) {
@@ -175,6 +200,14 @@ platform::Image Display::render() const {
             }
             image.put(x, y, c64::colour(c));
         }
+    }
+    for (const auto& dot : dots) {
+        if (dot.y < first_line || dot.y >= first_line + line_count) continue;
+        const auto& set = lines_[std::size_t(dot.y)];
+        const bool wide = set.wide && extension > 0;
+        const int left = wide ? 24 - shift : set.columns38 ? 31 : 24, right = wide ? 344 + shift : set.columns38 ? 335 : 344;
+        if (dot.x < left || dot.x >= right) continue;
+        image.put(dot.x + shift, dot.y - first_line, c64::colour(dot.colour));
     }
     return image;
 }

@@ -8,9 +8,11 @@
 #include "wizball_c64/game/sound.hpp"
 #include "wizball_c64/game/catellite.hpp"
 #include "wizball_c64/game/wiz.hpp"
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <optional>
 #include <vector>
 
@@ -157,6 +159,27 @@ public:
     // An option with the invincibility cheat (the game's own cheat leaves
     // the catellite open to hits): hits on the catellite are not counted.
     void set_catellite_protected(bool on) { catellite_protected_ = on; }
+    // The automatic catellite (an option, not the original game): a second
+    // player steers it, as in the team modes, so fire stays the wiz's.
+    void set_catellite_ai(bool on) { catellite_ai_ = on; }
+    // Carnage mode (not the original game, carnage.cpp): fire is a rapid
+    // paint gun whose shots carve the landscape and splash it with paint.
+    void set_carnage(bool on) { carnage_ = on; }
+    bool carnage() const { return carnage_; }
+    // How hard carnage hit since the last call (0-3: hit-stop and shake for
+    // the picture), and the arcade layer's state.
+    int take_carnage_impact() {
+        const int i = carnage_impact_;
+        carnage_impact_ = 0;
+        return i;
+    }
+    struct CarnageScore {
+        int combo{}, combo_timer{}; // kills in a row, passes left to add one
+        float meter{};              // the overdrive meter, 0-1
+        int overdrive{};            // passes left
+    };
+    const CarnageScore& carnage_score() const { return carnage_score_; }
+    std::size_t carnage_bodies() const { return bodies_.size(); } // falling now (for tests)
     void give_points(int tens) { add_points(tens); } // for tests
     // For effect previews: the landscape blacked out (as a black droplet caught, $88B5).
     void blackout_for_test() {
@@ -171,7 +194,9 @@ public:
     // For effect previews: an alien that drops paint when hit (state 1).
     void make_dropper(int slot) {
         auto& o = objects_[std::size_t(slot)];
-        if (o.active() && o.state == 0) o.state = 1;
+        if (!o.active() || o.state != 0) return;
+        o.state = 1;
+        o.kind = std::uint8_t(slot % 3 == 0 ? 2 : slot % 3 == 1 ? 5 : 6); // paint colours
     }
     bool catellite_on() const { return powers_.catellite; }
     int place() const { return place_; }
@@ -570,6 +595,74 @@ private:
     bool invincible_{};            // $BB07: the cheat ($AFA8: seven keys from $AFCE)
     bool infinite_lives_{};        // not in the original (a launcher cheat)
     bool catellite_protected_{};   // not in the original (a launcher cheat)
+    bool catellite_ai_{};          // not in the original (an option)
+    Stick catellite_ai_stick() const; // what the automatic player does this pass
+    // Carnage mode's state (carnage.cpp).
+    bool carnage_{};
+    std::map<std::uint32_t, Display::CellArt> damage_; // damaged landscape cells by map key
+    struct Tracer {
+        float x{}, y{}, dx{}, dy{}; // VIC x, raster line
+        std::uint8_t colour{};
+        int life{};
+    };
+    std::vector<Tracer> tracers_;
+    struct PaintBlob {
+        float x{}, y{}, dx{}, dy{};
+        std::uint8_t colour{};
+        int life{};
+    };
+    std::vector<PaintBlob> blobs_;
+    // Landscape cut loose: its pixels (pair values as in the cells' art,
+    // two screen pixels each), falling and turning until it lands.
+    struct BodyPixel {
+        std::int16_t dx{}, dy{};
+        std::uint8_t value{};
+    };
+    struct Body {
+        std::vector<BodyPixel> pixels; // round the pivot
+        float x{}, y{}, vx{}, vy{}, angle{}, spin{};
+        int age{};
+    };
+    std::vector<Body> bodies_;
+    std::vector<Body> new_bodies_;       // cut loose during the walk over the falling ones
+    float last_hit_x_{};                 // where the last bite was (which way a cut-off part tips)
+    struct Wave {
+        float x{}, y{}, radius{};
+    };
+    std::vector<Wave> waves_;            // the smart bomb's shockwave
+    CarnageScore carnage_score_{};
+    std::uint8_t kills_seen_{};
+    int carnage_impact_{};
+    int banner_timer_{};
+    float flail_x_{}, flail_y_{}, flail_vx_{}, flail_vy_{};
+    bool flail_on_{};
+    int gun_clock_{}, gun_colour_{};
+    std::uint32_t carnage_seed_{0x2545F491};
+    float flood_radius_{-1}, flood_x_{}, flood_y_{};
+    void carnage_pass();                 // the gun, tracers, paint blobs
+    void carnage_flood();                // a completed place floods with colour (vanish)
+    std::uint8_t carnage_random();
+    // A landscape pixel pair at a VIC position: -1 none (no landscape cell
+    // there), else its value (0 empty, 1-3 the character's, $10+ paint).
+    int carnage_pair(int x, int y) const;
+    Display::CellArt& carnage_art(int column, int row); // the cell's own pixels, made on first damage
+    Glyph carnage_glyph(std::uint8_t code) const;
+    void carve(float x, float y, float radius);
+    void splash(float x, float y, float radius, std::uint8_t colour, int chance);
+    void crumble(int column, int row);    // too little left: the cell opens
+    void put_carnage(Display& d, int extension) const;
+    void detach_from(int column, int row);  // cut-off landscape next to an opened cell falls
+    void make_body(const std::vector<int>& cells);
+    void move_bodies();
+    void land(const Body& b);
+    void carnage_waves();
+    void wreck();                         // the wiz rams, the catellite flails
+    void carnage_kills();                 // combos, the meter, overdrive, banners
+    void banner(const char* top, const char* bottom);
+    std::uint8_t pair_colour(std::uint8_t value) const; // a pair value's colour now
+    void impact(int strength) { carnage_impact_ = std::max(carnage_impact_, strength); }
+    void carnage_flail();                 // the catellite on a tether (update_catellite)
+    void carnage_smart_bomb();            // its shockwave (activate_token)
 };
 
 } // namespace wizball::game

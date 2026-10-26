@@ -58,7 +58,7 @@ void Play::launch_shots() {
     }
     const int row = std::uint8_t(wiz_.y() - 0x40) >> 3;
     const int column = std::uint8_t((wiz_.x() & 0xFF) - 0x10) >> 3; // $8485: the low byte of x
-    for (int k = 0; k < 2; ++k) {
+    for (int k = 0; k < 2 && !carnage_; ++k) { // (carnage mode's gun takes the place of these)
         auto& s = shots_[std::size_t(k)];
         if (s.code != 0) continue;
         s.column = std::uint8_t(column);
@@ -286,6 +286,7 @@ void Play::catellite_body() {
         if (!catellite_protected_ && catellite_.hit()) sound_->start_effect(4);
     }
     catellite_.move(catellite_stick_, wiz_, in_lab_);
+    if (carnage_) carnage_flail();
     catellite_.animate(wander_colours_);
 }
 
@@ -296,7 +297,7 @@ void Play::catch_with_catellite() {
     if (s < 0) return;
     auto& o = objects_[std::size_t(s)];
     if (std::uint8_t(o.state - 2) & 0x80) {
-        ++catellite_hit_;
+        if (!(carnage_ && flail_on_)) ++catellite_hit_; // (carnage's flail smashes them unhurt)
         return;
     }
     if (o.state != 2) return;
@@ -414,6 +415,7 @@ void Play::activate_token() {
         break;
     case 6: // the smart bomb
         flash_background_ = 1;
+        if (carnage_) carnage_smart_bomb();
         for (auto& o : objects_) o.hit = 1;
         erase_enemy_shots();
         for (auto& e : enemy_shots_) e = EnemyShot{};

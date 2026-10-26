@@ -389,6 +389,8 @@ void FrontEnd::set_cheats(const Cheats& cheats) {
     play_->set_invincible(cheat_ || cheats_.invincible);
     play_->set_infinite_lives(cheats_.infinite_lives);
     play_->set_catellite_protected(cheats_.invincible);
+    play_->set_carnage(cheats_.carnage);
+    play_->set_catellite_ai(cheats_.catellite_ai);
 }
 
 void FrontEnd::drop_game() {
@@ -402,6 +404,8 @@ void FrontEnd::start_game() {
     play_->new_game(mode_, start_place_, scores_.top_digits(), cheat_ || cheats_.invincible);
     play_->set_infinite_lives(cheats_.infinite_lives);
     play_->set_catellite_protected(cheats_.invincible);
+    play_->set_carnage(cheats_.carnage);
+    play_->set_catellite_ai(cheats_.catellite_ai);
     start_life(screen_ == Screen::title ? 20 : 12, false);
 }
 

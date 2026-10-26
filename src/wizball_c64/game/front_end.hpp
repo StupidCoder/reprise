@@ -49,6 +49,8 @@ public:
     // place on the title's keys 0-5.
     struct Cheats {
         bool invincible{}, infinite_lives{}, any_start_place{};
+        bool carnage{}; // carnage mode (not the original game)
+        bool catellite_ai{}; // the automatic catellite (not the original game)
     };
     void set_cheats(const Cheats& cheats);
 

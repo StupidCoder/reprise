@@ -37,6 +37,12 @@ std::uint8_t Playfield::map_tile(int row, std::uint8_t column) const {
     return image_.byte(std::uint16_t(pointer + column));
 }
 
+namespace {
+std::uint32_t map_key(int map_row, int map_column, int row) {
+    return std::uint32_t(map_row & 0xFF) << 16 | std::uint32_t(map_column & 0x7FF) << 5 | std::uint32_t(row & 0x1F);
+}
+} // namespace
+
 std::array<std::uint8_t, Playfield::rows> Playfield::map_column(std::uint8_t tile_column, int tile_char) const {
     std::array<std::uint8_t, rows> out{};
     for (int k = 0; k < 4; ++k) {
@@ -44,7 +50,45 @@ std::array<std::uint8_t, Playfield::rows> Playfield::map_column(std::uint8_t til
         const auto address = std::uint16_t(tile_base_ + 25 * tile + tile_char);
         for (int y = 0; y < 5; ++y) out[std::size_t(k * 5 + y)] = image_.byte(std::uint16_t(address + 5 * y));
     }
+    if (!opened_.empty())
+        for (int r = 0; r < rows; ++r)
+            if (opened_.count(map_key(map_row_, tile_column * 5 + tile_char, r))) out[std::size_t(r)] = 0; // sky
     return out;
+}
+
+std::uint32_t Playfield::cell_key(int column, int row) const {
+    // As side_column: the screen's first column is one character on from
+    // the map position.
+    const int position = tile_char_ + 1 + column;
+    const int tiles = position >= 0 ? position / 5 : -((4 - position) / 5);
+    return map_key(map_row_, std::uint8_t(tile_column_ + tiles) * 5 + (position - 5 * tiles), row);
+}
+
+void Playfield::open_cell(int column, int row) {
+    if (row < 0 || row >= rows) return;
+    opened_.insert(cell_key(column, row));
+    // The cell in the screens now: the shown one, and the prepared ones a
+    // column to the side; it takes the sky code its column's pattern gives.
+    auto sky = [&](int screen_column) -> std::uint8_t {
+        int counter = -1;
+        for (int d = 0; d < columns && counter < 0; ++d)
+            for (int c : {screen_column - d, screen_column + d})
+                if (counter < 0 && c >= 0 && c < columns) {
+                    counter = sky_counter_at(c);
+                    if (counter >= 0) counter += screen_column - c;
+                }
+        if (counter < 0) counter = star_counter_;
+        counter = first_star_code + ((counter - first_star_code) % star_columns + star_columns) % star_columns;
+        std::array<std::uint8_t, rows> cells{};
+        fill_sky(cells, std::uint8_t(counter));
+        return cells[std::size_t(row)];
+    };
+    if (column >= 0 && column < columns) screens_[std::size_t(shown_)].codes[std::size_t(row * columns + column)] = sky(column);
+    for (int i = 0; i < 3; ++i) {
+        if (i == shown_ || progress_[std::size_t(i)] < 4) continue; // (one still being built copies the shown one)
+        const int c = role_[std::size_t(i)] == 1 ? column + 1 : column - 1;
+        if (c >= 0 && c < columns) screens_[std::size_t(i)].codes[std::size_t(row * columns + c)] = sky(column);
+    }
 }
 
 // $79C2: empty cells take the sky code of this column: in each tile row the

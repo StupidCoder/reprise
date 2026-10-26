@@ -518,6 +518,7 @@ void Play::pass_a_rest(const Ports& ports) {
     tokens();
     playfield_.prepare_step();
     draw_player_shots();
+    if (carnage_) carnage_pass();
     if (dying_ == 0) move_enemy_shots();
     playfield_.animate_stars(wiz_.speed_index(), random_);
     read_keys(ports); // $644A
@@ -591,6 +592,13 @@ void Play::read_sticks(const Ports& ports) {
     if (controls_[std::size_t(player_ - 1)] != 1) {
         wiz_stick_.bits = port_select_ ? ports.port1 : ports.port2;
         catellite_stick_.bits = port_select_ ? ports.port2 : ports.port1;
+        return;
+    }
+    // The automatic catellite (an option): a computer team mate's stick.
+    if (catellite_ai_ && powers_.catellite) {
+        fire_held_ = 0;
+        wiz_stick_.bits = port_select_ ? ports.port1 : ports.port2;
+        catellite_stick_ = catellite_ai_stick();
         return;
     }
     // One player on the side: the chosen port; fire held ten passes steers

@@ -177,8 +177,9 @@ void Effects::update(const Play* play, const Settings& settings) {
         }
         last = {o.active(), sp.x, sp.y, sp.colour & 15, o.state};
         falling_[std::size_t(s)] = o.active() && o.state == 2;
-        if (!started || !settings.explosions) continue;
-        lights_.push_back({sp.x + 12, sp.y + 11, sp.colour & 15, 0});
+        if (!started) continue;
+        if (settings.lights) lights_.push_back({sp.x + 12, sp.y + 11, sp.colour & 15, 0});
+        if (!settings.explosions) continue;
         std::vector<int> colours;
         const auto shape = play->sprite(explosion_first_frame);
         bool used[4]{};
@@ -233,13 +234,13 @@ void Effects::update(const Play* play, const Settings& settings) {
     // The wiz: its burst, the smart bomb, its rings coming and going.
     const auto& wiz = play->wiz();
     const int wiz_x = wiz.x() + 12, wiz_y = wiz.y() + 11;
-    if (settings.explosions && play->dying() != 0 && last_dying_ == 0)
+    if (settings.lights && play->dying() != 0 && last_dying_ == 0)
         lights_.push_back({wiz_x, wiz_y, play->wiz_colour() & 15, 0, 1.8f});
     last_dying_ = play->dying();
     // (The strobe's counter starts at 1 and has moved on by the end of the
     // frame; a blinking alien's starts at $0A.)
     const auto flash = play->flash_background();
-    if (settings.wiz && (play->stage() == Play::Stage::play || play->stage() == Play::Stage::bonus) && flash >= 1 && flash < 4 &&
+    if (settings.lights && (play->stage() == Play::Stage::play || play->stage() == Play::Stage::bonus) && flash >= 1 && flash < 4 &&
         (last_flash_ == 0 || (last_flash_ & 0x80)))
         waves_.push_back({wiz_x, wiz_y, 0});
     last_flash_ = play->flash_background();
@@ -309,7 +310,7 @@ void Effects::update(const Play* play, const Settings& settings) {
         if (settings.catellite && !on && last_catellite_on_ && last_catellite_hits_ >= 8 && last_catellite_hits_ < 0x80) {
             const auto& l = last_catellite_;
             burst(float(l.x + 12), float(l.y + 11), {l.colour & 15, 1, 7, 15}, 34, 2.4f, 30);
-            lights_.push_back({l.x + 12, l.y + 11, l.colour & 15, 0, 1.2f});
+            if (settings.lights) lights_.push_back({l.x + 12, l.y + 11, l.colour & 15, 0, 1.2f});
         }
         last_catellite_hits_ = hits;
         last_catellite_on_ = on;
@@ -490,7 +491,7 @@ void Effects::draw(platform::Image& image, const Display& d, const Play& play, c
     }
 
     // Explosion light: a widening ring of dithered light in its colour.
-    if (settings.explosions) {
+    if (settings.lights) {
         for (const auto& l : lights_) {
             const float inner = (6.0f + 3.5f * float(l.age)) * l.size, outer = inner + 3.0f * l.size;
             int c = l.colour;
@@ -524,7 +525,7 @@ void Effects::draw(platform::Image& image, const Display& d, const Play& play, c
                 if (q && inside(vx, raster) && same(*q, background(raster))) *q = c64::colour(colours[(phase + segment) % 4]);
             }
     };
-    if (settings.wiz && play.stage() != Play::Stage::vanish) {
+    if (settings.lights && play.stage() != Play::Stage::vanish) {
         const auto& wiz = play.wiz();
         if (play.shield() != 0 && play.dying() == 0) field_ring(wiz.x() + 12, wiz.y() + 11, 14.0f);
         if (play.catellite_on() && play.catellite().shield() != 0) {

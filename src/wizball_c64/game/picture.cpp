@@ -156,6 +156,8 @@ Display Play::picture(int extension, int blackout_fade) const {
         for (int c = -extension; c < 0; ++c) put_side_column(d, c);
         for (int c = 40; c < 40 + extension; ++c) put_side_column(d, c);
     }
+    if (carnage_ && (stage_ == Stage::play || stage_ == Stage::vanish || stage_ == Stage::game_over) && !in_lab_)
+        put_carnage(d, wide ? extension : 0);
     LineSettings after = play;
     after.background = 0; // $8BCB
     d.set_lines_from(233, after);

@@ -102,6 +102,7 @@ void Play::vanish_frame() {
     tokens();
     ++shared1_; // $64EB: the playfield's shared colours cycle
     ++shared2_;
+    if (carnage_) carnage_flood();
     if (sound_->volume() == 0) {
         sound_->fade(1);
         sound_->start_tune(0x13, 2, 0);

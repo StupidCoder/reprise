@@ -115,6 +115,8 @@ add_library(wizball_c64
     src/wizball_c64/game/module.cpp
     src/wizball_c64/game/objects.cpp
     src/wizball_c64/game/combat.cpp
+    src/wizball_c64/game/carnage.cpp
+    src/wizball_c64/game/catellite_ai.cpp
     src/wizball_c64/import/disk_import.cpp)
 target_include_directories(wizball_c64 PUBLIC ${SOURCE_ROOT})
 target_link_libraries(wizball_c64 PUBLIC c64 platform ui)

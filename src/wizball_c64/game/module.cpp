@@ -56,8 +56,21 @@ public:
         c.ports.port1 = port(in.up2, in.down2, in.left2, in.right2, in.fire2);
         c.keys = in.c64_keys;
         c.keys[space_key] = c.keys[space_key] || in.space;
-        front_->tick(c);
         ++frames_;
+        shake_ *= 0.82;
+        if (hit_stop_ > 0) { // carnage mode's hit-stop: the game holds a moment
+            --hit_stop_;
+            return;
+        }
+        front_->tick(c);
+        // Carnage mode's hard hits: a stop of two or four frames and a shake.
+        if (auto* play = front_->play(); play && play->carnage()) {
+            constexpr int stops[] = {0, 0, 2, 4};
+            constexpr double shakes[] = {0, 1.0, 2.5, 5.0};
+            const int impact = play->take_carnage_impact();
+            hit_stop_ = stops[impact];
+            shake_ = std::min(6.0, shake_ + shakes[impact]);
+        }
         effects_.update(shown_play(), effects_settings_);
         effects_.update_front(*front_, effects_settings_);
     }
@@ -80,6 +93,19 @@ public:
                 for (int x = 0; x < wide.width; ++x)
                     cut.pixels[std::size_t(y * wide.width + x)] = image.pixels[std::size_t(y * image.width + left + x)];
             image = std::move(cut);
+        }
+        if (shake_ > 0.5) {
+            // The shake: the whole picture a few pixels off, the edge black.
+            const int dx = int(std::lround(std::sin(double(frames_) * 1.7) * shake_));
+            const int dy = int(std::lround(std::cos(double(frames_) * 2.3) * shake_ * 0.6));
+            platform::Image moved(image.width, image.height);
+            for (int y = 0; y < image.height; ++y)
+                for (int x = 0; x < image.width; ++x) {
+                    const int sx = x - dx, sy = y - dy;
+                    if (sx >= 0 && sy >= 0 && sx < image.width && sy < image.height)
+                        moved.pixels[std::size_t(y * image.width + x)] = image.pixels[std::size_t(sy * image.width + sx)];
+                }
+            image = std::move(moved);
         }
         return vhs_ ? ui::vhs(image, frames_, vhs_) : image;
     }
@@ -108,76 +134,52 @@ public:
     std::vector<app::GameOption> options() const override {
         return {
             {"Widescreen", {"Off", "On"}, widescreen_ ? 1 : 0,
-             "The picture fills the window: while a place scrolls, its landscape and sky run on to the "
-             "window's sides (as far as the game's own view goes at the place's ends), with the aliens "
-             "already there. The game plays as the original; the other screens keep their border."},
-            {"Explosions", {"Off", "On"}, effects_settings_.explosions ? 1 : 0,
-             "An alien's explosion throws debris in the explosion's own colours, on the C64's double-wide "
-             "pixels, fading down through darker C64 colours, with a short ring of light."},
-            {"Paint drops", {"Off", "On"}, effects_settings_.splashes ? 1 : 0,
-             "A falling paint droplet leaves a short drip trail, and bursting on the ground it throws drops "
-             "of its paint, which land again."},
-            {"Shot streaks", {"Off", "On"}, effects_settings_.shots ? 1 : 0,
-             "The wiz's and the catellite's shots leave a short fading streak of their own pixels and "
-             "spark where they hit; the aliens' shots (and the wiz's pieces when it bursts) trail their dot "
-             "along their flight."},
-            {"Smooth star drift", {"Off", "On"}, effects_settings_.stars ? 1 : 0,
-             "The sky's drifting stars move a pixel at a time instead of in the multicolour pixel pairs."},
-            {"Pickup sparkles", {"Off", "On"}, effects_settings_.pickups ? 1 : 0,
-             "A pearl, extra life or token the wiz takes, or a droplet the catellite catches, sparkles where "
-             "it goes."},
-            {"Catellite effects", {"Off", "On"}, effects_settings_.catellite ? 1 : 0,
-             "A hit on the catellite throws sparks of its colours, and when it is lost it bursts like an "
-             "alien."},
-            {"Tunnel sparkles", {"Off", "On"}, effects_settings_.tunnels ? 1 : 0,
-             "Sparkles swirl up as the wiz sinks into a tunnel, and round the exit as it rises in the next "
-             "place and the wiz slides out."},
-            {"Cauldron bubbles", {"Off", "On"}, effects_settings_.cauldrons ? 1 : 0,
-             "Paint poured into a cauldron sends bubbles up through it that pop at the surface."},
-            {"Wiz effects", {"Off", "On"}, effects_settings_.wiz ? 1 : 0,
-             "The smart bomb sends a ring of light out over the field with its flashing; the shield shimmers "
-             "round the wiz (and a shielded catellite) and the wizspray's rings glow; the wiz's rings "
-             "shed sparkles as it fades out at a place's end and in at a life's start."},
-            {"Blackout fade", {"Off", "On"}, effects_settings_.blackout ? 1 : 0,
-             "When a black droplet has blacked out the landscape, it fades out over a few frames after each "
-             "bump instead of vanishing at once."},
-            {"Flight glow", {"Off", "On"}, effects_settings_.flight ? 1 : 0,
-             "The level-complete flight's words glow in their changing colour."},
-            {"Wizlab sparkles", {"Off", "On"}, effects_settings_.lab ? 1 : 0,
-             "The weapon you take in the Wizlab sparkles on its token, and the paint used rises out of the "
-             "colour cauldron."},
-            {"Menu star trails", {"Off", "On"}, effects_settings_.front ? 1 : 0,
-             "The flying stars of the menu and the player screen leave short fading trails."},
+             "The landscape, sky and aliens fill the window past the C64's border."},
+            {"Particle effects", {"Off", "On"}, particles_ ? 1 : 0,
+             "Debris, paint drops, shot streaks, sparks, sparkles and bubbles in C64 pixels."},
+            {"Light effects", {"Off", "On"}, effects_settings_.lights ? 1 : 0,
+             "Light rings, the smart bomb's wave, a shimmering shield and glowing rings."},
+            {"Smooth motion", {"Off", "On"}, smooth_ ? 1 : 0,
+             "Stars drift a pixel at a time, menu stars trail, a blackout fades out."},
             {"VHS look", {"Off", "Light", "Medium", "Heavy", "Broken"}, vhs_,
-             "A worn video tape's colour bleed and noise (shared with the other games)."},
+             "A worn video tape's colour bleed and noise."},
             {"Invincible", {"Off", "On"}, cheats_.invincible ? 1 : 0,
-             "The game's own cheat (a seven-key sequence on the title) without typing it: nothing harms the "
-             "wiz while a place is being played; here the catellite takes no hits either.",
-             "Cheats"},
+             "The game's own cheat without its seven-key sequence: nothing harms the wiz, here not even the "
+             "catellite.", "Cheats"},
             {"Infinite lives", {"Off", "On"}, cheats_.infinite_lives ? 1 : 0,
              "A lost life is not counted: the game never ends.", "Cheats"},
             {"All start places", {"Off", "On"}, cheats_.any_start_place ? 1 : 0,
-             "The title's keys 0-5 choose any of the first six places, not only those up to two before the "
-             "furthest reached last game.",
+             "The title's keys 0-5 choose any of the first six places, not only those reached before.", "Cheats"},
+            {"Carnage mode", {"Off", "On"}, cheats_.carnage ? 1 : 0,
+             "Not the original game: fire is a rapid paint gun that bursts aliens into paint and shoots the "
+             "landscape away.", "Carnage"},
+            {"Automatic catellite", {"Off", "On"}, cheats_.catellite_ai ? 1 : 0,
+             "The catellite plays itself, like a second player: it catches paint, keeps clear of aliens and "
+             "shoots; holding fire keeps the wiz shooting.",
              "Cheats"},
         };
     }
     void set_option(std::size_t index, int value) override {
         const bool on = value != 0;
         auto& e = effects_settings_;
-        bool* const effects[] = {&e.explosions, &e.splashes, &e.shots, &e.stars, &e.pickups, &e.catellite, &e.tunnels,
-                                 &e.cauldrons, &e.wiz, &e.blackout, &e.flight, &e.lab, &e.front};
-        constexpr std::size_t first_effect = 1, effect_count = std::size(effects), vhs = first_effect + effect_count;
-        if (index == 0) {
-            widescreen_ = on;
-        } else if (index < vhs) {
-            *effects[index - first_effect] = on;
-        } else if (index == vhs) {
-            vhs_ = value;
-        } else {
-            if (index == vhs + 1) cheats_.invincible = on;
-            else if (index == vhs + 2) cheats_.infinite_lives = on;
-            else if (index == vhs + 3) cheats_.any_start_place = on;
+        switch (index) {
+        case 0: widescreen_ = on; break;
+        case 1: // the particle effects together
+            particles_ = on;
+            e.explosions = e.splashes = e.shots = e.pickups = e.catellite = e.tunnels = e.cauldrons = e.wiz = e.lab = on;
+            break;
+        case 2: e.lights = e.flight = on; break;
+        case 3:
+            smooth_ = on;
+            e.stars = e.front = e.blackout = on;
+            break;
+        case 4: vhs_ = value; break;
+        default:
+            if (index == 5) cheats_.invincible = on;
+            else if (index == 6) cheats_.infinite_lives = on;
+            else if (index == 7) cheats_.any_start_place = on;
+            else if (index == 8) cheats_.carnage = on;
+            else if (index == 9) cheats_.catellite_ai = on;
             front_->set_cheats(cheats_);
         }
     }
@@ -198,7 +200,9 @@ private:
         std::unique_ptr<FrontEnd> front;
     } saved_{random_, nullptr};
     std::vector<float> mono_;
-    bool widescreen_{};
+    bool widescreen_{}, particles_{}, smooth_{};
+    int hit_stop_{};
+    double shake_{};
     enhanced::Effects effects_;
     enhanced::Settings effects_settings_;
     int vhs_{};

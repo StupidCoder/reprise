@@ -470,6 +470,8 @@ int soak(int argc, char** argv) {
     Play play(assets, image, random, sound);
     play.new_game(std::getenv("WIZ_MODE") ? std::atoi(std::getenv("WIZ_MODE")) : 0); // WIZ_MODE: the menu's mode (0-4)
     play.set_invincible(argc > 4);
+    play.set_carnage(std::getenv("WIZ_CARNAGE") != nullptr); // carnage mode under the random sticks
+    play.set_catellite_ai(std::getenv("WIZ_CAT_AI") != nullptr);
     play.start_life();
     play.begin_play();
     std::uint32_t seed = 12345;
@@ -544,7 +546,13 @@ int front(int argc, char** argv) {
     }
     wizball::game::GameRandom random(image);
     wizball::game::FrontEnd game(assets, image, random);
-    if (std::getenv("WIZ_INVINCIBLE")) game.set_cheats({true, true, true});
+    {
+        wizball::game::FrontEnd::Cheats cheats{};
+        if (std::getenv("WIZ_INVINCIBLE")) cheats.invincible = cheats.infinite_lives = cheats.any_start_place = true;
+        cheats.carnage = std::getenv("WIZ_CARNAGE") != nullptr; // carnage mode
+        cheats.catellite_ai = std::getenv("WIZ_CAT_AI") != nullptr; // the automatic catellite
+        game.set_cheats(cheats);
+    }
     wizball::enhanced::Effects effects;
     const wizball::enhanced::Settings all_effects{true, true, true, true, true, true, true, true, true, true, true, true, true};
     auto shown_play = [&]() -> const Play* {
@@ -573,6 +581,23 @@ int front(int argc, char** argv) {
                 const auto& o = game.play()->objects()[std::size_t(s)];
                 if (o.active() && o.state != 0) std::printf("frame %ld: slot %d state %d frame %X anim %d\n", f, s, o.state, o.frame, o.anim_a);
             }
+        if (std::getenv("WIZ_LOG_PAINT") && game.play()) { // paint caught (the cauldrons' counts)
+            static int last = -1;
+            const auto& c = game.play()->colour();
+            const int now = c[0] + c[1] + c[2];
+            if (now != last) std::printf("frame %ld: paint %d %d %d catellite %d\n", f, c[0], c[1], c[2],
+                                         game.play()->catellite_on() ? game.play()->catellite().hits() : -1);
+            last = now;
+        }
+        if (std::getenv("WIZ_LOG_CARNAGE") && game.play()) {
+            static std::string last;
+            const auto& sc = game.play()->carnage_score();
+            char line[96];
+            std::snprintf(line, sizeof line, "bodies %zu combo %d meter %.2f overdrive %d", game.play()->carnage_bodies(),
+                          sc.combo, double(sc.meter), sc.overdrive > 0);
+            if (line != last) std::printf("frame %ld: %s\n", f, line);
+            last = line;
+        }
         if (std::getenv("WIZ_LOG_SHOTS") && game.play()) {
             int n = 0;
             for (const auto& e : game.play()->enemy_shots()) n += e.state == 1;

@@ -3,6 +3,7 @@
 #include "wizball_c64/game/random_source.hpp"
 #include <array>
 #include <cstdint>
+#include <set>
 
 // The scrolling landscape of one place: which map columns are on screen,
 // the fine scroll, the star sky, and the screens the game prepares ahead of
@@ -52,6 +53,13 @@ public:
     // them in, only as far as the game's own view ever goes at the place's
     // ends (empty beyond); all sky in a cleared place.
     std::array<std::uint8_t, rows> side_column(int column) const;
+    // Carnage mode (not the original game): a landscape cell's place in the
+    // map (stays the same while the view scrolls), for a screen column (may
+    // be a side column) and row; and opening a cell: it is sky from now on,
+    // in the screens and whenever the map is read again.
+    std::uint32_t cell_key(int column, int row) const;
+    void open_cell(int column, int row);
+    bool opened(std::uint32_t key) const { return opened_.count(key) != 0; }
     // The 90 sky characters ($01-$5A) as the charset holds them.
     Glyph sky_glyph(int code) const;
 
@@ -124,6 +132,7 @@ private:
     bool blank_{};               // the first screen was drawn without landscape
     std::uint8_t screen_view_{}; // the view column the shown screen belongs to
     int sky_counter_at(int column) const; // the sky pattern's counter of a shown column
+    std::set<std::uint32_t> opened_;      // carnage mode's opened cells (map keys)
     std::uint8_t star_counter_{0x51}; // $B27A
     std::array<std::uint8_t, sky_codes * 8> sky_{}; // the sky characters' bytes, from code $01
     std::array<Star, sky_bands> stars_{};

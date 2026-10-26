@@ -3,6 +3,7 @@
 #include "platform/image.hpp"
 #include <array>
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 // Wizball's picture as the C64 shows it: the whole PAL frame with the
@@ -72,6 +73,20 @@ public:
     int extension = 0;
     void set_side(int row, int column, std::uint8_t code, std::uint8_t colour);
 
+    // Carnage mode (not the original game): a multicolour cell drawn from its
+    // own pixel pairs instead of its character: per pair (4 x 8) 0-3 as the
+    // character's pair values, or $10 + a colour for paint. Columns as for
+    // the side cells.
+    using CellArt = std::array<std::uint8_t, 32>;
+    void set_cell_art(int row, int column, const CellArt& art);
+    // Carnage mode's flying things: single pixels over everything, in VIC
+    // coordinates (x, raster line), shown inside the window only.
+    struct Dot {
+        int x{}, y{};
+        std::uint8_t colour{};
+    };
+    std::vector<Dot> dots;
+
     // A sprite's registers from `line` on (calls must come in line order).
     void set_sprite(int index, int line, const SpriteSettings& settings);
     void clear_sprites();
@@ -85,6 +100,7 @@ private:
     };
     std::array<LineSettings, raster_lines> lines_{};
     std::vector<std::uint8_t> side_codes_, side_colours_; // 25 rows x 2 * extension
+    std::vector<std::pair<int, CellArt>> cell_art_;       // (row * 128 + column + 64, art)
     int side_index(int row, int column) const;
     std::array<std::vector<SpriteChange>, 8> sprites_{};
 };

@@ -429,6 +429,64 @@ rebuilt play, `front.md` the front end).
    Open: the bonus wave, the Wizlab and the flight are not widened; the
    sky pattern in the side columns continues the edge column's (the game's
    own pattern has seams where columns were prepared).
+8. **Carnage mode** — slice 1 done (an option, not the original game,
+   `game/carnage.cpp`): fire is a rapid paint gun (a shot every three
+   passes, 9 pixels a pass, angled by down/up, in the cauldrons' colours in
+   turn; it replaces the wiz's own shots, the spray and blazers stay).
+   Shots hit aliens through the game's own hit ($6FBE), which bursts them
+   into flying paint that splashes where it lands; on the landscape they
+   carve a crater and splash paint round it. A damaged cell keeps its own
+   pixel pairs (Display::set_cell_art: the character's pair values or a
+   painted colour) under its map position (Playfield::cell_key), so the
+   damage stays while the view scrolls and in the side columns; a cell
+   with fewer than three solid pairs opens to sky for good
+   (Playfield::open_cell, also in the prepared screens and every later
+   map read), and the game's cell tests then find nothing there. A
+   completed place floods with colour in bands widening from the wiz
+   while it fades. Own random numbers. Preview `WIZ_CARNAGE=1` in
+   `wizball_replay front` (option 8 for `run`). The options page shows
+   five entries like the other games (widescreen; particle, light and
+   smooth-motion effects, each switching a group of the effects above;
+   VHS) with the cheats and carnage on pages of their own.
+   Slices 2 and 3 done, carnage mode complete:
+   - Loose landscape: when a cell opens, the landscape next to it is
+     flood-filled over the screen's cells; a part that no longer reaches
+     the ground rows (18-19) or the screen's edges (where it may go on),
+     and is at most 160 cells, comes loose as a body of its pixels that
+     falls, turns away from the side it was hit on (a cut pillar
+     topples), crushes aliens and the wiz it falls on, and shatters where
+     it lands: rubble that splashes its colours, three craters, points.
+   - The smart bomb's shockwave: a ring from the wiz that cracks the
+     landscape it passes (small craters, rainbow splashes).
+   - The wiz as a wrecking ball: at speed index 3 or more it rams the
+     aliens it touches (the game's own hit); bumping the landscape at 2 or
+     more bites a crater in front of it.
+   - The catellite as a flail: while it only follows (not steered, not
+     wandering, not a team's), it swings on a 30-pixel tether from the
+     wiz with gravity and drag, smashes aliens it meets without taking a
+     hit, and bites into the landscape it strikes.
+   - Arcade layer: kills within two seconds make a combo (50 points a kill
+     in the row, up to 500), combos fill a meter, a full one gives six
+     seconds of overdrive (a shot every pass in a fan of three, rainbow
+     paint); banners in the score line's middle ("COMBO X5", "OVERDRIVE");
+     hard hits ask the module for a hit-stop (two or four frames) and a
+     shake. Checked: a 200,000-frame random soak with carnage (15 clears,
+     labs and flights), the module with every option at 21:9; with carnage
+     off the lockstep runs and quick save are unchanged. Test logging
+     `WIZ_LOG_CARNAGE=1`; `soak` takes `WIZ_CARNAGE=1`.
+   - Automatic catellite (a separate option, on the Cheats page,
+     `game/catellite_ai.cpp`): a computer team mate on the second stick,
+     wired like the team modes ($697D control 2), so holding fire never
+     hands the stick to the catellite. It goes for the nearest falling
+     droplet worth catching (paint 2/5/6, white for a life), keeps clear
+     of aliens unless it cannot be hurt, shoots an alien level with it,
+     and otherwise lets the catellite trail the wiz. Only for a side
+     played alone. Test: every alien a paint dropper, tapped fire, 8,000
+     frames: 6 of 6 droplets caught with it, 2 caught and 3 missed
+     without. Preview `WIZ_CAT_AI=1` (front, soak), `WIZ_LOG_PAINT=1`.
+   Open: no rocking of pillars before they go (they only fall when cut);
+   tunnels are not specially blasted open (their cells can be shot away
+   like any other).
 7. **Player modes** — done: the two-player team's split control (the
    catellite on the other joystick, $697D) added; modes 1-4 match the
    original pass by pass through six lives and the game-over messages

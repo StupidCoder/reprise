@@ -57,9 +57,10 @@ namespace wizball::enhanced {
 struct Settings {
     bool explosions{}, splashes{}, shots{}, stars{}, pickups{}, wiz{}, catellite{}, cauldrons{}, tunnels{}, blackout{};
     bool flight{}, lab{}, front{};
+    bool lights{}; // the explosions' and the wiz's light rings, the smart bomb's wave, the shield's field, glows
     bool any() const {
         return explosions || splashes || shots || stars || pickups || wiz || catellite || cauldrons || tunnels || blackout ||
-               flight || lab || front;
+               flight || lab || front || lights;
     }
 };
 
