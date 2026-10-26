@@ -2,7 +2,7 @@
 //
 // Command line (for testing without the window):
 //   joyport --import <image>            import an image into the data folder
-//   joyport --preview <png> [--select N] [--details PAGE]
+//   joyport --preview <png> [--select N] [--details PAGE [--scroll ROWS]]
 //                                       render the launcher to a PNG
 //   --data <folder>                     use another data folder
 
@@ -28,6 +28,7 @@ struct Options {
     std::optional<std::filesystem::path> data, import_image, preview;
     std::size_t select{};
     std::optional<std::size_t> details; // page
+    int scroll{}; // --scroll ROWS: mouse wheel steps on the details page
     // --pause-preview PAGE: play the selected game for a few seconds, then
     // draw the pause menu (0), its options page (1) or the options page's
     // first group (2, such as the cheats) over it to --preview.
@@ -49,6 +50,8 @@ Options parse(int argc, char** argv) {
             options.select = std::size_t(std::stoul(argv[++i]));
         } else if (arg == "--pause-preview" && has_value) {
             options.pause_page = std::size_t(std::stoul(argv[++i]));
+        } else if (arg == "--scroll" && has_value) {
+            options.scroll = std::stoi(argv[++i]);
         } else if (arg == "--details" && has_value) {
             options.details = std::size_t(std::stoul(argv[++i]));
         }
@@ -110,6 +113,11 @@ int run(const Options& options) {
         launcher.select(options.select);
         if (options.details) {
             launcher.open_details(*options.details);
+            if (options.scroll != 0) {
+                platform::Controls wheel;
+                wheel.wheel = options.scroll;
+                launcher.update(wheel, 1.0);
+            }
         }
         platform::save_png(launcher.draw(1.0), *options.preview);
         return 0;

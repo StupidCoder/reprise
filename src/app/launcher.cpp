@@ -15,6 +15,13 @@ namespace {
 constexpr int margin = 64, card_w = 196, card_h = 146, card_gap = 18;
 constexpr int shelf_y[] = {136, 318}; // C64, Amiga
 constexpr int panel_y = 490, panel_h = 108, hints_y = 610;
+// The details box and, on its first page, the file list: rows of
+// file_row pixels between file_list_y and the note under them.
+constexpr int details_x = 64, details_y = 40, details_w = platform::ui_width - 128,
+              details_h = platform::ui_height - 80;
+constexpr int details_body_y = details_y + 96, details_body_h = details_h - 96 - 64;
+constexpr int file_list_y = details_body_y + 30, file_row = 26, file_note_h = 86;
+constexpr int file_rows_shown = (details_body_y + details_body_h - file_note_h - file_list_y) / file_row;
 
 constexpr Color background{13, 15, 30}, background_dots{24, 28, 52}, text_main{232, 236, 248},
     text_muted{138, 146, 178}, highlight{255, 214, 92}, good{124, 222, 140}, bad{255, 120, 104};
@@ -135,6 +142,8 @@ void Launcher::open_details(std::size_t page) {
         }
     }
     page_ = std::min(page, previews_.size());
+    files_.resize(int(library_.installed_files(selected_).size()), file_rows_shown);
+    files_.reset();
 }
 
 void Launcher::close_details() {
@@ -159,7 +168,13 @@ void Launcher::activate() {
 Launcher::Request Launcher::update(const platform::Controls& in, double now) {
     if (details_) {
         const std::size_t pages = previews_.size() + 1;
-        if (in.nav_right || in.nav_down) {
+        // On the file list, up/down scroll when it does not fit; left/right
+        // always turn pages.
+        const bool scrolling = page_ == 0 && files_.scrollable();
+        if (scrolling && (in.nav_up || in.nav_down || in.page_up || in.page_down || in.wheel != 0)) {
+            files_.scroll((in.nav_down ? 1 : 0) - (in.nav_up ? 1 : 0) + in.wheel);
+            files_.page((in.page_down ? 1 : 0) - (in.page_up ? 1 : 0));
+        } else if (in.nav_right || in.nav_down) {
             page_ = (page_ + 1) % pages;
         } else if (in.nav_left || in.nav_up) {
             page_ = (page_ + pages - 1) % pages;
@@ -281,7 +296,7 @@ void Launcher::draw_card(Image& image, std::size_t index, int x, int y, double n
 
 void Launcher::draw_details(Image& image) const {
     const auto& game = library_.games()[selected_];
-    const int x = 64, y = 40, w = image.width - 128, h = image.height - 80;
+    const int x = details_x, y = details_y, w = details_w, h = details_h;
     ui::blend_rect(image, 0, 0, image.width, image.height, {0, 0, 0}, 170);
     ui::rect(image, x + 8, y + 8, w, h, {4, 5, 10});
     ui::rect(image, x, y, w, h, look(game.machine).border);
@@ -292,16 +307,25 @@ void Launcher::draw_details(Image& image) const {
     ui::text_right(image, std::to_string(page_ + 1) + " / " + std::to_string(pages), x + w - 28,
                    y + 28, 2, text_muted);
 
-    const int body_y = y + 96, body_h = h - 96 - 64;
+    const int body_y = details_body_y, body_h = details_body_h;
     if (page_ == 0) {
-        int line = body_y;
-        ui::text(image, "Imported files", x + 28, line, 2, highlight);
-        line += 30;
-        for (const auto& [name, size] : library_.installed_files(selected_)) {
+        const auto files = library_.installed_files(selected_);
+        std::string heading = "Imported files";
+        if (files_.scrollable()) {
+            heading += "  " + std::to_string(files_.first() + 1) + "-" +
+                       std::to_string(files_.first() + files_.shown()) + " of " + std::to_string(files.size());
+        }
+        ui::text(image, heading, x + 28, body_y, 2, highlight);
+        int line = file_list_y;
+        for (int i = files_.first(); i < files_.first() + files_.shown() && i < int(files.size()); ++i) {
+            const auto& [name, size] = files[std::size_t(i)];
             ui::text(image, name, x + 44, line, 2, text_main);
             ui::text_right(image, size_text(size), x + 356, line, 2, text_muted);
-            line += 26;
+            line += file_row;
         }
+        files_.draw_bar(image, x + 372, file_list_y - 2, 6, file_rows_shown * file_row - 6, {36, 40, 72},
+                        text_muted);
+        line = files_.scrollable() ? file_list_y + file_rows_shown * file_row : line;
         line += 20;
         ui::wrapped(image,
                     previews_.empty()
@@ -318,8 +342,13 @@ void Launcher::draw_details(Image& image) const {
     }
 
     int hint = x + 28;
+    const bool scrolling = page_ == 0 && files_.scrollable();
     if (pages > 1) {
-        hint = ui::key_hint(image, "Arrows", "Pages", hint, y + h - 46);
+        hint = ui::key_hint(image, scrolling ? std::string{ui::icon_left, ui::icon_right} : std::string("Arrows"),
+                            "Pages", hint, y + h - 46);
+    }
+    if (scrolling) {
+        hint = ui::key_hint(image, std::string{ui::icon_up, ui::icon_down}, "Scroll", hint, y + h - 46);
     }
     hint = ui::key_hint(image, "Esc", "Back", hint, y + h - 46);
     ui::key_hint(image, "Del", "Remove imported files", hint, y + h - 46);

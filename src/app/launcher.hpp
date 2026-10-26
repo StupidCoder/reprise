@@ -2,6 +2,7 @@
 #include "app/library.hpp"
 #include "platform/host.hpp"
 #include "platform/image.hpp"
+#include "ui/scroll_list.hpp"
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -45,6 +46,7 @@ private:
     // Details pages: 0 lists the imported files, the rest show decoded data.
     std::vector<Preview> previews_;
     std::size_t page_{};
+    ui::ScrollList files_; // page 0's list of imported files
     bool pending_choice_{}, pending_play_{};
     std::string message_;
     bool message_ok_{};

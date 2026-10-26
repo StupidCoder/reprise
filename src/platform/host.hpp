@@ -48,6 +48,9 @@ struct Controls {
     // Pressed this frame (menus and shortcuts).
     bool accept{}, back{}, menu{}, remove{}, info{}, click{};
     bool nav_left{}, nav_right{}, nav_up{}, nav_down{};
+    bool page_up{}, page_down{}; // Page Up/Down, the gamepad's shoulder buttons
+    // Mouse wheel steps this frame (positive: towards the user, scrolling down).
+    int wheel{};
     bool quit{}, toggle_mute{}, quick_save{}, quick_load{};
     // Mouse position of a click, in the UI design space.
     int mouse_x{}, mouse_y{};

@@ -18,6 +18,7 @@ struct Host::Implementation {
     // True while a UI screen is shown, whose logical presentation maps mouse
     // clicks into the UI design space.
     bool ui_shown{true};
+    float wheel_rest{}; // mouse wheel movement not yet a whole step
     SDL_FRect overlay_box{}; // where the last game overlay was shown (device pixels)
     SDL_Gamepad* gamepad{};
     SDL_Gamepad* gamepad2{}; // a second one: the second joystick
@@ -143,6 +144,14 @@ Controls Host::poll() {
                 input.mouse_y = int((event.button.y - i.overlay_box.y) * ui_height / i.overlay_box.h);
             }
         }
+        if (event.type == SDL_EVENT_MOUSE_WHEEL) {
+            // Whole steps; trackpads deliver fractions, which add up here. The
+            // value already follows the system's scroll direction setting.
+            i.wheel_rest -= event.wheel.y;
+            const int steps = int(i.wheel_rest);
+            i.wheel_rest -= float(steps);
+            input.wheel += steps;
+        }
         if (event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
             const auto b = event.gbutton.button;
             input.accept |= b == SDL_GAMEPAD_BUTTON_SOUTH || b == SDL_GAMEPAD_BUTTON_START;
@@ -152,6 +161,8 @@ Controls Host::poll() {
             input.nav_right |= b == SDL_GAMEPAD_BUTTON_DPAD_RIGHT;
             input.nav_up |= b == SDL_GAMEPAD_BUTTON_DPAD_UP;
             input.nav_down |= b == SDL_GAMEPAD_BUTTON_DPAD_DOWN;
+            input.page_up |= b == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER;
+            input.page_down |= b == SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER;
         }
         if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat) {
             const auto key = event.key.key;
@@ -170,6 +181,8 @@ Controls Host::poll() {
                 input.nav_up |= key == SDLK_UP || key == SDLK_W;
                 input.nav_down |= key == SDLK_DOWN || key == SDLK_S;
                 input.toggle_mute |= key == SDLK_M;
+                input.page_up |= key == SDLK_PAGEUP;
+                input.page_down |= key == SDLK_PAGEDOWN;
             }
         }
     }
