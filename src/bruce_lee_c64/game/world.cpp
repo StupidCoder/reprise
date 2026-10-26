@@ -1019,6 +1019,13 @@ void World::set_player_state(const PlayerState& p) {
     next_life_at = p.next_life_at;
 }
 
+PassEvents World::step_room_effects() {
+    PassEvents events;
+    off_beat = !off_beat;
+    room_script(events);
+    return events;
+}
+
 PassEvents World::pass() {
     const auto events = run_pass();
     // $2571 / $266F (in the next frame's interrupt): sprites 0-4 point at
@@ -1048,8 +1055,7 @@ PassEvents World::run_pass() {
         yamo_arrives();
         ninja_arrives();
     }
-    off_beat = !off_beat; // $1C19
-    room_script(events);  // $3A5C
+    events = step_room_effects(); // $1C19 / $3A5C
     if (events.room_change) {
         return events;
     }

@@ -62,6 +62,9 @@ struct Exit {
 struct Room {
     static constexpr int columns = 40, rows = 11;
     std::array<std::uint8_t, columns * rows> cells{};
+    struct MapRun { bool literal{}; int first{}, count{}; std::uint8_t repeated{}; };
+    std::vector<MapRun> runs; // observed compressed records, for illustrated explanations
+    int encoded_bytes{}; // entire map stream, including its end marker
     int spill{};            // cells the last run writes past the map (the drawing does not stop)
     int charset{};          // index into Assets::charsets ($D018 = $38/$3A/$3C)
     std::uint8_t colour{};  // colour RAM below row 3 ($478D + room)

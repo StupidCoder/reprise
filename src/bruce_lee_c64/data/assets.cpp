@@ -194,11 +194,13 @@ Room decode_room(const GameImage& image, int room) {
             if (count == 0) {
                 break;
             }
+            result.runs.push_back({true, int(written), count, 0});
             for (int i = 0; i < count; ++i) {
                 put(image.byte(at++));
             }
         } else {
             const std::uint8_t cell = image.byte(at++);
+            result.runs.push_back({false, int(written), code ? int(code) : 256, cell});
             for (int i = 0; i < (code ? code : 256); ++i) {
                 put(cell);
             }
@@ -207,6 +209,7 @@ Room decode_room(const GameImage& image, int room) {
             throw std::runtime_error("A room map in the game file does not end.");
         }
     }
+    result.encoded_bytes = int(at) - int(result.map_address);
     if (written < result.cells.size()) {
         throw std::runtime_error("A room map in the game file is too short.");
     }

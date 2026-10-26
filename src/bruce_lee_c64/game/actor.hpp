@@ -5,6 +5,7 @@
 #include <array>
 #include <cstdint>
 #include <vector>
+#include <string_view>
 
 // The actors: Bruce, the Yamo and the Ninja. Each pass an actor either waits
 // out the delay of its last move or decides what to do from its stick, the
@@ -92,6 +93,13 @@ struct ActorWorld {
 class Actors {
 public:
     std::array<Actor, 3> slots{};
+    // Read-only teaching telemetry: the last grounded decision, not a new AI state.
+    struct Decision {
+        bool sampled{}, supported{}, level{}, facing{};
+        int horizontal{}, vertical{};
+        std::string_view outcome{"Waiting for a decision"};
+    };
+    std::array<Decision, 3> decisions{};
 
     // $1C6D for one actor.
     void update(int slot, ActorWorld&);

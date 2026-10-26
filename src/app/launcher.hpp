@@ -1,5 +1,6 @@
 #pragma once
 #include "app/library.hpp"
+#include "bruce_lee_c64/game/chapter.hpp"
 #include "platform/host.hpp"
 #include "platform/image.hpp"
 #include "ui/scroll_list.hpp"
@@ -44,6 +45,12 @@ private:
     void draw_card(platform::Image&, std::size_t game, int x, int y, double now) const;
     void draw_details(platform::Image&) const;
 
+    std::unique_ptr<Lesson> chapter_;
+    bool lessons_{};
+    int lesson_selected_{};
+    ui::ScrollList lesson_list_;
+    void open_lesson(double now);
+    void draw_lessons(platform::Image&) const;
     Library& library_;
     std::size_t selected_{};
     bool details_{};

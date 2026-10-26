@@ -164,6 +164,9 @@ add_executable(joyport
     src/app/main.cpp
     src/app/catalog.cpp
     src/app/library.cpp
+    src/bruce_lee_c64/game/chapter.cpp
+    src/bruce_lee_c64/game/room_chapter.cpp
+    src/bruce_lee_c64/game/background_article.cpp
     src/app/launcher.cpp
     src/app/pause_menu.cpp
     src/app/saved_options.cpp)
@@ -213,7 +216,10 @@ add_dependencies(joyport joyport_resources)
 include(CTest)
 if(BUILD_TESTING)
     add_executable(shell_checks tests/shell.cpp src/app/catalog.cpp src/app/library.cpp
-        src/app/launcher.cpp src/app/pause_menu.cpp)
+        src/bruce_lee_c64/game/chapter.cpp
+    src/bruce_lee_c64/game/room_chapter.cpp
+    src/bruce_lee_c64/game/background_article.cpp
+    src/app/launcher.cpp src/app/pause_menu.cpp)
     target_link_libraries(shell_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga ui)
     target_compile_options(shell_checks PRIVATE ${PROJECT_WARNINGS})
     add_dependencies(shell_checks joyport_resources)

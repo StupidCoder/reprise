@@ -775,6 +775,12 @@ Actors::Distance Actors::distance_to_bruce(const Actor& a) const {
 // $22E7: an enemy's decision, made while standing on the ground.
 void Actors::think(Actor& a, int slot, ActorWorld& world, int y) {
     const auto feet = a.terrain.feet;
+    auto& observed = decisions[std::size_t(slot)];
+    observed = {true, bool(feet & terrain::ground),
+                std::abs(int(a.y) - slots[0].y) < 16,
+                (slots[0].x > a.x) == (a.facing == 1),
+                std::abs(int(a.x) - slots[0].x) * 2,
+                std::abs(int(a.y) - slots[0].y), "Walk on"};
     auto walk = [&] { // $233F: two steps on, the step count stays
         walk_on(a, world);
         carry_on(a, world, move::enemy_think, y + 1);
@@ -782,6 +788,7 @@ void Actors::think(Actor& a, int slot, ActorWorld& world, int y) {
     auto approach = [&](const Distance& d) { // $2314: walk to 15 beside Bruce
         // 8-bit arithmetic as in the original; a target of 0 (Bruce at x 15)
         // falls through into the addition and becomes 15.
+        observed.outcome = "Reposition";
         std::uint8_t target = std::uint8_t(slots[0].x - 0x0F);
         if (!(d.x & 0x80) || target == 0) {
             target = std::uint8_t((d.x & 0x80 ? target : slots[0].x) + 0x0F);
@@ -799,6 +806,7 @@ void Actors::think(Actor& a, int slot, ActorWorld& world, int y) {
         if (feet & terrain::ladder) {
             walk();
         } else {
+            observed.outcome = "Fall";
             start_fall(a, world);
         }
         return;
@@ -810,6 +818,7 @@ void Actors::think(Actor& a, int slot, ActorWorld& world, int y) {
             walk();
             return;
         }
+        observed.outcome = "Face target and wait";
         a.facing = d.x & 0x80 ? 1 : 0;
         finish(a, slot, world);
         return;
@@ -818,6 +827,7 @@ void Actors::think(Actor& a, int slot, ActorWorld& world, int y) {
     const int dx = d.x & 0x7F;
     if (!towards) {
         if (dx >= 0x21) {
+            observed.outcome = "Turn and walk";
             a.facing ^= 1; // turn round, walk on
             walk();
         } else {
@@ -831,8 +841,10 @@ void Actors::think(Actor& a, int slot, ActorWorld& world, int y) {
             approach(d);
         } else if (dx < 0x0C) {
             if (feet & terrain::ladder) {
+                observed.outcome = "Wait on support";
                 stand(a, world);
             } else {
+                observed.outcome = "Chop";
                 start(a, world, move::chop, 0x0C);
                 a.step = 4;
             }
@@ -840,6 +852,7 @@ void Actors::think(Actor& a, int slot, ActorWorld& world, int y) {
                 finish(a, slot, world);
             }
         } else if (dx < 0x13) {
+            observed.outcome = "Flying kick";
             a.move = a.facing == 1 ? move::kick_right : move::kick_left;
             a.step = 0x0C;
             a.delay = 0;
@@ -854,6 +867,7 @@ void Actors::think(Actor& a, int slot, ActorWorld& world, int y) {
     } else if (dx < 5) {
         approach(d);
     } else {
+        observed.outcome = "Low strike";
         a.move = move::low_strike;
         a.step = 0x13;
     }

@@ -564,3 +564,76 @@ Validation: build/package, synthetic navigation tests and visual/live checks are
 recorded in `.analysis/shell-design/validation/REPORT.md`. Open: Android packaging
 and device validation, and a physical-gamepad interaction check on the new UI.
 The shell currently retains the existing 960x640 letterboxed logical canvas.
+
+## Interactive field guide: Bruce Lee enemy decisions (2026-10-26)
+
+First pure-SDL prototype is available from Bruce Lee Details -> Lessons ->
+Behind the enemy decisions, after importing the user's disk. It runs a separate World using the
+imported assets, with resettable approach, close and airborne-target scenarios.
+Harmless-enemy practice settings, no save writes, silent simulation; movement
+works with the usual controls, while player attacks are disabled. Pause, one
+logic-pass step, quarter speed, enemy selection and clickable decision gates
+expose the mechanics without displaying implementation code. Current move
+labels and directional range bands accompany a last-decision snapshot recorded
+inside the actor rule. Bands indicate attack choice, not collision hitboxes.
+
+Evidence boundary: the explanations describe the current reconstruction in
+Actors::think/wake_enemies and the existing ROM-derived recovery notes. They
+are not a new equivalence claim about the original. Original-game validation
+was not rerun for this presentation feature; the added telemetry only records
+branch outcomes and does not change decisions.
+
+Validation: shell navigation checks; imported-data chapter checks exercise the
+Ninja and Yamo attack boundaries, facing and height gates, pause/step behavior,
+and render the running chapter. Captures were visually reviewed.
+
+Open follow-ups: broader interactive chapters, original-ROM comparison of
+the prepared scenarios, narration/audio, touch/gamepad-only chapter controls,
+and more detailed combat hit detection visualizations. This prototype uses a
+960x640 letterboxed SDL canvas and keyboard/mouse chapter controls.
+
+## Lesson browser and room-effects chapter (2026-10-26)
+
+Bruce Lee Details now opens a selectable lesson list (Up/Down, wheel, page
+keys, Enter/click). Extracted assets remain a separate view. I no longer
+launches a lesson from Details. Back from a lesson preserves the list selection.
+The list scrolls when entries exceed its three visible rows; lesson rendering
+uses a common interface that does not require a game simulation.
+
+Second chapter: A floor opens. The room-2 experiment changes practice progress
+for rooms 1/2/3/7 and runs the same room-effect update as normal play, without
+actors, combat or saves. Required: rooms 1-3 cleared and room 7 not cleared.
+Four updates on alternate passes apply the imported character patterns to the
+playfield. Actual changed floor cells are highlighted. Changing prerequisites
+resets the demonstration. The How it works tab is a scrollable illustrated
+article with comparison images and a rule/data table; no source listings.
+
+Evidence: current reconstructed setup_room/script_room_1, their existing
+ROM-recovery annotations, and the imported patterns. No new original-ROM
+equivalence claim. Checks cover missing prerequisites, room-7 blocking, the
+four-stage completion and changed playfield, lesson entry/exit, article
+scrolling, and existing enemy-decision checks. Screenshots reviewed.
+
+Open: compare these fabricated room-effect scenarios against original-ROM
+execution; expand the reusable article authoring format beyond this prototype.
+
+## Third lesson: Building a background (2026-10-26)
+
+A read-only illustrated article in Bruce Lee's lesson list. All room figures,
+tile crops and repeat/literal examples come from the imported data. The existing
+map decoder now records run boundaries and encoded byte lengths as observation
+metadata; decoding and gameplay are unchanged. Room 1 measures 272 bytes versus
+the 440-byte expanded map in the tested import. The table includes all 20
+decoded rooms and explicitly records extra cells produced by final runs.
+Counts include control bytes, payload and the end marker, excluding shared
+character sets, room headers, colors, lanterns and exits. The article shows
+character-row doubling and paired halves, actual repeat/literal runs, palette
+versus room-color rendering, and a proportional storage chart. No simulation
+or progress writes; only scrolling and returning to Lessons.
+
+Validation: each map's recorded run sizes sum to its measured byte count; each
+repeat matches the expanded map; output lengths include spill cells; the final
+count points to the imported end marker. Article captures reviewed throughout
+the scroll range, and third-lesson entry checked through the launcher. Existing
+shell and imported-data lesson checks pass. Original execution comparison is
+not newly claimed; explanations describe the existing reconstructed decoder.

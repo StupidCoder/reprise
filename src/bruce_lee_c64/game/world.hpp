@@ -262,6 +262,8 @@ public:
     // The main loop's work for one pass. Combat reads (and so clears) the
     // collision latch, in rooms with fights.
     PassEvents pass();
+    // Shared room-effect update, also used by the isolated teaching experiment.
+    PassEvents step_room_effects();
     // The interrupt's per-frame work that the game state sees.
     void frame();
 

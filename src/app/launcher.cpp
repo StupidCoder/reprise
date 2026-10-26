@@ -1,5 +1,7 @@
 #include "app/launcher.hpp"
 #include "app/catalog.hpp"
+#include "bruce_lee_c64/game/room_chapter.hpp"
+#include "bruce_lee_c64/game/background_article.hpp"
 #include "ui/shelf.hpp"
 #include <algorithm>
 #include <exception>
@@ -13,6 +15,13 @@ namespace {
 constexpr int grid_x = 198, grid_y = 106, card_w = 350, card_h = 208, gap = 18;
 constexpr int footer_y = 558;
 constexpr int file_list_y = 182, file_row = 25, file_rows_shown = 11;
+struct LessonEntry { const char* title; const char* summary; const char* format; };
+constexpr LessonEntry lessons[] = {
+    {"Behind the enemy decisions", "Inspect the Ninja and Yamo: facing, distance, movement and attack choices.", "Live experiment"},
+    {"A floor opens", "Discover the progress conditions, step through the opening, and read how room logic meets data.", "Experiment + illustrated article"},
+    {"Building a background", "Peel apart a room: shared tiles, compressed runs, color and measured storage savings.", "Illustrated article"},
+};
+constexpr int lesson_count = int(std::size(lessons));
 constexpr const char* filters[] = {"All games", "Commodore 64", "Amiga", "Planned"};
 bool hit(const platform::Controls& in, int x, int y, int w, int h) {
     return in.click && in.mouse_x >= x && in.mouse_x < x + w && in.mouse_y >= y && in.mouse_y < y + h;
@@ -96,6 +105,9 @@ void Launcher::open_details(std::size_t page) {
         try { previews_ = game.previews(library_.content_directory(selected_)); }
         catch (const std::exception& e) { details_error_ = std::string("Could not decode the imported data: ") + e.what(); }
     }
+    lessons_ = game.id == "bruce_lee_c64" && page == 0;
+    lesson_list_.resize(lesson_count,3);
+    lesson_list_.reset(); lesson_selected_=0;
     page_ = std::min(page, previews_.size());
     files_.resize(int(library_.installed_files(selected_).size()), file_rows_shown);
     files_.reset();
@@ -109,6 +121,29 @@ void Launcher::activate() {
     else open_details();
 }
 Launcher::Request Launcher::update(const platform::Controls& in, double now) {
+    if (chapter_) {
+        if (in.back || hit(in,24,20,104,34)) chapter_.reset();
+        else chapter_->update(in,now);
+        return Request::none;
+    }
+    if (details_ && library_.games()[selected_].id == "bruce_lee_c64") {
+        if (hit(in,24,380,240,32)) {lessons_=false; return Request::none;}
+        if (hit(in,24,520,240,32)) {lessons_=true; return Request::none;}
+        if (lessons_) {
+            if(in.back || hit(in,24,22,104,36)) {close_details();return Request::none;}
+            const int delta=int(in.nav_down)-int(in.nav_up)+in.wheel+
+                (int(in.page_down)-int(in.page_up))*3;
+            lesson_selected_=std::clamp(lesson_selected_+delta,0,lesson_count-1);
+            if(lesson_selected_<lesson_list_.first())lesson_list_.scroll(lesson_selected_-lesson_list_.first());
+            if(lesson_selected_>=lesson_list_.first()+3)lesson_list_.scroll(lesson_selected_-lesson_list_.first()-2);
+            for(int row=0;row<lesson_list_.shown();++row) if(hit(in,308,178+row*106,600,96)) {
+                lesson_selected_=lesson_list_.first()+row;open_lesson(now);return Request::none;
+            }
+            if(in.accept){open_lesson(now);return Request::none;}
+            // Keep the ordinary import/play/remove controls available on the left.
+            if(!hit(in,24,426,240,36)&&!hit(in,24,474,240,34)&&!in.remove)return Request::none;
+        }
+    }
     if (details_) {
         const auto pages = previews_.size() + 1;
         if (in.back || in.accept || hit(in, 24, 22, 104, 36)) close_details();
@@ -194,6 +229,32 @@ void Launcher::draw_card(Image& im, std::size_t index, int x, int y, double) con
                 library_.installed(index) && game.start ? s::green : s::muted);
 }
 
+void Launcher::open_lesson(double now) {
+    if(!library_.installed(selected_)) {show_error("Import your copy to open this lesson.",now);return;}
+    try {
+        const auto path=library_.content_directory(selected_);
+        if(lesson_selected_==0) chapter_=std::make_unique<bruce_lee::game::EnemyChapter>(path);
+        else if(lesson_selected_==1) chapter_=std::make_unique<bruce_lee::game::RoomChapter>(path);
+        else chapter_=std::make_unique<bruce_lee::game::BackgroundArticle>(path);
+    } catch(const std::exception& e){show_error(std::string("Could not open lesson: ")+e.what(),now);}
+}
+void Launcher::draw_lessons(Image& im) const {
+    ui::rounded(im,288,102,648,446,10,s::card);
+    s::text(im,"Behind the games",308,119,23,s::ink,true);
+    s::text(im,"Choose a lesson. Explore at your own pace.",308,153,14,s::muted);
+    for(int row=0;row<lesson_list_.shown();++row){
+        const int index=lesson_list_.first()+row,y=178+row*106;
+        const auto& lesson=lessons[index];
+        ui::rounded(im,308,y,600,96,6,index==lesson_selected_?s::pale:s::paper);
+        s::text(im,std::to_string(index+1)+"  "+lesson.title,322,y+12,19,s::ink,true);
+        s::wrap(im,lesson.summary,322,y+39,564,2,14);
+        s::text(im,library_.installed(selected_)?lesson.format:"Import your copy to open",322,y+77,12,s::muted);
+    }
+    lesson_list_.draw_bar(im,922,178,4,318,s::paper,s::muted);
+    s::text(im,"Illustrated explanations and live experiments share this library.",308,516,13,s::muted);
+    s::text(im,"Up / Down or scroll: choose     Enter or click: open     Esc: library",24,582,14,s::muted);
+}
+
 void Launcher::draw_details(Image& im) const {
     const auto& game = library_.games()[selected_];
     const bool installed = library_.installed(selected_);
@@ -210,6 +271,11 @@ void Launcher::draw_details(Image& im) const {
         "Explore the decoded data. This game is not playable yet.", 24, 340, 240, 3, 15);
     if (game.import && (!installed || game.start)) s::button(im, installed ? "Play game" : "Import your copy", 24, 426, 240, 36, true);
     if (installed) s::button(im, "Remove imported files", 24, 474, 240, 34);
+    if (game.id == "bruce_lee_c64") {
+        s::button(im,"Extracted assets",24,380,240,32,!lessons_);
+        s::button(im,"Lessons",24,520,240,32,lessons_);
+        if(lessons_){draw_lessons(im);return;}
+    }
     ui::rounded(im, 288, 102, 648, 446, 10, s::card);
     const auto pages = previews_.size() + 1;
     s::clipped(im, page_ == 0 ? (installed ? "Imported files" : "About this game") : previews_[page_ - 1].title, 308, 116, 460, 20, s::ink, true);
@@ -246,6 +312,7 @@ void Launcher::draw_details(Image& im) const {
 }
 
 Image Launcher::draw(double now) const {
+    if (chapter_) return chapter_->draw();
     Image im(platform::ui_width, platform::ui_height);
     if (details_) {
         draw_details(im);
