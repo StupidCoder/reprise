@@ -17,6 +17,7 @@
 #include <fstream>
 #include <iterator>
 #include <vector>
+#include <array>
 #include <map>
 #include <sstream>
 #include <string>
@@ -103,6 +104,31 @@ int main(int argc, char** argv) {
             game.set_canvas(std::stoi(size.substr(0, x)), std::stoi(size.substr(x + 1)));
         }
         std::vector<long> snapshots;
+        // REPLAY_OPTIONS=<index>=<value>,...: any of the module's options (as
+        // its options() lists them), such as the cheats.
+        if (const char* v = std::getenv("REPLAY_OPTIONS")) {
+            std::stringstream list(v);
+            for (std::string item; std::getline(list, item, ',');) {
+                const auto eq = item.find('=');
+                game.set_option(std::stoul(item.substr(0, eq)), std::stoi(item.substr(eq + 1)));
+            }
+        }
+        // REPLAY_BLAST="frame:x,y,radius;...": a carnage-mode crater at map
+        // pixel (x, y) before that frame's tick (tests of loose rock).
+        std::multimap<long, std::array<double, 3>> blasts;
+        if (const char* v = std::getenv("REPLAY_BLAST")) {
+            std::stringstream list(v);
+            for (std::string item; std::getline(list, item, ';');) {
+                const auto colon = item.find(':');
+                std::array<double, 3> b{};
+                std::sscanf(item.c_str() + colon + 1, "%lf,%lf,%lf", &b[0], &b[1], &b[2]);
+                blasts.emplace(std::stol(item.substr(0, colon)), b);
+            }
+        }
+        // REPLAY_CARNAGE=1: carnage mode (the gun that carves the rock).
+        if (const char* v = std::getenv("REPLAY_CARNAGE"); v && *v == '1') {
+            game.set_option(10, 1);
+        }
         // REPLAY_VHS=<level>: the VHS tape look (1-4) in those pictures.
         if (const char* v = std::getenv("REPLAY_VHS")) {
             game.set_option(4, std::atoi(v));
@@ -218,6 +244,9 @@ int main(int argc, char** argv) {
             const long frame = first + n;
             if (scheduled) {
                 game.game().set_next_steps(steps_early[frame], steps_before[frame], steps_after[frame]);
+            }
+            for (auto [it, end] = blasts.equal_range(frame); it != end; ++it) {
+                game.game().debug_blast(int(it->second[0]), int(it->second[1]), it->second[2]);
             }
             for (auto [it, end] = pokes.equal_range(frame); it != end; ++it) {
                 if (!game.game().debug_poke(it->second.first, it->second.second)) {

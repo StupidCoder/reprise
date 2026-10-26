@@ -111,7 +111,49 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
 9. **VHS tape look** — done: a shared CPU filter (`src/ui/vhs.cpp`, about
    3-4 ms a frame at twice the picture's size) with four levels, an option
    of the pause menu. Previews with `REPLAY_VHS=<1-4>` and `REPLAY_PNG`.
-10. **Optional: loading screen** — the tape's U.S. Gold loading screen is a
+10. **Carnage mode** — slice 1 done: an option (not the original game) with
+    a rapid-fire gun whose tracers carve the brown rock ($4B, $61-$6B) pixel
+    by pixel (`game/carnage.cpp`): damaged cells keep their own pixels,
+    used by the picture (so the VIC collisions), the craft's and enemy's
+    cell probes and the effects, both copies of the map's wrap columns;
+    debris and sparks from the carved pixels. A tank blocked both ways (its
+    track carved away at its home) stays put instead of turning for ever
+    (the original would hang there; found by fuzzing the module). Slice 2
+    done: falling bodies in the game's rules (`FallingBody`): rock islands
+    found by a flood fill around each crater (held by anything fixed it
+    touches, a structure in the next cell such as a tower, or by size,
+    6,000 pairs; one held only by its size is looked at again every half
+    second with no limit), tanks whose ground row is gone (out of the tank
+    logic; the original's respawn brings them back, but only where their
+    home still has ground), emitters ($4C-$4F)
+    broken by six hits or a blast, taking their beam (which then sweeps
+    from the falling emitter for two seconds, melting rock, burning
+    objects, other emitters and the craft); all burst where they
+    land (craters, debris, a tank burst and score) and crush the craft.
+    Towers ($54-$58, three rows or more, not depots) rock on their base
+    from hits, lean only into open sides, tip over past 9 degrees, pivot,
+    drop and come to rest painted into the map (rock cells joined whole for
+    the loose-rock test, so cut-off parts drop). The screen copy lags up to
+    7 frames: carved and painted cells keep their records so it shows them
+    as they are now, and a resting tower is drawn a few frames longer. Fuel
+    depots take 60 hits (a blast six) and blow up: both copies cleared, no
+    more refuelling or redrawing there, a crater of 22 pixels, the craft
+    caught within 44; smoke, fire, pops and the fireball are effects. The
+    last level's depot ends the mission: blown, "WELL DONE IDIOT" flashes
+    in the message row for three seconds, the craft goes down and the
+    debrief says "MISSION ABORTED" (start_life, whatever the lives). Test
+    hooks `REPLAY_BLAST`, `REPLAY_OPTIONS`. Slice 3 done:
+    combos (kills within two seconds; a bonus of 50 points per kill in the
+    row, up to ten), the overdrive meter and six seconds of a double-rate
+    gun in a fan of three, hit-stop (two or four frames) and playfield
+    shake from the frame's impact, momentum flight (up to the original's
+    whole step a frame, the most its camera follows; no sliding off a pad),
+    the banners in the game's own HUD letters. Tracers end at the view's
+    edges (the original window's, or the widescreen view's), so the carnage
+    happens where it is seen. Bodies that come loose while the falling
+    ones move (a landing blast, a beam) join the list afterwards (adding
+    them during the walk crashed the game). Carnage mode is complete.
+11. **Optional: loading screen** — the tape's U.S. Gold loading screen is a
    display script plus a music stream that also patches memory. It could
    play during import, read from the imported data (the music player is
    native code to rewrite; its stream is data).

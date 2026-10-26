@@ -4,6 +4,7 @@
 
 #include "fort_apocalypse_c64/game/bcd.hpp"
 #include "fort_apocalypse_c64/game/game.hpp"
+#include <algorithm>
 
 namespace fort_apocalypse::game {
 
@@ -51,7 +52,7 @@ void Game::barriers() {
         bool lit = false;
         if (barriers_off_ != 1) {
             timer = u8(timer + barrier_step_);
-            lit = timer == 0;
+            lit = timer == 0 && !(cheat(options_.no_lasers) && level_ != 0);
         }
         for (int c = 0; c < 4; ++c) {
             for (int r = 0; r < 8; ++r) {
@@ -79,7 +80,9 @@ void Game::laser_grids() {
     }
     constexpr std::uint16_t sites[] = {0xA87B, 0xA88A, 0xA899, 0xA8A8};
     for (int c = 0x0A; c <= 0x0D; ++c) {
-        if (!(noise(sites[c - 0x0A]) & 0x80)) {
+        // (The random numbers are drawn with the cheat too, so the rest of
+        // the game's randomness stays as it was.)
+        if (!(noise(sites[c - 0x0A]) & 0x80) && !cheat(options_.no_lasers)) {
             glyphs_[std::size_t(c)].fill(0x55);
         }
     }
@@ -91,7 +94,7 @@ void Game::sweeping_walls() {
     if (--sweep_timer_ != 0) {
         return;
     }
-    sweep_timer_ = sweep_period_;
+    sweep_timer_ = cheat(options_.slow_walls) ? u8(std::min(255, sweep_period_ * 2)) : sweep_period_;
     for (int c = 0x0E; c <= 0x11; ++c) {
         glyphs_[std::size_t(c)] = {};
     }

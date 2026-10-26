@@ -43,6 +43,8 @@ private:
     std::unique_ptr<Game> game_, saved_;
     Options options_;
     bool particles_{}, smooth_{}, widescreen_{};
+    // The particle effects run when chosen, and in carnage mode (its debris).
+    bool particles() const { return particles_ || options_.carnage; }
     // With particle effects, a crash's last frame holds until the wreck has
     // come to rest (or fire or the space bar is pressed): the game waits.
     // From the crash's first frame a copy of the game is shown instead,
@@ -56,6 +58,10 @@ private:
     // The VHS tape look's level (0 = off) and the frames it animates by.
     int vhs_{};
     long frames_{};
+    // Carnage mode: a big kill holds the game a few frames (hit-stop) and
+    // shakes the playfield.
+    int hit_stop_{};
+    double shake_{};
     enhanced::EnhancedView enhanced_;
     enhanced::WideSize wide_{};
     c64::Picture shown_{};

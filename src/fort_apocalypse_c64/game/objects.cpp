@@ -151,7 +151,7 @@ void Game::tanks() {
             const u8 code = map_at(home + k);
             clear = code != 0x6C && code != 0x6D && code != 0x6E;
         }
-        if (clear) {
+        if (clear && home_has_ground(t.home_column, t.home_row)) { // (carnage mode can shoot it away)
             t.state = 7;
         }
     }
@@ -188,10 +188,18 @@ void Game::tank_step(int i) {
         map_set(at - 256 + 1, 0); // the turret
     }
     // $99B4: one cell on, turning at obstacles.
-    for (;;) {
+    const u8 start = t.column;
+    for (int turns = 0;;) {
         tank_blip(i);
         t.column = u8(t.column + t.direction);
         tank_blip(i);
+        if (turns > 2) {
+            // Blocked both ways (carnage mode can carve its track away; the
+            // original would loop here for ever): it stays where it was.
+            tank_blip(i);
+            t.column = start;
+            tank_blip(i);
+        }
         const int at = object_index(t.column, t.row);
         for (int k = 0; k < 3; ++k) {
             t.saved[std::size_t(k)] = map_at(at + k);
@@ -205,8 +213,9 @@ void Game::tank_step(int i) {
             }
             return false;
         };
-        if (blocked(0) || blocked(2)) {
+        if ((blocked(0) || blocked(2)) && turns <= 2) {
             t.direction ^= 0xFE;
+            ++turns;
             continue;
         }
         for (int k = 2; k >= 0; --k) {
@@ -282,7 +291,8 @@ void Game::missiles() {
             if ((rows_above & 0x80) || rows_above >= 0x0E || m.state != 1) {
                 continue;
             }
-            if (near_distance(u8(column_ - 2 - tank.column)) < 9) {
+            if (near_distance(u8(column_ - 2 - tank.column)) < 9 &&
+                !cheat(options_.enemies_hold_fire)) {
                 m.state = 7;
             }
         }
@@ -416,6 +426,9 @@ void Game::show_men_to_rescue() {
 void Game::draw_depot(int column, int stage) {
     // $ACD5: five rows of six cells; stage s starts 6 * s bytes in.
     depot_shown_stage_ = stage;
+    if (depot_gone(u8(column) - 5)) {
+        return; // carnage mode blew it up
+    }
     int at = object_index(u8(column), 0x0B);
     int x = stage * 6;
     for (int row = 0; row < 5; ++row) {
@@ -459,7 +472,8 @@ void Game::refuel() {
         save_checkpoint();
         return;
     }
-    if (craft_ == Craft::landed && row_ >= 9 && row_ < 0x0D) {
+    if (craft_ == Craft::landed && row_ >= 9 && row_ < 0x0D &&
+        !depot_gone(depot_near(column_ - 1))) { // (carnage mode: none to land on)
         engine_ = 0x0A;
         depot_timer_ = 1;
         depot_stage_ = 4;

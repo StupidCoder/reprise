@@ -67,6 +67,8 @@ private:
         u8 colour{};
         int life{}, age{};
         bool fire{};      // fades through the fire colours
+        bool smoke{};     // fades from white to grey, drifting up
+        bool dark{};      // (smoke) dark from the start: a fire's
         bool free{};      // has left solid ground (it starts inside a hit)
     };
     // A piece thrown off as a whole and spinning: a tank's turret (it
@@ -113,6 +115,19 @@ private:
     void spawn_tank_debris(const game::Game&, const game::Game::TankDestroyed&,
                            const c64::TextFrame&);
     void move_particles(const game::Game&);
+    // Carnage mode's falling rock, tanks and emitters, tumbling.
+    void draw_falling(const c64::TextFrame&, const game::Game&, const Viewport&, const Clip&);
+    double near_view(const Viewport&, double world_x) const;
+    // Carnage mode's fuel depots under fire: smoke, then fires, pops and a
+    // blaze; and the fireball when one blows.
+    void spawn_depot_fire(const game::Game&);
+    // Carnage mode's combo and overdrive, in the game's own letters.
+    void draw_carnage_banner(const game::Game&, const Clip&);
+    void draw_text(const std::string&, int centre_x, int y, u8 colour, const Clip&);
+    void spawn_fireball(double x, double y);
+    // The tanks' missiles leave a trail of smoke and sparks.
+    void spawn_exhaust(const game::Game&);
+    void spawn_carved(const std::vector<game::Game::CarvedPixel>&, const c64::TextFrame&);
     void spawn_shell_burst(const game::Game&, const game::Game::ShellBurst&,
                            const c64::TextFrame&);
     // The craft shot down: its wreck and a big explosion.
@@ -157,6 +172,7 @@ private:
     bool tanks_known_{}; // tanks seen since the effects started (later ones rise)
     Settings settings_{};
     long ticks_{};              // frames of play, for the mines' wobble
+    int flash_{};               // frames of a fireball's flash left
     double depot_drop_{-1}, sink_drop_{}; // pixels the platforms are drawn sunk
     std::optional<game::Game::MapCell> window_;
     // The bank step 0-8 smoothed twice (an eased turn), -1 when not yet seen.

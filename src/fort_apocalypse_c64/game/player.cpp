@@ -38,7 +38,7 @@ bool Game::solid_glyph(u8 code) const {
 }
 
 bool Game::solid_at_player_column(int column, int row) const {
-    return solid_glyph(map_at(actor_index(column, row))); // $A031
+    return solid_cell(actor_index(column, row)); // $A031 (carved cells as they are)
 }
 
 // --- camera and the playfield window ($A64D) -------------------------------------
@@ -218,6 +218,10 @@ void Game::fire() {
     if (craft_ == Craft::crashing) {
         return;
     }
+    if (carnage() && mode_ == Mode::playing) {
+        carnage_fire(); // the rapid-fire gun instead of the shot
+        return;
+    }
     if (play_kind_ == 0) {
         // The attract game fires every 16 frames.
         if ((frame_ & 0x0F) != 0) {
@@ -286,7 +290,7 @@ void Game::bullets() {
             const u8 row = u8(top + rows);
             b.row = row;
             const int at = actor_index(column, row);
-            if (solid_glyph(map_at(at))) {
+            if (solid_cell(at)) {
                 sound_explosion();
                 shot_sound_ = 0;
                 const u8 hit = map_at(at);
@@ -367,7 +371,13 @@ void Game::terrain_contact() {
         crash_timer_ = crash_frames;
         sound_explosion();
         craft_ = Craft::crashing;
+        life_kept_ = cheat(options_.infinite_lives);
     };
+    if (crushed_) {
+        crushed_ = false; // carnage mode: something fell on it
+        crash();
+        return;
+    }
     // Touching the enemy or its bullet (not the player's own bullets).
     const u8 s = sprite_hits_;
     if ((s & 1) && (s & 0x12) && !(s & 0x0C)) {
@@ -444,11 +454,11 @@ void Game::terrain_contact() {
     }
     // $A134: no contact reported; the cells round the craft are probed too.
     int at = actor_index(column_, row_);
-    bool solid = solid_glyph(map_at(at)) || solid_glyph(map_at(at - 256));
+    bool solid = solid_cell(at) || solid_cell(at - 256);
     if (!solid) {
         const int left = (sprite_regs_[0].pointer == 7 || sprite_regs_[0].pointer == 8) ? 2 : 3;
         at = at - 256 - left;
-        solid = solid_glyph(map_at(at)) || solid_glyph(map_at(at + 256));
+        solid = solid_cell(at) || solid_cell(at + 256);
     }
     if (solid) {
         contact();
@@ -485,6 +495,7 @@ void Game::save_checkpoint() {
 
 void Game::movement() {
     if (craft_ == Craft::inactive || craft_ == Craft::crashing) {
+        glide_speed_ = glide_step_ = 0;
         return;
     }
     const u8 rotor = bank_ & 1;
@@ -505,10 +516,11 @@ void Game::movement() {
     if (engine_ == 9) {
         engine_pitch_ = 0x54;
     }
+    const bool glide = carnage(); // carnage mode: the craft speeds up and glides
     if (!(stick & 8)) { // right
         sid_.write(0x00, 0x78);
         engine_pitch_ = 0x6A;
-        if (bank_ >= 0x0E || (frame_ & 1) == 0) {
+        if (!glide && (bank_ >= 0x0E || (frame_ & 1) == 0)) {
             ++x_;
         }
         if ((frame_ & 3) == 0) {
@@ -518,7 +530,7 @@ void Game::movement() {
     if (!(stick & 4)) { // left
         sid_.write(0x00, 0x78);
         engine_pitch_ = 0x6A;
-        if (bank_ < 4 || (frame_ & 1) == 0) {
+        if (!glide && (bank_ < 4 || (frame_ & 1) == 0)) {
             --x_;
         }
         if ((frame_ & 3) == 0) {
@@ -538,6 +550,25 @@ void Game::movement() {
             ++y_;
             level_bank();
         }
+    }
+    if (glide && craft_ == Craft::landed && (stick & 0x0C) == 0x0C) {
+        glide_speed_ = glide_step_ = 0; // standing: no sliding off the pad
+    }
+    if (glide) {
+        // Towards the speed the stick and the bank ask for (the original's
+        // half or whole step a frame, the most the camera follows), and
+        // coasting on when the stick lets go.
+        double target = 0;
+        if (!(stick & 8)) {
+            target = bank_ >= 0x0E ? 1.0 : 0.75;
+        } else if (!(stick & 4)) {
+            target = bank_ < 4 ? -1.0 : -0.75;
+        }
+        glide_speed_ += std::clamp(target - glide_speed_, -0.045, 0.045);
+        glide_step_ += glide_speed_;
+        const double step = std::floor(glide_step_);
+        glide_step_ -= step;
+        x_ = u8(x_ + int(step));
     }
     if (bank_ & 0x80) {
         bank_ = 0;

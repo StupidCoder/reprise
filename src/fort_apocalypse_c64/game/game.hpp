@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <unordered_map>
 #include <algorithm>
 #include <string>
 #include <vector>
@@ -84,6 +85,20 @@ struct Options {
     // columns to its right and hits nothing it flies over. On: its own
     // column, so it hits what the wider view shows it reach.
     bool widescreen{};
+    // Cheats (not in the attract game): a crash costs no life; the fuel tank
+    // stays full; the lasers
+    // stay dark (the barriers and the laser grids; level 1's barriers stay,
+    // they are its teleport); the tanks launch no missiles and the enemy
+    // helicopter does not shoot; the sweeping walls move half as fast.
+    bool infinite_lives{}, infinite_fuel{}, no_lasers{}, enemies_hold_fire{}, slow_walls{};
+    // Carnage mode (not the original game; not in the attract game): fire
+    // is a rapid-fire gun whose tracers carve the brown rock pixel by pixel
+    // (carnage.cpp).
+    bool carnage{};
+    // The widescreen view's extra columns on each side (0 without it): the
+    // tracers end at the edges of what is seen, as the original's shots end
+    // at its window's.
+    int wide_view{};
 };
 
 class Game {
@@ -131,6 +146,8 @@ public:
     // row $77, the tanks' states $BE-$C3), as the reference harness pokes RAM.
     // Returns false for addresses it does not know.
     bool debug_poke(std::uint16_t address, u8 value);
+    // For tests: a carnage-mode crater at map pixel (x, y).
+    void debug_blast(int x, int y, double radius) { blast(x, y, radius); }
     c64::Sid& sid() { return sid_; }
 
     // --- for presentation layers (the enhanced mode) ---------------------------
@@ -159,11 +176,27 @@ public:
         int direction{};  // -1 flying left, 1 right
         u8 code{};        // the character it hit or lay over
     };
+    // Carnage mode: a pixel the gun carved out of the rock, in map pixels
+    // (8 per column and row; a multicolour pixel is two wide), with its
+    // pixel pair (1-3: the colour it had) and the way the tracer flew.
+    struct CarvedPixel {
+        int x{}, y{};
+        u8 pair{};
+        double dx{}, dy{};
+        bool bite{}; // the first of a tracer's bite
+    };
+    struct Tracer {
+        double x{}, y{}, dx{}, dy{}; // map pixels, per frame
+        int age{};
+        u8 direction{}; // as the original's shot would fly (1-5)
+    };
     struct Happenings {
         std::vector<ShotImpact> impacts; // the craft's shots and the enemy's
         std::vector<ShellBurst> shells;
         std::vector<TankDestroyed> tanks;
         std::vector<MineDestroyed> mines;
+        std::vector<CarvedPixel> carved;
+        std::vector<MapCell> depot_blasts; // a depot blew up (its middle, in pixels)
     };
     const Happenings& happenings() const { return happenings_; }
     // The last picture as drawn: its character frame (cells, lines,
@@ -178,6 +211,68 @@ public:
     // The map as the game addresses it, and the playfield characters now.
     u8 map_code(int column, int row) const { return map_at(row * 256 + column); }
     const c64::Glyph& playfield_glyph(u8 code) const { return glyphs_[code & 0x7F]; }
+    // The pixels of a map cell as shown: its character's, or in carnage mode
+    // what the gun has left of it.
+    const c64::Glyph& cell_glyph(int column, int row) const {
+        return cell_glyph_at(row * 256 + column, map_at(row * 256 + column));
+    }
+    // The same for a cell of the widescreen view's margins (see
+    // shown_wide_code).
+    const c64::Glyph& shown_wide_glyph(int screen_column, int screen_row) const;
+    // Carnage mode's tracers in flight.
+    const std::vector<Tracer>& tracers() const { return tracers_; }
+    // Carnage mode: something that came loose and falls (it bursts where it
+    // lands): a chunk of rock, a tank whose ground was shot away, a laser
+    // emitter shot off its frame. Map pixels, its box's top left.
+    struct FallingBody {
+        enum class Kind { rock, tank, emitter, tower } kind{Kind::rock};
+        double x{}, y{}, vx{}, vy{};
+        int width{}, height{}; // pixels (a rock chunk's are pairs: two wide)
+        // A rock chunk's pixel pairs, width / 2 by height, row by row (0
+        // empty, else its pair 1-3); a tank's characters (body three, turret
+        // above the middle); an emitter's character.
+        std::vector<u8> pixels;
+        std::array<u8, 4> codes{};
+        double spin{}; // how fast it turns as it falls (for the picture)
+        int age{};
+        // A tower (pixels as a rock chunk's) turns on its base corner, then
+        // drops: turned by `angle` (radians, clockwise) about the pivot, then
+        // moved by (ox, oy). It comes to rest as terrain.
+        double pivot_x{}, pivot_y{}, angle{}, omega{}, ox{}, oy{}, ovx{}, ovy{};
+        bool pivoting{};
+        int resting{}; // frames it is still shown after coming to rest
+        // An emitter's beam, still firing as it tumbles: its direction
+        // unturned, and where it ends this frame.
+        double beam_angle{}, beam_ex{}, beam_ey{};
+        bool beam_on{};
+    };
+    const std::vector<FallingBody>& falling() const { return falling_; }
+    // Carnage mode: towers rocking on their base from the gun's hits (cells,
+    // in the copy of the map that holds them whole; lean in radians,
+    // clockwise). The map still has them upright.
+    struct TowerView {
+        int column{}, row{}, width{}, height{};
+        double lean{};
+    };
+    std::vector<TowerView> rocking_towers() const;
+    // Carnage mode: fuel depots under fire (0 untouched, 1 about to blow; a
+    // blown one is gone), each copy of the map's seam listed.
+    struct DepotView {
+        MapCell cell; // its top left
+        double damage{};
+    };
+    std::vector<DepotView> depot_damage() const;
+    // Carnage mode's arcade layer: kills within a short time of each other
+    // make a combo (with a bonus); combos fill the overdrive meter; a full
+    // one gives a while of a faster, triple gun. `impact` is how hard this
+    // frame hit (0-3: hit-stop and shake for the picture).
+    struct CarnageState {
+        int combo{}, combo_timer{};   // kills in a row, frames left to add one
+        double meter{};               // 0-1
+        int overdrive{};              // frames left
+        int impact{};
+    };
+    const CarnageState& carnage_state() const { return carnage_state_; }
     struct TankView {
         bool on_map{};    // driving or exploding
         bool exploding{};
@@ -300,6 +395,8 @@ private:
     // --- game flow ---------------------------------------------------------------------
     void new_game();         // $8D6B
     void choose_gate_wall(); // $8DD3
+    // A cheat that is on, when a player plays (never in the attract game).
+    bool cheat(bool on) const { return on && play_kind_ != 0; }
     void enter_level();      // $8EDD
     void build_level();      // $8F8F
     void start_life();       // $8E11
@@ -392,6 +489,73 @@ private:
     void map_set(int index, u8 code);
     bool solid_glyph(u8 code) const;                         // $98F2 / $A034
     bool solid_at_player_column(int column, int row) const;  // $A031
+    // --- carnage mode (carnage.cpp) ---
+    // A carved cell: the code it had when first hit (it applies while the
+    // map still holds that code there) and its pixels now.
+    struct CarvedCell {
+        u8 code{};
+        c64::Glyph glyph{};
+        bool painted{}; // a fallen tower painted in (joined by whole cells)
+    };
+    bool carnage() const { return cheat(options_.carnage); }
+    // The rock the gun carves: the brown rock and its edges.
+    static bool carvable(u8 code) { return code == 0x4B || (code >= 0x61 && code <= 0x6B); }
+    const c64::Glyph& cell_glyph_at(int index, u8 code) const;
+    bool solid_cell(int index) const; // cell_glyph_at has a set pixel
+    void carnage_fire();
+    void move_tracers();
+    void carnage_frame(); // tracers, loose rock, falling things
+    // Hits by a tracer at map pixel (x, y); true when it stops there.
+    bool tracer_hit(Tracer&, int x, int y);
+    void carve(int x, int y, double radius, const Tracer&);
+    void carve_cell(int index, int x, int y, double radius, const Tracer&, bool report);
+    // A map pixel pair (pair column 0-1023, line 0-319) as falling things and
+    // loose rock see it: open, carvable rock, or fixed (any other solid that
+    // is part of the place: frames, depots, walls; not objects or beams).
+    enum class Ground { open, rock, fixed };
+    Ground ground_at(int pair_x, int y) const;
+    void clear_pair(int pair_x, int y); // a rock pair goes (and its wrap copy)
+    void set_cell_both(int index, u8 code); // a cell and its wrap copy
+    void settle_rock();   // loose rock around this frame's craters falls
+    void drop_tanks();    // driving tanks with no ground under them fall
+    // A tank's home (its object column and row) has ground: always, unless
+    // carnage mode shot it away.
+    bool home_has_ground(int home_column, int home_row) const;
+    bool structural_cell(int index) const;   // part of the place, not rock
+    void move_falling();
+    void add_falling(FallingBody);
+    void land(FallingBody&);
+    void blast(int x, int y, double radius); // a crater, its pixels as debris
+    void hit_object(int index); // as a shot hits an object: the explosion char
+    void break_emitter(int index);
+    void sweep_beam(FallingBody&);
+    bool object_pixel(int x, int y) const;
+    void carnage_score(); // the frame's kills: combo, bonus, overdrive
+    void carnage_impact(int strength) { frame_impact_ = std::max(frame_impact_, strength); }
+    // Towers: ladders and mesh ($54-$58) standing three rows or more, not a
+    // fuel depot.
+    struct Tower {
+        int column{}, row{}, width{}, height{}; // cells, contiguous copy
+        double lean{}, spin{};
+    };
+    Tower* tower_at(int column, int row); // (and starts rocking it)
+    void push_tower(Tower&, double x, double y, double dx);
+    void rock_towers();
+    bool tower_side_open(const Tower&, int side) const;
+    void topple(const Tower&, int side);
+    bool move_tower(FallingBody&); // true when it has come to rest
+    void rest_tower(const FallingBody&);
+    std::array<double, 2> tower_pixel(const FallingBody&, int c, int r, double sub) const;
+    void paint_pair(int pair_x, int y, u8 pair);
+    // Fuel depots: the one whose cells these are (its map column, the
+    // first copy), or -1; damage; a blown one stays gone.
+    int depot_at(int column, int row) const;
+    int depot_near(int column) const; // the craft's map column over one
+    void damage_depot(int depot, int hits);
+    bool depot_gone(int depot) const; // (false for -1)
+    u8 carnage_random(); // its own numbers: the game's stay as they were
+    // Map pixels from the game's screen coordinates (as the shots use them).
+    std::array<double, 2> world_from_screen(int x, int y) const;
     static int object_index(int column, int row) { return row * 256 + column - 5; } // $A7D8
     static int actor_index(int column, int row) { return row * 256 + column - 1; }  // $A7C3
 
@@ -539,6 +703,30 @@ private:
 
     u8 barrier_a_{}, barrier_b_{0x80}; // $3D, $3E
     u8 sweep_timer_{1}, sweep_phase_{}, sweep_direction_{1}; // $8F, $8D, $8E
+    bool life_kept_{}; // the infinite-lives cheat was on at the last crash
+    std::unordered_map<int, CarvedCell> carved_; // by map index
+    std::vector<Tracer> tracers_;
+    int gun_cooldown_{};
+    std::uint32_t carnage_seed_{0x9E3779B9};
+    bool enemy_shot_down_{}; // a tracer hit the enemy helicopter
+    std::vector<FallingBody> falling_;
+    std::vector<FallingBody> born_; // came loose while move_falling ran
+    bool moving_falling_{};
+    std::vector<std::array<int, 2>> craters_; // this frame's, for settle_rock
+    std::vector<std::array<int, 2>> size_held_; // rock held only by its size
+    std::unordered_map<int, int> emitter_hits_; // by map index
+    bool crushed_{}; // something fell on the craft
+    std::vector<Tower> towers_; // rocking ones
+    std::unordered_map<int, int> depot_hits_; // by depot_at's column
+    CarnageState carnage_state_;
+    int frame_kills_{}, frame_impact_{}; // carnage's own this frame
+    bool enemy_was_down_{};
+    // Carnage mode blew up the last level's depot, where the mission ends:
+    // frames of the message left, then the craft goes down and the game
+    // ends ("MISSION ABORTED").
+    int doomed_timer_{};
+    bool doomed_{};
+    double glide_speed_{}, glide_step_{}; // carnage mode's momentum (game units)
 
     // The level map, its radar picture, and the character sets' run-time parts.
     std::array<u8, 40 * 256> map_{};

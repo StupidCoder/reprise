@@ -99,11 +99,16 @@ std::array<Game::ShellView, 6> Game::shell_views() const {
 }
 
 std::vector<Game::MapCell> Game::depot_cells() const {
-    // As refuel draws them (object columns are map column + 5).
+    // As refuel draws them (object columns are map column + 5); not one
+    // carnage mode blew up.
+    std::vector<MapCell> cells;
     if (level_ == 1) {
-        return {{0x82 - 5, 0x0B}};
+        cells = {{0x82 - 5, 0x0B}};
+    } else {
+        cells = {{0x17 - 5, 0x0B}, {0xEE - 5, 0x0B}};
     }
-    return {{0x17 - 5, 0x0B}, {0xEE - 5, 0x0B}};
+    std::erase_if(cells, [this](const MapCell& c) { return depot_gone(c.column % 215); });
+    return cells;
 }
 
 std::array<Game::PrisonerView, 8> Game::prisoner_views() const {
@@ -161,6 +166,8 @@ const c64::Picture& Game::tick(const Controls& controls, const Options& options)
     happenings_.tanks.clear();
     happenings_.mines.clear();
     happenings_.shells.clear();
+    happenings_.carved.clear();
+    happenings_.depot_blasts.clear();
     top_ = vic_;
     const bool steps_now = scheduled_ && main_loop_running_ && !main_loop_starting_;
     if (steps_now) {
@@ -185,6 +192,9 @@ const c64::Picture& Game::tick(const Controls& controls, const Options& options)
         main_loop_starting_ = false; // the loop's first pass waits for the next frame
     } else if (main_loop_running_) {
         main_loop();
+    }
+    if (carnage() || carnage_state_.combo || carnage_state_.overdrive || doomed_) {
+        carnage_score();
     }
     return picture_;
 }
@@ -336,6 +346,9 @@ void Game::hud_interrupt() {
         }
         if (mode_ == Mode::playing) {
             bullets();
+            if (carnage() || !tracers_.empty() || !falling_.empty()) {
+                carnage_frame();
+            }
             terrain_contact();
             movement();
         }
@@ -727,6 +740,18 @@ void Game::build_level() {
     mine_cursor_ = 0;
     prisoner_cursor_ = 0;
     rock_draws_ = scanned_cells_ = 0;
+    carved_.clear(); // a new map
+    tracers_.clear();
+    falling_.clear();
+    born_.clear();
+    craters_.clear();
+    size_held_.clear();
+    emitter_hits_.clear();
+    towers_.clear();
+    depot_hits_.clear();
+    carnage_state_ = {};
+    doomed_ = false;
+    doomed_timer_ = 0;
     depot_shown_stage_ = 4; // the levels' depots stand up
     sink_view_.active = false;
     const auto& level = assets_.levels[level_ % 3];
@@ -814,8 +839,19 @@ void Game::build_level() {
 void Game::start_life() {
     fill_colours(0x0D);
     clear_play_area();
+    if (doomed_) {
+        // Carnage mode: no depot left to land on, no mission to finish.
+        doomed_ = false;
+        doomed_timer_ = 0;
+        mode_ = Mode::debrief;
+        return;
+    }
     bool borrow = false;
-    lives_ = bcd_sub(lives_, 1, borrow);
+    if (life_kept_) {
+        life_kept_ = false; // the infinite-lives cheat: the crash cost none
+    } else {
+        lives_ = bcd_sub(lives_, 1, borrow);
+    }
     if (lives_ == 0x99) {
         mode_ = Mode::debrief;
         return;

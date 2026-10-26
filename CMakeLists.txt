@@ -55,6 +55,7 @@ add_library(fort_apocalypse_c64
     src/fort_apocalypse_c64/game/enemy.cpp
     src/fort_apocalypse_c64/game/objects.cpp
     src/fort_apocalypse_c64/game/effects.cpp
+    src/fort_apocalypse_c64/game/carnage.cpp
     src/fort_apocalypse_c64/game/module.cpp
     src/fort_apocalypse_c64/enhanced/canvas.cpp
     src/fort_apocalypse_c64/enhanced/enhanced.cpp

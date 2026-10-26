@@ -50,8 +50,7 @@ c64::TextFrame wide_frame(const Game& game, int columns) {
             } else if (row >= Game::window_first_row && game.shown_playfield()) {
                 // The row's colour (the playfield rows have one colour each).
                 const u8 colour = shown.cell(c < 0 ? 0 : standard - 1, row).colour;
-                frame.set(c + columns, row, &game.playfield_glyph(game.shown_wide_code(c, row)),
-                          colour);
+                frame.set(c + columns, row, &game.shown_wide_glyph(c, row), colour);
             } else {
                 frame.set(c + columns, row, nullptr, 0); // beside the HUD
             }

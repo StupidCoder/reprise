@@ -28,6 +28,9 @@ struct GameOption {
     std::vector<std::string> choices;
     int value{};
     std::string description; // shown under the list
+    // Options with a group (such as "Cheats") are listed on a page of their
+    // own, reached from the options page.
+    std::string group{};
 };
 
 class GameModule {

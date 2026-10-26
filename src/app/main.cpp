@@ -29,7 +29,8 @@ struct Options {
     std::size_t select{};
     std::optional<std::size_t> details; // page
     // --pause-preview PAGE: play the selected game for a few seconds, then
-    // draw the pause menu (0) or its options page (1) over it to --preview.
+    // draw the pause menu (0), its options page (1) or the options page's
+    // first group (2, such as the cheats) over it to --preview.
     std::optional<std::size_t> pause_page;
 };
 
@@ -81,6 +82,14 @@ int run(const Options& options) {
         menu.show(0);
         if (*options.pause_page == 1) {
             menu.show_options();
+        } else if (*options.pause_page == 2) {
+            menu.show_options();
+            for (const auto& o : game->options()) {
+                if (!o.group.empty()) {
+                    menu.show_group(o.group);
+                    break;
+                }
+            }
         }
         const auto overlay = menu.draw(*game, entry.title, 10);
         platform::Image out(overlay.width, overlay.height);

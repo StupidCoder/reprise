@@ -13,6 +13,10 @@ constexpr double degrees = std::numbers::pi / 180;
 
 // Fire cools from white through yellow, orange and red to dark grey.
 constexpr u8 fire_colours[] = {1, 7, 7, 8, 8, 2, 2, 9, 11};
+// Smoke thins from white through light and middle grey to dark grey; a
+// fire's smoke is dark from the start.
+constexpr u8 smoke_colours[] = {1, 15, 15, 12, 12, 11};
+constexpr u8 dark_smoke_colours[] = {12, 12, 11, 11, 11, 11};
 
 // The helicopter shapes ($B044 order): level side views facing one way and
 // the other, and the front view, each with two rotor frames.
@@ -72,6 +76,7 @@ EnhancedView::EnhancedView(const data::Assets& assets, const data::GameTables& t
     : assets_(assets), tables_(tables) {}
 
 void EnhancedView::reset() {
+    flash_ = 0;
     particles_.clear();
     wrecks_.clear();
     tanks_ = {};
@@ -130,14 +135,16 @@ bool EnhancedView::solid(const Game& game, double x, double y) const {
     auto among = [&code](const auto& codes) {
         return std::find(codes.begin(), codes.end(), code) != codes.end();
     };
+    const c64::Glyph* glyph = &game.cell_glyph(column, row); // carved, in carnage mode
     if (const auto& men = tables_.prisoner_characters; among(men)) {
         code = std::find(men.begin() + 4, men.end(), code) != men.end() ? 0x48 : 0x1F;
+        glyph = &game.playfield_glyph(code);
     } else if (code == Game::turret_left || code == Game::turret_right || code == 0x71 ||
                code == 0x72 || among(tables_.tank_characters) ||
                (code != 0 && among(tables_.mine_characters))) {
         return false;
     }
-    const u8 bits = game.playfield_glyph(code)[std::size_t(wy & 7)];
+    const u8 bits = (*glyph)[std::size_t(wy & 7)];
     return (bits >> (6 - (wx & 6)) & 3) != 0;
 }
 
@@ -377,6 +384,309 @@ void EnhancedView::spawn_pieces(const Bitmap& look, double left, double top, dou
     }
 }
 
+void EnhancedView::draw_falling(const c64::TextFrame& frame, const Game& game, const Viewport& view,
+                                const Clip& clip) {
+    const auto& line = frame.line(std::clamp(view.last_line() - 1, 0, c64::Picture::height - 1));
+    using Kind = Game::FallingBody::Kind;
+    for (const auto& b : game.falling()) {
+        Bitmap look;
+        if (b.kind == Kind::rock) {
+            const int w = b.width / 2;
+            look = Bitmap(w, b.height, 2);
+            for (int r = 0; r < b.height; ++r) {
+                for (int c = 0; c < w; ++c) {
+                    const u8 pair = b.pixels[std::size_t(r * w + c)];
+                    if (pair) {
+                        look.put(c, r, pair == 1 ? line.shared1 : pair == 2 ? line.shared2 : u8(0x0D & 7));
+                    }
+                }
+            }
+        } else if (b.kind == Kind::tank) {
+            look = Bitmap(12, 16, 2);
+            draw_character(look, 4, 0, game.playfield_glyph(b.codes[3]), 0x0D, line.shared1, line.shared2);
+            for (int k = 0; k < 3; ++k) {
+                draw_character(look, k * 4, 8, game.playfield_glyph(b.codes[std::size_t(k)]), 0x0D,
+                               line.shared1, line.shared2);
+            }
+        } else if (b.kind == Kind::emitter) {
+            look = Bitmap(4, 8, 2);
+            draw_character(look, 0, 0, game.playfield_glyph(b.codes[0]), 0x0D, line.shared1, line.shared2);
+            if (b.beam_on) {
+                // Its beam, still firing as it tumbles, flickering; sparks
+                // where it burns.
+                constexpr u8 colours[] = {1, 7, 1, 10, 2, 7};
+                const double sx = near_view(view, b.x + 4), shift = sx - (b.x + 4);
+                const double x0 = view.picture_x(sx), y0 = view.picture_y(b.y + 4);
+                const double x1 = view.picture_x(b.beam_ex + shift), y1 = view.picture_y(b.beam_ey);
+                const int steps = int(std::max(std::abs(x1 - x0), std::abs(y1 - y0)));
+                const int parity = view.grid_parity();
+                for (int k = 0; k <= steps; ++k) {
+                    const double px = x0 + (x1 - x0) * k / std::max(1, steps);
+                    const int x = int(std::floor((px - parity) / 2)) * 2 + parity;
+                    plot(picture_, x, int(std::floor(y0 + (y1 - y0) * k / std::max(1, steps))),
+                         colours[(ticks_ + k / 6) % 6], clip);
+                }
+                if (b.age % 2 == 0) {
+                    spawn_fire(b.beam_ex + shift, b.beam_ey, 2, 1.4);
+                }
+            }
+        } else {
+            // A tower going over: turned on its base corner, then dropping.
+            const int w = b.width / 2;
+            look = Bitmap(w, b.height, 2);
+            for (int r = 0; r < b.height; ++r) {
+                for (int c = 0; c < w; ++c) {
+                    const u8 pair = b.pixels[std::size_t(r * w + c)];
+                    if (pair) {
+                        look.put(c, r, pair == 1 ? line.shared1 : pair == 2 ? line.shared2 : u8(0x0D & 7));
+                    }
+                }
+            }
+            const double px = near_view(view, b.pivot_x + b.ox);
+            draw_rotated(picture_, look, b.pivot_x - b.x, b.pivot_y - b.y, view.picture_x(px),
+                         view.picture_y(b.pivot_y + b.oy), b.angle, view.grid_parity(), clip);
+            continue;
+        }
+        const double cx = near_view(view, b.x + b.width / 2.0), cy = b.y + b.height / 2.0;
+        draw_rotated(picture_, look, b.width / 2.0, b.height / 2.0, view.picture_x(cx), view.picture_y(cy),
+                     b.spin * b.age, view.grid_parity(), clip);
+    }
+    // Towers rocking from the gun's hits (their cells are hidden).
+    for (const auto& t : game.rocking_towers()) {
+        Bitmap look(t.width * 4, t.height * 8, 2);
+        for (int r = 0; r < t.height; ++r) {
+            for (int c = 0; c < t.width; ++c) {
+                const u8 code = game.map_code(t.column + c, t.row + r);
+                if (code >= 0x54 && code <= 0x58) {
+                    draw_character(look, c * 4, r * 8, game.cell_glyph(t.column + c, t.row + r), 0x0D,
+                                   line.shared1, line.shared2);
+                }
+            }
+        }
+        const double base_x = t.lean > 0 ? (t.column + t.width) * 8.0 : t.column * 8.0;
+        const double base_y = (t.row + t.height) * 8.0;
+        draw_rotated(picture_, look, base_x - t.column * 8.0, t.height * 8.0,
+                     view.picture_x(near_view(view, base_x)), view.picture_y(base_y), t.lean,
+                     view.grid_parity(), clip);
+    }
+}
+
+double EnhancedView::near_view(const Viewport& view, double x) const {
+    // The map's first 40 columns repeat from column 215: of the copies of a
+    // place, the one nearest the view.
+    constexpr double copy = 215 * 8;
+    const double middle = picture_.width / 2.0;
+    double best = x;
+    for (double k : {-1.0, 1.0}) {
+        if (std::abs(view.picture_x(x + k * copy) - middle) < std::abs(view.picture_x(best) - middle)) {
+            best = x + k * copy;
+        }
+    }
+    return best;
+}
+
+void EnhancedView::draw_text(const std::string& text, int centre_x, int y, u8 colour, const Clip& clip) {
+    // The game's letters are two HUD characters wide: A is $21 and its right
+    // half $41; a digit d is $10 + d and d (a nought $10 and $0A).
+    int x = centre_x - int(text.size()) * 8;
+    for (const char ch : text) {
+        int left = -1, right = -1;
+        if (ch >= 'A' && ch <= 'Z') {
+            left = 0x21 + (ch - 'A');
+            right = left + 0x20;
+        } else if (ch >= '0' && ch <= '9') {
+            left = 0x10 + (ch - '0');
+            right = ch == '0' ? 0x0A : ch - '0';
+        }
+        if (left >= 0) {
+            for (int half = 0; half < 2; ++half) {
+                const auto& glyph = assets_.hud_charset[std::size_t(half == 0 ? left : right)];
+                for (int row = 0; row < 8; ++row) {
+                    for (int bit = 0; bit < 8; ++bit) {
+                        const int px = x + half * 8 + bit, py = y + row;
+                        if ((glyph[std::size_t(row)] >> (7 - bit) & 1) && py >= clip.first_line &&
+                            py < clip.last_line && px >= clip.left && px < clip.right) {
+                            picture_.pixels[std::size_t(py * picture_.width + px)] = colour;
+                        }
+                    }
+                }
+            }
+        }
+        x += 16;
+    }
+}
+
+void EnhancedView::draw_carnage_banner(const Game& game, const Clip& clip) {
+    const auto& c = game.carnage_state();
+    // A fixed line below the HUD (the playfield's first line moves with its
+    // fine scroll).
+    const int centre = (clip.left + clip.right) / 2, top = Game::hud_lines + 12;
+    if (c.overdrive > 0) {
+        constexpr u8 colours[] = {1, 7, 8, 2, 8, 7};
+        draw_text("OVERDRIVE", centre, top, colours[(ticks_ / 3) % 6], clip);
+        // What is left of it.
+        const int width = c.overdrive * 96 / 300;
+        for (int x = centre - width / 2; x < centre + width / 2; ++x) {
+            if (x >= clip.left && x < clip.right) {
+                picture_.pixels[std::size_t((top + 10) * picture_.width + x)] = 7;
+            }
+        }
+    } else if (c.combo >= 2) {
+        // Brighter as the combo grows; it blinks out when it is about to end.
+        if (c.combo_timer > 20 || (ticks_ & 2)) {
+            const u8 colour = c.combo >= 8 ? 1 : c.combo >= 5 ? 7 : 15;
+            draw_text("CARNAGE X" + std::to_string(c.combo), centre, top, colour, clip);
+        }
+    }
+    if (c.overdrive == 0 && c.meter > 0) {
+        // The overdrive meter fills.
+        const int width = int(c.meter * 96);
+        for (int x = centre - 48; x < centre - 48 + width; ++x) {
+            if (x >= clip.left && x < clip.right) {
+                picture_.pixels[std::size_t((top + 10) * picture_.width + x)] = c.meter > 0.8 ? 7 : 12;
+            }
+        }
+    }
+}
+
+void EnhancedView::spawn_depot_fire(const Game& game) {
+    for (const auto& d : game.depot_damage()) {
+        const double left = d.cell.column * 8.0, top = d.cell.row * 8.0, level = d.damage;
+        // Smoke from the first hits, thicker as it burns.
+        if (random(0, 1) < 0.12 + 0.7 * level) {
+            Particle p;
+            p.x = left + random(4, 44);
+            p.y = top + random(0, 10);
+            p.vx = random(-0.25, 0.25);
+            p.vy = -random(0.3, 0.8);
+            p.smoke = p.dark = p.free = true;
+            p.life = int(random(50, 110));
+            particles_.push_back(p);
+        }
+        // Then fires, more and more of them, licking up from its top.
+        if (level > 0.2) {
+            const int fires = int(std::ceil((level - 0.2) * 26));
+            for (int k = 0; k < fires; ++k) {
+                Particle p;
+                p.x = left + random(2, 46);
+                p.y = top + random(-4, 22);
+                p.vx = random(-0.25, 0.25);
+                p.vy = -random(0.4, 1.2);
+                p.fire = p.free = true;
+                p.life = int(random(12, 30));
+                particles_.push_back(p);
+            }
+        }
+        // Little explosions here and there.
+        if (level > 0.5 && random(0, 1) < 0.05 + 0.2 * (level - 0.5)) {
+            spawn_fire(left + random(4, 44), top + random(4, 36), 10, 2.0);
+        }
+    }
+}
+
+void EnhancedView::spawn_fireball(double x, double y) {
+    for (int i = 0; i < 260; ++i) {
+        // The fireball: white hot at its heart, rolling out and up.
+        Particle p;
+        const double a = random(0, 2 * std::numbers::pi), v = random(0.6, 5.8);
+        p.x = x + random(-6, 6);
+        p.y = y + random(-5, 5);
+        p.vx = std::cos(a) * v;
+        p.vy = std::sin(a) * v * 0.8 - random(0.4, 1.8);
+        p.fire = p.free = true;
+        p.life = int(random(25, 75));
+        particles_.push_back(p);
+    }
+    for (int i = 0; i < 90; ++i) {
+        // The depot's pieces: white frame, green mesh, burnt brown.
+        Particle p;
+        const double a = random(0, 2 * std::numbers::pi), v = random(1.5, 5.5);
+        p.x = x + random(-20, 20);
+        p.y = y + random(-16, 16);
+        p.vx = std::cos(a) * v;
+        p.vy = std::sin(a) * v - random(0.8, 2.4);
+        constexpr u8 colours[] = {1, 5, 2, 11};
+        p.colour = colours[i % 4];
+        p.free = true;
+        p.life = int(random(50, 110));
+        particles_.push_back(p);
+    }
+    for (int i = 0; i < 80; ++i) {
+        // And a column of smoke after it.
+        Particle p;
+        p.x = x + random(-18, 18);
+        p.y = y + random(-12, 8);
+        p.vx = random(-1.2, 1.2);
+        p.vy = -random(0.4, 2.2);
+        p.smoke = p.free = true;
+        p.life = int(random(70, 150));
+        particles_.push_back(p);
+    }
+    flash_ = 8;
+}
+
+void EnhancedView::spawn_exhaust(const Game& game) {
+    const auto views = game.shell_views();
+    for (std::size_t i = 0; i < views.size(); ++i) {
+        const auto& v = views[i];
+        if (!v.flying) {
+            continue;
+        }
+        // Where it is drawn (gliding with smooth motion), its tail behind it:
+        // $71 flies left, $72 right.
+        const bool left = v.look == 0x71;
+        const double x = shells_[i] ? (*shells_[i])[0] : v.cell.column * 8.0;
+        const double y = shells_[i] ? (*shells_[i])[1] : v.cell.row * 8.0;
+        const double tail_x = x + (left ? 7 : 1), tail_y = y + 4;
+        const double back = left ? 1 : -1;
+        Particle smoke;
+        smoke.x = tail_x + random(-0.5, 0.5);
+        smoke.y = tail_y + random(-1, 1);
+        smoke.vx = back * random(0.2, 0.7);
+        smoke.vy = random(-0.25, 0.15);
+        smoke.smoke = true;
+        smoke.free = true;
+        smoke.life = int(random(18, 34));
+        particles_.push_back(smoke);
+        if (ticks_ & 1) {
+            Particle spark;
+            spark.x = tail_x;
+            spark.y = tail_y;
+            spark.vx = back * random(0.6, 1.4);
+            spark.vy = random(-0.4, 0.4);
+            spark.fire = true;
+            spark.free = true;
+            spark.life = int(random(5, 10));
+            particles_.push_back(spark);
+        }
+    }
+}
+
+void EnhancedView::spawn_carved(const std::vector<Game::CarvedPixel>& carved,
+                                const c64::TextFrame& frame) {
+    // Carnage mode: the rock the gun bites out sprays back the way the
+    // tracer came, in its own colours, with a spark or two at the bite.
+    const auto& line = frame.line(c64::Picture::height - 1);
+    for (const auto& c : carved) {
+        const double speed = std::max(1.0, std::hypot(c.dx, c.dy));
+        const double bx = -c.dx / speed, by = -c.dy / speed; // back towards the gun
+        if (c.bite) {
+            spawn_fire(c.x + 1 + bx * 3, c.y + by * 3, 3, 2.0); // the flash of the hit
+        }
+        for (int n = random(0, 1) < 0.3 ? 2 : 1; n > 0; --n) {
+            Particle p;
+            p.x = c.x + 1;
+            p.y = c.y + 0.5;
+            const double v = random(0.8, 3.6);
+            p.vx = bx * v + random(-1.4, 1.4);
+            p.vy = by * v + random(-1.4, 0.6) - random(0.4, 1.6);
+            p.colour = c.pair == 1 ? line.shared1 : c.pair == 2 ? line.shared2 : u8(0x0D & 7);
+            p.life = int(random(35, 80));
+            particles_.push_back(p);
+        }
+    }
+}
+
 void EnhancedView::spawn_fire(double x, double y, int count, double speed) {
     for (int i = 0; i < count; ++i) {
         Particle p;
@@ -432,7 +742,12 @@ void EnhancedView::move_particles(const Game& game) {
             p.age = p.life; // the ground closed over it (a barrier lit, rock restored)
             continue;
         }
-        p.vy += p.fire ? 0.05 : 0.12;
+        if (p.smoke) {
+            p.vx *= 0.95; // it hangs in the air and rises a little
+            p.vy = p.vy * 0.95 - 0.01;
+        } else {
+            p.vy += p.fire ? 0.05 : 0.12;
+        }
         // A pixel at a time, so no piece passes through thin ground.
         const int steps = std::max(1, int(std::ceil(std::max(std::abs(p.vx), std::abs(p.vy)))));
         for (int step = 0; step < steps; ++step) {
@@ -717,9 +1032,40 @@ void EnhancedView::hide_objects(c64::TextFrame& frame, const Game& game,
     const auto& mine = tables_.mine_characters;
     const auto views = game.tank_views();
     auto is_turret = [](u8 code) { return code == Game::turret_left || code == Game::turret_right; };
+    const auto rocking = game.rocking_towers();
     for (int row = Game::window_first_row; row < c64::TextFrame::rows; ++row) {
         for (int column = 0; column < codes.columns; ++column) {
             const u8 code = codes.at(column, row);
+            if (settings_.particles && ((code >= 0x54 && code <= 0x58) || (code >= 0x21 && code <= 0x35))) {
+                // A tower or depot carnage mode toppled or blew up: gone from
+                // the map, though the screen copy (it lags up to 7 frames)
+                // still has it.
+                const int map_row = window.row + row - Game::window_first_row;
+                int map_column = first_column + column;
+                if (map_column < 0 || map_column > 255) {
+                    map_column = (map_column % 215 + 215) % 215; // as the wide copy repeats
+                }
+                if (map_row >= 0 && map_row < 40 && game.map_code(map_column, map_row) == 0) {
+                    frame.set_glyph(column, row, nullptr);
+                    continue;
+                }
+            }
+            if (code >= 0x54 && code <= 0x58 && !rocking.empty()) {
+                // A rocking tower is drawn turned (draw_falling).
+                const int map_column = ((first_column + column) % 215 + 215) % 215;
+                const int map_row = window.row + row - Game::window_first_row;
+                bool hidden = false;
+                for (const auto& t : rocking) {
+                    for (int c = 0; c < t.width && !hidden; ++c) {
+                        hidden = (t.column + c) % 215 == map_column && map_row >= t.row &&
+                                 map_row < t.row + t.height;
+                    }
+                }
+                if (hidden) {
+                    frame.set_glyph(column, row, nullptr);
+                    continue;
+                }
+            }
             if (settings_.smooth) {
                 // Tanks and mines are drawn where they are, moving smoothly;
                 // what they cover shows instead.
@@ -740,6 +1086,18 @@ void EnhancedView::hide_objects(c64::TextFrame& frame, const Game& game,
                     frame.set_glyph(column, row, &game.playfield_glyph(feet ? 0x48 : 0x1F));
                 } else if (is_turret(code) || code == 0x71 || code == 0x72 ||
                            (code != 0 && std::find(mine.begin(), mine.end(), code) != mine.end())) {
+                    frame.set_glyph(column, row, nullptr);
+                }
+            } else if (settings_.particles && std::find(body.begin(), body.end(), code) != body.end()) {
+                // A tank's body where no tank is (it fell, in carnage mode;
+                // the screen copy lags behind): hidden.
+                const int k = int(std::find(body.begin(), body.end(), code) - body.begin());
+                bool there = false;
+                for (const auto& v : views) {
+                    there |= v.on_map && v.body.column + k == first_column + column &&
+                             v.body.row == window.row + row - Game::window_first_row;
+                }
+                if (!there) {
                     frame.set_glyph(column, row, nullptr);
                 }
             } else if (settings_.particles && is_turret(code)) {
@@ -1060,6 +1418,14 @@ void EnhancedView::update(const Game& game, const Settings& settings) {
         for (const auto& shell : game.happenings().shells) {
             spawn_shell_burst(game, shell, shown_frame);
         }
+        spawn_carved(game.happenings().carved, shown_frame);
+        if (mode != Mode::paused) {
+            spawn_exhaust(game);
+            spawn_depot_fire(game);
+        }
+        for (const auto& b : game.happenings().depot_blasts) {
+            spawn_fireball(b.column, b.row);
+        }
     } else if (!settings.particles) {
         particles_.clear();
         wrecks_.clear();
@@ -1103,6 +1469,23 @@ void EnhancedView::update(const Game& game, const Settings& settings) {
                 line.background = line.border = 0;
                 frame.set_lines(y, y + 1, line);
             }
+        }
+    }
+    if (flash_ > 0) {
+        // A fireball lights the sky: white, yellow, orange, red, gone.
+        constexpr u8 flash_colours[] = {2, 2, 8, 8, 7, 7, 1, 1};
+        const u8 colour = flash_colours[std::min(7, flash_ - 1)];
+        bool below = false;
+        for (int y = 0; y < c64::Picture::height; ++y) {
+            auto line = frame.line(y);
+            below = below || line.background_from_x > 0;
+            if (below) {
+                line.background = colour;
+                frame.set_lines(y, y + 1, line);
+            }
+        }
+        if (mode != Mode::paused) {
+            --flash_;
         }
     }
     c64::Layers layers;
@@ -1183,6 +1566,19 @@ void EnhancedView::update(const Game& game, const Settings& settings) {
                      view.grid_parity(), clip);
     }
     const int parity = view.grid_parity();
+    draw_falling(frame, game, view, clip);
+    draw_carnage_banner(game, clip);
+    // Carnage mode's tracers: a bright head and a yellow streak behind it.
+    for (const auto& t : game.tracers()) {
+        const double length = std::hypot(t.dx, t.dy);
+        const int dots = 7;
+        for (int k = dots - 1; k >= 0; --k) {
+            const double back = k * 1.6 / std::max(1.0, length);
+            const double px = view.picture_x(t.x - t.dx * back);
+            const int x = int(std::floor((px - parity) / 2)) * 2 + parity;
+            plot(picture_, x, int(std::floor(view.picture_y(t.y - t.dy * back))), k < 2 ? 1 : 7, clip);
+        }
+    }
     for (const auto& p : particles_) {
         if (p.life - p.age < 8 && (p.age & 1)) {
             continue;
@@ -1191,6 +1587,10 @@ void EnhancedView::update(const Game& game, const Settings& settings) {
         if (p.fire) {
             const auto n = std::size(fire_colours);
             colour = fire_colours[std::min(n - 1, std::size_t(p.age * int(n) / std::max(1, p.life)))];
+        } else if (p.smoke) {
+            const auto& colours = p.dark ? dark_smoke_colours : smoke_colours;
+            const auto n = std::size(colours);
+            colour = colours[std::min(n - 1, std::size_t(p.age * int(n) / std::max(1, p.life)))];
         }
         const double px = view.picture_x(p.x);
         const int x = int(std::floor((px - parity) / 2)) * 2 + parity;

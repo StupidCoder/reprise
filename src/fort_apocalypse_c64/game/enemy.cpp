@@ -68,7 +68,7 @@ void Game::enemy_tick() {
     enemy_blip();
     if (--enemy_.reload == 0) {
         enemy_.reload = 5;
-        if (enemy_.sprite == 2 && bullets_[2].state == 0) {
+        if (enemy_.sprite == 2 && bullets_[2].state == 0 && !cheat(options_.enemies_hold_fire)) {
             auto& b = bullets_[2];
             b.state = bank_direction(enemy_.bank);
             b.x = u8((enemy_.x & 3) + enemy_.x + 8);
@@ -238,7 +238,8 @@ void Game::enemy_visibility() {
     // so in the original the enemy flies through much of the rock unharmed;
     // the fixed pilot crashes on any of it.
     const u8 s = sprite_hits_, b = options_.fixed_enemy_climb ? graphics_hits_ : background_hits_;
-    const bool shot = (s & 2) && (s & 0x0C) && !(s & 1);
+    const bool shot = ((s & 2) && (s & 0x0C) && !(s & 1)) || enemy_shot_down_;
+    enemy_shot_down_ = false; // (carnage mode's tracers)
     if (((b & 2) || shot) && enemy_.state != 4) {
         state = 4;
         enemy_.timer = 0x14;

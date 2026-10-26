@@ -3,6 +3,7 @@
 #include "platform/files.hpp"
 #include "ui/vhs.hpp"
 #include <algorithm>
+#include <cmath>
 
 namespace fort_apocalypse::game {
 
@@ -30,13 +31,24 @@ void Module::tick(const app::GameInput& input) {
     if (!game_->craft_crashing()) {
         held_this_crash_ = false;
     }
+    shake_ *= 0.82;
+    if (hit_stop_ > 0) {
+        --hit_stop_; // the moment of a big kill: the game holds still
+        return;
+    }
     game_->tick(read_controls(input), options_);
+    if (const int impact = game_->carnage_state().impact; impact > 0 && particles()) {
+        constexpr int stops[] = {0, 0, 2, 4};
+        constexpr double shakes[] = {0, 1.2, 2.5, 5.5};
+        hit_stop_ = stops[impact];
+        shake_ = std::min(7.0, shake_ + shakes[impact]);
+    }
     if (after_hold_ && game_->craft_crashing()) {
         return; // the crash's last frame, as the copy left it on screen
     }
     after_hold_ = false;
     draw();
-    if (particles_ && game_->craft_crashing() && !held_this_crash_) {
+    if (particles() && game_->craft_crashing() && !held_this_crash_) {
         // The crash's first frame: from here a copy of the game is shown.
         held_this_crash_ = true;
         world_ = std::make_unique<Game>(*game_);
@@ -51,7 +63,7 @@ void Module::crash_tick(const app::GameInput& input, bool pressed) {
     skip_ = skip_ || pressed;
     world_->prolong_crash(enhanced_.craft_wreck_sprite());
     world_->tick(read_controls(app::GameInput{}), options_);
-    enhanced_.update(*world_, {particles_, smooth_, wide_.columns});
+    enhanced_.update(*world_, {particles(), smooth_, wide_.columns});
     shown_ = enhanced_.picture();
     // The HUD (score, fuel, radar) is the real game's: the copy's would
     // count on and jump back when the real game takes over.
@@ -64,7 +76,7 @@ void Module::crash_tick(const app::GameInput& input, bool pressed) {
         }
     }
     if (!holding_) {
-        if (particles_ && game_->crash_frames_left() > 1) {
+        if (particles() && game_->crash_frames_left() > 1) {
             game_->tick(read_controls(input), options_); // the crash runs its course
             return;
         }
@@ -79,7 +91,7 @@ void Module::crash_tick(const app::GameInput& input, bool pressed) {
     }
     ++hold_frames_;
     const bool settled = hold_frames_ > 25 && enhanced_.craft_wreck_rest() > 50;
-    if (skip_ || settled || hold_frames_ > 6 * 50 || !particles_) {
+    if (skip_ || settled || hold_frames_ > 6 * 50 || !particles()) {
         holding_ = false;
         after_hold_ = true;
         world_.reset();
@@ -88,11 +100,12 @@ void Module::crash_tick(const app::GameInput& input, bool pressed) {
 
 void Module::set_canvas(int width, int height) {
     wide_ = widescreen_ ? enhanced::wide_size(width, height, pixel_aspect()) : enhanced::WideSize{};
+    options_.wide_view = wide_.columns;
 }
 
 void Module::draw() {
-    if (particles_ || smooth_) {
-        enhanced_.update(*game_, {particles_, smooth_, wide_.columns});
+    if (particles() || smooth_) {
+        enhanced_.update(*game_, {particles(), smooth_, wide_.columns});
         shown_ = enhanced_.picture();
     } else if (wide_.columns > 0) {
         shown_ = enhanced::wide_frame(*game_, wide_.columns).rasterise();
@@ -112,6 +125,21 @@ platform::Image Module::picture() const {
         const int width = std::min(shown_.width, wide_.width);
         return shown_.to_image(0, wide_.margin_y, (shown_.width - width) / 2, width);
     }();
+    if (shake_ > 0.4) {
+        // The playfield shakes (the HUD above it holds).
+        const int top = (!widescreen_ || wide_.width == 0 ? margin_y : wide_.margin_y) + Game::hud_lines;
+        const int dx = int(std::lround(std::sin(frames_ * 1.9) * shake_));
+        const int dy = int(std::lround(std::cos(frames_ * 2.7) * shake_ * 0.6));
+        const auto still = picture;
+        for (int y = top; y < picture.height; ++y) {
+            const int sy = std::clamp(y - dy, top, picture.height - 1);
+            for (int x = 0; x < picture.width; ++x) {
+                const int sx = std::clamp(x - dx, 0, picture.width - 1);
+                picture.pixels[std::size_t(y * picture.width + x)] =
+                    still.pixels[std::size_t(sy * picture.width + sx)];
+            }
+        }
+    }
     return vhs_ ? ui::vhs(picture, frames_, vhs_) : picture;
 }
 
@@ -144,10 +172,8 @@ std::vector<app::GameOption> Module::options() const {
     return {{"Enemy pilot",
              {"Original", "Fixed"},
              options_.fixed_enemy_climb ? 1 : 0,
-             "Original: the enemy helicopter checks the wrong spot before it climbs (a corrupt "
-             "byte in the game) and often flies into the rock, and it survives the brown rock "
-             "(the C64's collision hardware ignores that colour). Fixed: it checks its own path "
-             "and dies on any rock."},
+             "Original: a corrupt byte makes the enemy climb into rock, and brown rock cannot "
+             "hurt it (the C64's collisions ignore that colour). Fixed: neither."},
             {"Particle effects",
              {"Off", "On"},
              particles_ ? 1 : 0,
@@ -168,7 +194,41 @@ std::vector<app::GameOption> Module::options() const {
              vhs_,
              "The picture as from a worn video tape: bleeding colour, wobbling lines, a "
              "tracking band, dropouts and noise; Heavy and Broken add tears, fading colour and "
-             "a slipping vertical hold."}};
+             "a slipping vertical hold."},
+            {"Infinite lives",
+             {"Off", "On"},
+             options_.infinite_lives ? 1 : 0,
+             "A crash costs no pilot.",
+             "Cheats"},
+            {"Infinite fuel",
+             {"Off", "On"},
+             options_.infinite_fuel ? 1 : 0,
+             "The tank stays full.",
+             "Cheats"},
+            {"No laser barriers",
+             {"Off", "On"},
+             options_.no_lasers ? 1 : 0,
+             "The flashing barriers and the laser grids stay dark and can be flown through. "
+             "Level 1's cavern barriers stay: they are its teleport.",
+             "Cheats"},
+            {"Enemies don't fire",
+             {"Off", "On"},
+             options_.enemies_hold_fire ? 1 : 0,
+             "The tanks launch no missiles and the enemy helicopter does not shoot. Ramming "
+             "them still costs a pilot.",
+             "Cheats"},
+            {"Slower moving walls",
+             {"Off", "On"},
+             options_.slow_walls ? 1 : 0,
+             "The sweeping walls move half as fast.",
+             "Cheats"},
+            {"Carnage mode",
+             {"Off", "On"},
+             options_.carnage ? 1 : 0,
+             "Not the original game: a rapid-fire gun that carves the rock; loose rock, "
+             "tanks, towers and laser emitters fall, depots blow up; combos, overdrive and "
+             "momentum flight.",
+             "Carnage"}};
 }
 
 void Module::set_option(std::size_t index, int value) {
@@ -183,11 +243,24 @@ void Module::set_option(std::size_t index, int value) {
         options_.widescreen = widescreen_;
         if (!widescreen_) {
             wide_ = {};
+            options_.wide_view = 0;
         }
     } else if (index == 4) {
         vhs_ = value;
+    } else if (index == 5) {
+        options_.infinite_lives = value == 1;
+    } else if (index == 6) {
+        options_.infinite_fuel = value == 1;
+    } else if (index == 7) {
+        options_.no_lasers = value == 1;
+    } else if (index == 8) {
+        options_.enemies_hold_fire = value == 1;
+    } else if (index == 9) {
+        options_.slow_walls = value == 1;
+    } else if (index == 10) {
+        options_.carnage = value == 1;
     }
-    if (!particles_ && !smooth_) {
+    if (!particles() && !smooth_) {
         draw(); // the effects' picture follows with the next frame
     }
 }

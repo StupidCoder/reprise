@@ -63,7 +63,7 @@ next time you start it.
   (level 1's and 3's brown) is drawn in it.
 - **Particle effects** — debris and fire on the C64's pixel grid and in its 16
   colours: shots, the tanks' shells and the enemy's shots throw debris where
-  they hit; destroyed tanks burst and toss their turret, which tumbles and
+  they hit; the tanks' missiles trail smoke and sparks; destroyed tanks burst and toss their turret, which tumbles and
   bounces off the landscape; shot-down mines drop in an arc, turning, and
   blow up on the ground; a shot-down helicopter, yours or the enemy's, keeps
   its flashing but bursts apart, and its wreck bounces off what it rammed
@@ -105,6 +105,44 @@ next time you start it.
 
 All of these change only the picture (and widescreen the one shot rule
 above): the game plays exactly the same.
+
+**Cheats** (a page of their own in the options; not in the attract game):
+*Infinite lives* (a crash costs no pilot), *Infinite fuel* (the tank stays
+full), *No laser barriers* (the
+flashing barriers and the laser grids stay dark; level 1's cavern barriers
+stay, they are its teleport), *Enemies don't fire* (no tank missiles, no
+enemy helicopter shots) and *Slower moving walls* (the sweeping walls move
+half as fast).
+
+**Carnage mode** (its own page in the options; not the original game, not
+in the attract game): hold fire for a rapid-fire gun. Its tracers (which end at the edges of
+the view, as the original's shots do) carve the
+brown rock pixel by pixel in a spray of debris and sparks; a carved cell
+with only a few pixels left crumbles away. What you carve is real: the game
+draws and tests carved cells as they are, so tunnels and pits can be flown
+into. Tracers destroy tanks, mines and the breakable rock as shots do, and
+can shoot down the enemy helicopter; the men are spared. Switched off
+mid-game, the original rules carry on in the carved world (the next level
+is built new). Things come loose: rock you cut free (a piece that holds on
+to nothing fixed) falls as a chunk and shatters where it lands; a tank
+whose ground you shoot away tumbles down and blows up where it lands
+(scoring as a kill, blasting a crater); six hits (or a blast) shake a
+laser barrier's emitter off its frame: it tumbles down still firing, its
+beam sweeping all round, melting lines into the rock and burning what it
+meets (another emitter, a tank, you). The
+ladder towers rock when you hit them (the higher, the harder); shoot the
+rock away beside one and keep hitting it high, and it tips over into the
+gap or down to the level below, where it stays as part of the place. Keep
+shooting a fuel depot and it smokes, catches fire, pops and blazes, and at
+last goes up in a fireball that blasts a crater (and you, if you are too
+close); there is no refuelling there any more. On the last level that
+depot is where the mission ends: blow it up and the game tells you what it
+thinks of that, and ends. What falls on your
+helicopter crashes it. Kills in quick succession build a combo ("CARNAGE X7", with a bonus that
+grows with it) and fill the overdrive meter: a full one gives six seconds
+of a faster gun firing in a fan of three. Big kills hold the action a
+moment and shake the screen, and the helicopter gains momentum (it speeds
+up and glides) instead of the original's stop-start flight.
 
 ### Bruce Lee keys and options
 

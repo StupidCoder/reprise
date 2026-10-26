@@ -36,6 +36,10 @@ void Game::clear_play_area() {
     }
     refuel_sound_ = 0;
     teleport_grace_ = 0;
+    tracers_.clear();
+    falling_.clear();
+    born_.clear();
+    crushed_ = false;
     missiles_active_ = 0;
     playfield_colour_ = 0;
     shot_sound_ = 0;
@@ -149,7 +153,10 @@ void Game::draw_counters() {
     started = false;
     draw_number(bonus_[1], at, digits, started);
     draw_number(bonus_[0], at, digits, started);
-    if (mode_ == Mode::playing && engine_ == 8) {
+    if (mode_ == Mode::playing && cheat(options_.infinite_fuel)) {
+        fuel_ = {0x01, 0x20}; // the infinite-fuel cheat: full, as a refuel leaves it
+        engine_ = engine_ == 9 ? 8 : engine_;
+    } else if (mode_ == Mode::playing && engine_ == 8) {
         if ((fuel_[0] | fuel_[1]) == 0) {
             engine_ = 9;
         } else if ((frame_ & 0x0F) == 0) {
@@ -176,7 +183,11 @@ void Game::render() {
     for (int i = 0; i < 1000; ++i) {
         const u8 code = screen_[std::size_t(i)];
         const c64::Glyph* glyph;
-        if (i / 40 >= first_playfield_row) {
+        if (i / 40 >= window_first_row && split_active_ && code < 128 && !carved_.empty()) {
+            // A cell the carnage gun has carved (copy_window's cell).
+            glyph = &cell_glyph_at((window_.row + i / 40 - window_first_row) * 256 + window_.column + i % 40,
+                                   code);
+        } else if (i / 40 >= first_playfield_row) {
             glyph = code < 128 ? &glyphs_[code] : &empty_glyph;
         } else if (code >= 0x5C && code < 0x80) {
             glyph = &radar_glyphs_[std::size_t(code - 0x5C)];
