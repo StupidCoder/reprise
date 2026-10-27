@@ -86,12 +86,15 @@ struct HighScore {
 };
 
 struct Assets {
+    amiga::LoadedImage program; // `wings` from $100000: tables are read from it
     std::vector<NamedPicture> pictures;
     std::vector<NamedPalette> palettes;
     std::vector<NamedLibrary> libraries;
     std::vector<MissionMap> maps;  // a.map ... o.map
     std::vector<SceneryEntry> scenery;
     std::array<int, 4> us_flag_steps{}; // `wings` $114BA1: the tower flag's frames per step
+    std::vector<std::string> hellcat_names; // `wings` $113C88: hellcat.shp in the game's order
+    std::array<int, 4> propeller_steps{};   // `wings` $114B5C
     std::vector<Sample> samples;
     std::vector<std::string> rank_names;  // `wings` $115864: seven pointers
     std::vector<std::string> story;       // the scrolling story, line by line
@@ -102,8 +105,14 @@ struct Assets {
 // screen; this is the screen each library is drawn on, as far as known).
 std::string_view preview_palette_for(std::string_view library);
 
-// The shape a scenery index names, or nullptr.
+// The shape a scenery index names, or nullptr. The 1/8-scale view uses the
+// table $10535A builds alongside (-$407C): the same names looked up in
+// 8thscale.shp.
 const Shape* scenery_shape(const Assets&, int index);
+const Shape* eighth_scale_shape(const Assets&, int index);
+
+// The Hellcat library entry with this index in the game's list, or nullptr.
+const Shape* hellcat_shape(const Assets&, int index);
 
 // Reads every decoded file of the content folder; throws std::runtime_error
 // when one is missing or does not decode.

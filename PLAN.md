@@ -702,12 +702,31 @@ and songs `wofsongs` (both with their symbols), IFF pictures, "Rpck"-packed
    over the whole view on maps a, d and k except for objects (plane, parked
    planes, elevator, splashes) and the weapon-menu box. Harness reads the
    finished buffer of the double-buffered view.
-6. Next: the objects drawn over the backdrop (player plane, parked planes and
-   elevator, enemy planes, flags), index-5 special, night view and the
-   copper palette split; then the front end (story scroller, pictures, rank selection, high scores),
+6. **Done 2026-10-27: player and carrier deck pictures.** `game/player_view`
+   (plane, parts, propeller XOR, mirrored shapes, clip at the deck; parked
+   planes, elevator); exact against grabs on the elevator, on deck, taxiing,
+   in flight (poked states), with the ground line moved. game.md has the
+   frame order, player picture and input.
+7. **Done 2026-10-27: take-off and the 1/8-scale view.** Take-off read
+   (deck speed, rolling off the bow) and driven in the machine
+   (`viewref.py takeoff`); natural flight frames exact. The 1/8 view's
+   backdrop, parked planes and player rebuilt; exact apart from enemy planes.
+8. **Done 2026-10-27: the flight model and free flight.** FFP arithmetic
+   fitted to the ROM (game/ffp); the flight code rebuilt (game/flight) and
+   equal tick for tick in three recordings (take-off, 1/8 view, turns,
+   ceiling, glide, wire landing; 2,131 ticks); playable in Joyport (game/
+   module): take off, fly, turn, climb into the 1/8 view, come down, land.
+9. Next: the crash and the next plane, the elevator and deck menu, weapons,
+   enemy planes and the other object drawers ($100DA6, $103D78, $103DE8,
+   $104C3E, $103A18, $10391E), damage, sound; then the front end (story scroller, pictures, rank selection, high scores),
    music (`songplay` rewrite), then flight, objects and missions.
 
-Open: index-5 special ($104E18), the `$114/$115` pairs, the deck phase
+Open: the crash ($10AFBA), the elevator's tie to the draw rate (the port draws
+once per tick), shape-mirroring first use, the FFP oracle crashing after ~1,000
+calls; the meaning of -$5C94 (drawn as the propeller, 0 throughout a real
+flight); the player's -$5BE0/-$5BE4 parts, upset
+and facing right not yet seen; the
+debug key mode; index-5 special ($104E18), the `$114/$115` pairs, the deck phase
 tables behind the crew poses; ship bob other than 0 not compared; night maps,
 the 1/8-scale view and the copper palette split (rows 151+); maps other than
 a, d and k not compared; stick direction codes;

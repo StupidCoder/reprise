@@ -13,6 +13,7 @@
 #include "platform/host.hpp"
 #include "wings_of_fury_amiga/data/assets.hpp"
 #include "wings_of_fury_amiga/data/preview.hpp"
+#include "wings_of_fury_amiga/game/player_view.hpp"
 #include "wings_of_fury_amiga/game/scenery.hpp"
 #include "wings_of_fury_amiga/import/disk_import.hpp"
 #include <cstdio>
@@ -132,6 +133,33 @@ int main(int argc, char** argv) {
             // island_flags 1 0 ...
             const auto assets = load_assets(platform::utf8_path(argv[2]));
             wings::game::BackdropState state;
+            wings::game::PlayerPicture player;
+            bool has_player = false;
+            struct {
+                int upset{}, pitch{};
+                bool facing_left{};
+            } eighth;
+            wings::game::CarrierDeckPicture deck;
+            bool has_deck = false;
+            struct {
+                bool engine{};
+                int counter{}, attitude{};
+                bool left{};
+            } propeller;
+            // "library name" -> the shape (or null for "none").
+            const auto shape_named = [&](std::istringstream& in) -> const wings::data::Shape* {
+                std::string library, name;
+                in >> library;
+                if (library == "none") {
+                    in >> name; // the mirrored flag's placeholder
+                    return nullptr;
+                }
+                in >> name;
+                for (const auto& l : assets.libraries) {
+                    if (l.name == library) return l.library.find(name);
+                }
+                return nullptr;
+            };
             const auto text = platform::read_file(platform::utf8_path(argv[4]));
             std::istringstream lines(std::string(text.begin(), text.end()));
             for (std::string line; std::getline(lines, line);) {
@@ -150,11 +178,61 @@ int main(int argc, char** argv) {
                     state.ships.push_back(ship);
                 } else if (key == "island_flags") {
                     for (int up; in >> up;) state.island_flag_up.push_back(up != 0);
+                } else if (key == "scale") {
+                    int scale = 8;
+                    in >> scale;
+                    state.eighth_scale = player.eighth_scale = scale == 1;
+                } else if (key == "ground") {
+                    in >> state.ground_line;
+                    player.ground_line = state.ground_line;
+                } else if (key == "deck") {
+                    has_deck = true;
+                    in >> deck.carrier_x >> deck.afloat >> deck.spare_planes >> deck.elevator_state >> deck.lift;
+                } else if (key.starts_with("player_") || key == "carrier_deck") {
+                    has_player = true;
+                    if (key == "player_altitude") in >> player.altitude;
+                    else if (key == "player_elevator") {
+                        int elevator = 0;
+                        in >> elevator;
+                        player.hidden = elevator == 1;
+                        player.clip_at_deck = elevator != 0;
+                    } else if (key == "carrier_deck") in >> player.carrier_deck >> player.carrier_bob;
+                    else if (key == "player_plane") {
+                        player.plane = shape_named(in);
+                        in >> player.plane_mirrored;
+                    } else if (key == "player_deck_part") {
+                        player.deck_part = shape_named(in);
+                        in >> player.deck_part_mirrored >> player.deck_part_shown;
+                    } else if (key == "player_gear") {
+                        player.gear = shape_named(in);
+                        in >> player.gear_mirrored >> player.gear_shown >> player.gear_offset;
+                    } else if (key == "player_upset") in >> player.upset;
+                    else if (key == "player_eighth") in >> eighth.upset >> eighth.pitch >> eighth.facing_left;
+                    else if (key == "player_propeller") {
+                        int engine = 0, counter = 0, attitude = 0, left = 0;
+                        in >> engine >> counter >> attitude >> left;
+                        propeller = {engine != 0, counter, attitude, left != 0};
+                    }
                 }
             }
+            player.vertical_scroll = state.vertical_scroll;
+            if (player.eighth_scale) {
+                player.plane = wings::game::eighth_scale_plane(assets, eighth.upset, eighth.pitch, eighth.facing_left);
+            }
+            deck.camera = state.camera;
+            deck.eighth_scale = state.eighth_scale;
+            deck.ground_line = state.ground_line;
+            deck.vertical_scroll = state.vertical_scroll;
+            deck.deck = player.carrier_deck;
+            deck.bob = player.carrier_bob;
+            player.propeller = wings::game::propeller_shape(assets, propeller.engine, player.upset, propeller.counter,
+                                                            propeller.attitude, propeller.left);
             for (const auto& map : assets.maps) {
                 if (map.name != argv[3]) continue;
-                const auto canvas = wings::game::draw_backdrop(assets, map, state);
+                auto canvas = wings::game::draw_sky_and_scenery(assets, map, state);
+                if (has_deck) wings::game::draw_carrier_deck(canvas, assets, deck);
+                if (has_player) wings::game::draw_player(canvas, player);
+                wings::game::draw_sea_and_sand(canvas, assets, map, state);
                 const auto out = platform::utf8_path(argv[5]);
                 auto idx = out;
                 platform::write_file(idx.replace_extension(".idx"), canvas.pixels);

@@ -1,6 +1,7 @@
 #include "wings_of_fury_amiga/entry.hpp"
 #include "wings_of_fury_amiga/data/assets.hpp"
 #include "wings_of_fury_amiga/data/preview.hpp"
+#include "wings_of_fury_amiga/game/module.hpp"
 #include "wings_of_fury_amiga/import/disk_import.hpp"
 #include <string>
 
@@ -42,7 +43,10 @@ app::GameEntry entry() {
         .media = "the disk image (ADF)",
         .import = import::import_disk,
         .previews = previews,
-        .progress = "Import and the decoded pictures, shapes, map scenery, palettes and sounds. Nothing can be played yet.",
+        .start = game::start,
+        .progress = "Free flight on the first mission's map: take off from the carrier, fly, turn, climb into the "
+                    "high view and land on the carrier again. Not rebuilt yet: enemies, weapons, crashes, the "
+                    "elevator, sound, the front end and the missions.",
     };
 }
 

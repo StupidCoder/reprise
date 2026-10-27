@@ -198,6 +198,9 @@ add_library(wings_of_fury_amiga
     src/wings_of_fury_amiga/data/packed.cpp
     src/wings_of_fury_amiga/data/preview.cpp
     src/wings_of_fury_amiga/data/shapes.cpp
+    src/wings_of_fury_amiga/game/ffp.cpp
+    src/wings_of_fury_amiga/game/flight.cpp
+    src/wings_of_fury_amiga/game/module.cpp
     src/wings_of_fury_amiga/game/player_view.cpp
     src/wings_of_fury_amiga/game/scenery.cpp
     src/wings_of_fury_amiga/import/disk_import.cpp)
@@ -283,6 +286,10 @@ target_compile_options(mindwalker_replay PRIVATE ${PROJECT_WARNINGS})
 add_executable(wings_of_fury_assets tools/wings_of_fury_assets.cpp)
 target_link_libraries(wings_of_fury_assets PRIVATE wings_of_fury_amiga)
 target_compile_options(wings_of_fury_assets PRIVATE ${PROJECT_WARNINGS})
+
+add_executable(wings_of_fury_replay tools/wings_of_fury_replay.cpp)
+target_link_libraries(wings_of_fury_replay PRIVATE wings_of_fury_amiga)
+target_compile_options(wings_of_fury_replay PRIVATE ${PROJECT_WARNINGS})
 
 # The same resources are used by loose builds and packaged hosts. Android may
 # place their contents in assets/; access goes through SDL IO.

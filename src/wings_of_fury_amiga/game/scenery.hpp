@@ -14,14 +14,32 @@ namespace wings::game {
 
 // A picture as colour indices, the way the game's 5-plane view holds it.
 struct IndexedCanvas {
+    // The blitter routines' clip window (-$46A2 top, -$46A0 bottom, -$469E
+    // left, -$469C right; bottom and right exclusive), set with -$7C98.
+    struct Clip {
+        int left{}, top{}, right{}, bottom{};
+    };
+
     int width{};
     int height{};
     std::vector<std::uint8_t> pixels;
+    Clip clip;
 
-    IndexedCanvas(int w, int h) : width(w), height(h), pixels(std::size_t(w * h)) {}
+    IndexedCanvas(int w, int h) : width(w), height(h), pixels(std::size_t(w * h)), clip{0, 0, w, h} {}
     std::uint8_t at(int x, int y) const { return pixels[std::size_t(y * width + x)]; }
     void fill(int x0, int y0, int x1, int y1, std::uint8_t colour); // inclusive, clipped
     void draw(const data::Shape&, int x, int y);                     // top-left corner, clipped
+    // The shape mirrored left to right, as `wings` $105B58 leaves it in
+    // memory (rows reversed; the handle becomes width - 1 - offset x, which
+    // the caller applies).
+    void draw_mirrored(const data::Shape&, int x, int y);
+    // $110E24: no mask; the bitplanes of byte 13 are inverted over the
+    // shape's whole rectangle, then each stored plane is XORed into its
+    // bitplanes (BLTCON0 minterm $6A with A = $FFFF: D = C xor B).
+    void draw_xor(const data::Shape&, int x, int y);
+
+private:
+    bool inside(int x, int y) const { return x >= clip.left && x < clip.right && y >= clip.top && y < clip.bottom; }
 };
 
 // The islands of a map: each runs from a column drawn with `bchl` (scenery
@@ -37,6 +55,14 @@ std::vector<Island> islands(const data::MissionMap&);
 // What the backdrop needs from the running game.
 struct BackdropState {
     int camera{};       // world x at the screen's x 160 (-$41A2)
+    // The scenery line and the sea's surface (-$5C5E = -$60CC): $97, or
+    // $97 + altitude - $83 while the plane is above $83 ($100286), so the
+    // world scrolls down under a high plane. See ground_line_for.
+    int ground_line{0x97};
+    // The 1/8-scale view (-$60C8 = 1, switched on high up): one pixel per
+    // map column, 8thscale.shp shapes on the line $97, no specials, the sea a
+    // plain band and each island's sand one row.
+    bool eighth_scale{};
     int wave_frame{};   // 11 .. 0, one step every second frame (-$5C70, $10105E)
     int vertical_scroll{}; // -$41A8: added to columns on a ship
     // Ships the scenery rides on ($104A4E: four enemy slots, each with an
@@ -59,7 +85,10 @@ struct BackdropState {
 
 constexpr int view_width = 320;
 constexpr int view_height = 162;
-constexpr int ground_line = 0x97; // the scenery line and the sea's surface (-$5C5E, -$60CC)
+constexpr int normal_ground_line = 0x97;
+constexpr int ground_line_for(int altitude) {
+    return altitude > 0x83 ? normal_ground_line + altitude - 0x83 : normal_ground_line;
+}
 
 // Draws the backdrop into a 320 x 162 canvas, in the game's order:
 //   $103784  sky: colour 1 from the top to the ground line + 1
@@ -70,6 +99,12 @@ constexpr int ground_line = 0x97; // the scenery line and the sea's surface (-$5
 //   $103E6C  the wave strip: five copies of the frame, 96 pixels apart
 //   $1040E8  each island's sand (colour 17, the ground line and 4 rows
 //            below) and its beach ends
+// The objects ($103ABC … $10391E: parked planes, the player, ships' guns,
+// enemies …) are drawn between the two passes, so the waves and the sand
+// cover what reaches below the surface.
 IndexedCanvas draw_backdrop(const data::Assets&, const data::MissionMap&, const BackdropState&);
+// The two passes: sky and scenery columns; then the waves and the sand.
+IndexedCanvas draw_sky_and_scenery(const data::Assets&, const data::MissionMap&, const BackdropState&);
+void draw_sea_and_sand(IndexedCanvas&, const data::Assets&, const data::MissionMap&, const BackdropState&);
 
 } // namespace wings::game

@@ -24,23 +24,38 @@ constexpr int enemy_flag_frames = 0xB0; // flg0..flg2
 constexpr int bare_pole = 0xB3;        // POST
 
 // Screen x of a world x (the -$60CE origin: camera - 160).
-// $104A4E: how far a column on a ship is moved, if a ship carries it.
-int ship_drop(const BackdropState& state, int column) {
-    const int offset = (column + 1) * 2;
+constexpr int eighth_line = 0x97;     // the 1/8 view's scenery line
+constexpr int eighth_sea_colour = 10;  // $103E7A: the sea band
+constexpr int eighth_shift = 3;        // -$60CA
+
+// $104EAC/$104A4E: how far a column on a ship is moved, if a ship carries
+// it. The ship is looked up at world x = (column x - $A0) (x 8 in the 1/8
+// view) + camera, as a byte offset of the map (x / 8 x 2); in the 1/8 view
+// the drop is shifted right by 3.
+int ship_drop(const BackdropState& state, int column_x) {
+    const int dx = state.eighth_scale ? std::int16_t((column_x - 0xA0) << eighth_shift) : column_x - 0xA0;
+    const int offset = (std::uint16_t(dx + state.camera) >> 3) * 2;
     for (const auto& ship : state.ships) {
-        if (offset >= ship.first && offset <= ship.last) return ship.bob + state.vertical_scroll;
+        if (offset >= ship.first && offset <= ship.last) {
+            const int drop = ship.bob + state.vertical_scroll;
+            return state.eighth_scale ? std::uint16_t(drop) >> eighth_shift : drop;
+        }
     }
     return 0;
 }
 
-int screen_x(int world_x, int camera) {
-    return world_x - (camera - 160);
+// A world x on the screen (-$60CE = camera - 160, x 8 in the 1/8 view; the
+// difference is scaled down by an arithmetic shift).
+int screen_x(int world_x, int camera, bool eighth) {
+    const int origin = std::int16_t(camera + std::int16_t(0xFF60 << (eighth ? eighth_shift : 0)));
+    const int dx = std::int16_t(world_x - origin);
+    return eighth ? dx >> eighth_shift : dx;
 }
 
 // $105174: a table entry at a world position, skipped when its screen x
 // (before the handle) is outside -$80 .. $1C0.
-void draw_at_world(IndexedCanvas& canvas, const data::Shape* shape, int world_x, int camera, int y) {
-    const int x = screen_x(world_x, camera);
+void draw_at_world(IndexedCanvas& canvas, const data::Shape* shape, int world_x, int camera, bool eighth, int y) {
+    const int x = screen_x(world_x, camera, eighth);
     if (shape == nullptr || x < -0x80 || x > 0x1C0) return;
     canvas.draw(*shape, x - shape->offset_x, y - shape->offset_y);
 }
@@ -48,10 +63,11 @@ void draw_at_world(IndexedCanvas& canvas, const data::Shape* shape, int world_x,
 } // namespace
 
 void IndexedCanvas::fill(int x0, int y0, int x1, int y1, std::uint8_t colour) {
-    x0 = std::max(x0, 0);
-    y0 = std::max(y0, 0);
-    x1 = std::min(x1, width - 1);
-    y1 = std::min(y1, height - 1);
+    // $111010 clips to the window first.
+    x0 = std::max(x0, clip.left);
+    y0 = std::max(y0, clip.top);
+    x1 = std::min(x1, clip.right - 1);
+    y1 = std::min(y1, clip.bottom - 1);
     for (int y = y0; y <= y1; ++y) {
         for (int x = x0; x <= x1; ++x) {
             pixels[std::size_t(y * width + x)] = colour;
@@ -61,11 +77,37 @@ void IndexedCanvas::fill(int x0, int y0, int x1, int y1, std::uint8_t colour) {
 
 void IndexedCanvas::draw(const data::Shape& shape, int x0, int y0) {
     for (int y = 0; y < shape.height; ++y) {
-        if (y0 + y < 0 || y0 + y >= height) continue;
         for (int x = 0; x < shape.width(); ++x) {
-            if (x0 + x < 0 || x0 + x >= width || !shape.covers(x, y)) continue;
+            if (!inside(x0 + x, y0 + y) || !shape.covers(x, y)) continue;
             auto& pixel = pixels[std::size_t((y0 + y) * width + x0 + x)];
             pixel = std::uint8_t(shape.colour(x, y, pixel));
+        }
+    }
+}
+
+void IndexedCanvas::draw_mirrored(const data::Shape& shape, int x0, int y0) {
+    const int last = shape.width() - 1;
+    for (int y = 0; y < shape.height; ++y) {
+        for (int x = 0; x < shape.width(); ++x) {
+            if (!inside(x0 + x, y0 + y) || !shape.covers(last - x, y)) continue;
+            auto& pixel = pixels[std::size_t((y0 + y) * width + x0 + x)];
+            pixel = std::uint8_t(shape.colour(last - x, y, pixel));
+        }
+    }
+}
+
+void IndexedCanvas::draw_xor(const data::Shape& shape, int x0, int y0) {
+    for (int y = 0; y < shape.height; ++y) {
+        for (int x = 0; x < shape.width(); ++x) {
+            if (!inside(x0 + x, y0 + y)) continue;
+            auto& pixel = pixels[std::size_t((y0 + y) * width + x0 + x)];
+            int value = pixel ^ shape.set_planes;
+            for (const auto& plane : shape.planes) {
+                if (plane.bits[std::size_t(y * shape.bytes_per_row + x / 8)] >> (7 - x % 8) & 1) {
+                    value ^= plane.bitplanes;
+                }
+            }
+            pixel = std::uint8_t(value);
         }
     }
 }
@@ -86,8 +128,15 @@ std::vector<Island> islands(const data::MissionMap& map) {
 }
 
 IndexedCanvas draw_backdrop(const data::Assets& assets, const data::MissionMap& map, const BackdropState& state) {
+    auto canvas = draw_sky_and_scenery(assets, map, state);
+    draw_sea_and_sand(canvas, assets, map, state);
+    return canvas;
+}
+
+IndexedCanvas draw_sky_and_scenery(const data::Assets& assets, const data::MissionMap& map, const BackdropState& state) {
     IndexedCanvas canvas(view_width, view_height);
     const int camera = state.camera;
+    const int ground_line = state.ground_line;
     int enemy_flag_counter = state.enemy_flag_counter;
 
     // $103784: the sky down to the ground line + 1 (at most row $A1).
@@ -95,16 +144,25 @@ IndexedCanvas draw_backdrop(const data::Assets& assets, const data::MissionMap& 
 
     // $1037BC: the first column is (camera - $120) / 8 (arithmetic shift) at
     // x = 8 - (camera & 7) - $80; columns run on while x < $1D0. A shape is
-    // drawn at x - 8, which puts column c at world x c x 8.
-    int x = column_width - (camera & 7) - 0x80;
-    for (int c = (camera - 0x120) >> 3; x < 0x1D0; ++c, x += column_width) {
+    // drawn at x - 8, which puts column c at world x c x 8. In the 1/8 view
+    // the camera is taken to a multiple of 8, the first column is (camera -
+    // $900) / 8 and each column is one pixel.
+    const bool eighth = state.eighth_scale;
+    const int view_camera = eighth ? camera & 0xFFF8 : camera;
+    const int step = eighth ? 1 : column_width;
+    int x = column_width - (view_camera & 7) - 0x80;
+    for (int c = (view_camera - (eighth ? 0x900 : 0x120)) >> 3; x < 0x1D0; ++c, x += step) {
         if (c < 0 || std::size_t(c) >= map.words.size()) continue;
         const auto column = map.column(std::size_t(c));
-        const data::Shape* shape = column.draw ? data::scenery_shape(assets, column.index) : nullptr;
+        const data::Shape* shape = !column.draw ? nullptr
+                                   : eighth     ? data::eighth_scale_shape(assets, column.index)
+                                                : data::scenery_shape(assets, column.index);
         if (shape != nullptr) {
-            const int y = ground_line + column.drop + (column.surface == 1 ? ship_drop(state, c) : 0);
+            const int line = eighth ? eighth_line : ground_line + column.drop;
+            const int y = line + (column.surface == 1 ? ship_drop(state, x) : 0);
             canvas.draw(*shape, x - 8 - shape->offset_x, y - shape->offset_y);
         }
+        if (eighth) continue; // $103B2C: no specials in the 1/8 view
         const auto special = map.words[std::size_t(c)] >> 2 & 0x1FFF;
         const auto put = [&](int entry, int y) {
             if (const auto* s = data::scenery_shape(assets, entry)) canvas.draw(*s, x - 8 - s->offset_x, y - s->offset_y);
@@ -132,6 +190,30 @@ IndexedCanvas draw_backdrop(const data::Assets& assets, const data::MissionMap& 
         }
     }
 
+    return canvas;
+}
+
+void draw_sea_and_sand(IndexedCanvas& canvas, const data::Assets& assets, const data::MissionMap& map,
+                       const BackdropState& state) {
+    const int camera = state.camera;
+    const int ground_line = state.ground_line;
+
+    if (state.eighth_scale) {
+        // $103E7A: a plain sea band; $1040E8: per island its small beach ends
+        // (at the line $97 = ground $4B8 / 8) and one row of sand.
+        canvas.fill(0, eighth_line, view_width - 1, 0xA2, eighth_sea_colour);
+        const auto* left_end = data::eighth_scale_shape(assets, beach_left_index);
+        const auto* right_end = data::eighth_scale_shape(assets, beach_right_index);
+        for (const auto& island : islands(map)) {
+            const int left = island.left_column * column_width, right = island.right_column * column_width;
+            draw_at_world(canvas, left_end, left, camera, true, eighth_line);
+            draw_at_world(canvas, right_end, right, camera, true, eighth_line);
+            canvas.fill(screen_x(left, camera, true), eighth_line, screen_x(right, camera, true), eighth_line,
+                        sand_colour);
+        }
+        return;
+    }
+
     // $103E6C: the waves, from x = $3F - (camera & $3F) - $50.
     if (const auto* wave = data::scenery_shape(assets, first_wave_index + state.wave_frame)) {
         int wave_x = 0x3F - (camera & 0x3F) - 0x50;
@@ -145,12 +227,11 @@ IndexedCanvas draw_backdrop(const data::Assets& assets, const data::MissionMap& 
     const auto* right_end = data::scenery_shape(assets, beach_right_index);
     for (const auto& island : islands(map)) {
         const int left = island.left_column * column_width, right = island.right_column * column_width;
-        draw_at_world(canvas, left_end, left, camera, ground_line);
-        draw_at_world(canvas, right_end, right, camera, ground_line);
-        canvas.fill(screen_x(left, camera), ground_line, screen_x(right, camera), ground_line + sand_rows,
+        draw_at_world(canvas, left_end, left, camera, false, ground_line);
+        draw_at_world(canvas, right_end, right, camera, false, ground_line);
+        canvas.fill(screen_x(left, camera, false), ground_line, screen_x(right, camera, false), ground_line + sand_rows,
                     sand_colour);
     }
-    return canvas;
 }
 
 } // namespace wings::game
