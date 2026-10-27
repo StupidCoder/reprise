@@ -12,6 +12,8 @@
 
 #include "mindwalker_amiga/data/game_files.hpp"
 #include "mindwalker_amiga/title/title_stage.hpp"
+#include "mindwalker_amiga/landscape/view_scene.hpp"
+#include "mindwalker_amiga/world/world.hpp"
 #include "platform/files.hpp"
 #include "platform/host.hpp"
 #include <cstdio>
@@ -160,6 +162,48 @@ int title(const std::filesystem::path& content, const std::filesystem::path& scr
     return differences == 0 ? 0 : 1;
 }
 
+// The landscape's opening view of a new game's world (A's set-up builds the
+// view for the cell left of the start twice, $206944 and $200262), painted
+// for each direction and compared with a screen dump's pens (rows from `top`).
+int view(const std::filesystem::path& content, std::uint32_t seed, const std::filesystem::path& idx_path,
+         const std::filesystem::path& out) {
+    using namespace mindwalker;
+    const data::GameFiles files(content);
+    const auto& a = files.program(data::Stage::landscape);
+    const world::World world(seed, a);
+    landscape::ViewInputs in;
+    in.home_x = world.start_x();
+    in.home_y = world.start_y();
+    in.colour17 = 0xF60; // as the oracle found them at the start (hypothesis: set by A's set-up)
+    in.colour18 = 0xF00;
+    const auto x = std::uint16_t((world.start_x() - 1) & 0xFFF), y = world.start_y();
+    auto first = landscape::build_view(world, a, x, y, in, landscape::stored_colours(a));
+    in.previous_x = x;
+    in.previous_y = y;
+    const auto cells = landscape::build_view(world, a, x, y, in, first.colours);
+    const auto idx = platform::read_file(idx_path);
+    std::vector<screen::Rgb4> colours;
+    for (const auto c : cells.colours) colours.push_back(c & 0xFFF);
+    int best = -1, best_bad = 1 << 30;
+    for (int direction = 0; direction < 4; ++direction) {
+        for (int top : {10, 11, 12}) {
+            screen::Canvas canvas;
+            landscape::ViewPainter(a).paint(canvas, cells, direction, world.floor_level(), world.ceiling_level(), top);
+            int bad = 0;
+            for (int py = 12; py < 200; ++py)
+                for (int px = 0; px < 320; ++px) bad += idx[std::size_t(py * 320 + px)] != canvas.pen(px, py);
+            std::printf("direction %d top %d: %d of %d pens differ\n", direction, top, bad, 188 * 320);
+            if (bad < best_bad) {
+                best_bad = bad;
+                best = direction * 100 + top;
+                platform::save_png(canvas.picture(colours), out);
+            }
+        }
+    }
+    std::printf("best: direction %d top %d\n", best / 100, best % 100);
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -169,7 +213,12 @@ int main(int argc, char** argv) {
             return title(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]), platform::utf8_path(argv[4]),
                          argc == 6 ? platform::utf8_path(argv[5]) : std::filesystem::path());
         }
-        std::fprintf(stderr, "usage: mindwalker_replay title <content> <script> <run.log> [dump dir]\n");
+        if (command == "view" && argc == 6) {
+            return view(platform::utf8_path(argv[2]), std::uint32_t(std::stoul(argv[3], nullptr, 16)),
+                        platform::utf8_path(argv[4]), platform::utf8_path(argv[5]));
+        }
+        std::fprintf(stderr, "usage: mindwalker_replay title <content> <script> <run.log> [dump dir]\n"
+                             "       mindwalker_replay view <content> <seed> <dump .idx> <out.png>\n");
         return 2;
     } catch (const std::exception& error) {
         std::fprintf(stderr, "mindwalker_replay: %s\n", error.what());

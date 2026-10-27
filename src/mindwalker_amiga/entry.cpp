@@ -44,9 +44,9 @@ app::GameEntry entry() {
         .import = import::import_disk,
         .previews = previews,
         .start = game::start,
-        .progress = "The title, the world menu and the new game with its generated world, matching the original "
-                    "frame for frame. Not rebuilt yet: the landscape and the other stages, the high scores, saving "
-                    "and the pause box.",
+        .progress = "The title, the world menu and the new game, matching the original frame for frame, and the "
+                    "landscape's opening view of the generated world. Not rebuilt yet: walking in the landscape, "
+                    "the other stages, the high scores, saving and the pause box.",
     };
 }
 
