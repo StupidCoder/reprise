@@ -46,7 +46,7 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
 | Mindwalker | Amiga | `Mind Walker (1986)(Commodore).adf` (SHA-256 `2e83a67a…a8969c`) | disk import and decoded assets with launcher viewer; title, world menu and new game playable (mouse), matching the original frame for frame and pen for pen; world generator's base layer verified against the original; the landscape and later stages not rebuilt yet |
 | Marble Madness | Amiga | `Marble_Madness.adf` (MD5 `735dc697d64b3eeaa000778eb0b1153a`) | disk import (both encrypted programs decrypted, checked against the original's memory); asset previews; all six courses complete in play (physics, covers, creatures, special regions, music and effects; each compared with the original update for update from start to goal); front end for one player (options, introductions, bonus, game over, the end) |
 | Wizball | C64 | `Wizball.g64` (MD5 `73e1a136da4b6972d39f00817b86983e`) | disk import, asset decoding with launcher previews; play rebuilt and checked in lockstep (places, enemies, catellite, tunnels, lives, bonus wave, Wizlab, level flight, round end, sound and music); front end, high scores and keys rebuilt |
-| Cannon Fodder | Amiga | three ADFs, `Cannon Fodder (1993)(Virgin)(Disk N of 3)[cr CSL].adf` (SHA-256 `2b01cbc9…`, `9089815b…`, `87ea9c1d…`; a cracked copy) | import of all three disks (Sensible disk format, RNC unpacking) and decoded screens, sprite sheets, tile sets, colours and the 72 mission maps with launcher viewer; nothing playable yet |
+| Cannon Fodder | Amiga | three ADFs, `Cannon Fodder (1993)(Virgin)(Disk N of 3)[cr CSL].adf` (SHA-256 `2b01cbc9…`, `9089815b…`, `87ea9c1d…`; a cracked copy) | import of all three disks (Sensible disk format, RNC unpacking) and decoded screens, sprite sheets, tile sets, colours and the 72 mission maps with launcher viewer; map view, camera, tile drawer, mission set-up, object drawing and panel rebuilt and checked against the original; nothing playable yet |
 | Rock 'n Roll | Amiga | — | planned |
 | Wings of Fury | Amiga | `Wings_of_Fury_v1.0_1990_Broderbund_cr_Hysteria.adf` (SHA-256 `638d9a9d…4620044`, a cracked copy) | disk import and decoded assets with launcher viewer (pictures, all 12 shape libraries, palettes, sounds, texts); nothing playable yet |
 | Tower of Babel | Amiga | — | planned; original interpretive shell cover added, importer and gameplay not implemented |
@@ -830,16 +830,28 @@ files RNC-packed. The image set is a cracked copy (CSL intro loaded by disk
    `ring_position`; with native holds the camera equals a 260-frame
    recording with a reversal on 258 of 259 frames (the original's snapshot
    time jitters with CPU load; we take it at the tick start).
-7. Next: the panel, then: file loads, RNC unpacker, sprite sheet cutting
-   and palettes, `.spt` placements, tile attributes (`.hit`, `.bht`,
-   `.swp`), the RJP1 music player, recruits and front end.
+7. **Done 2026-10-27: mission set-up, object drawing, panel.**
+   `game/objects` (spawner `$8A594`: equal to the original's table on maps
+   1 and 2 in every field it writes; frame tables from `fodderc`),
+   `game/object_view` (draw list `$AB828`, cookie-cut drawing: equal to the
+   buffer the original drew on all play-area pixels in five grabs),
+   `game/panel` (pieces of `pstuff.lbm`, fill, squad block, names, chevrons,
+   globe: equal to the original's sprite memory at mission 1's start),
+   `game/mission_preview` (launcher: mission 1 start, every map with its
+   placements; soldiers, enemies and other logic-driven looks as markers).
+8. Next: squad movement (soldiers' and enemies' first update and walking,
+   facings, terrain `.hit`/`.bht`), shooting, enemies, winning and losing,
+   the game module; later file loads, the RJP1 music player, recruits and
+   front end.
 
-Open: the look-ahead's right-button branch; the left panel (sprites?); ring
-columns 304-319 left stale; the meaning of the map cell flags (bits 13-15)
-and of tile 399 (map 31); `.spt` fields; `.hit`/`.bht`/`.swp`; sprite-sheet
-palettes; `*play.lbm` and the `.pl8` colours; `disk2.ra`, `dir`,
-`abgnd32.lbm` (named, not on any disk); the directory header byte $1A;
-recruit record bytes 6-8; the crack's TRAP #1 hook ("pstu"/"rank"); the
+Open: the panel's ammunition counts, lit-box condition, vehicle icons and
+mini-map; object drawing with hidden lines, negative/positive layers and y
+ties not exercised; kinds $6A/$48 (`$81F60`); the look-ahead's right-button
+branch; ring columns 304-319 left stale; the meaning of the map cell flags
+(bits 13-15) and of tile 399 (map 31); `.spt` fields; `.hit`/`.bht`/`.swp`;
+sprite-sheet palettes; `*play.lbm` and the `.pl8` colours; `disk2.ra`,
+`dir`, `abgnd32.lbm` (named, not on any disk); the directory header byte
+$1A; recruit record bytes 6-8; the crack's TRAP #1 hook ("pstu"/"rank"); the
 retail boot; a second release entry for the importer.
 
 ## Launcher visual exploration (2026-10-26)

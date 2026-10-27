@@ -7,6 +7,21 @@
 //   cannon_fodder_assets view <content folder> <map> <camera x> <camera y> <out.png> [indices.raw]
 //   cannon_fodder_assets lookahead <content folder> <leader x> <leader y> <pointer map x> <pointer map y>
 //   cannon_fodder_assets camreplay <content folder> <trace.txt> [--holds]
+//   cannon_fodder_assets spawn <content folder> <map> [table.bin]
+//   cannon_fodder_assets objects <content folder> <map> <grab prefix> [diff.png]
+//   cannon_fodder_assets panel <content folder> <out.png> [sprites.bin]
+//
+// panel composes the panel for the start of mission 1 (one squad, recruits
+// 0 and 1 at rank 0, no ammunition) and, given the original's sprite memory
+// from $394 (harness), compares all 48 x 224 pixels.
+//
+// objects draws the map and the objects of a grabbed object table
+// (harness/objgrab.py: prefix.objects, prefix.buffer, prefix.txt) natively
+// and compares the visible play area with the buffer the original drew.
+//
+// spawn prints the native mission set-up (game/objects.hpp) and, given a
+// dump of the original's object table right after its spawner
+// (harness/atspawn.py), compares every field the spawner writes.
 //
 // camreplay runs the native camera step from a recording of the original
 // (.analysis/cannon_fodder_amiga/harness/camtrace.py, converted by
@@ -21,9 +36,13 @@
 // optionally, as raw colour indices for comparison with the original's
 // display (harness/display.py).
 
+#include "amiga/adf.hpp"
 #include "cannon_fodder_amiga/data/preview.hpp"
 #include "cannon_fodder_amiga/game/camera.hpp"
 #include "cannon_fodder_amiga/game/map_view.hpp"
+#include "cannon_fodder_amiga/game/object_view.hpp"
+#include "cannon_fodder_amiga/game/objects.hpp"
+#include "cannon_fodder_amiga/game/panel.hpp"
 #include "cannon_fodder_amiga/import/disk_import.hpp"
 #include "platform/files.hpp"
 #include "platform/host.hpp"
@@ -97,6 +116,145 @@ int run(int argc, char** argv) {
         std::printf("distance %d direction %d target ", tables.distance(dx, dy), tables.direction(dx, dy, 9).value_or(-1));
         if (target) std::printf("%d %d\n", target->x, target->y); else std::printf("none\n");
         return 0;
+    }
+    if (command == "panel" && (argc == 4 || argc == 5)) {
+        using namespace fodder;
+        const data::Content content(argv[2]);
+        const game::PanelArt art(content.read("fodderc", 1), amiga::read_ilbm(content.read("pstuff.lbm", 1)));
+        game::PanelState state;
+        state.selected_squad = 0;
+        state.soldiers = {2, 0, 0};
+        state.icon = {1, 0, 0};
+        state.roster = {{0, 0, 0, 0, true}, {1, 0, 0, 0, true}};
+        const auto panel = game::compose_panel(art, state);
+        const auto palette = data::read_palette(content.read("junbase.pal", 2)); // placeholder colours for the PNG
+        platform::Image image(game::panel_width, game::panel_height);
+        for (std::size_t i = 0; i < panel.size(); ++i) {
+            image.pixels[i] = panel[i] ? data::to_color(palette[panel[i]]) : platform::Color{34, 34, 34, 255};
+        }
+        platform::save_png(image, argv[3]);
+        if (argc == 5) {
+            const auto dump = platform::read_file(argv[4]); // sprite memory from $394
+            const auto word = [&](std::uint32_t address) { return amiga::read_be16(dump, address - 0x394); };
+            const std::uint32_t even[3] = {0x398, 0xb30, 0x12c8}, odd[3] = {0x764, 0xefc, 0x1694};
+            int bad = 0;
+            for (int y = 0; y < game::panel_height; ++y) {
+                for (int x = 0; x < game::panel_width; ++x) {
+                    const int c = x / 16, bit = 0x8000 >> (x & 15);
+                    const auto at = std::uint32_t(y * 4);
+                    const int colour = ((word(even[c] + at) & bit) ? 1 : 0) | ((word(even[c] + at + 2) & bit) ? 2 : 0) |
+                                       ((word(odd[c] + at) & bit) ? 4 : 0) | ((word(odd[c] + at + 2) & bit) ? 8 : 0);
+                    if (colour != panel[std::size_t(y * game::panel_width + x)]) {
+                        if (++bad <= 10) std::printf("  (%d,%d) native %d original %d\n", x, y, panel[std::size_t(y * game::panel_width + x)], colour);
+                    }
+                }
+            }
+            std::printf("panel pixels %d, differing %d\n", game::panel_width * game::panel_height, bad);
+            return bad == 0 ? 0 : 1;
+        }
+        return 0;
+    }
+    if (command == "objects" && (argc == 5 || argc == 6)) {
+        using namespace fodder;
+        const data::Content content(argv[2]);
+        const int number = std::stoi(argv[3]);
+        const int disk = data::map_disk(number);
+        const std::string prefix = argv[4];
+        const auto map = data::read_map(content.read("mapm" + std::to_string(number) + ".map", disk));
+        const game::MapPicture picture(map, data::read_tile_set(content.read(map.base_set, disk)),
+                                       data::read_tile_set(content.read(map.sub_set, disk)));
+        const auto land = map.base_set.substr(0, 3);
+        const game::ObjectSheets sheets{amiga::read_ilbm(content.read(land + "army.lbm", disk)),
+                                        amiga::read_ilbm(content.read(land + "copt.lbm", disk))};
+        const game::FrameTables frames(content.read("fodderc", 1));
+        // The grabbed table, read into native objects (research input).
+        const auto table = platform::read_file(prefix + ".objects");
+        game::MissionObjects objects;
+        for (int i = 0; i < game::object_slots; ++i) {
+            const auto r = std::span<const std::uint8_t>(table).subspan(std::size_t(i) * 0x76, 0x76);
+            auto& o = objects.slots[std::size_t(i)];
+            const auto first = amiga::read_be16(r, 0);
+            if (first == 0x8000 || first == 0xffff) continue;
+            o.used = true;
+            o.x = std::int32_t(amiga::read_be32(r, 0)); o.y = std::int32_t(amiga::read_be32(r, 4));
+            o.graphic = std::int16_t(amiga::read_be16(r, 8)); o.frame = std::int16_t(amiga::read_be16(r, 0xa));
+            o.kind = std::int16_t(amiga::read_be16(r, 0x18)); o.removed = amiga::read_be16(r, 0x24) != 0;
+            o.height = std::int16_t(amiga::read_be16(r, 0x1e)); o.layer = std::int16_t(amiga::read_be16(r, 0x2c));
+            o.hidden_lines = std::int16_t(amiga::read_be16(r, 0x52));
+        }
+        int camx, camy, snapx, snapy, dirx, diry;
+        {
+            std::ifstream in(prefix + ".txt");
+            in >> camx >> camy >> snapx >> snapy >> dirx >> diry;
+        }
+        auto view = game::view_indices(picture, {camx, camy});
+        const auto order = game::draw_list(objects, {snapx, snapy}, dirx, diry);
+        game::draw_objects(view, {camx, camy}, objects, order, frames, sheets);
+        const auto buffer = platform::read_file(prefix + ".buffer");
+        const auto ring = [&](int x, int y) {
+            const int index = ((y * 320 + x) % 81920 + 81920) % 81920;
+            const int line = index / 320, column = index % 320;
+            int colour = 0;
+            for (int p = 0; p < 4; ++p) {
+                if (buffer[std::size_t(p * 0x2828 + line * 40 + column / 8)] & (0x80 >> (column & 7))) colour |= 1 << p;
+            }
+            return colour;
+        };
+        platform::Image diff(game::view_width, game::view_height);
+        int bad = 0, total = 0;
+        for (int line = 0; line < game::view_height; ++line) {
+            for (int column = 48; column < game::view_width; ++column) {
+                const int x = camx + column - game::view_column_of_camera, y = camy + line;
+                if (x >= picture.width() || y >= picture.height()) continue;
+                ++total;
+                const bool same = ring(x, y) == view[std::size_t(line * game::view_width + column)];
+                bad += !same;
+                diff.put(column, line, same ? platform::Color{30, 90, 30, 255} : platform::Color{255, 60, 60, 255});
+            }
+        }
+        std::printf("draw list:");
+        for (const int i : order) std::printf(" %d", i);
+        std::printf("\nplay area pixels %d, differing %d\n", total, bad);
+        if (argc == 6) platform::save_png(diff, argv[5]);
+        return bad == 0 ? 0 : 1;
+    }
+    if (command == "spawn" && (argc == 4 || argc == 5)) {
+        using namespace fodder;
+        const data::Content content(argv[2]);
+        const int number = std::stoi(argv[3]);
+        const auto mission = game::spawn_objects(
+            data::read_placements(content.read("mapm" + std::to_string(number) + ".spt", data::map_disk(number))));
+        std::printf("enemies %d, kinds $6A/$48 %d\n", mission.enemies, mission.kind_6a_48);
+        std::vector<std::uint8_t> dump;
+        if (argc == 5) dump = platform::read_file(argv[4]);
+        int bad = 0;
+        for (int i = 0; i < game::object_slots; ++i) {
+            const auto& o = mission.slots[std::size_t(i)];
+            if (o.used) {
+                std::printf("slot %2d kind %3d at %4d,%4d graphic $%02X squad %d delay %3d side %d\n", i, o.kind,
+                            o.x >> 16, o.y >> 16, o.graphic, o.squad, o.start_delay, o.side);
+            }
+            if (dump.empty()) continue;
+            const auto r = std::span<const std::uint8_t>(dump).subspan(std::size_t(i) * 0x76, 0x76);
+            const auto w = [&](std::size_t at) { return int(std::int16_t(amiga::read_be16(r, at))); };
+            const bool free_slot = amiga::read_be16(r, 0) == 0x8000;
+            std::vector<std::pair<const char*, std::pair<int, int>>> fields;
+            if (free_slot != !o.used) fields.push_back({"used", {o.used, !free_slot}});
+            if (o.used && !free_slot) {
+                fields = {{"x", {o.x >> 16, w(0)}}, {"x.frac", {o.x & 0xffff, w(2) & 0xffff}},
+                          {"y", {o.y >> 16, w(4)}}, {"graphic", {o.graphic, w(8)}}, {"kind", {o.kind, w(0x18)}},
+                          {"side", {o.side, w(0x22)}}, {"home_x", {o.home_x, w(0x26)}}, {"home_y", {o.home_y, w(0x28)}},
+                          {"squad", {o.squad, w(0x32)}}, {"delay", {o.start_delay, w(0x4a)}}};
+            }
+            for (const auto& [name, values] : fields) {
+                if (values.first != values.second) {
+                    ++bad;
+                    std::printf("  slot %d %s: native %d original %d\n", i, name, values.first, values.second);
+                }
+            }
+        }
+        if (!dump.empty()) std::printf("%d fields differ\n", bad);
+        return bad == 0 ? 0 : 1;
     }
     if (command == "camreplay" && (argc == 4 || argc == 5)) {
         const bool native_holds = argc == 5 && std::string(argv[4]) == "--holds";

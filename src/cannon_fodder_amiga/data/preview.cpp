@@ -1,4 +1,5 @@
 #include "cannon_fodder_amiga/data/preview.hpp"
+#include "cannon_fodder_amiga/game/mission_preview.hpp"
 #include "platform/files.hpp"
 #include <algorithm>
 #include <array>
@@ -171,10 +172,14 @@ std::vector<app::Preview> previews(const std::filesystem::path& folder, bool ful
                           palette_image(colours)});
     }
 
+    if (auto start = game::mission_start_image(content, 1)) {
+        result.push_back({"Mission 1 start: map, objects, panel (markers: looks set by game logic not rebuilt yet)",
+                          std::move(*start)});
+    }
     for (int number = 1; number <= 72; ++number) {
-        auto image = map_image(content, number);
+        auto image = game::map_objects_image(content, number);
         const auto title = "Map: mission map " + std::to_string(number) + " (" + std::to_string(image.width / 16) +
-                           " x " + std::to_string(image.height / 16) + " tiles)";
+                           " x " + std::to_string(image.height / 16) + " tiles) with its placements";
         result.push_back({title, full_size_maps ? std::move(image) : fit(image, 604, 358)});
     }
     return result;
