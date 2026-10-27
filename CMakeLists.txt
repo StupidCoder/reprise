@@ -52,7 +52,7 @@ add_library(amiga
     src/amiga/byte_run1.cpp
     src/amiga/iff.cpp
     src/amiga/paula.cpp
-    src/amiga/rom_font.cpp)
+    src/amiga/topaz.cpp)
 target_include_directories(amiga PUBLIC ${SOURCE_ROOT})
 target_compile_options(amiga PRIVATE ${PROJECT_WARNINGS})
 

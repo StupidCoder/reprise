@@ -27,10 +27,4 @@ namespace marble_madness::import {
 
 app::ImportResult import_disk(std::span<const std::uint8_t> image);
 
-// The game's optional second file: a Kickstart ROM, from which the import
-// keeps only the topaz 9 font the program draws its texts with
-// (topaz9.font, amiga/rom_font.hpp). Without it Joyport's own letters
-// stand in.
-app::ImportResult import_kickstart(std::span<const std::uint8_t> rom);
-
 } // namespace marble_madness::import

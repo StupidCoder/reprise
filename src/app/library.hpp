@@ -25,8 +25,6 @@ public:
     // The installed files with their sizes, for an installed game.
     std::vector<std::pair<std::string, std::uintmax_t>> installed_files(std::size_t game) const;
     std::filesystem::path content_directory(std::size_t game) const;
-    // Whether the game's optional second file has been imported.
-    bool has_extra(std::size_t game) const { return installs_[game] && !installs_[game]->extras.empty(); }
 
     struct Outcome {
         bool ok{};
@@ -36,8 +34,7 @@ public:
 
     // Imports an image. The preferred game (the one selected in the
     // launcher) is tried first, then every other importable game, so a
-    // dropped image lands with the game it belongs to. A file a game takes
-    // as its optional second file is added to that game's install.
+    // dropped image lands with the game it belongs to.
     Outcome import(const std::filesystem::path& image, std::optional<std::size_t> preferred);
 
     // Deletes a game's imported content.
@@ -45,14 +42,13 @@ public:
 
 private:
     struct Install {
-        std::string release, source;
+        std::string release;
         std::vector<std::pair<std::string, std::uintmax_t>> files;
-        std::vector<std::string> extras; // the files of the optional second file
     };
 
     std::optional<Install> check_install(const GameEntry& game) const;
-    void install(const GameEntry& game, const ImportResult& result, const std::string& source);
-    Outcome install_extra(std::size_t index, const ImportResult& extra);
+    void install(const GameEntry& game, const ImportResult& result,
+                 const std::filesystem::path& source);
 
     std::filesystem::path root_;
     std::vector<GameEntry> games_;

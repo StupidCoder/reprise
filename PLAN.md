@@ -574,10 +574,10 @@ same disk is used as a guide; claims are checked against the image's code.
    counting its time in, the finish bonus, out of time and game over, the
    end after Ultimate (tally and bouncing marbles), the bar's clock flash.
    Checked against captures of the original's screens.
-12. **The original's font** — done (2026-10-27): topaz 9 read at import
-   from a Kickstart ROM the user adds (an optional second file per game in
-   the launcher; `amiga/rom_font.cpp`); texts and score bar pixel-checked
-   against captures.
+12. **The original's font** — done (2026-10-27): the Kickstart's topaz 9
+   embedded like the C64 character ROM's glyphs (`amiga/topaz.cpp`, not
+   covered by the MIT licence); texts and score bar pixel-checked against
+   captures.
 13. **Quick save and load** — done (2026-10-27): a copy of the whole game
    flow; checked to play on identically from saves at every stage.
    Next: two players, mouse input.

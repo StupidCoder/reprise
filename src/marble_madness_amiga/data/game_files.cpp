@@ -39,9 +39,6 @@ GameFiles::GameFiles(const std::filesystem::path& content)
         }
         map_rows_[c] = head[0] << 8 | head[1];
     }
-    if (std::filesystem::exists(content / "topaz9.font")) {
-        font_ = amiga::load_font(platform::read_file(content / "topaz9.font"));
-    }
 }
 
 } // namespace marble_madness::data

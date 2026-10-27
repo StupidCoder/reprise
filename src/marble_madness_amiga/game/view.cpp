@@ -1,6 +1,6 @@
 #include "marble_madness_amiga/game/view.hpp"
+#include "amiga/topaz.hpp"
 #include "marble_madness_amiga/data/preview.hpp"
-#include "ui/draw.hpp"
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -338,55 +338,28 @@ platform::Image View::draw(const Race& race, const Overlay& overlay) const {
     return image;
 }
 
-// The program's texts are in topaz 9 ($109C20 opens it): cells of 10 x 9
-// pixels, the baseline on the seventh line. The font comes from the
-// user's Kickstart ROM (topaz9.font); without one Joyport's own letters
-// stand in, centred in the same cells.
+// The program's texts are in the Kickstart's topaz 9 ($109C20 opens it):
+// cells of 10 x 9 pixels, the baseline on the seventh line.
 void View::put_text(platform::Image& image, const std::string& text, int x, int top, platform::Color pen,
                     std::optional<platform::Color> paper, int first_row, int end_row) const {
-    const amiga::RomFont* font = files_->font();
-    const int cell_width = font != nullptr ? font->width : 10, cell_height = font != nullptr ? font->height : 9;
+    using amiga::Topaz9;
     auto put = [&](int px, int py, platform::Color colour) {
         if (px >= 0 && px < width && py >= first_row && py < end_row) {
             image.put(px, py, colour);
         }
     };
     for (std::size_t i = 0; i < text.size(); ++i) {
-        const int cell = x + int(i) * cell_width;
+        const int cell = x + int(i) * Topaz9::width;
         if (cell >= width) {
             break;
         }
-        if (paper) {
-            for (int y = 0; y < cell_height; ++y) {
-                for (int dx = 0; dx < cell_width; ++dx) {
-                    put(cell + dx, top + y, *paper);
-                }
-            }
-        }
         const auto c = static_cast<unsigned char>(text[i]);
-        if (font != nullptr) {
-            const auto& glyph = font->glyph(c);
-            for (int y = 0; y < font->height; ++y) {
-                for (int dx = 0; dx < glyph.bits; ++dx) {
-                    if (font->pixel(glyph, dx, y)) {
-                        put(cell + dx, top + y, pen);
-                    }
-                }
-            }
-        } else if (c != ' ') {
-            // Drawn into a cell of its own first, so that it is clipped like
-            // the font's glyphs (the bar's texts start on its second line).
-            const std::string letter(1, char(c));
-            platform::Image glyph(cell_width, cell_height);
-            const platform::Color blank{std::uint8_t(pen.r ^ 0xFF), pen.g, pen.b, pen.a};
-            ui::fill(glyph, blank);
-            ui::text(glyph, letter, (cell_width - ui::text_width(letter, 1)) / 2, 0, 1, pen);
-            for (int y = 0; y < cell_height; ++y) {
-                for (int dx = 0; dx < cell_width; ++dx) {
-                    const auto& p = glyph.pixels[std::size_t(y * cell_width + dx)];
-                    if (p.r == pen.r && p.g == pen.g && p.b == pen.b) {
-                        put(cell + dx, top + y, pen);
-                    }
+        for (int y = 0; y < Topaz9::height; ++y) {
+            for (int dx = 0; dx < Topaz9::width; ++dx) {
+                if (Topaz9::pixel(c, dx, y)) {
+                    put(cell + dx, top + y, pen);
+                } else if (paper) {
+                    put(cell + dx, top + y, *paper);
                 }
             }
         }

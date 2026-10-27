@@ -39,8 +39,6 @@ app::GameEntry entry() {
         .machine = app::Machine::amiga,
         .media = "the disk image (ADF)",
         .import = import::import_disk,
-        .extra_media = "a Kickstart ROM file for the original's topaz font",
-        .import_extra = import::import_kickstart,
         .previews = previews,
         .start = game::start,
         .progress = "All six courses and the one-player game around them (options, course introductions, bonuses, "
