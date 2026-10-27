@@ -46,7 +46,7 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
 | Mindwalker | Amiga | `Mind Walker (1986)(Commodore).adf` (SHA-256 `2e83a67a…a8969c`) | disk import and decoded assets with launcher viewer; title, world menu and new game playable (mouse), matching the original frame for frame and pen for pen; world generator verified against the original; the landscape and the tunnel playable and checked read for read against the original; the arena and the psyche screen not rebuilt yet |
 | Marble Madness | Amiga | `Marble_Madness.adf` (MD5 `735dc697d64b3eeaa000778eb0b1153a`) | disk import (both encrypted programs decrypted, checked against the original's memory); asset previews; all six courses complete in play (physics, covers, creatures, special regions, music and effects; each compared with the original update for update from start to goal); front end for one player (options, introductions, bonus, game over, the end) |
 | Wizball | C64 | `Wizball.g64` (MD5 `73e1a136da4b6972d39f00817b86983e`) | disk import, asset decoding with launcher previews; play rebuilt and checked in lockstep (places, enemies, catellite, tunnels, lives, bonus wave, Wizlab, level flight, round end, sound and music); front end, high scores and keys rebuilt |
-| Cannon Fodder | Amiga | three ADFs, `Cannon Fodder (1993)(Virgin)(Disk N of 3)[cr CSL].adf` (SHA-256 `2b01cbc9…`, `9089815b…`, `87ea9c1d…`; a cracked copy) | import of all three disks (Sensible disk format, RNC unpacking) and decoded screens, sprite sheets, tile sets, colours and the 72 mission maps with launcher viewer; map view, camera, tile drawer, mission set-up, object drawing and panel rebuilt and checked against the original; nothing playable yet |
+| Cannon Fodder | Amiga | three ADFs, `Cannon Fodder (1993)(Virgin)(Disk N of 3)[cr CSL].adf` (SHA-256 `2b01cbc9…`, `9089815b…`, `87ea9c1d…`; a cracked copy) | import of all three disks (Sensible disk format, RNC unpacking) and decoded screens, sprite sheets, tile sets, colours and the 72 mission maps with launcher viewer; map view, camera, tile drawer, mission set-up, object drawing, panel, squad walking, shooting, deaths and enemy soldiers rebuilt and checked against the original; not yet playable in the shell |
 | Rock 'n Roll | Amiga | — | planned |
 | Wings of Fury | Amiga | `Wings_of_Fury_v1.0_1990_Broderbund_cr_Hysteria.adf` (SHA-256 `638d9a9d…4620044`, a cracked copy) | disk import and decoded assets with launcher viewer (pictures, all 12 shape libraries, palettes, sounds, texts); nothing playable yet |
 | Tower of Babel | Amiga | — | planned; original interpretive shell cover added, importer and gameplay not implemented |
@@ -869,10 +869,21 @@ files RNC-packed. The image set is a cracked copy (CSL intro loaded by disk
    globe: equal to the original's sprite memory at mission 1's start),
    `game/mission_preview` (launcher: mission 1 start, every map with its
    placements; soldiers, enemies and other logic-driven looks as markers).
-8. Next: squad movement (soldiers' and enemies' first update and walking,
-   facings, terrain `.hit`/`.bht`), shooting, enemies, winning and losing,
-   the game module; later file loads, the RJP1 music player, recruits and
-   front end.
+8. Steps 4-6 rebuilt (2026-10-27): the rules of the selected squad,
+   bullets and enemy soldiers, checked tick by tick against seven
+   recordings of the original (`cannon_fodder_assets replay`; all 0
+   differing fields). `game/world.hpp` (all mission state),
+   `game/tables` (program tables), `game/walking` (soldier walking,
+   firing branch and poses, being hit, falling, writhing, lying, death;
+   enemy target scan, approach, fire delay, line of sight, turning away
+   when blocked, kill credit), `game/combat` (fire control per frame,
+   bullet creation and flight, hit tests, blood, shadows). Random choices
+   use a standard C++ generator (the original's draws from live memory
+   are not replicated) and are checked by their rules and ranges. Next:
+   the game module (tick loop with input, squads' membership each tick,
+   other squads, winning and losing) to make mission 1 playable in the
+   shell; later grenades and rockets, vehicles, buildings, file loads,
+   the RJP1 music player, sounds, recruits and front end.
 
 Open: the panel's ammunition counts, lit-box condition, vehicle icons and
 mini-map; object drawing with hidden lines, negative/positive layers and y
@@ -882,7 +893,13 @@ branch; ring columns 304-319 left stale; the meaning of the map cell flags
 sprite-sheet palettes; `*play.lbm` and the `.pl8` colours; `disk2.ra`,
 `dir`, `abgnd32.lbm` (named, not on any disk); the directory header byte
 $1A; recruit record bytes 6-8; the crack's TRAP #1 hook ("pstu"/"rank"); the
-retail boot; a second release entry for the importer.
+retail boot; a second release entry for the importer. Game logic: `$81DCE`/
+`$81E02` (stop shots), shot and death sounds, grenades `$97D88`, rockets
+`$9B4FA`, vehicles, other squads' scan, states 3 (holes), $32-$34/$5A/$5B,
+squeeze and entering, the hall of fame `$96DF6`, the bleed marker
+(`$81DCA`, `+$40` = $9876) and the mission-end rewrite of `+$26`, the
+leftover register in the enemy aim (`$9DA04`, hypothesis: the enemy
+itself), flagged map cells in the sight line, enemy kinds other than 5.
 
 ## Launcher visual exploration (2026-10-26)
 

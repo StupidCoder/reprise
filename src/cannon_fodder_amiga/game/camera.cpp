@@ -73,6 +73,24 @@ std::optional<int> GeometryTables::direction(int dx, int dy, int top_bit) const 
     return up ? (0x180 - a) & 0x1fe : (0x180 + a) & 0x1fe;
 }
 
+std::optional<int> GeometryTables::heading_toward(int dx, int dy) const {
+    const bool left = dx < 0, up = dy < 0;
+    unsigned x = unsigned(std::abs(dx)) & 0xffff, y = unsigned(std::abs(dy)) & 0xffff;
+    while (x > 31 || y > 31) {
+        x >>= 1;
+        y >>= 1;
+    }
+    const int octant = angle_[x | y << 5];
+    if (octant < 0) {
+        return std::nullopt;
+    }
+    const int a = octant * 2;
+    if (!left) {
+        return up ? (0x80 + a) & 0x1fe : (0x80 - a) & 0x1fe;
+    }
+    return up ? (0x180 - a) & 0x1fe : (0x180 + a) & 0x1fe;
+}
+
 std::optional<Point> look_ahead_target(const GeometryTables& tables, Point leader, Point pointer_on_map,
                                        bool short_reach) {
     const Point origin{leader.x + 24, leader.y};

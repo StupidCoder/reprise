@@ -30,6 +30,7 @@ struct GameObject {
     int hidden_lines{};    // +$52: lines cut from the bottom when drawn
     int layer{};           // +$2C: < 0 drawn first, 0 sorted by y, > 0 drawn last
     bool removed{};        // +$24: freed when the next draw list is built
+    bool on_screen{};      // +$5C: in the last draw list
 };
 
 struct MissionObjects {

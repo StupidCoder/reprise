@@ -10,6 +10,13 @@
 //   cannon_fodder_assets spawn <content folder> <map> [table.bin]
 //   cannon_fodder_assets objects <content folder> <map> <grab prefix> [diff.png]
 //   cannon_fodder_assets panel <content folder> <out.png> [sprites.bin]
+//   cannon_fodder_assets replay <content folder> <map> <trace>
+//
+// replay checks the soldiers and bullets tick by tick against a recording of
+// the original (harness/ticktrace2.py): each tick starts from the original's
+// state before the object update; the native updates run in slot order, and
+// every slot they handled is compared field by field with the original's
+// state after the tick.
 //
 // panel composes the panel for the start of mission 1 (one squad, recruits
 // 0 and 1 at rank 0, no ammunition) and, given the original's sprite memory
@@ -39,10 +46,12 @@
 #include "amiga/adf.hpp"
 #include "cannon_fodder_amiga/data/preview.hpp"
 #include "cannon_fodder_amiga/game/camera.hpp"
+#include "cannon_fodder_amiga/game/combat.hpp"
 #include "cannon_fodder_amiga/game/map_view.hpp"
 #include "cannon_fodder_amiga/game/object_view.hpp"
 #include "cannon_fodder_amiga/game/objects.hpp"
 #include "cannon_fodder_amiga/game/panel.hpp"
+#include "cannon_fodder_amiga/game/walking.hpp"
 #include "cannon_fodder_amiga/import/disk_import.hpp"
 #include "platform/files.hpp"
 #include "platform/host.hpp"
@@ -116,6 +125,338 @@ int run(int argc, char** argv) {
         std::printf("distance %d direction %d target ", tables.distance(dx, dy), tables.direction(dx, dy, 9).value_or(-1));
         if (target) std::printf("%d %d\n", target->x, target->y); else std::printf("none\n");
         return 0;
+    }
+    if ((command == "replay" || command == "walkreplay") && argc == 5) {
+        using namespace fodder;
+        const data::Content content(argv[2]);
+        const int number = std::stoi(argv[3]);
+        const int disk = data::map_disk(number);
+        const auto map = data::read_map(content.read("mapm" + std::to_string(number) + ".map", disk));
+        const auto base = map.base_set.substr(0, map.base_set.size() - 4), sub = map.sub_set.substr(0, map.sub_set.size() - 4);
+        const auto program = content.read("fodderc", 1);
+        const game::Terrain terrain(map, content.read(base + ".hit", disk), content.read(sub + ".hit", disk),
+                                    content.read(base + ".bht", disk), content.read(sub + ".bht", disk), program);
+        const game::ProgramTables tables(program);
+        const auto trace = platform::read_file(argv[4]);
+        struct Range { std::uint32_t address, size, offset; };
+        const Range ranges[] = {{0xfdb2c, 45 * 0x76, 0}, {0x81400, 0x1700, 0}, {0x85b00, 0x290, 0}, {0x80600, 0x80, 0},
+                                {0x8cab0, 0x20, 0}, {0x9d840, 0x10, 0}, {0x82b00, 0x100, 0}};
+        std::vector<Range> layout;
+        std::uint32_t blob_size = 0;
+        for (auto r : ranges) { r.offset = blob_size; blob_size += r.size; layout.push_back(r); }
+        std::size_t at = 0;
+        while (trace[at] != '\n') ++at;
+        at += 1 + 0x1000 + 0x320 + 0x60 + 0x10;
+        int ticks = 0, bad = 0, unhandled = 0, created = 0, falls = 0, unhandled_enemies = 0, random_skips = 0;
+        while (at + 6 <= trace.size()) {
+            const int tick = amiga::read_be16(trace, at + 2), randoms = amiga::read_be16(trace, at + 4);
+            const auto before = std::span<const std::uint8_t>(trace).subspan(at + 6, blob_size);
+            const auto after = std::span<const std::uint8_t>(trace).subspan(at + 6 + blob_size, blob_size);
+            at += 6 + 2 * std::size_t(blob_size) + std::size_t(randoms) * 8;
+            const auto next_before = at + 6 + blob_size <= trace.size() ? std::span<const std::uint8_t>(trace).subspan(at + 6, blob_size)
+                                                                         : std::span<const std::uint8_t>();
+            const auto locate = [&](std::uint32_t a) -> long {
+                for (const auto& r : layout) if (a >= r.address && a < r.address + r.size) return long(r.offset + (a - r.address));
+                return -1;
+            };
+            const auto W = [&](std::span<const std::uint8_t> b, std::uint32_t a) { const long o = locate(a); return o < 0 ? 0 : int(std::int16_t(amiga::read_be16(b, std::size_t(o)))); };
+            const auto L = [&](std::span<const std::uint8_t> b, std::uint32_t a) { const long o = locate(a); return o < 0 ? 0 : std::int32_t(amiga::read_be32(b, std::size_t(o))); };
+            const auto B = [&](std::span<const std::uint8_t> b, std::uint32_t a) { const long o = locate(a); return o < 0 ? 0 : int(b[std::size_t(o)]); };
+            game::World world;
+            const auto load_slot = [&](std::span<const std::uint8_t> b, int i, game::GameObject& o, game::Walker& s) {
+                const std::uint32_t r = 0xfdb2c + std::uint32_t(i) * 0x76;
+                const int first = W(b, r) & 0xffff;
+                o.used = first != 0x8000 && first != 0xffff;
+                o.x = L(b, r); o.y = L(b, r + 4); o.graphic = W(b, r + 8); o.frame = W(b, r + 0xa);
+                o.kind = W(b, r + 0x18); o.height = W(b, r + 0x1e); o.side = W(b, r + 0x22); o.squad = W(b, r + 0x32);
+                o.hidden_lines = W(b, r + 0x52); o.layer = W(b, r + 0x2c);
+                s.heading = W(b, r + 0x10); s.speed = W(b, r + 0x36); s.facing = W(b, r + 0x3c); s.facing_timer = W(b, r + 0x3e);
+                s.waypoint_x = W(b, r + 0x26); s.waypoint_y = W(b, r + 0x28); s.route_index = W(b, r + 0x40);
+                s.took_waypoint = B(b, r + 0x42) != 0; s.idle = B(b, r + 0x43); s.wait = B(b, r + 0x44); s.pause = B(b, r + 0x45);
+                s.stopped = B(b, r + 0x4c); s.wading = B(b, r + 0x4f) != 0; s.slow_target = W(b, r + 0x50);
+                s.animation_state = B(b, r + 0x54); s.animation_step = B(b, r + 0x55); s.squeeze = B(b, r + 0x56);
+                s.animation_timer = B(b, r + 0x57); s.aim_override = B(b, r + 0x5a) != 0; s.entering = B(b, r + 0x5b);
+                s.terrain = B(b, r + 0x60); s.sinking = B(b, r + 0x61) != 0; s.state = W(b, r + 0x38);
+                s.aim_x = W(b, r + 0x2e); s.aim_y = W(b, r + 0x30); s.step_counter = W(b, r + 0x3a); s.carried = B(b, r + 0x6e);
+                const auto roster = std::uint32_t(L(b, r + 0x46));
+                s.roster_weapon = roster ? W(b, roster + 6) : 0;
+                s.rank = roster ? B(b, roster + 2) : 0;
+                s.roster_index = roster >= 0x80664 && roster < 0x80664 + 8 * 0xc ? int((roster - 0x80664) / 0xc) : -1;
+                s.recruit = roster ? W(b, roster) : 0;
+                s.hit_timer = B(b, r + 0x64); s.state_timer = W(b, r + 0x12);
+                s.vertical_speed = L(b, r + 0x1a); s.height_fraction = W(b, r + 0x20) & 0xffff; s.spin = W(b, r + 0x3a);
+                s.fall_heading = W(b, r + 0x3e); s.fall_count = W(b, r + 0x2a); s.shadowed = B(b, r + 0x58) != 0;
+                s.hit_from_behind = B(b, r + 0x59) != 0;
+                o.on_screen = B(b, r + 0x5c) != 0;
+                s.fire_delay = W(b, r + 0x4a); s.skill = W(b, r + 0x62);
+                s.target = W(b, r + 0x5e);
+                s.shot_by_roster = std::min((W(b, r + 0x5e) & 0xfff) / 12, 8) % 8; s.shot_by_mark = B(b, r + 0x5d);
+                const auto building = std::uint32_t(L(b, r + 0x70));
+                s.building = building >= 0xfdb2c && building < 0xfdb2c + 44 * 0x76 ? int((building - 0xfdb2c) / 0x76) : -1;
+            };
+            const auto load_bullet = [&](std::span<const std::uint8_t> b, int i, game::BulletState& t) {
+                const std::uint32_t r = 0xfdb2c + std::uint32_t(i) * 0x76;
+                const auto owner = std::uint32_t(L(b, r + 0x1a));
+                t.owner = owner >= 0xfdb2c ? int((owner - 0xfdb2c) / 0x76) : -1;
+                t.muzzle_ticks = W(b, r + 0x2a); t.offset_x = W(b, r + 0x14); t.offset_y = W(b, r + 0x16);
+                t.lifetime = W(b, r + 0x12); t.age = B(b, r + 0x64); t.flown = W(b, r + 0x3a); t.cruise_speed = W(b, r + 0x4a);
+                t.spread = W(b, r + 0x50); t.spread_done = B(b, r + 0x59) != 0; t.first_heading = W(b, r + 0x34);
+                t.past_target = B(b, r + 0x44) != 0; t.ending = B(b, r + 0x43);
+                t.owner_roster = (W(b, r + 0x5e) & 0xfff) / 12; t.owner_mark = B(b, r + 0x5d);
+            };
+            world.bullets_alive = W(before, 0x81df2);
+            for (int i = 0; i < game::object_slots; ++i) {
+                load_slot(before, i, world.objects.slots[std::size_t(i)], world.walkers[std::size_t(i)]);
+                load_bullet(before, i, world.bullets[std::size_t(i)]);
+                const auto link = std::uint32_t(L(before, 0xfdb2c + std::uint32_t(i) * 0x76 + 0x1a));
+                world.attachments[std::size_t(i)] = {link >= 0xfdb2c && link < 0xfdb2c + 44 * 0x76 ? int((link - 0xfdb2c) / 0x76) : -1,
+                                                     W(before, 0xfdb2c + std::uint32_t(i) * 0x76 + 0x62)};
+                const auto& o = world.objects.slots[std::size_t(i)];
+                const auto roster = std::uint32_t(L(before, 0xfdb2c + std::uint32_t(i) * 0x76 + 0x46));
+                if (o.used && o.kind == 0 && roster >= 0x80664 && roster < 0x80664 + 8 * 0xc)
+                    world.roster_slots[(roster - 0x80664) / 0xc] = i;
+            }
+            for (int n = 0; n < 3; ++n) {
+                auto& q = world.squads[std::size_t(n)];
+                for (auto p = std::uint32_t(L(before, 0x85c16 + std::uint32_t(n) * 4)); p && W(before, p) >= 0 && locate(p) >= 0; p += 4)
+                    q.route.push_back({W(before, p), W(before, p + 2)});
+                for (auto p = std::uint32_t(L(before, 0x85b12 + std::uint32_t(n) * 4)); p && L(before, p) >= 0 && locate(p) >= 0; p += 4)
+                    q.members.push_back(int((std::uint32_t(L(before, p)) - 0xfdb2c) / 0x76));
+                q.mode = W(before, 0x85bf8 + std::uint32_t(n) * 2);
+                q.merged_into = std::int8_t(B(before, 0x85c3e + std::uint32_t(n)));
+            }
+            world.selected_squad = W(before, 0x81556);
+            world.clock.value = {W(before, 0x81578), W(before, 0x8157c), W(before, 0x81580)};
+            world.camera = {W(before, 0x814ae), W(before, 0x814b2)};
+            world.pointer_x = W(before, 0x8caba); world.pointer_y = W(before, 0x8cabc);
+            world.firing = W(before, 0x81dec) != 0;
+            world.both_buttons = W(before, 0x8147e) != 0;
+            world.leader_slot = W(before, 0x81554) >= 0 ? W(before, 0x81554) / 0x76 : -1;
+            for (int n = 0; n < 3; ++n) world.squads[std::size_t(n)].weapon = W(before, 0x821cc + std::uint32_t(n) * 2);
+            world.saved_frame = W(before, 0x817b8);
+            world.phase = W(before, 0x80626);
+            world.objects.enemies = W(before, 0x81f5e);
+            for (std::uint32_t n = 0; n < 8; ++n) world.kills[n] = n < 2 ? W(before, 0x8066e + n * 12) : 0; // (entries 0-1 recorded)
+            world.last_mode = W(before, 0x81f64);
+            world.other_squad = W(before, 0x81fce) != 0;
+            world.walked = W(before, 0x8213e) != 0;
+            for (std::uint32_t n = 0; n < 30; ++n) {
+                const auto p = std::uint32_t(L(before, 0x85b26 + n * 4));
+                world.recruit_lists[n] = p >= 0xfdb2c && p < 0xfdb2c + 44 * 0x76 ? int((p - 0xfdb2c) / 0x76) : -1;
+            }
+            world.keep_frame = W(before, 0x81de4) != 0;
+            const auto load_fire = [&](std::span<const std::uint8_t> b, game::SquadFire& f) {
+                f.stats = {W(b, 0x82146), W(b, 0x82148), W(b, 0x8214a), W(b, 0x8214c)};
+                f.hold_timer = W(b, 0x81dd6); f.countdown = W(b, 0x82140); f.order_index = W(b, 0x82142) / 2;
+                f.leader_shots = W(b, 0x82738); f.lifetime_bonus = W(b, 0x82150); f.speed_bonus = W(b, 0x82152);
+            };
+            load_fire(before, world.fire);
+            world.frame_counter = W(before, 0x80618);
+            // Slots the rebuild cannot update yet take the original's result,
+            // so that later slots in the pass see what the original's did.
+            std::array<int, game::object_slots> handled{}; // 1 soldier, 2 bullet, 3 new bullet
+            std::array<bool, game::object_slots> was_used{};
+            const auto walkers_before = world.walkers;
+            for (int i = 0; i < game::object_slots; ++i) was_used[std::size_t(i)] = world.objects.slots[std::size_t(i)].used;
+            for (int i = 0; i < game::object_slots; ++i) {
+                const auto& o = world.objects.slots[std::size_t(i)];
+                if (!o.used || o.removed) continue;
+                bool done = false;
+                if (o.kind == 0 || o.kind == 5) {
+                    done = o.kind == 0 ? game::update_soldier(world, terrain, tables, i) : game::update_enemy(world, terrain, tables, i);
+                    if (done) handled[std::size_t(i)] = o.kind == 0 ? 1 : 5;
+                    else if (o.kind == 5) ++unhandled_enemies;
+                } else if (o.kind == 6) {
+                    done = game::update_bullet(world, terrain, tables, i);
+                    if (done) handled[std::size_t(i)] = 2;
+                } else if (o.kind == 0x16 || o.kind == 0x17) {
+                    if (o.kind == 0x16) game::update_shadow(world, i); else game::update_blood(world, i);
+                    done = true;
+                    handled[std::size_t(i)] = 4;
+                }
+                if (!done) {
+                    if (o.kind == 0 || o.kind == 6) ++unhandled;
+                    if (o.kind == 0 && unhandled <= 5) std::printf("tick %d slot %d: soldier update not handled\n", tick, i);
+                    auto& slot = world.objects.slots[std::size_t(i)];
+                    game::GameObject replaced; game::Walker unused;
+                    load_slot(after, i, replaced, unused);
+                    slot.x = replaced.x; slot.y = replaced.y; slot.height = replaced.height;
+                }
+            }
+            const auto report = [&](int i, const char* name, long native, long original) {
+                if (native != original && ++bad <= 40)
+                    std::printf("tick %d slot %d %s: native %ld original %ld\n", tick, i, name, native, original);
+            };
+            for (int i = 0; i < game::object_slots; ++i) {
+                const auto& o = world.objects.slots[std::size_t(i)];
+                if (!was_used[std::size_t(i)] && o.used && o.kind == 6) handled[std::size_t(i)] = 3;
+                if (!was_used[std::size_t(i)] && o.used && (o.kind == 0x16 || o.kind == 0x17)) handled[std::size_t(i)] = 4;
+                if (!handled[std::size_t(i)] && was_used[std::size_t(i)] != o.used) report(i, "used", o.used, !o.used);
+            }
+            for (int i = 0; i < game::object_slots; ++i) {
+                if (!handled[std::size_t(i)]) continue;
+                const auto& o = world.objects.slots[std::size_t(i)];
+                game::GameObject expected; game::Walker e;
+                load_slot(after, i, expected, e);
+                auto& n = world.walkers[std::size_t(i)];
+                const auto whole_x = [&](int k) { return int(std::int16_t(std::uint32_t(world.objects.slots[std::size_t(k)].x) >> 16)); };
+                if (o.removed) {
+                    report(i, "freed", 1, (W(after, 0xfdb2c + std::uint32_t(i) * 0x76 + 0x24) != 0 || !expected.used) ? 1 : 0);
+                    report(i, "kind", o.kind, expected.kind);
+                    continue;
+                }
+                const std::pair<const char*, std::pair<long, long>> common[] = {
+                    {"x", {o.x, expected.x}}, {"y", {o.y, expected.y}}, {"graphic", {o.graphic, expected.graphic}},
+                    {"frame", {o.frame, expected.frame}}, {"heading", {n.heading, e.heading}},
+                    {"state", {n.state, e.state}}, {"layer", {o.layer, expected.layer}}, {"kind", {o.kind, expected.kind}},
+                    {"height", {o.height, expected.height}}, {"aim_x", {n.aim_x, e.aim_x}}, {"aim_y", {n.aim_y, e.aim_y}}};
+                const bool fall_start = (handled[std::size_t(i)] == 1 || handled[std::size_t(i)] == 5) &&
+                                        walkers_before[std::size_t(i)].state != 0 && walkers_before[std::size_t(i)].hit_timer != 0;
+                // Enemies' random choices ($9D894, $9DAA6) differ from the
+                // original's by design: a new fire delay is checked by its
+                // range, a random look-around (aim moved by -128..127) skips
+                // the aim and what follows from it this tick, and so does
+                // the 1-in-64 lapse of attention (the target index moves on
+                // in one and not the other).
+                bool random_look = false, lapse = false;
+                if (handled[std::size_t(i)] == 5) {
+                    const auto& was = walkers_before[std::size_t(i)];
+                    {
+                        // A reload (also after a look-around, which clears the
+                        // delay) lands in [max(base, 5), base + mask] and is
+                        // counted down once in the same tick.
+                        const int skill = std::uint16_t(was.skill), mask = 0x1f >> ((skill >> 2) & 63);
+                        const int base = std::max(50 - int(std::int16_t(skill << 2)), 0);
+                        const auto in_range = [&](int v) { return v >= std::max(base, 5) - 1 && v <= std::max(base + mask, 5) - 1; };
+                        if (was.fire_delay == 0 && e.fire_delay > 0 && !in_range(e.fire_delay))
+                            report(i, "original fire delay outside the rule", e.fire_delay, base);
+                        if (n.fire_delay != e.fire_delay && in_range(n.fire_delay) && in_range(e.fire_delay)) n.fire_delay = e.fire_delay;
+                    }
+                    const auto wandered = [&](const game::Walker& w) {
+                        return (w.aim_x != was.aim_x || w.aim_y != was.aim_y) && std::abs(w.aim_x - was.aim_x) <= 128 &&
+                               std::abs(w.aim_y - was.aim_y) <= 128 && w.waypoint_x == whole_x(i) && w.target != was.target;
+                    };
+                    random_look = (n.aim_x != e.aim_x || n.aim_y != e.aim_y) && (wandered(n) || wandered(e));
+                    lapse = n.target != e.target;
+                }
+                const bool skip_random = random_look || lapse;
+                for (const auto& [name, v] : common) {
+                    if (fall_start && (std::string(name) == "height" || std::string(name) == "graphic")) continue;
+                    if (skip_random) { ++random_skips; break; }
+                    report(i, name, v.first, v.second);
+                }
+                if (skip_random) continue;
+                if (handled[std::size_t(i)] == 3) {
+                    // A new bullet: its first speed and its spread are random
+                    // (the rebuild's own generator), so only their ranges count.
+                    const auto& t = world.bullets[std::size_t(i)];
+                    game::BulletState x;
+                    load_bullet(after, i, x);
+                    if (n.speed % 8 != 0 || n.speed > 120) report(i, "first speed range", n.speed, e.speed);
+                    if (t.spread < -15 || t.spread > 15) report(i, "spread range", t.spread, x.spread);
+                    const std::pair<const char*, std::pair<long, long>> fields[] = {
+                        {"owner", {t.owner, x.owner}}, {"muzzle", {t.muzzle_ticks, x.muzzle_ticks}}, {"lifetime", {t.lifetime, x.lifetime}},
+                        {"cruise", {t.cruise_speed, x.cruise_speed}}, {"offset_y", {t.offset_y, x.offset_y}},
+                        {"first_heading", {t.first_heading, x.first_heading}}, {"side", {o.side, expected.side}}};
+                    for (const auto& [name, v] : fields) report(i, name, v.first, v.second);
+                    ++created;
+                    continue;
+                }
+                report(i, "speed", n.speed, e.speed);
+                if (handled[std::size_t(i)] == 4) {
+                    report(i, "timer", n.state_timer, e.state_timer);
+                    continue;
+                }
+                if (handled[std::size_t(i)] == 2) {
+                    const auto& t = world.bullets[std::size_t(i)];
+                    game::BulletState x;
+                    load_bullet(after, i, x);
+                    const std::pair<const char*, std::pair<long, long>> fields[] = {
+                        {"muzzle", {t.muzzle_ticks, x.muzzle_ticks}}, {"lifetime", {t.lifetime, x.lifetime}}, {"age", {t.age, x.age}},
+                        {"flown", {t.flown, x.flown}}, {"spread_done", {t.spread_done, x.spread_done}},
+                        {"first_heading", {t.first_heading, x.first_heading}},
+                        {"past_target", {t.past_target, x.past_target}}, {"ending", {t.ending, x.ending}}};
+                    for (const auto& [name, v] : fields) report(i, name, v.first, v.second);
+                    continue;
+                }
+                const std::pair<const char*, std::pair<long, long>> fields[] = {
+                    {"height", {o.height, expected.height}}, {"hidden", {o.hidden_lines, expected.hidden_lines}},
+                    {"facing", {n.facing, e.facing}}, {"facing_timer", {n.state == 0 ? n.facing_timer : 0, e.state == 0 ? e.facing_timer : 0}},
+                    {"waypoint_x", {n.waypoint_x, e.waypoint_x}}, {"waypoint_y", {n.waypoint_y, e.waypoint_y}},
+                    {"route_index", {n.route_index, e.route_index}}, {"took", {n.took_waypoint, e.took_waypoint}},
+                    {"idle", {n.idle, e.idle}}, {"wait", {n.wait, e.wait}}, {"pause", {n.pause, e.pause}},
+                    {"stopped", {n.stopped, e.stopped}}, {"wading", {n.wading, e.wading}}, {"slow_target", {n.slow_target, e.slow_target}},
+                    {"terrain", {n.terrain, e.terrain}}, {"sinking", {n.sinking, e.sinking}}, {"squeeze", {n.squeeze, e.squeeze}},
+                    {"step_counter", {n.state == 0 ? n.step_counter : 0, e.state == 0 ? e.step_counter : 0}}, {"aim", {n.aim_override, e.aim_override}},
+                    {"hit_timer", {n.hit_timer, e.hit_timer}}, {"fire_delay", {n.fire_delay, e.fire_delay}},
+                    {"anim_state", {n.animation_state, e.animation_state}}, {"anim_timer", {n.animation_timer, e.animation_timer}},
+                    {"anim_step", {n.animation_step, e.animation_step}}, {"state_timer", {n.state_timer, e.state_timer}},
+                    {"shadowed", {n.shadowed, e.shadowed}}, {"waypoint_x", {n.waypoint_x, e.waypoint_x}}};
+                if (handled[std::size_t(i)] == 5 && !(n.shot_by_mark || e.shot_by_mark)) report(i, "target", n.target, e.target);
+                const auto& was = walkers_before[std::size_t(i)];
+                if (fall_start) {
+                    // The tick a fall starts: the throw (2-9 up) and the spin
+                    // (half of the time) are random; checked by range.
+                    const long thrown = (long(n.vertical_speed) + 0x18000 - long(was.vertical_speed)) >> 16;
+                    if (o.height != 0 && (thrown < 2 || thrown > 9)) report(i, "throw range", thrown, 0);
+                    if (n.spin != -1 && n.spin != ((was.heading + (n.speed + 2) * 4) & 0x1fe)) report(i, "spin start", n.spin, e.spin);
+                    ++falls;
+                    continue;
+                }
+                report(i, "vertical_speed", n.vertical_speed, e.vertical_speed);
+                report(i, "height_fraction", n.height_fraction, e.height_fraction);
+                if (was.state != 0) {
+                    report(i, "spin", n.spin, e.spin);
+                    report(i, "fall_heading", n.fall_heading, e.fall_heading);
+                    report(i, "fall_count", n.fall_count, e.fall_count);
+                }
+                for (const auto& [name, v] : fields) report(i, name, v.first, v.second);
+            }
+            // Bullets fired by objects not rebuilt yet (enemies) are not counted natively.
+            bool foreign_shot = false;
+            for (int i = 0; i < game::object_slots; ++i) {
+                game::GameObject a; game::Walker unused;
+                load_slot(after, i, a, unused);
+                if (a.used && a.kind == 6 && !was_used[std::size_t(i)] && !world.objects.slots[std::size_t(i)].used) foreign_shot = true;
+            }
+            if (!foreign_shot) report(-1, "bullets alive", world.bullets_alive, W(after, 0x81df2));
+            report(-1, "leader shots", world.fire.leader_shots, W(after, 0x82738));
+            report(-1, "enemies left", world.objects.enemies, W(after, 0x81f5e));
+            report(-1, "kills of recruit 0", world.kills[0], W(after, 0x8066e));
+            // The frames up to the next tick: the hold timer, and the fire
+            // control while the right button is held.
+            if (!next_before.empty() && amiga::read_be16(trace, at + 2) == tick + 1) {
+                game::World between = world;
+                load_fire(after, between.fire);
+                for (int i = 0; i < game::object_slots; ++i) {
+                    game::GameObject unused;
+                    load_slot(after, i, unused, between.walkers[std::size_t(i)]);
+                }
+                const bool held = W(next_before, 0x81478) != 0;
+                const bool pressed = held && W(after, 0x81478) == 0;
+                between.pointer_x = W(next_before, 0x8caba); between.pointer_y = W(next_before, 0x8cabc);
+                if (held) for (int f = 0; f < 3; ++f) game::hold_fire(between, tables.fire, pressed && f == 0);
+                game::update_fire_control(between, tables.fire);
+                game::SquadFire expect;
+                load_fire(next_before, expect);
+                report(-2, "hold timer", between.fire.hold_timer, expect.hold_timer);
+                report(-2, "countdown", between.fire.countdown, expect.countdown);
+                report(-2, "order index", between.fire.order_index, expect.order_index);
+                if (expect.stats.bullet_speed != 0) // set from the mission's first tick on
+                    report(-2, "weapon speed", between.fire.stats.bullet_speed, expect.stats.bullet_speed);
+                for (int i = 0; i < game::object_slots; ++i) {
+                    if (!world.objects.slots[std::size_t(i)].used || world.objects.slots[std::size_t(i)].kind != 0) continue;
+                    game::GameObject unused; game::Walker e;
+                    load_slot(next_before, i, unused, e);
+                    report(i, "fire_delay between ticks", between.walkers[std::size_t(i)].fire_delay, e.fire_delay);
+                    report(i, "aim_x between ticks", between.walkers[std::size_t(i)].aim_x, e.aim_x);
+                }
+            }
+            ++ticks;
+        }
+        std::printf("%d ticks, %d updates not handled (%d enemy), %d bullets fired, %d falls started, %d enemy updates skipped "
+                    "after random choices, %d fields differ\n", ticks, unhandled, unhandled_enemies, created, falls, random_skips, bad);
+        return bad == 0 ? 0 : 1;
     }
     if (command == "panel" && (argc == 4 || argc == 5)) {
         using namespace fodder;

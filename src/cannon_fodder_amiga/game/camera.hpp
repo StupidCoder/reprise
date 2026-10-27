@@ -33,6 +33,12 @@ public:
     // bit: 14 in $9E28C, 9 in $A0B8E (larger values then lose precision).
     std::optional<int> direction(int dx, int dy, int top_bit) const;
 
+    // $A0AAC: the heading towards (dx, dy) as soldiers use it: |dx| and |dy|
+    // halved together until both are below 32 (the original's 63/127/255…
+    // ladder), then the same angle table and quadrants as direction().
+    // Nothing for (0, 0).
+    std::optional<int> heading_toward(int dx, int dy) const;
+
     // Sine at a direction in sine-table bytes; +/-32767 at the extremes.
     int sine(int direction) const { return sine_[std::size_t(direction & 0x1fe) / 2]; }
 

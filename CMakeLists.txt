@@ -228,6 +228,9 @@ add_library(cannon_fodder_amiga
     src/cannon_fodder_amiga/game/object_view.cpp
     src/cannon_fodder_amiga/game/objects.cpp
     src/cannon_fodder_amiga/game/panel.cpp
+    src/cannon_fodder_amiga/game/walking.cpp
+    src/cannon_fodder_amiga/game/combat.cpp
+    src/cannon_fodder_amiga/game/tables.cpp
     src/cannon_fodder_amiga/import/disk_import.cpp
     src/cannon_fodder_amiga/import/rnc.cpp
     src/cannon_fodder_amiga/import/sensi_disk.cpp)

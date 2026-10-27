@@ -29,10 +29,12 @@ std::vector<int> draw_list(MissionObjects& objects, Camera snapshot, int directi
             o = GameObject{};
             continue;
         }
+        o.on_screen = false;
         const int x = o.x >> 16, y = o.y >> 16;
         if (x < left || x > right || y < top || y > bottom) {
             continue;
         }
+        o.on_screen = true;
         (o.layer == 0 ? middle : o.layer < 0 ? first : last).push_back(i);
     }
     // $AB89A: for every j from the end, every other i from the end: swap
