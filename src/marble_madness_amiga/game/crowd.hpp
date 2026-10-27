@@ -36,6 +36,10 @@ public:
     // The distance to go from a cell for a marble in `zone` (none: no way
     // known from there).
     std::uint16_t to_go(int zone, int cx, int cy) const;
+    // The distance to go to the goal itself from a cell (none: no way).
+    std::uint16_t to_goal(int cx, int cy) const {
+        return cell(cx, cy) != nullptr ? goal_field_[std::size_t(cy * grid + cx)] : none;
+    }
     // Zone lines between a zone and the goal (0 the goal, 99 unknown).
     int rank(int zone) const;
     // Whether a marble can roll from a cell to the neighbour in direction
@@ -58,11 +62,12 @@ public:
         double along;
     };
     std::optional<Lane> run_up(int cx, int cy) const;
-    // If the cell is (next to) a funnel's way in: its way out (course
+    // If the cell is within 2 of a funnel's way in: its way out (course
     // pixels).
     // and the zone it is in there (-99: the same).
     struct Exit {
         int x, y, zone;
+        int push_x, push_y; // the funnel's push out, pixels an update
     };
     std::optional<Exit> funnel_exit(int cx, int cy) const;
     // Whether the cell is next to a funnel's way in (not the bridge's: on
@@ -81,6 +86,9 @@ private:
     void find_starts(const data::GameFiles&, data::Course);
 
     std::vector<Cell> cells_;
+    std::vector<bool> animated_; // moving ground filled in
+    bool wave_{};                // the wave's channel is the way to go
+    std::vector<std::uint8_t> extra_; // dearer steps (detours made less likely)
     std::map<int, std::vector<std::uint16_t>> fields_; // by zone
     std::map<int, int> ranks_;                         // by zone
     std::vector<std::uint16_t> goal_field_;            // zones without a way out
@@ -94,6 +102,7 @@ private:
         int from_x{-1}, from_y{-1};
         int zone_out{-99};
         bool bridge{};
+        int push_x{}, push_y{};
     };
     std::vector<Portal> portals_;
 };

@@ -65,20 +65,49 @@ struct PortalSeen {
     int from_x{-1}, from_y{-1};
     int zone_out{-99}; // the zone on the far side, when the way crosses a zone line
     bool bridge{};     // a drawbridge: carried across only off the screen
+    int push_x{}, push_y{}; // the funnel's push out (pixels an update; race.cpp)
 };
 constexpr PortalSeen portals_seen[] = {
     {data::Course::beginner, 492, 444, 488, 484, -1, -1, 6, true}, // the drawbridge (beg_goal 581-617)
-    {data::Course::beginner, 507, 619, 524, 612},
-    {data::Course::beginner, 649, 686, 668, 740},
-    {data::Course::intermediate, 620, 654, 620, 596},
-    {data::Course::silly, 711, 718, 684, 688},
-    {data::Course::ultimate, 181, 257, 240, 320, 181, 108},
+    {data::Course::beginner, 507, 619, 524, 612, -1, -1, -99, false, 4, 0},
+    {data::Course::beginner, 649, 686, 668, 740, -1, -1, -99, false, 0, 4},
+    {data::Course::intermediate, 620, 654, 620, 596, -1, -1, -99, false, 0, -4},
+    {data::Course::intermediate, 660, 620, 660, 740, -1, -1, -99, true}, // the wave's channel, drawn only on the screen
+    {data::Course::silly, 711, 718, 684, 688, -1, -1, -99, false, 0, -4},
+    {data::Course::ultimate, 181, 257, 240, 320, 181, 108, -99, false, 4, 0},
+};
+
+// Moving ground as it is while drawn, where filling in from the floor
+// beside it would be wrong (cells x0-x1, y0-y1; floor 0: none): the
+// wave's channel on Intermediate, seen with its region running
+// (marble_madness_replay crowd with MM_PLAYER_AT=722,697,10 MM_GROUND).
+struct FloorSeen {
+    data::Course course;
+    int x0, y0, x1, y1, floor;
+};
+constexpr FloorSeen floors_seen[] = {
+    {data::Course::intermediate, 81, 76, 84, 97, 16148},
+    {data::Course::intermediate, 85, 76, 85, 97, 0},
+    {data::Course::intermediate, 85, 81, 85, 82, 16148},
+    {data::Course::intermediate, 85, 93, 85, 94, 16148},
+};
+
+// Ways made dearer so that the crowd takes a more fun one: on
+// Intermediate the floor beside the wave's channel (the channel is the
+// ride).
+struct DetourSeen {
+    data::Course course;
+    int x0, y0, x1, y1, extra;
+};
+constexpr DetourSeen detours_seen[] = {
+    {data::Course::intermediate, 86, 74, 91, 84, 40},
 };
 
 } // namespace
 
 CrowdMap::CrowdMap(const data::GameFiles& files, data::Course course, const Terrain& terrain) {
     cells_.resize(std::size_t(grid * grid));
+    animated_.assign(cells_.size(), false);
     std::vector<std::array<std::int8_t, 4>> kinds(cells_.size());
     std::vector<std::array<std::int16_t, 4>> heights(cells_.size());
     Probe probe;
@@ -102,19 +131,24 @@ CrowdMap::CrowdMap(const data::GameFiles& files, data::Course course, const Terr
     }
     // Moving ground (Beginner's drawbridge, the wave, Ultimate's goal area:
     // height map codes $800-$FFF that the regions change) without floor
-    // now: as high as the floor beside it (the bridge down).
+    // now: as high as the lowest floor beside it (the bridge down, the
+    // wave's channel at its floor).
     for (int pass = 0; pass < 6; ++pass) {
         std::vector<std::int16_t> filled(cells_.size(), 0);
         for (int cy = 0; cy < grid; ++cy) {
             for (int cx = 0; cx < grid; ++cx) {
                 const std::size_t i = std::size_t(cy * grid + cx);
                 const int code = terrain.stored_code(cx, cy);
-                if (cells_[i].floor != 0 || code < 0x800 || code >= 0x1000) {
+                if (code < 0x800 || code >= 0x1000) {
+                    continue;
+                }
+                animated_[i] = true;
+                if (cells_[i].floor != 0) {
                     continue;
                 }
                 for (int d = 0; d < 4; ++d) {
-                    if (const Cell* n = cell(cx + step_x[d], cy + step_y[d]); n != nullptr) {
-                        filled[i] = std::max(filled[i], n->floor);
+                    if (const Cell* n = cell(cx + step_x[d], cy + step_y[d]); n != nullptr && n->floor != 0) {
+                        filled[i] = filled[i] == 0 ? n->floor : std::min(filled[i], n->floor);
                     }
                 }
             }
@@ -122,6 +156,20 @@ CrowdMap::CrowdMap(const data::GameFiles& files, data::Course course, const Terr
         for (std::size_t i = 0; i < cells_.size(); ++i) {
             if (filled[i] != 0) {
                 cells_[i].floor = filled[i];
+                cells_[i].flat = true;
+                kinds[i] = {};
+                heights[i] = {};
+            }
+        }
+    }
+    for (const auto& f : floors_seen) {
+        if (f.course != course) {
+            continue;
+        }
+        for (int cy = f.y0; cy <= f.y1; ++cy) {
+            for (int cx = f.x0; cx <= f.x1; ++cx) {
+                const std::size_t i = std::size_t(cy * grid + cx);
+                cells_[i].floor = std::int16_t(f.floor);
                 cells_[i].flat = true;
                 kinds[i] = {};
                 heights[i] = {};
@@ -167,10 +215,21 @@ CrowdMap::CrowdMap(const data::GameFiles& files, data::Course course, const Terr
         }
     }
 
+    wave_ = course == data::Course::intermediate;
+    extra_.assign(cells_.size(), 0);
+    for (const auto& d : detours_seen) {
+        if (d.course == course) {
+            for (int cy = d.y0; cy <= d.y1; ++cy) {
+                for (int cx = d.x0; cx <= d.x1; ++cx) {
+                    extra_[std::size_t(cy * grid + cx)] = std::uint8_t(d.extra);
+                }
+            }
+        }
+    }
     for (const auto& p : portals_seen) {
         if (p.course == course) {
             portals_.push_back({p.in_x >> 3, p.in_y >> 3, p.out_x >> 3, p.out_y >> 3, p.from_x < 0 ? -1 : p.from_x >> 3,
-                                p.from_y < 0 ? -1 : p.from_y >> 3, p.zone_out, p.bridge});
+                                p.from_y < 0 ? -1 : p.from_y >> 3, p.zone_out, p.bridge, p.push_x, p.push_y});
         }
     }
 
@@ -232,8 +291,8 @@ int CrowdMap::floor(int cx, int cy) const {
 
 std::optional<CrowdMap::Exit> CrowdMap::funnel_exit(int cx, int cy) const {
     for (const auto& p : portals_) {
-        if (std::max(std::abs(p.in_x - cx), std::abs(p.in_y - cy)) <= 1) {
-            return Exit{p.out_x * 8 + 4, p.out_y * 8 + 4, p.zone_out};
+        if (std::max(std::abs(p.in_x - cx), std::abs(p.in_y - cy)) <= 2) {
+            return Exit{p.out_x * 8 + 4, p.out_y * 8 + 4, p.zone_out, p.push_x, p.push_y};
         }
     }
     return std::nullopt;
@@ -241,7 +300,7 @@ std::optional<CrowdMap::Exit> CrowdMap::funnel_exit(int cx, int cy) const {
 
 bool CrowdMap::near_way_in(int cx, int cy) const {
     return std::any_of(portals_.begin(), portals_.end(), [&](const Portal& p) {
-        return !p.bridge && std::max(std::abs(p.in_x - cx), std::abs(p.in_y - cy)) <= 1;
+        return !p.bridge && std::max(std::abs(p.in_x - cx), std::abs(p.in_y - cy)) <= 2;
     });
 }
 
@@ -328,6 +387,10 @@ std::vector<std::uint16_t> CrowdMap::flood(const std::vector<std::pair<int, int>
             }
             const int ways = __builtin_popcount(b->moves);
             int step = 4 + (4 - ways) * 5;
+            if (wave_ && animated_[std::size_t(by * grid + bx)]) {
+                step = 1; // Intermediate's wave: worth a ride
+            }
+            step += extra_[std::size_t(by * grid + bx)];
             // Dropping down costs more, much more onto a narrow way (the
             // marble lands with its speed and may roll off again).
             const Cell* a = cell(ax, ay);
@@ -523,10 +586,12 @@ void Race::carry_off_screen(Marble& m) {
     }
     m.x = to_x << 16;
     m.y = to_y << 16;
+    m.vx = out->push_x << 16; // out of the tube as the funnel pushes
+    m.vy = out->push_y << 16;
     if (out->zone != -99) {
         m.feature = std::int8_t(out->zone);
     }
-    m.vx = m.vy = m.vz = 0;
+    m.vz = 0;
     m.air = 0;
     m.region_code = 0;
     m.mode = Marble::rolling;
@@ -623,19 +688,27 @@ void Race::plan(Marble& m) {
         bool lost = false;
         // (Past the horizon while in the air: on until it has come down.)
         for (int t = 0; t < horizon || (copy.marbles[std::size_t(index)].air != 0 && t < horizon + 30); ++t) {
+            const std::int32_t was_x = copy.marbles[std::size_t(index)].x, was_y = copy.marbles[std::size_t(index)].y;
             copy.update({copy.push_[0], copy.push_[1]});
             const Marble& cm = copy.marbles[std::size_t(index)];
+            if (cm.respawns == m.respawns && cm.status == 1 &&
+                (std::abs((cm.x - was_x) >> 16) > 24 || std::abs((cm.y - was_y) >> 16) > 24)) {
+                score = 1e8 - t; // a funnel took it through
+                break;
+            }
             if (cm.status == 3 || cm.mode == Marble::finishing) {
                 score = 1e9 - t;
                 break;
             }
-            if (map.run_up(cm.x >> 19, cm.y >> 19) || map.near_way_in(cm.x >> 19, cm.y >> 19)) {
-                score = 1e8 - t; // into a run-up lane (its jump is no loss) or a funnel
+            if (map.run_up(cm.x >> 19, cm.y >> 19)) {
+                score = 1e8 - t; // into a run-up lane (its jump is no loss)
                 break;
             }
-            // Falling far, or in the air over no floor at all.
-            const bool falling = (cm.air == 2 && cm.fall_start_z - cm.z > 0x600000) ||
-                                 (cm.air != 0 && map.floor(cm.x >> 19, cm.y >> 19) == 0);
+            // Falling far, or in the air over no floor at all (not into a
+            // funnel's mouth).
+            const bool in_mouth = map.near_way_in(cm.x >> 19, cm.y >> 19);
+            const bool falling = (cm.air == 2 && cm.fall_start_z - cm.z > 0x600000 && !in_mouth) ||
+                                 (cm.air != 0 && map.floor(cm.x >> 19, cm.y >> 19) == 0 && !in_mouth);
             if (cm.status != 1 || cm.respawns != m.respawns || falling || cm.mode == Marble::breaking ||
                 cm.mode == Marble::respawning || cm.mode == Marble::captured || cm.mode == Marble::dissolving ||
                 cm.mode == Marble::eaten || cm.mode == Marble::frozen) {
@@ -645,9 +718,14 @@ void Race::plan(Marble& m) {
             }
         }
         if (score == 0 && !lost) {
+            // How near the goal it ends: by the whole course's distance (a
+            // ride the map prefers beats a quick zone line), else by zones.
             const Marble& cm = copy.marbles[std::size_t(index)];
+            const auto goal = map.to_goal(cm.x >> 19, cm.y >> 19);
             const auto left = map.to_go(cm.feature, cm.x >> 19, cm.y >> 19);
-            score = -(double(map.rank(cm.feature)) * 65536.0 + (left == CrowdMap::none ? 60000.0 : left));
+            score = goal != CrowdMap::none
+                        ? -double(goal)
+                        : -(1e6 + double(map.rank(cm.feature)) * 65536.0 + (left == CrowdMap::none ? 60000.0 : left));
         }
         if (c.steer) {
             score += 2; // the usual steering when nothing is better

@@ -801,6 +801,37 @@ int crowd(int argc, char** argv) {
     // (the computer's marbles alone, from different moments).
     const int idle = std::getenv("MM_IDLE") ? std::atoi(std::getenv("MM_IDLE")) : -1;
     for (int k = 0; k < idle; ++k) race.update({});
+    // MM_PLAYER_AT=x,y,zone: marble 0 put there (on the floor) and left
+    // idle for 200 updates (the view follows), then the crowd starts.
+    if (const char* pa = std::getenv("MM_PLAYER_AT")) {
+        int x = 0, y = 0, zone = 0;
+        std::sscanf(pa, "%d,%d,%d", &x, &y, &zone);
+        race.set_crowd(true);
+        race.set_crowd(false);
+        auto& m = race.marbles[0];
+        m.x = x << 16;
+        m.y = y << 16;
+        m.z = (race.crowd_map()->floor(x >> 3, y >> 3) + 2) << 16;
+        m.fall_start_z = m.z;
+        m.vx = m.vy = m.vz = 0;
+        m.feature = std::int8_t(zone);
+        for (int k = 0; k < 200; ++k) race.update({});
+        std::printf("player at %d,%d,%d zone %d mode %d\n", m.x >> 16, m.y >> 16, m.z >> 16, int(m.feature), int(m.mode));
+        // MM_GROUND=x0,y0,x1,y1: the floor's heights (cells) now.
+        if (const char* g = std::getenv("MM_GROUND")) {
+            int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+            std::sscanf(g, "%d,%d,%d,%d", &x0, &y0, &x1, &y1);
+            game::Probe probe;
+            for (int cy = y0; cy <= y1; ++cy) {
+                std::printf("y%3d", cy);
+                for (int cx = x0; cx <= x1; ++cx) {
+                    probe.place((cx * 8 + 4) << 16, (cy * 8 + 4) << 16);
+                    std::printf(" %5d", probe.ground_height_here(race.terrain()) >> 16);
+                }
+                std::printf("\n");
+            }
+        }
+    }
     // MM_PLAYER_ZONE=z: the computer drives marble 0 into zone z and stops
     // it there (the view stays), then the crowd starts from the start.
     if (const char* pz = std::getenv("MM_PLAYER_ZONE")) {
@@ -814,7 +845,7 @@ int crowd(int argc, char** argv) {
         std::printf("player stopped in zone %d at %d,%d\n", int(race.marbles[0].feature), race.marbles[0].x >> 16, race.marbles[0].y >> 16);
     }
     race.set_crowd(true);
-    race.bot_drives_player = idle < 0 && !std::getenv("MM_PLAYER_ZONE");
+    race.bot_drives_player = idle < 0 && !std::getenv("MM_PLAYER_ZONE") && !std::getenv("MM_PLAYER_AT");
     // MM_SOLO=1: marble 0 alone (the driving without the crowd's bumping).
     if (std::getenv("MM_SOLO")) {
         race.set_crowd(false);
@@ -907,6 +938,16 @@ int crowd(int argc, char** argv) {
             if (held[std::size_t(i)] == 300) {
                 std::printf("marble %d held by region code %d at %d,%d mode %d from update %d\n", i, int(m.region_code), m.x >> 16,
                             m.y >> 16, int(m.mode), k - 300);
+            }
+        }
+        // Crowd marbles lingering by a funnel's way in (MM_FUNNEL_WAIT).
+        if (std::getenv("MM_FUNNEL_WAIT")) {
+            static std::array<int, game::Race::max_marbles> by{};
+            for (int i = 1; i < game::Race::max_marbles; ++i) {
+                const auto& m = race.marbles[std::size_t(i)];
+                const bool near = m.status == 1 && race.crowd_map()->funnel_exit(m.x >> 19, m.y >> 19).has_value();
+                by[std::size_t(i)] = near ? by[std::size_t(i)] + 1 : 0;
+                if (by[std::size_t(i)] == 60) std::printf("marble %d by a funnel at %d,%d for 60 updates (update %d)\n", i, m.x >> 16, m.y >> 16, k);
             }
         }
         // Crowd marbles that stay where they are (within 4 pixels) for 300
