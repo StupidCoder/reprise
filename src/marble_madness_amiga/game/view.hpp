@@ -73,6 +73,7 @@ public:
     std::vector<std::uint8_t> indices(const Race&) const;
 
 private:
+    friend class MechanicsChapter; // Isolated teaching scenarios and read-only drawing inspection.
     void draw_bar(platform::Image&, const Race&, const Overlay* = nullptr) const;
     void draw_text(platform::Image&, const Text&, const Race&) const;
     // Text() in the program's font: cells as wide as the font, from `top`

@@ -142,6 +142,7 @@ add_library(marble_madness_amiga
     src/marble_madness_amiga/data/assets.cpp
     src/marble_madness_amiga/data/preview.cpp
     src/marble_madness_amiga/data/game_files.cpp
+    src/marble_madness_amiga/game/mechanics_chapter.cpp
     src/marble_madness_amiga/game/terrain.cpp
     src/marble_madness_amiga/game/probe.cpp
     src/marble_madness_amiga/game/regions.cpp

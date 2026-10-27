@@ -673,3 +673,17 @@ count points to the imported end marker. Article captures reviewed throughout
 the scroll range, and third-lesson entry checked through the launcher. Existing
 shell and imported-data lesson checks pass. Original execution comparison is
 not newly claimed; explanations describe the existing reconstructed decoder.
+
+## Marble Madness lessons (2026-10-27)
+
+Added three pure-SDL chapters to the game-specific lesson browser: the height
+field/physics/occlusion, black-marble decisions, and Silly Race's changed rules.
+Illustrations read imported terrain, waypoint links, sprite masks and the pen
+bitmap. Separate resettable labs use the real Race/View, paused initially with
+the clock frozen. Silly's catch sample demonstrates +500 points and +3 clock
+seconds; its slope comparison calls both force branches on identical terrain.
+
+Evidence, scenario construction, validation and limits are documented in
+`src/marble_madness_amiga/LESSONS.md`. Open: original-execution comparisons for
+these fabricated setups; a verified edge-lure replay; dedicated funnel/bird and
+two-player experiments. No original-equivalence claim is made for the new seeds.

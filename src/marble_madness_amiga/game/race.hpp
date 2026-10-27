@@ -110,6 +110,7 @@ public:
     void set_frame(int frame) { frame_ = frame; }
 
 private:
+    friend class MechanicsChapter; // Isolated teaching scenarios and read-only drawing inspection.
     void scroll();                                 // $10D618
     bool scroll_down(int lines);                   // $10D278
     bool scroll_up(int lines);                     // $10D384
