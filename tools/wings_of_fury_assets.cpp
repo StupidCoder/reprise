@@ -207,6 +207,7 @@ int main(int argc, char** argv) {
                         player.gear = shape_named(in);
                         in >> player.gear_mirrored >> player.gear_shown >> player.gear_offset;
                     } else if (key == "player_upset") in >> player.upset;
+                    else if (key == "player_caught") in >> player.caught >> player.wire_screen_x >> player.facing_left;
                     else if (key == "player_eighth") in >> eighth.upset >> eighth.pitch >> eighth.facing_left;
                     else if (key == "player_propeller") {
                         int engine = 0, counter = 0, attitude = 0, left = 0;

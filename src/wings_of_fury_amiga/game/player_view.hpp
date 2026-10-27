@@ -21,6 +21,12 @@ struct PlayerPicture {
     bool clip_at_deck{};
     int carrier_deck{};   // the US carrier's +$E
     int carrier_bob{};    // the US carrier's +$1A
+    // Caught by an arresting wire (mode 7): the cable runs from the wire on
+    // the deck (its screen x, 6 below the plane's y) to the tail hook (16
+    // behind the plane's x, 5 below), in colour 3 ($1005C0).
+    bool caught{};
+    int wire_screen_x{};
+    bool facing_left{};
     const data::Shape* plane{};   // -$5F82
     // The game keeps one copy of each shape and mirrors it in place when the
     // other facing is wanted ($105B58; the shape's +8 word records the
@@ -93,5 +99,10 @@ struct CarrierDeckPicture {
     bool eighth_scale{};
 };
 void draw_carrier_deck(IndexedCanvas&, const data::Assets&, const CarrierDeckPicture&);
+
+// $100344: the weapon menu over the finished view while the plane waits
+// below deck: entry $4D (selt) at (250, 60), then the chosen weapon's
+// highlight, entry $4A + weapon (rock, bomb, torp), both opaque.
+void draw_weapon_menu(IndexedCanvas&, const data::Assets&, int weapon);
 
 } // namespace wings::game

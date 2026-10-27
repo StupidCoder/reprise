@@ -58,6 +58,15 @@ void draw_carrier_deck(IndexedCanvas& canvas, const data::Assets& assets, const 
     }
 }
 
+void draw_weapon_menu(IndexedCanvas& canvas, const data::Assets& assets, int weapon) {
+    constexpr int menu_entry = 0x4D, first_choice = 0x4A, menu_x = 0xFA, menu_y = 0x3C;
+    for (const int entry : {menu_entry, first_choice + weapon}) {
+        if (const auto* shape = data::scenery_shape(assets, entry)) {
+            canvas.draw_opaque(*shape, menu_x - shape->offset_x, menu_y - shape->offset_y);
+        }
+    }
+}
+
 const data::Shape* propeller_shape(const data::Assets& assets, bool engine_running, bool upset, int counter, int attitude,
                                    bool facing_left) {
     if (!engine_running || upset) return nullptr;
@@ -113,6 +122,11 @@ void draw_player(IndexedCanvas& canvas, const PlayerPicture& player) {
     if (player.deck_part_shown && !player.upset) put(player.deck_part, player.deck_part_mirrored, y);
     if (player.gear_shown && !player.upset) put(player.gear, player.gear_mirrored, y + player.gear_offset - gear_lift);
     put(player.plane, player.plane_mirrored, y);
+    if (player.caught) {
+        constexpr int hook_behind = 0x10, hook_below = 5, wire_below = 6, cable_colour = 3;
+        canvas.line(player.wire_screen_x, y + wire_below, x + (player.facing_left ? hook_behind : -hook_behind),
+                    y + hook_below, cable_colour);
+    }
     if (player.deck_part_shown && player.upset) put(player.deck_part, player.deck_part_mirrored, y);
     canvas.clip = saved; // $10524A: the full view again
 

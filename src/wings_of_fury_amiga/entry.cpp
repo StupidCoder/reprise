@@ -45,8 +45,9 @@ app::GameEntry entry() {
         .previews = previews,
         .start = game::start,
         .progress = "Free flight on the first mission's map: take off from the carrier, fly, turn, climb into the "
-                    "high view and land on the carrier again. Not rebuilt yet: enemies, weapons, crashes, the "
-                    "elevator, sound, the front end and the missions.",
+                    "high view and land on the carrier's arresting wires; crashes with explosions, fire, smoke "
+                    "and splashes, the next plane on the elevator, the deck crew's flags. Not rebuilt yet: "
+                    "enemies, weapons, sound, the front end and the missions.",
     };
 }
 

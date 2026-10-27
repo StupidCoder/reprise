@@ -37,6 +37,14 @@ struct IndexedCanvas {
     // shape's whole rectangle, then each stored plane is XORed into its
     // bitplanes (BLTCON0 minterm $6A with A = $FFFF: D = C xor B).
     void draw_xor(const data::Shape&, int x, int y);
+    // $110B0C entered without a mask (-$7CE0): the whole rectangle is
+    // written (cleared/set planes and the stored planes everywhere).
+    void draw_opaque(const data::Shape&, int x, int y);
+    // $111318: a line in one colour, its ends first moved onto the clip
+    // window's edges (left, right, top, bottom in turn, by integer
+    // proportion), then drawn by the blitter's line mode (Bresenham, both
+    // ends included).
+    void line(int x0, int y0, int x1, int y1, std::uint8_t colour);
 
 private:
     bool inside(int x, int y) const { return x >= clip.left && x < clip.right && y >= clip.top && y < clip.bottom; }
@@ -82,6 +90,13 @@ struct BackdropState {
                                //   flag column steps it once
     std::vector<bool> island_flag_up; // per island (-$5BAE words); an island not listed = up
 };
+
+// How many of each animated special the next backdrop draws: the flags and
+// the crew step only as they are drawn.
+struct SpecialsShown {
+    int us_flag{}, deck_crew{}, enemy_flag{};
+};
+SpecialsShown specials_shown(const data::MissionMap&, const BackdropState&);
 
 constexpr int view_width = 320;
 constexpr int view_height = 162;

@@ -1,6 +1,7 @@
 #pragma once
 #include "amiga/hunk.hpp"
 #include "wings_of_fury_amiga/data/assets.hpp"
+#include "wings_of_fury_amiga/game/effects.hpp"
 #include "wings_of_fury_amiga/game/ffp.hpp"
 #include <array>
 #include <string>
@@ -44,6 +45,8 @@ struct FlightTables {
     std::array<int, 7> obstacle_height{};      // $115716: by scenery class ($105710)
     std::array<int, 8> sea_motion{};           // $114B98
     int pitch_rate{};                          // $115E6A (600)
+    std::array<int, 3> weapon_loads{};         // $114B4D: rockets, bombs, torpedo
+    std::array<std::string, 2> wreck_names{};  // `hcr5` facing right, `hcrf` facing left ($10C88C)
 };
 FlightTables read_flight_tables(const amiga::LoadedImage& wings);
 
@@ -70,6 +73,7 @@ struct PlayerFlight {
     int facing{-1};      // +$14: -1 left, 1 right
     int speed_x{};       // +$16
     int speed_y{};       // +$18
+    int extra{};         // +$1A (cleared when the wreck comes to rest)
 
     // The flight code's globals.
     int climb{};          // $115356: commanded pitch (x 100 degrees: -4500..3000)
@@ -94,15 +98,49 @@ struct PlayerFlight {
     int sea_step{}, sea_counter{}, sea_period{};      // -$6894, -$5C52, -$5C16
     int sea{};            // -$5C50: the sea's motion (vertical scroll source)
     int turn_delay{2};    // $1159F4: a turn steps every second call
+    int sink_step{};      // $1159F8: sinking drops a pixel every third tick
+    int wreck_time{};     // $1159FA: ticks since the plane came to rest wrecked
+    int next_blast{};     // $1159FC: the wreck's next blast is due at this wreck_time
 };
 
 struct FlightWorld {
     const data::MissionMap* map{};
     std::array<ShipState, 5> ships{}; // $105710 order; [4] = the US carrier
     int carrier_x{};                  // $1152E6 (-$5C6C)
-    int elevator{};                   // -$5C6A
-    int lift{};                       // -$5C68
+    // The elevator (-$5C6A): 0 up, 1 down with the weapon menu shown,
+    // 2 rising, 3 lowering; `lift` (-$5C68) is how far it is down (0..$20).
+    int elevator{};
+    int lift{};
+    // The weapon menu below deck ($1012B0).
+    bool menu{};                      // -$5C9A
+    int menu_repeat{};                // -$5C90: ticks before up/down act again
+    int input_delay{};                // -$42C0: ticks before menu and elevator act
+    int weapon{1};                    // -$5C5A: 0 rockets, 1 bombs, 2 torpedo
+    int weapon_load{};                // -$5C91 ($FF: none)
+    int spare_planes{3};              // -$5CA2
+    int caught_wire_x{};              // -$42C4: the wire the hook caught (drawn as a cable)
+    // The elevator moves once per drawn frame: it steps on a tick only when
+    // the draw counter (-$5C36) has changed since the last step (-$3CAC).
+    int draw_counter{};
+    int elevator_seen{};
+    // The record's +$10 for a plane set up during the tick (the original
+    // takes the beam position: 6..9); set by the caller.
+    int random_load{6};
+    // What the crash leaves behind (started by the tick, stepped as frames
+    // are drawn) and the C library's random numbers the wreck uses.
+    Effects effects;
+    CRandom random;
+    BeamRandom beam;
+    DeckCrew crew;    // the deck crew's flags, stepped as frames are drawn
+    // Set by the tick, for the game around it.
+    int blackout{};                   // -$3BAC: a plane was lost; the view goes black this many waits
+    bool game_over{};                 // -$5C9C / -$5C3C: no plane left (or no carrier)
 };
+
+// A new plane below deck ($103684 with the record set-up $10B7EC): the
+// elevator down with the weapon menu shown. `random_load` stands for the
+// record's +$10 (the original takes the beam position: random 6..9).
+void new_plane(PlayerFlight&, FlightWorld&, const FlightTables&, int random_load);
 
 // One logic tick ($101386: the timers, then the flight code $10C660).
 void flight_tick(PlayerFlight&, FlightWorld&, const FlightTables&, int command);

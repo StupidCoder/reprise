@@ -12,6 +12,7 @@ constexpr int on_deck = 1;
 constexpr int falling = 4;
 constexpr int sinking = 6;
 constexpr int caught = 7;
+constexpr int burning = 8;
 constexpr int going_below = 0xB;
 
 constexpr int max_speed = 0x578;
@@ -37,6 +38,11 @@ public:
 
     void run() {
         timers();
+        // $101402: the menu and the elevator wait out -$42C0 first.
+        if (w.input_delay == 0 || --w.input_delay <= 0) {
+            deck_menu();
+            elevator();
+        }
         fly();
     }
 
@@ -70,18 +76,27 @@ private:
         }
     }
 
-    // $10C982: the map column under x (below 0 counts as 0; past the end
-    // the last column).
+    // $10C982: the map column under x (below 0 counts as 0). The game's map
+    // buffer is the file's size (-$69D2, $102BB0), 8 bytes more than the
+    // column words after the header, and an address at or past its end - 2
+    // becomes end - 4: two columns past the data. Those words are whatever
+    // the allocation held; read as 0 here (hypothesis).
     int column(int x) const {
         if (x < 0) x = 0;
-        return std::min(div16(x, 8), map_columns() - 1);
+        return std::min(div16(x, 8), map_columns() + 2);
     }
-    std::uint16_t word_at(int c) const { return w.map->words[std::size_t(c)]; }
+    std::uint16_t word_at(int c) const { return c < map_columns() ? w.map->words[std::size_t(c)] : 0; }
     bool inside(int c) const { return c > 0 && c < map_columns() - 1; }
     // $10CB34 / $10CB74: on a ship's deck / over open water (the first and
     // last columns count as outside the map: water).
     bool over_ship(int c) const { return inside(c) && (word_at(c) & 3) == 1; }
     bool over_water(int c) const { return !inside(c) || (word_at(c) & 3) == 0; }
+
+    // $1050C8: the surface bits under a world x (0 off the map).
+    int surface_at(int x) const {
+        if (x < 0 || x >= map_columns() * 8) return 0;
+        return word_at(x >> 3) & 3;
+    }
 
     // $105710: the height of what stands in a column.
     int obstacle(int c) const {
@@ -167,6 +182,194 @@ private:
         return true;
     }
 
+    // $1012B0: the weapon menu while the plane waits below deck. Fire sends
+    // it up (mode $B, elevator rising); up and down step through the weapons
+    // (again after two ticks).
+    void deck_menu() {
+        if (!w.menu) return;
+        // (keys: cursor up/down and Return/Enter do the same when no stick
+        // command is given; not rebuilt)
+        if (cmd == 0) return;
+        if (cmd & (command::fire_held | command::fire_tapped)) {
+            w.menu = false;
+            p.mode = going_below;
+            w.elevator = 2;
+            return;
+        }
+        if (w.menu_repeat > 0) {
+            --w.menu_repeat;
+            return;
+        }
+        if ((cmd & (command::up | command::down)) == 0) return;
+        w.menu_repeat = 2;
+        if (cmd & command::up) {
+            if (--w.weapon == -1) w.weapon = 2;
+        } else if (++w.weapon == 3) {
+            w.weapon = 0;
+        }
+        if (w.weapon_load != 0xFF) w.weapon_load = t.weapon_loads[std::size_t(w.weapon)];
+    }
+
+    // $101460: the elevator moves a pixel per drawn frame; at the top it is
+    // up (state 0), at the bottom a new plane is made ready (state 1).
+    void elevator() {
+        if (w.draw_counter == w.elevator_seen) return;
+        w.elevator_seen = w.draw_counter;
+        if (w.elevator == 2) {
+            if (--w.lift == 0) {
+                w.elevator = 0;
+                p.engine_loud = false; // ($10B9CC: engine sound)
+            }
+        } else if (w.elevator == 3) {
+            if (++w.lift == 0x20) new_plane(w.random_load);
+        }
+    }
+
+    // $1035CE: the plane is lost: the view goes black for 20 waits, a spare
+    // is used, and ($1035D8) the next one comes up - unless none is left or
+    // the carrier is lost.
+    void plane_lost() {
+        w.blackout = 0x14;
+        --w.spare_planes;
+        p.x = w.carrier_x;
+        p.turn = 0;
+        p.facing = -1;
+        if (w.spare_planes <= 0 || carrier().ready <= 0) {
+            w.game_over = true;
+            w.spare_planes = 0;
+            return;
+        }
+        new_plane(w.random_load);
+    }
+
+    // $10AED8: for its first 75 ticks the wreck keeps blowing up (sinking:
+    // splashing at the waterline) every 0..12 ticks, up to a column either
+    // side.
+    void wreck_blasts() {
+        const bool sinking_now = p.mode == sinking;
+        const int height = sinking_now ? 0 : word(p.altitude - clearance());
+        if (p.wreck_time >= 0x4B || p.wreck_time < p.next_blast) return;
+        p.next_blast = p.wreck_time + (w.random.next() & 0xC);
+        w.effects.start_blast(column(p.x + (w.random.next() & 0xF) - 8), height, sinking_now);
+    }
+
+    // $10AF7C: the wreck waits 150 ticks, or a fire press after 30.
+    void wreck_timer() {
+        ++p.wreck_time;
+        if (p.wreck_time == 0x96 || (p.wreck_time > 0x1E && (cmd & (command::fire_held | command::fire_tapped)))) {
+            plane_lost();
+        }
+    }
+
+    // $10AFBA: the plane falls. What it meets decides: land and water stop
+    // it at wheel height, a ship's deck at the deck (unless it would run
+    // off the deck within five columns: then it is pushed back and stops
+    // dead). It slides on, $55 slower each tick; a turn in progress unwinds
+    // to its nearer end; at rest it sinks (over water, or low on a ship) or
+    // burns.
+    void crash() {
+        enum Surface { land = 1, water = 2, ship = 3 };
+        Surface surface = land;
+        bool falling_on = false, down = false;
+        int resting = clearance();
+        const int c = column(p.x);
+        if (over_water(c)) surface = water;
+        else if (over_ship(c)) surface = ship;
+        const auto level_out = [&] {
+            p.attitude = 0;
+            p.smoothed_climb = 0;
+            p.climb = 0;
+        };
+        // $1052AC at the plane's nose.
+        const auto splash = [&] { w.effects.start_splash(word(p.x + p.facing * 8), surface_at(word(p.x + p.facing * 8))); };
+        const auto slide = [&] { p.x = word(p.x + word(div16(p.speed, 100) * p.facing)); };
+        switch (surface) {
+        case water:
+            if (p.altitude <= clearance()) {
+                level_out();
+                p.altitude = clearance();
+                down = true;
+                splash();
+            }
+            break;
+        case land:
+            if (word(p.altitude - clearance()) <= 0 && p.turn == 0) {
+                level_out();
+                p.altitude = clearance();
+                shapes(0); // ($10ABDE with step 0: the attitude only)
+                down = true;
+                w.effects.start_blast(c, p.altitude - 1, false);
+            } else {
+                falling_on = true;
+            }
+            break;
+        case ship: {
+            const int sliding = word(div16(p.speed, 100) * p.facing);
+            resting = word(resting + obstacle(c));
+            if (p.altitude <= resting) {
+                // The column five back (ten map bytes) decides.
+                if (over_water(c - p.facing * 5)) {
+                    p.x = word(p.x - word(sliding + 4));
+                    p.speed = 0;
+                    resting = 2;
+                    w.effects.start_blast(c, p.altitude, false);
+                } else {
+                    down = true;
+                    level_out();
+                    p.altitude = word(clearance() + obstacle(c));
+                }
+            }
+            break;
+        }
+        }
+        if (p.turn < 0xE) {
+            p.turn = std::max(p.turn - 2, 0);
+        } else {
+            if (p.turn == 0xE) p.facing = -p.facing;
+            p.turn += 2;
+            if (p.turn > 0x19) p.turn = 0;
+        }
+        if (p.turn != 0 && p.altitude <= resting) {
+            int h = 0xB;
+            if (p.turn < 6) h = t.turn_height[std::size_t(p.turn)];
+            else if (p.turn > 0x13) h = t.turn_height[std::size_t(0x19 - p.turn)];
+            if (over_ship(c) || over_water(c)) p.altitude = word(obstacle(c) + h);
+            slide();
+        } else if (down) {
+            slide();
+            p.speed -= 0x55;
+            if (p.speed < 100) p.speed = 0;
+            // ($10B304: on land and ships the original also starts a blast
+            // here, but passes the plane's x and altitude where the column's
+            // map address belongs: it lands at a fixed spot that depends on
+            // where the map sits in memory (x 2040 in the reference machine)
+            // and is left out. On land it then wrecks what stands in the
+            // column and the soldiers near it, $1046C6 and $101A84: islands
+            // are not rebuilt yet.)
+            if (surface == water) splash();
+        } else {
+            p.climb = std::max(p.climb - t.pitch_rate, -0xC1C);
+            falling_on = true;
+        }
+        if (falling_on) {
+            p.speed_y = std::max(p.speed_y - 1, -10);
+            p.altitude = word(p.altitude + p.speed_y);
+            if (word(p.altitude - clearance()) <= 0) {
+                p.altitude = clearance();
+                w.effects.start_blast(c, p.altitude - 1, false);
+            }
+            slide();
+        }
+        if (p.speed == 0 && p.turn == 0 && p.altitude <= resting) {
+            p.mode = (over_water(c) || (over_ship(c) && p.altitude < 0x14)) ? sinking : burning;
+            p.oil = 0;
+            p.extra = 0;
+            p.sink_step = 0;
+            p.wreck_time = 0;
+            p.next_blast = 0;
+        }
+    }
+
     // $10B5B0: the fire button. On deck, a press while standing still on the
     // elevator spot takes the plane below (elevator state 3). In the air, a
     // tap fires the guns and a long press drops/launches the load (not
@@ -241,6 +444,7 @@ private:
             if (word(p.wire_x - 8) <= hook && hook <= word(p.wire_x + 8)) {
                 p.mode = caught;
                 p.signal = 4;
+                w.caught_wire_x = p.wire_x;
                 return;
             }
         }
@@ -380,8 +584,7 @@ private:
 
     // $10BA80: touching down. On the carrier's deck, facing left while
     // pulling up, the plane lands (mode 1); otherwise it bounces off the
-    // deck. Anywhere else it crashes (mode 4; the crash itself, $10AFBA,
-    // is not rebuilt yet).
+    // deck. Anywhere else it crashes (mode 4, $10AFBA).
     void touch_down() {
         const int c = column(p.x);
         const bool deck = p.x >= p.deck_low && p.x <= p.deck_high && p.turn == 0 &&
@@ -399,6 +602,13 @@ private:
         } else {
             p.mode = falling;
             p.speed = word(p.speed_x * 100);
+            // $10BB9E: a blast two columns ahead, unless in the water or low
+            // on a ship's deck. (On an island it also wrecks what stands
+            // there, $1046C6: not rebuilt yet.)
+            if (!over_water(c) && !(over_ship(c) && p.altitude < 0x14)) {
+                w.effects.start_blast(column(p.x + p.facing * 16), p.altitude, false);
+            }
+            crash();
         }
     }
 
@@ -413,7 +623,18 @@ private:
     }
 
     // $10C378 / $10ABDE: the shapes shown, from the pitch (or the turn).
-    void shapes() {
+    void shapes(int forced_step = -1) {
+        if (forced_step >= 0) {
+            // $10ABDE as the crash calls it ($10B0B2): the crash drops the
+            // name it returns, so only the attitude changes (and the shape
+            // would be mirrored to the facing).
+            if ((p.mode == flying || p.mode == falling) && p.turn != 0) {
+                p.attitude = 0;
+            } else if (p.mode == flying || p.mode == falling) {
+                p.attitude = t.attitude[std::size_t(p.turn + forced_step)];
+            }
+            return;
+        }
         int step = 0, wheel_index = 9;
         p.wheels.clear();
         if (p.mode != on_deck && p.mode != going_below && p.turn == 0) {
@@ -430,7 +651,7 @@ private:
                 p.wheel_attitude = step;
             }
         }
-        if (p.mode == 8) return;
+        if (p.mode == burning) return;
         const int index = p.turn + step;
         switch (p.mode) {
         case flying:
@@ -459,14 +680,24 @@ private:
     // $10C660.
     void fly() {
         fire();
+        // ($10BC02, the timer that sends enemy planes, is not rebuilt.)
+        if (w.menu) {
+            // $10C676: while the weapon menu is up the plane waits.
+            p.throttle = 0;
+            p.speed = 0;
+            p.eighth_scale = p.altitude > 0xBA;
+            return;
+        }
         switch (p.mode) {
         case flying:
             if (p.oil < 0x60 || p.fuel < 0) {
                 p.signal = 3;
                 p.mode = falling;
                 p.speed = word(p.speed_x * 100);
+                crash();
             } else if (p.altitude < -6) {
                 p.mode = sinking;
+                p.sink_step = p.wreck_time = p.next_blast = 0;
                 p.signal = 3;
             } else {
                 steer();
@@ -495,8 +726,29 @@ private:
             ground_roll();
             break;
         case falling:
+            p.engine_loud = false;
+            p.climb_kick = 0;
+            p.signal = 3;
+            crash();
+            break;
         case sinking:
-            break; // (not rebuilt yet)
+            if (++p.sink_step > 2) {
+                p.sink_step = 0;
+                p.altitude = word(p.altitude - 1);
+            }
+            p.climb = std::max(p.climb - 250, climb_floor);
+            wreck_blasts();
+            wreck_timer();
+            break;
+        case burning:
+            p.shape = t.wreck_names[p.facing == -1 ? 1 : 0];
+            p.attitude = 0;
+            p.altitude = over_ship(column(p.x)) ? word(obstacle(column(p.x)) + clearance()) : clearance();
+            // $10C870: it smokes from the nose.
+            w.effects.start_smoke(word(p.x + p.facing * 8), word(p.altitude + 0xB), 6, w.beam);
+            wreck_blasts();
+            wreck_timer();
+            break;
         default:
             p.altitude = ground_level();
             if (w.elevator == 0) p.mode = on_deck;
@@ -505,6 +757,38 @@ private:
         gear();
         shapes();
         p.eighth_scale = p.altitude > 0xBA;
+    }
+
+public:
+    // $103684 / $10B7EC.
+    void new_plane(int random_load) {
+        w.input_delay = 0xF;
+        w.weapon = 1;
+        p.signal = 3;
+        w.crew.phase = 0; // ($1036A8)
+        p.speed = 0;
+        w.elevator = 1;
+        w.lift = 0x20;
+        w.menu = true;
+        p.fresh_on_deck = true;
+        p.engine_loud = false;
+        if (w.weapon_load != 0xFF) w.weapon_load = t.weapon_loads[std::size_t(w.weapon)];
+        p.sea_counter = -1;
+        w.menu_repeat = 1;
+        // $10B7EC: the record.
+        p.deck_low = carrier().first * 4 + 0x10;
+        p.deck_high = carrier().last * 4 - 0x10;
+        p.altitude = 0;
+        p.speed_x = 0;
+        p.speed_y = 0;
+        p.mode = on_deck;
+        p.spare = random_load;
+        p.oil = 0x80;
+        p.fuel = 0xC0;
+        p.climb = 0;
+        p.gear = 5;
+        p.lift = false;
+        p.fuel_period = p.fuel_counter = 0x1C;
     }
 };
 
@@ -542,11 +826,19 @@ FlightTables read_flight_tables(const amiga::LoadedImage& wings) {
     read_words(wings, 0x115716, t.obstacle_height);
     for (std::size_t i = 0; i < t.sea_motion.size(); ++i) t.sea_motion[i] = wings.u8(0x114B98 + std::uint32_t(i));
     t.pitch_rate = wings.s16(0x115E6A);
+    for (std::size_t i = 0; i < t.weapon_loads.size(); ++i) t.weapon_loads[i] = wings.u8(0x114B4D + std::uint32_t(i));
+    // $10C88C writes the wreck's name as two words: 'hc' 'r5', or 'hc' 'rf'
+    // facing left (immediates in the code).
+    t.wreck_names = {"hcr5", "hcrf"};
     return t;
 }
 
 void flight_tick(PlayerFlight& p, FlightWorld& w, const FlightTables& t, int command) {
     Tick(p, w, t, command).run();
+}
+
+void new_plane(PlayerFlight& p, FlightWorld& w, const FlightTables& t, int random_load) {
+    Tick(p, w, t, 0).new_plane(random_load);
 }
 
 } // namespace wings::game

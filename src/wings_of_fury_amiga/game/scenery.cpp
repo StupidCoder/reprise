@@ -1,5 +1,6 @@
 #include "wings_of_fury_amiga/game/scenery.hpp"
 #include <algorithm>
+#include <cstdlib>
 
 namespace wings::game {
 namespace {
@@ -96,6 +97,66 @@ void IndexedCanvas::draw_mirrored(const data::Shape& shape, int x0, int y0) {
     }
 }
 
+void IndexedCanvas::draw_opaque(const data::Shape& shape, int x0, int y0) {
+    for (int y = 0; y < shape.height; ++y) {
+        for (int x = 0; x < shape.width(); ++x) {
+            if (!inside(x0 + x, y0 + y)) continue;
+            auto& pixel = pixels[std::size_t((y0 + y) * width + x0 + x)];
+            pixel = std::uint8_t(shape.colour(x, y, pixel));
+        }
+    }
+}
+
+void IndexedCanvas::line(int x0, int y0, int x1, int y1, std::uint8_t colour) {
+    const int left = clip.left, top = clip.top, right = clip.right - 1, bottom = clip.bottom - 1;
+    const auto code = [&](int x, int y) {
+        int c = x < left ? 8 : x > right ? 4 : 0;
+        if (y < top) c |= 2;
+        else if (y > bottom) c |= 1;
+        return c;
+    };
+    // An end outside is moved onto the first edge it is beyond.
+    const auto move_end = [&](int& x, int& y, int c, int dx, int dy) {
+        const auto along_x = [&](int edge) {
+            if (dx != 0) y += std::int16_t(std::int16_t(edge - x) * dy / dx);
+            x = edge;
+        };
+        const auto along_y = [&](int edge) {
+            if (dy != 0) x += std::int16_t(std::int16_t(edge - y) * dx / dy);
+            y = edge;
+        };
+        if (c & 8) along_x(left);
+        else if (c & 4) along_x(right);
+        else if (c & 2) along_y(top);
+        else if (c & 1) along_y(bottom);
+    };
+    for (;;) {
+        const int c0 = code(x0, y0), c1 = code(x1, y1);
+        if ((c0 | c1) == 0) break;
+        if ((c0 & c1) != 0) return;
+        if (c0 != 0) move_end(x0, y0, c0, x1 - x0, y1 - y0);
+        else move_end(x1, y1, c1, x1 - x0, y1 - y0);
+    }
+    const int dx = std::abs(x1 - x0), dy = std::abs(y1 - y0);
+    const int sx = x1 < x0 ? -1 : 1, sy = y1 < y0 ? -1 : 1;
+    const bool steep = dy > dx;
+    const int major = steep ? dy : dx, minor = steep ? dx : dy;
+    int error = 2 * minor - major;
+    int x = x0, y = y0;
+    for (int i = 0; i <= major; ++i) {
+        if (inside(x, y)) pixels[std::size_t(y * width + x)] = colour;
+        if (error >= 0) {
+            if (steep) x += sx;
+            else y += sy;
+            error += 2 * (minor - major);
+        } else {
+            error += 2 * minor;
+        }
+        if (steep) y += sy;
+        else x += sx;
+    }
+}
+
 void IndexedCanvas::draw_xor(const data::Shape& shape, int x0, int y0) {
     for (int y = 0; y < shape.height; ++y) {
         for (int x = 0; x < shape.width(); ++x) {
@@ -127,6 +188,23 @@ std::vector<Island> islands(const data::MissionMap& map) {
     return result;
 }
 
+// $1037BC: the first column is (camera - $120) / 8 (arithmetic shift) at
+// x = 8 - (camera & 7) - $80; columns run on while x < $1D0. A shape is
+// drawn at x - 8, which puts column c at world x c x 8. In the 1/8 view the
+// camera is taken to a multiple of 8, the first column is (camera - $900) / 8
+// and each column is one pixel. Calls visit(c, x) for the map's columns.
+template <typename Visit>
+void for_each_column(const data::MissionMap& map, const BackdropState& state, Visit visit) {
+    const bool eighth = state.eighth_scale;
+    const int view_camera = eighth ? state.camera & 0xFFF8 : state.camera;
+    const int step = eighth ? 1 : column_width;
+    int x = column_width - (view_camera & 7) - 0x80;
+    for (int c = (view_camera - (eighth ? 0x900 : 0x120)) >> 3; x < 0x1D0; ++c, x += step) {
+        if (c < 0 || std::size_t(c) >= map.words.size()) continue;
+        visit(c, x);
+    }
+}
+
 IndexedCanvas draw_backdrop(const data::Assets& assets, const data::MissionMap& map, const BackdropState& state) {
     auto canvas = draw_sky_and_scenery(assets, map, state);
     draw_sea_and_sand(canvas, assets, map, state);
@@ -142,17 +220,8 @@ IndexedCanvas draw_sky_and_scenery(const data::Assets& assets, const data::Missi
     // $103784: the sky down to the ground line + 1 (at most row $A1).
     canvas.fill(0, 0, view_width - 1, std::min(ground_line + 1, 0xA1), sky_colour);
 
-    // $1037BC: the first column is (camera - $120) / 8 (arithmetic shift) at
-    // x = 8 - (camera & 7) - $80; columns run on while x < $1D0. A shape is
-    // drawn at x - 8, which puts column c at world x c x 8. In the 1/8 view
-    // the camera is taken to a multiple of 8, the first column is (camera -
-    // $900) / 8 and each column is one pixel.
     const bool eighth = state.eighth_scale;
-    const int view_camera = eighth ? camera & 0xFFF8 : camera;
-    const int step = eighth ? 1 : column_width;
-    int x = column_width - (view_camera & 7) - 0x80;
-    for (int c = (view_camera - (eighth ? 0x900 : 0x120)) >> 3; x < 0x1D0; ++c, x += step) {
-        if (c < 0 || std::size_t(c) >= map.words.size()) continue;
+    for_each_column(map, state, [&](int c, int x) {
         const auto column = map.column(std::size_t(c));
         const data::Shape* shape = !column.draw ? nullptr
                                    : eighth     ? data::eighth_scale_shape(assets, column.index)
@@ -162,7 +231,7 @@ IndexedCanvas draw_sky_and_scenery(const data::Assets& assets, const data::Missi
             const int y = line + (column.surface == 1 ? ship_drop(state, x) : 0);
             canvas.draw(*shape, x - 8 - shape->offset_x, y - shape->offset_y);
         }
-        if (eighth) continue; // $103B2C: no specials in the 1/8 view
+        if (eighth) return; // $103B2C: no specials in the 1/8 view
         const auto special = map.words[std::size_t(c)] >> 2 & 0x1FFF;
         const auto put = [&](int entry, int y) {
             if (const auto* s = data::scenery_shape(assets, entry)) canvas.draw(*s, x - 8 - s->offset_x, y - s->offset_y);
@@ -188,9 +257,21 @@ IndexedCanvas draw_sky_and_scenery(const data::Assets& assets, const data::Missi
             if (--enemy_flag_counter < 0) enemy_flag_counter = 2;
             put(up ? enemy_flag_frames + enemy_flag_counter : bare_pole, ground_line);
         }
-    }
+    });
 
     return canvas;
+}
+
+SpecialsShown specials_shown(const data::MissionMap& map, const BackdropState& state) {
+    SpecialsShown shown;
+    if (state.eighth_scale) return shown;
+    for_each_column(map, state, [&](int c, int) {
+        const auto special = map.words[std::size_t(c)] >> 2 & 0x1FFF;
+        if (special == special_us_flag) ++shown.us_flag;
+        else if (special == special_deck_crew) ++shown.deck_crew;
+        else if (special == special_enemy_flag) ++shown.enemy_flag;
+    });
+    return shown;
 }
 
 void draw_sea_and_sand(IndexedCanvas& canvas, const data::Assets& assets, const data::MissionMap& map,

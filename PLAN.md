@@ -718,18 +718,37 @@ and songs `wofsongs` (both with their symbols), IFF pictures, "Rpck"-packed
    equal tick for tick in three recordings (take-off, 1/8 view, turns,
    ceiling, glide, wire landing; 2,131 ticks); playable in Joyport (game/
    module): take off, fly, turn, climb into the 1/8 view, come down, land.
-9. Next: the crash and the next plane, the elevator and deck menu, weapons,
-   enemy planes and the other object drawers ($100DA6, $103D78, $103DE8,
-   $104C3E, $103A18, $10391E), damage, sound; then the front end (story scroller, pictures, rank selection, high scores),
+9. **Done 2026-10-27: crashes and the carrier.** Crash, sinking, burning
+   wreck, plane lost, black pause, next plane, game over; the weapon menu,
+   the elevator up and down (rearm), the deck bounce; equal tick for tick in
+   five more recordings (5,374 ticks over nine); in the module.
+10. **Done 2026-10-27: crash effects, carrier animations, arresting wires.**
+   `game/effects`: blasts (fire and smoke on land and ships, water on the
+   sea), splashes and dust, the burning wreck's smoke, the wreck's repeated
+   blasts with the C library's random numbers; the deck crew's flags and the
+   tower flag stepping as they are drawn; the caught wire's cable. Spawns,
+   seeds and crew/flag steps equal tick for tick in twelve recordings (three
+   new, WOFREC3 with the seed and the splash list); the cable exact against
+   grabs; the roll-right brake on the wires (taxi left, turn, roll right with
+   up held) equal in the original and the rebuild, as are repeated deck
+   bounces (13 recordings).
+11. Next: weapons, enemy planes and the other object drawers ($100DA6,
+   $103D78, $103DE8, $104C3E, $103A18, $10391E), damage, sound;
+   then the front end (story scroller, pictures, rank selection, high scores),
    music (`songplay` rewrite), then flight, objects and missions.
 
-Open: the crash ($10AFBA), the elevator's tie to the draw rate (the port draws
-once per tick), shape-mirroring first use, the FFP oracle crashing after ~1,000
+Open: the elevator's tie to the draw rate (the port draws once per tick;
+effects, crew and flags step per drawn frame too), shape-mirroring first
+use, the menu's keyboard keys; the crash blast `$10B304` places by a memory
+address (left out, lands at x 2040 in the reference machine); island damage
+by crashes (`$1046C6`, `$101A84`); damage smoke (`$104F80`, `$101C54`) and
+the second object slot -$5A6A; effect sounds; effect pictures checked by
+eye against grabs, not pixel-compared; the 8 bytes past a map's columns
+(uninitialised in the original, read as 0); the debriefing after game over, the FFP oracle crashing after ~1,000
 calls; the meaning of -$5C94 (drawn as the propeller, 0 throughout a real
 flight); the player's -$5BE0/-$5BE4 parts, upset
 and facing right not yet seen; the
-debug key mode; index-5 special ($104E18), the `$114/$115` pairs, the deck phase
-tables behind the crew poses; ship bob other than 0 not compared; night maps,
+debug key mode; index-5 special ($104E18), the `$114/$115` pairs; ship bob other than 0 not compared; night maps,
 the 1/8-scale view and the copper palette split (rows 151+); maps other than
 a, d and k not compared; stick direction codes;
 `newarmyfont` and how the two fonts are used; sample periods; the shape
