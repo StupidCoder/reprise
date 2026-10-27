@@ -99,6 +99,7 @@ struct Assets {
     std::vector<Sample> samples;
     std::vector<std::string> rank_names;  // `wings` $115864: seven pointers
     std::vector<std::string> story;       // the scrolling story, line by line
+    std::vector<std::uint8_t> ticker_font; // `newarmyfont` as stored (game/ticker.hpp reads it)
     std::vector<HighScore> high_scores;
 };
 

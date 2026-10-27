@@ -95,6 +95,7 @@ struct BackdropState {
 // the crew step only as they are drawn.
 struct SpecialsShown {
     int us_flag{}, deck_crew{}, enemy_flag{};
+    std::vector<int> wrecked_huts; // the drawn wrecked huts' column offsets ($104E18, in both views)
 };
 SpecialsShown specials_shown(const data::MissionMap&, const BackdropState&);
 

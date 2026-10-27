@@ -218,6 +218,7 @@ Assets load_assets(const std::filesystem::path& content) {
     } catch (const std::runtime_error&) {
         throw damaged("wings");
     }
+    assets.ticker_font = read(content, "newarmyfont");
     const auto scores = read(content, "highscore");
     for (std::size_t at = 0; at + score_entry_size <= scores.size(); at += score_entry_size) {
         HighScore score{amiga::read_be32(scores, at), amiga::read_be16(scores, at + 4), {}};

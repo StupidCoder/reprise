@@ -48,7 +48,7 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
 | Wizball | C64 | `Wizball.g64` (MD5 `73e1a136da4b6972d39f00817b86983e`) | disk import, asset decoding with launcher previews; play rebuilt and checked in lockstep (places, enemies, catellite, tunnels, lives, bonus wave, Wizlab, level flight, round end, sound and music); front end, high scores and keys rebuilt |
 | Cannon Fodder | Amiga | three ADFs, `Cannon Fodder (1993)(Virgin)(Disk N of 3)[cr CSL].adf` (SHA-256 `2b01cbc9…`, `9089815b…`, `87ea9c1d…`; a cracked copy) | import of all three disks (Sensible disk format, RNC unpacking) and decoded screens, sprite sheets, tile sets, colours and the 72 mission maps with launcher viewer; map view, camera, tile drawer, mission set-up, object drawing, panel, squad walking, shooting, deaths and enemy soldiers rebuilt and checked against the original; not yet playable in the shell |
 | Rock 'n Roll | Amiga | — | planned |
-| Wings of Fury | Amiga | `Wings_of_Fury_v1.0_1990_Broderbund_cr_Hysteria.adf` (SHA-256 `638d9a9d…4620044`, a cracked copy) | disk import and decoded assets with launcher viewer (pictures, all 12 shape libraries, palettes, sounds, texts); nothing playable yet |
+| Wings of Fury | Amiga | `Wings_of_Fury_v1.0_1990_Broderbund_cr_Hysteria.adf` (SHA-256 `638d9a9d…4620044`, a cracked copy) | disk import and decoded assets with launcher viewer (pictures, all 12 shape libraries, palettes, sounds, texts); the first mission playable (flight, carrier, weapons, islands, enemy bombers, dashboard, sound effects, message ticker); no front end or music yet |
 | Tower of Babel | Amiga | — | planned; original interpretive shell cover added, importer and gameplay not implemented |
 
 ## Fort Apocalypse (C64) milestones
@@ -775,35 +775,64 @@ and songs `wofsongs` (both with their symbols), IFF pictures, "Rpck"-packed
    equal tick for tick in three new recordings. Sound: the game's four-channel
    board (engine, guns, explosions, splashes, elevator, landing) on the
    shared Paula model; every channel equal each tick in 16 recordings.
-12. Next: the islands (huts, dugouts, gun posts, soldiers, anti-aircraft fire,
-   capture, score), enemy planes and ships, damage; the other object drawers
-   ($100DA6, $103D78, $103DE8, $104C3E, $103A18, $10391E);
-   then the front end (story scroller, pictures, rank selection, high scores),
-   music (`songplay` rewrite), then flight, objects and missions.
+12. **Done 2026-10-27: the first mission playable.** `game/islands`: huts,
+   dugouts (crews, anti-aircraft guns, flak, their sound), pillboxes,
+   soldiers running out and dying, hits and score, island taken (bonus),
+   mission accomplished; `game/enemies`: the torpedo bombers the record's
+   timer sends (approach, descent, drop near the carrier, leaving), the
+   lone fighters' rules (closing in, attacking: not met on map a), the
+   player's guns bringing them down, the fall, the skid (blasts, splashes),
+   burning on an island and the wreck; their engine and gun sounds; the
+   enemy torpedo slot (-$5A6A) and torpedo hits on the carrier, which sinks
+   after the fourth (with the plane on deck: game over); the dashboard's
+   enemy planes in the forward view and the alarm arrow; `game/ticker`: the
+   message ticker (`newarmyfont`, the copper gradient). Equal tick for tick
+   in 21 recordings (10,670 ticks; four new: bomber run, shoot-down, carrier
+   sinking, island taken and mission end), dashboard grabs exact with
+   bombers at five distances and the alarm, the ticker exact against a grab.
+13. **Done 2026-10-27: the briefing and mission 2.** `game/briefing`: the
+   mission briefing (`$108590`: the `rank` panel, rank name, mission,
+   islands, ships in `newarmyfont`; 240 frames or fire) before each mission,
+   exact against a screen of the original. Mission change (`$10012A`,
+   `$102ADC`, `$1035A8`): the map by rank and mission (b.map for mission 2),
+   islands and carrier from its scan, enemies cleared, score, spare planes
+   and kills kept, a spare plane on promotion. Mission 2 equal tick for
+   tick in three recordings (bomb pass, both islands taken: bonuses 500 and
+   700, mission accomplished). The port stops before a map that needs
+   unrebuilt parts (c.map on: pillboxes' guns, ships, airfields, ...). The
+   random numbers now come from `std::mt19937` (the wreck's blasts and the
+   beam-position stand-in): the replay checks those by their rules.
+14. Next: mission 3's pillboxes, then the front end (title, story scroller,
+   rank selection, high scores), music (`songplay` rewrite), the later maps
+   (enemy ships, airfields, balloons, fighters, night), glue.
 
 Open: the elevator's tie to the draw rate (the port draws once per tick;
 effects, crew and flags step per drawn frame too), shape-mirroring first
 use, the menu's keyboard keys; the crash blast `$10B304` places by a memory
 address (left out, lands at x 2040 in the reference machine); island damage
-by crashes (`$1046C6`, `$101A84`); damage smoke (`$104F80`, `$101C54`) and
-the second object slot -$5A6A; effect sounds; effect pictures checked by
+damage smoke (`$104F80`, `$101C54`); effect pictures checked by
 eye against grabs, not pixel-compared; the 8 bytes past a map's columns
 (uninitialised in the original, read as 0); the misplaced crash blast's x
 depends on the map's address (reference machine's $FE04 taken); dashboard:
-the enemy-plane marker in the forward view and the attack arrow ($10F21A),
-the sticky −$3902 flag, enemy ships in the forward view; weapons: island
-damage ($1046DC), soldiers ($101A84), balloons (−$5D04), ship guns as rocket
-targets, gun posts' standing flag taken as cleared memory, the atan
+the sticky −$3902 flag, enemy ships in the forward view; weapons: balloons
+(−$5D04), ship guns as rocket targets, gun posts' standing flag taken as cleared memory, the atan
 division's low word and the camera's low word (−$41A0) taken as 0; sound:
-enemy planes' and ships' sounds, the soldiers' scream, the music; the island
-guns' muzzle flashes (with the islands); the debriefing after game over, the FFP oracle crashing after ~1,000
+the enemy ships' guns (they share channel 3 with the islands' guns), the
+music; the island
+guns' muzzle flashes (with the islands); enemy planes: the lone fighters (modes 1 and 2, launched by enemy carriers
+and airfields `$101510`/`$101622`) are rebuilt but not met on map a, the
+skid counter (-$4368) is not recorded, the hit timer's and new heights'
+beam-random draws are taken as recorded; enemy ships' sinking score and
+message (`$101D0E`), -$5A3D, -$5C8E; what follows game over (high scores,
+title, rank); the briefing's `r` key (back to the title); briefings of
+missions 2 and 3 not grabbed (the same text routine as mission 1's); the FFP oracle crashing after ~1,000
 calls; the meaning of -$5C94 (drawn as the propeller, 0 throughout a real
 flight); the player's -$5BE0/-$5BE4 parts, upset
 and facing right not yet seen; the
 debug key mode; index-5 special ($104E18), the `$114/$115` pairs; ship bob other than 0 not compared; night maps,
 the 1/8-scale view and the copper palette split (rows 151+); maps other than
 a, d and k not compared; stick direction codes;
-`newarmyfont` and how the two fonts are used; sample periods; the shape
+the `army` font's use; sample periods; the shape
 offset/sheet fields (hypotheses); eighth rank-menu option (`$108B96`);
 where the retail game called the manual check; a second (retail) release
 entry for the importer; video standard (PAL assumed).

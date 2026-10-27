@@ -289,6 +289,10 @@ int main(int argc, char** argv) {
                 if (u8(flag)) in.ships.push_back({s16(ship), s16(ship - 2), s16(ship - 0x1C), s16(ship - 0x12)});
             }
             in.ships.push_back({s16(0x5B26), s16(0x5B26 - 2), s16(0x5B26 - 0x1C), s16(0x5B26 - 0x12)});
+            for (int i = 0; i < 4; ++i) {
+                const auto f = [&](int field) { return s16(0x5DD4 - i * 0x34 - field); }; // (-$5DD4: the enemy planes)
+                if (f(0) != 0) in.enemies.push_back({f(0x2E), f(0x30), f(0x26), f(0x20), f(2)});
+            }
             wings::game::DashboardGauges gauges;
             const int c = 0x30CE - cache; // the buffer's cache: light, needle (oil), light, needle (fuel)
             gauges.oil_lit = s16(c) == 0x10;

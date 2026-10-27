@@ -3,7 +3,9 @@
 #include "wings_of_fury_amiga/data/assets.hpp"
 #include "wings_of_fury_amiga/game/dashboard.hpp"
 #include "wings_of_fury_amiga/game/effects.hpp"
+#include "wings_of_fury_amiga/game/enemies.hpp"
 #include "wings_of_fury_amiga/game/ffp.hpp"
+#include "wings_of_fury_amiga/game/islands.hpp"
 #include <array>
 #include <cstdint>
 #include <string>
@@ -93,6 +95,19 @@ struct FlightTables {
     std::array<int, 257> sine_quarter{};
     std::array<int, 256> slope{};
     std::array<int, 257> arctangent{};
+    IslandTables islands;
+    EnemyTables enemies;
+    std::vector<int> gun_angles;   // -$63E2 - 32 ..: the guns' picture by row and column ($104DB8)
+    int gun_angle(int index) const {
+        const auto at = std::size_t(index + 32);
+        return at < gun_angles.size() ? gun_angles[at] : 0;
+    }
+    // The messages (`wings` text).
+    struct Messages {
+        std::string island_taken;  // -$7604 "All enemy forces on island have been destroyed . . . Bonus %ld points . . ."
+        std::string next_mission;  // -$7660 ". . . Good work ! You are ordered to return to carrier ..."
+        std::string promoted;      // -$75A4 ". . . Congratulations! You have completed your mission!! ..."
+    } messages;
 };
 FlightTables read_flight_tables(const amiga::LoadedImage& wings);
 
@@ -101,10 +116,13 @@ FlightTables read_flight_tables(const amiga::LoadedImage& wings);
 struct ShipState {
     int first{}, last{};  // byte offsets of the map columns it covers
     bool afloat{};        // +4
-    int ready{};          // +$C (hypothesis: the deck is clear)
+    int ready{};          // +$C: torpedo hits it can still take (the carrier: 4); 0: sinking
     int deck{};           // +$E
+    int value{};          // +$12: the score for sinking it (0: the US carrier)
     int sunk{};           // +$14: how far it has sunk
-    int bob{};            // +$1A
+    int sink_timer{};     // +$16: ticks to the next step down
+    int sink_delay{};     // +$18: the timer's next start ($14 when hit for the last time; shrinks)
+    int bob{};            // +$1A: the frame's copy of +$14
 };
 
 struct PlayerFlight {
@@ -120,6 +138,7 @@ struct PlayerFlight {
     int speed_x{};       // +$16
     int speed_y{};       // +$18
     int extra{};         // +$1A (cleared when the wreck comes to rest)
+    int enemy_timer{};   // +$1C: ticks until a torpedo bomber is sent ($10BC02)
 
     // The flight code's globals.
     int climb{};          // $115356: commanded pitch (x 100 degrees: -4500..3000)
@@ -150,7 +169,29 @@ struct PlayerFlight {
 };
 
 struct FlightWorld {
-    const data::MissionMap* map{};
+    const data::MissionMap* map{};   // the mission's map as play changes it (= &mission_map)
+    data::MissionMap mission_map;    // (wrecked huts and pillboxes rewrite columns)
+    void set_map(const data::MissionMap& m) {
+        mission_map = m;
+        map = &mission_map;
+    }
+    Islands islands;
+    Enemies enemies;
+    int rank{};                      // -$5C40
+    int mission{1};                  // -$5C3E
+    bool mission_accomplished{};     // -$5C42: back below deck, the debriefing
+    bool celebration{};              // -$5CA1: balloons over the carrier
+    long vblank_clock{};             // -$5C34: vertical blanks
+    bool smoke_tick{};               // -$3CB8: every second tick
+    // The message ticker (-$5848): a new message only when none runs, unless
+    // forced.
+    std::string message;
+    bool message_new{};
+    void say(const std::string& text, bool force = false) {
+        if (!message.empty() && !force) return;
+        message = text;
+        message_new = true;
+    }
     std::array<ShipState, 5> ships{}; // $105710 order; [4] = the US carrier
     int carrier_x{};                  // $1152E6 (-$5C6C)
     // The elevator (-$5C6A): 0 up, 1 down with the weapon menu shown,
@@ -206,6 +247,9 @@ struct FlightWorld {
     // Set by the tick, for the game around it.
     int blackout{};                   // -$3BAC: a plane was lost; the view goes black this many waits
     bool game_over{};                 // -$5C9C / -$5C3C: no plane left (or no carrier)
+    // -$5A3C: drawn frames left before the game is over (the carrier went
+    // down with the plane on deck: $64); 0 when not counting.
+    int game_over_countdown{};
 };
 
 // A new plane below deck ($103684 with the record set-up $10B7EC): the
@@ -224,6 +268,30 @@ void set_up_sounds(FlightWorld&, const std::array<int, 9>& lengths);
 
 // The gun posts of the world's map, as the mission start finds them.
 void find_gun_posts(FlightWorld&);
+
+// The islands (islands.cpp).
+void soldiers_come_out(PlayerFlight&, FlightWorld&, const FlightTables&);   // $101DE4
+void damaged_plane_smoke(PlayerFlight&, FlightWorld&, const FlightTables&); // $101BFC (every second tick)
+// $1046DC: what a weapon (0 rocket or a crash, 1 bomb, 2 torpedo; `running`:
+// a torpedo running in the water) hits at x: island targets, or a ship.
+void island_hit(PlayerFlight&, FlightWorld&, const FlightTables&, int x, int weapon, bool running = false);
+void kill_soldiers_near(PlayerFlight&, FlightWorld&, const FlightTables&, int x, int reach); // $101A8C
+// Each drawn frame: the drawn wrecked huts' smoke ($104E18), the dugouts'
+// guns ($103D78), the soldiers ($103EEE).
+void islands_frame(PlayerFlight&, FlightWorld&, const FlightTables&, const std::vector<int>& wrecked_huts = {});
+
+// $101A8C with $101AE2: a blast at x kills the soldiers within reach and
+// sets off the torpedoes near it.
+void set_off_near(PlayerFlight&, FlightWorld&, const FlightTables&, int x, int reach);
+// $101CAE: the ships hit for the last time sink a step at a time.
+void ships_sinking(PlayerFlight&, FlightWorld&, const FlightTables&);
+
+// The enemy planes (enemies.cpp).
+void enemy_timer(PlayerFlight&, FlightWorld&, const FlightTables&, int command); // $10BC02
+void enemies_tick(PlayerFlight&, FlightWorld&, const FlightTables&);             // $10E7D6
+void guns_at_planes(PlayerFlight&, FlightWorld&, const FlightTables&);           // $10B682
+void launch_enemy(PlayerFlight&, FlightWorld&, const FlightTables&, bool formation, int x, int altitude,
+                  int facing);                                                    // $10E4D0
 
 // One logic tick ($101386: the timers, then the flight code $10C660).
 void flight_tick(PlayerFlight&, FlightWorld&, const FlightTables&, int command);

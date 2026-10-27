@@ -7,6 +7,8 @@
 #include "wings_of_fury_amiga/game/flight.hpp"
 #include "wings_of_fury_amiga/game/player_view.hpp"
 #include "wings_of_fury_amiga/game/scenery.hpp"
+#include "wings_of_fury_amiga/game/ticker.hpp"
+#include "wings_of_fury_amiga/game/briefing.hpp"
 #include <algorithm>
 #include <random>
 #include <string>
@@ -24,20 +26,41 @@ public:
     explicit WingsOfFury(const std::filesystem::path& content)
         : assets_(data::load_assets(content)), tables_(read_flight_tables(assets_.program)),
           crew_tables_(read_crew_tables(assets_.program)), dash_tables_(read_dashboard_tables(assets_.program)),
+          briefing_tables_(read_briefing_tables(assets_.program)),
           map_(&assets_.maps.front()), day_(data::find_palette(assets_, "wingspalette")),
-          sea_(data::find_palette(assets_, "ocean.palette")) {
+          sea_(data::find_palette(assets_, "ocean.palette")), ticker_font_(read_ticker_font(assets_.ticker_font)) {
+        // $1087BA: the ticker's copper list sets colour 1 for its first ten
+        // lines from `wings` $1158E8 (the last stays below).
+        for (std::size_t i = 0; i < ticker_colours_.size(); ++i) {
+            ticker_colours_[i] = std::uint16_t(assets_.program.s16(0x1158E8 + std::uint32_t(i * 2)));
+        }
         for (const auto& picture : assets_.pictures) {
             if (picture.name == "iff-dash") dashboard_ = &picture.picture;
         }
-        set_up_carrier();
-        first_plane();
+        start_mission();
     }
 
     double step_seconds() const override { return 1.0 / 50.0; } // PAL vertical blank
     double pixel_aspect() const override { return 0.5; }         // lowres view doubled to the hires dashboard
 
     void tick(const app::GameInput& input) override {
-        if (world_.game_over) return;
+        if (world_.game_over || mission_over_) return;
+        if (briefing_ > 0) {
+            // $1086FA: the briefing waits 240 frames or for fire.
+            const bool pressed = input.fire && !fire_down_;
+            fire_down_ = input.fire;
+            if (--briefing_ <= 0 || pressed) briefing_ = 0;
+            return;
+        }
+        // $10184E (each vertical blank): the message ticker. A message the
+        // game posted starts when none is being read; one read to its end
+        // frees the game to post the next.
+        if (world_.message_new) {
+            ticker_.start(world_.message);
+            world_.message_new = false;
+        }
+        ticker_.step(ticker_font_);
+        if (!ticker_.running()) world_.message.clear();
         if (blackout_ > 0) {
             // $1035D8: the view stays black for 20 waits while the next plane
             // is made ready.
@@ -56,8 +79,9 @@ public:
         tapped_ = held_ = false;
         // One draw per tick here (the original draws about once per tick):
         // the elevator steps on every tick.
-        ++world_.draw_counter;
+        world_.draw_counter = (world_.draw_counter + 1) % 100; // ($1037A8: it counts to 99)
         world_.random_load = 6 + int(random_() % 4); // (the original reads the beam position)
+        world_.vblank_clock = vblank_;
         // The frame start's copies ($100F88) the tick reads; the frame after
         // the last tick was drawn.
         world_.frame_camera = plane_.x;
@@ -66,12 +90,39 @@ public:
         world_.frame_drawn = true;
         frame_facing_ = plane_.facing;
         world_.effects.frame_start();
+        for (auto& ship : world_.ships) ship.bob = ship.sunk; // ($10101A)
         flight_tick(plane_, world_, tables_, command);
         // What drawing the frame steps: the effects, the tower flag, the
         // deck crew and the islands' flags.
         world_.effects.advance();
+        islands_frame(plane_, world_, tables_, specials_shown(*world_.map, backdrop_state()).wrecked_huts);
         animate_specials();
+        // $10030C: a hit flashes the background colour on every second frame.
+        flash_ = 0;
+        if (world_.islands.flash_frames != 0) {
+            if (world_.islands.flash_frames & 1) flash_ = world_.islands.flash_colour;
+            --world_.islands.flash_frames;
+        }
         world_.gauges.step(dashboard_input(), world_.beam.next());
+        // $100DA6 (drawn after the player): the enemy planes and wrecks; the
+        // gun flashes step as they are drawn.
+        {
+            const auto backdrop = backdrop_state();
+            EnemyView view;
+            view.camera = backdrop.camera;
+            view.ground_line = backdrop.eighth_scale ? 0x4B8 : backdrop.ground_line;
+            view.eighth_scale = backdrop.eighth_scale;
+            enemy_sprites_ = enemy_sprites(world_.enemies, tables_.enemies, assets_, view);
+        }
+        // $10012A (the main loop): mission accomplished and the plane below
+        // deck: on to the next mission (a promotion brings a spare plane).
+        if (world_.mission_accomplished && world_.menu) {
+            if (world_.celebration) ++world_.spare_planes;
+            start_mission();
+            return;
+        }
+        // $101110 (each frame): the countdown after the carrier went down.
+        if (world_.game_over_countdown > 0 && --world_.game_over_countdown <= 0) world_.game_over = true;
         play_sounds();
         // $10063A: the muzzle flash steps while the guns fire, upright, in
         // the normal view.
@@ -92,16 +143,36 @@ public:
     }
 
     std::string stopped() const override {
-        return world_.game_over ? "No planes left: the mission is over (the debriefing is not rebuilt yet)." : "";
+        if (mission_over_) {
+            return "Mission " + std::to_string(world_.mission) + " (" + map_->name +
+                   ") needs parts of the game not rebuilt yet: the port stops here.";
+        }
+        if (!world_.game_over) return "";
+        if (!world_.ships[4].afloat || world_.ships[4].ready <= 0) {
+            return "The carrier was sunk: the mission is over (the debriefing is not rebuilt yet).";
+        }
+        return "No planes left: the mission is over (the debriefing is not rebuilt yet).";
     }
 
     platform::Image picture() const override {
+        if (briefing_ > 0) {
+            // The briefing's hires screen, 147 lines from the top, black below.
+            const auto screen = draw_briefing(assets_, ticker_font_, briefing_tables_, world_.rank, world_.mission,
+                                              world_.islands.islands_left, world_.islands.ships_left);
+            platform::Image image(640, picture_height());
+            for (int y = 0; y < screen.height; ++y) {
+                for (int x = 0; x < screen.width; ++x) {
+                    image.put(x, y, data::to_color(briefing_tables_.palette[screen.at(x, y) & 7]));
+                }
+            }
+            return image;
+        }
         if (blackout_ > 0) {
             IndexedCanvas black(view_width, view_height);
             return compose(black, draw_dashboard(assets_, dash_tables_, world_.gauges, dashboard_input()));
         }
         const auto backdrop = backdrop_state();
-        auto canvas = draw_sky_and_scenery(assets_, *map_, backdrop);
+        auto canvas = draw_sky_and_scenery(assets_, *world_.map, backdrop);
 
         CarrierDeckPicture deck;
         deck.camera = backdrop.camera;
@@ -151,14 +222,21 @@ public:
             player.facing_left = plane_.facing < 0;
         }
         draw_player(canvas, player);
-        draw_sea_and_sand(canvas, assets_, *map_, backdrop);
-
+        draw_enemies(canvas, enemy_sprites_);
+        // The dugouts' guns ($103D78, with the scenery objects), then the sea.
         EffectView effects;
         effects.camera = backdrop.camera;
         effects.ground_line = deck.ground_line;
         effects.eighth_scale = backdrop.eighth_scale;
+        std::vector<WorldSprite> soldiers;
+        for (const auto& sprite : world_.islands.sprites) {
+            if (sprite.gun) draw_world_sprite(canvas, assets_, effects, {sprite.entry, sprite.x, sprite.y});
+            else soldiers.push_back({sprite.entry, sprite.x, sprite.y});
+        }
+        draw_sea_and_sand(canvas, assets_, *world_.map, backdrop);
+
         if (world_.elevator != 0) effects.smoke_clip_bottom = smoke_clip_line + backdrop.vertical_scroll + deck.bob;
-        draw_effects(canvas, assets_, world_.effects, effects);
+        draw_effects(canvas, assets_, world_.effects, effects, soldiers);
         if (world_.menu) draw_weapon_menu(canvas, assets_, world_.weapon);
         return compose(canvas, draw_dashboard(assets_, dash_tables_, world_.gauges, dashboard_input()));
     }
@@ -209,9 +287,12 @@ private:
         in.altitude = plane_.altitude;
         in.facing = plane_.facing;
         in.eighth_scale = plane_.eighth_scale;
-        in.map = map_;
+        in.map = world_.map;
         for (const auto& ship : world_.ships) {
             if (&ship == &world_.ships.back() || ship.afloat) in.ships.push_back({ship.first, ship.last, 0, 0});
+        }
+        for (const auto& e : world_.enemies.planes) {
+            if (e.state != 0) in.enemies.push_back({(std::int16_t(e.x) >> 3) * 2, e.picture, e.altitude, e.x, e.mode}); // ($100FEC)
         }
         return in;
     }
@@ -236,7 +317,7 @@ private:
     // each island flag column once ($103B52, counted from the frame before).
     void animate_specials() {
         enemy_flag_counter_ = ((enemy_flag_counter_ - enemy_flags_drawn_) % 3 + 3) % 3;
-        const auto shown = specials_shown(*map_, backdrop_state());
+        const auto shown = specials_shown(*world_.map, backdrop_state());
         if (world_.draw_counter & 1) {
             for (int i = 0; i < shown.us_flag; ++i) us_flag_step_ = us_flag_step_ == 0 ? 3 : us_flag_step_ - 1;
         }
@@ -268,10 +349,52 @@ private:
         return 11 - int((vblank_ / vblanks_per_tick / 2) % 12);
     }
 
+    int picture_height() const { return view_height + 37 + 1 + Ticker::rows; }
+
+    // The maps rebuilt so far need nothing more than islands with huts and
+    // dugouts, the US carrier and torpedo bombers (c.map on adds pillboxes,
+    // later maps ships, airfields and more).
+    static bool map_supported(const std::string& name) { return name == "a.map" || name == "b.map"; }
+
+    // $102ADC and $1035A8 for the mission (rank -$5C40, mission -$5C3E): the
+    // map is the sum of the missions of the ranks below plus the mission
+    // ($102AFC, table -$5AB6, names -$5AF2); the islands and the carrier
+    // from its scan, the enemy planes and wrecks cleared; the score, spare
+    // planes and kills stay. Then the briefing and the first plane.
+    void start_mission() {
+        int index = world_.mission - 1;
+        for (int r = 0; r < world_.rank && r < 7; ++r) index += tables_.islands.missions_per_rank[std::size_t(r)];
+        map_ = &assets_.maps[std::size_t(std::clamp(index, 0, int(assets_.maps.size()) - 1))];
+        FlightWorld next;
+        next.score = world_.score;
+        next.spare_planes = world_.spare_planes;
+        next.kills = world_.kills;
+        next.rank = world_.rank;
+        next.mission = world_.mission;
+        next.beam = world_.beam;
+        next.random = world_.random;
+        world_ = std::move(next);
+        plane_ = PlayerFlight{};
+        ticker_ = Ticker{};
+        // ($101234 / $101F4E: the sound stops.)
+        for (int c = 0; c < 4; ++c) paula_.flush(c);
+        channels_ = {};
+        flash_ = 0;
+        enemy_sprites_.clear();
+        set_up_carrier();
+        if (!map_supported(map_->name)) {
+            mission_over_ = true;
+            return;
+        }
+        first_plane();
+        briefing_ = BriefingScreen::frames;
+    }
+
     // The map scan ($102DE8 -> $103032): the US carrier spans the byte
     // offsets (rcar column x 2) - $A0 .. + $20, afloat, deck height $21.
     void set_up_carrier() {
-        world_.map = map_;
+        world_.set_map(*map_);
+        world_.islands = find_islands(*map_);
         set_up_sounds(world_, sample_lengths(assets_));
         find_gun_posts(world_);
         world_.carrier_x = map_->carrier_x();
@@ -287,6 +410,7 @@ private:
         carrier.afloat = true;
         carrier.ready = 4;
         carrier.deck = 0x21;
+        carrier.sink_timer = 0x14;
     }
 
     // The first plane: below deck with the weapon menu ($103562 -> $1035D8
@@ -300,19 +424,22 @@ private:
         plane_.turn_delay = 2;
         plane_.attitude = 4;
         new_plane(plane_, world_, tables_, 6 + int(random_() % 4));
-        world_.gauges.set_spares(world_.spare_planes); // ($103562: the mission begins)
+        world_.gauges.set_spares(world_.spare_planes); // ($10EDAA: the mission begins)
         gear_offset_ = plane_.gear;
     }
 
     // The view (lowres, doubled) above the dashboard (hires).
     platform::Image compose(const IndexedCanvas& canvas, const IndexedCanvas& dash) const {
         const int dash_height = dashboard_ ? dash.height : 0;
-        platform::Image image(640, canvas.height + dash_height);
+        platform::Image image(640, picture_height());
         for (int y = 0; y < canvas.height; ++y) {
             const auto& palette = y < 151 ? day_ : sea_;
             for (int x = 0; x < canvas.width; ++x) {
                 const auto index = canvas.at(x, y);
-                const auto colour = data::to_color(index < palette.size() ? palette[index] : 0);
+                auto colour = data::to_color(index < palette.size() ? palette[index] : 0);
+                // (The flash sets the upper palette's colour 0 in the copper
+                // list; hypothesis: rows above the sea's palette split.)
+                if (index == 0 && flash_ != 0 && y < 151) colour = data::to_color(std::uint16_t(flash_));
                 image.put(2 * x, y, colour);
                 image.put(2 * x + 1, y, colour);
             }
@@ -325,6 +452,14 @@ private:
                 }
             }
         }
+        // The ticker, a line below the dashboard: 640 of its 672 pixels.
+        const int ticker_top = canvas.height + dash_height + 1;
+        for (int y = 0; y < Ticker::rows; ++y) {
+            const auto colour = data::to_color(ticker_colours_[std::min<std::size_t>(std::size_t(y), ticker_colours_.size() - 1)]);
+            for (int x = 0; x < 640; ++x) {
+                if (ticker_.pixel(x, y)) image.put(x, ticker_top + y, colour);
+            }
+        }
         return image;
     }
 
@@ -332,6 +467,7 @@ private:
     FlightTables tables_;
     CrewTables crew_tables_;
     DashboardTables dash_tables_;
+    BriefingTables briefing_tables_;
     const data::MissionMap* map_;
     data::Palette day_, sea_;
     const amiga::IlbmPicture* dashboard_{};
@@ -344,12 +480,19 @@ private:
     bool fire_down_ = false, tapped_ = false, held_ = false;
     int gear_offset_ = 5;
     int us_flag_step_ = 0;
+    int flash_ = 0;           // this frame's background colour 0 from a hit (0: none)
     int flash_counter_ = 0;   // -$5C76
     amiga::Paula paula_;
     struct ChannelState {
         std::uint16_t period{}, volume{};
     };
     std::array<ChannelState, 4> channels_{};
+    std::vector<EnemySprite> enemy_sprites_;
+    TickerFont ticker_font_;
+    Ticker ticker_;
+    std::array<std::uint16_t, 10> ticker_colours_{};
+    bool mission_over_ = false;
+    int briefing_ = 0;        // vertical blanks the briefing still shows
     int frame_facing_ = -1;   // -$4084: the facing at the frame start
     int enemy_flag_counter_ = 0;
     int enemy_flags_drawn_ = 0;

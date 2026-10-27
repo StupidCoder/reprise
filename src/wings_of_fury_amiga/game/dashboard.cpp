@@ -24,6 +24,8 @@ constexpr int kill_bar = 0x74;
 // The forward view's window ($10525C) and its fills ($104564).
 constexpr int view_left = 0x102, view_right = 0x17C, view_top = 7, view_bottom = 0x20;
 constexpr int view_centre = 0x13F;
+constexpr int torpedo_run = 4;                    // an enemy plane's mode (+2)
+constexpr int alarm_left = 8, alarm_right = 9;    // ltar, rtar
 constexpr int sky = 2, sea = 1, island_line = 5;
 constexpr int ship_surface = 1, island_surface = 2;
 
@@ -138,8 +140,26 @@ public:
         for (int i = 0; i < 11; ++i) {
             const int band = 10 - i;
             const int far = t.band_distance[std::size_t(i)], near = t.band_distance[std::size_t(i) + 1];
-            // (Enemy planes in the band are drawn here: not rebuilt yet.)
             int offset = word(word((in.facing < 0 ? -far : far) + (std::int16_t(in.camera) >> 3)) * 2);
+            // $1042A0: the enemy planes in the band, centred, raised by
+            // their height; facing right the pictures swap sides.
+            {
+                const int span = word((far - near) * 2);
+                int lo = word(in.facing < 0 ? offset + span : offset - span), hi = offset;
+                if (hi < lo) std::swap(lo, hi);
+                for (const auto& e : in.enemies) {
+                    if (e.column < lo || e.column > hi) continue;
+                    int picture = e.picture;
+                    if (in.facing >= 0) {
+                        picture += 0x1C;
+                        if (std::uint16_t(picture) >= 0x38) picture -= 0x38;
+                    }
+                    picture = (picture & ~0xFF) | ((picture + t.enemy_band[std::size_t(band)]) & 0xFF); // (add.b)
+                    if (picture < 0 || std::size_t(picture) >= t.enemy_names.size() || parts == nullptr) continue;
+                    put(parts->find(t.enemy_names[std::size_t(picture)]), view_centre,
+                        row - ((std::int16_t(e.altitude) >> 2) + 4));
+                }
+            }
             int trees = -1, other = -1;
             bool island = false;
             for (int n = 0; n <= far - near; ++n, offset = word(offset + step)) {
@@ -203,6 +223,13 @@ public:
 
     void instruments(const DashboardGauges& g) {
         canvas.clip = {0, 0, 0x280, 0x25}; // $10F2DC
+        // $10F21A: the alarm: the first torpedo bomber on its run, an arrow
+        // to its side (`ltar` / `rtar`).
+        for (const auto& e : in.enemies) {
+            if ((e.mode & 7) != torpedo_run) continue;
+            put(std::int16_t(in.camera - e.x) >= 0 ? alarm_left : alarm_right, 0x140, 0xA);
+            break;
+        }
         gauge(0xCA, 0xD0, g.oil_lit, g.oil_needle);
         gauge(0x1A8, 0x1AF, g.fuel_lit, g.fuel_needle);
         put_opaque(weapon_icons + in.weapon, 0x10, 0xB, false);
@@ -261,6 +288,17 @@ DashboardTables read_dashboard_tables(const amiga::LoadedImage& wings) {
         t.deck_frame[i] = wings.u8(a4 - 0x68A9 + std::uint32_t(i));
     }
     for (std::size_t i = 0; i < t.digit_y.size(); ++i) t.digit_y[i] = std::int8_t(wings.u8(a4 - 0x6402 + std::uint32_t(i)));
+    for (int size = 0; size < 3; ++size) {
+        for (std::uint32_t side = 0; side < 2; ++side) {
+            for (std::uint32_t i = 0; i < 28; ++i) {
+                std::string name;
+                for (std::uint32_t c = 0; c < 4; ++c) name += char(wings.u8((side ? 0x1160DC : 0x11606C) + i * 4 + c));
+                name[2] = char('1' + size);
+                t.enemy_names.push_back(name);
+            }
+        }
+    }
+    for (std::size_t i = 0; i < t.enemy_band.size(); ++i) t.enemy_band[i] = wings.u8(a4 - 0x696C + std::uint32_t(i));
     return t;
 }
 

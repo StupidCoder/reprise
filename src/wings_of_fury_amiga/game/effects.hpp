@@ -4,6 +4,7 @@
 #include "wings_of_fury_amiga/game/scenery.hpp"
 #include <array>
 #include <cstdint>
+#include <random>
 
 // The short-lived pictures a crash leaves, and the carrier's deck crew:
 //
@@ -23,26 +24,18 @@
 // smoke, then splashes, then blasts.
 namespace wings::game {
 
-// The C library's rand() ($111E24): only the wreck's blasts use it. The seed
-// (-$45E8) is 1 when the program is loaded and never set again.
+// The game's random numbers come from two sources: the C library's rand()
+// ($111E24, 15 bits; only the wreck's blasts use it) and the video beam
+// position ($1103BE, 16 bits of hardware noise, everything else). The
+// rebuild draws both from a standard generator; only how each value is used
+// (its range and mask) follows the original.
 struct CRandom {
-    std::uint32_t seed = 1;
-    int next() {
-        seed = seed * 0x41C64E6Du + 0x3039u;
-        return int(seed >> 16 & 0x7FFF);
-    }
+    std::mt19937 engine{0x57494E47u};
+    int next() { return int(engine() & 0x7FFF); }
 };
-
-// The game's other random numbers ($1103BE) mix in the video beam position:
-// hardware noise. This stands in for it.
 struct BeamRandom {
-    std::uint32_t state = 0x2545F491;
-    int next() {
-        state ^= state << 13;
-        state ^= state >> 17;
-        state ^= state << 5;
-        return int(state & 0xFFFF);
-    }
+    std::mt19937 engine{0x46555259u};
+    int next() { return int(engine() & 0xFFFF); }
 };
 
 // A slot of the object table. Positions and speeds are 16.16 fixed point;
@@ -91,7 +84,19 @@ struct Puff {
 };
 
 struct Effects {
-    std::array<FlyingObject, 15> objects{};
+    std::array<FlyingObject, 15> objects{};  // -$6350
+    // -$5A6A: an enemy torpedo bomber's torpedo, outside the table but
+    // flown, set off and drawn by the same code.
+    FlyingObject enemy_torpedo;
+    // Every object the flying code steps: the table, then the enemy torpedo.
+    template <typename F> void each_object(F&& f) {
+        for (auto& o : objects) f(o);
+        f(enemy_torpedo);
+    }
+    template <typename F> void each_object(F&& f) const {
+        for (const auto& o : objects) f(o);
+        f(enemy_torpedo);
+    }
     std::array<Splash, 20> splashes{};
     std::array<Puff, 40> puffs{};
 
@@ -106,6 +111,8 @@ struct Effects {
     // $10CAE0: a puff of smoke of `size` at world (x, y), nudged 0..7 to the
     // right and 6 up; $105460 gives it a drift of 1..2 right and up.
     void start_smoke(int x, int y, int size, BeamRandom&);
+    // $105460: a puff at a 16.16 place (y at least 16).
+    void start_puff(std::int32_t x, std::int32_t y, int size, BeamRandom&);
     // $100FBA (frame start): what the drawing will see.
     void frame_start();
     // What the drawers change as they draw one frame ($100EE0, $1052F8,
@@ -122,7 +129,15 @@ struct EffectView {
     bool eighth_scale{};
     int smoke_clip_bottom{-1}; // $100EE0: at the deck while the elevator moves
 };
-void draw_effects(IndexedCanvas&, const data::Assets&, const Effects&, const EffectView&);
+// A scenery-table entry drawn at a world place (the islands' soldiers and guns).
+struct WorldSprite {
+    int entry{}, x{}, y{};
+};
+// Smoke, then `between` (the soldiers, $103EEE), then splashes and blasts.
+void draw_effects(IndexedCanvas&, const data::Assets&, const Effects&, const EffectView&,
+                  const std::vector<WorldSprite>& between = {});
+// $105174 for scenery entries (the 1/8-scale table in the 1/8 view).
+void draw_world_sprite(IndexedCanvas&, const data::Assets&, const EffectView&, const WorldSprite&);
 
 // The deck crew's two flag figures ($103BCE): pose a (`fgy0`..`fgy7`) and
 // pose b (`fgy8`..`fgyf`) each walk a step per drawn frame toward a target,

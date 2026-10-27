@@ -32,6 +32,11 @@ struct DashboardTables {
     std::array<int, 16> deck_clip{};       // -$68C9
     std::array<int, 16> deck_frame{};      // -$68A9
     std::array<int, 12> digit_y{};         // -$6402: the digit strip's offset per digit
+    // The enemy planes as the forward view shows them ($10D1EA builds the
+    // table -$3BA2 from `wings` $11606C / $1160DC): three sizes of 56
+    // pictures (left, then right), the third letter of each name the size.
+    std::vector<std::string> enemy_names;
+    std::array<int, 11> enemy_band{};      // -$696C: added to the picture by band (the farthest last)
 };
 DashboardTables read_dashboard_tables(const amiga::LoadedImage& wings);
 
@@ -51,6 +56,13 @@ struct DashboardInput {
     int facing{};        // -$5F72
     bool eighth_scale{}; // -$60C8 = 1
     const data::MissionMap* map{};
+    // The enemy planes up (-$5DD4): the map byte offset of their column
+    // (+$2E, from the frame start), their picture (+$30) and height.
+    struct Enemy {
+        int column{}, picture{}, altitude{};
+        int x{}, mode{};
+    };
+    std::vector<Enemy> enemies;
     // The ships the forward view can see on the map ($104A52): enemy slots
     // first (only active ones), the US carrier last.
     struct Ship {

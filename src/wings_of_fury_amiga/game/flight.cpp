@@ -44,11 +44,18 @@ public:
             elevator();
         }
         fly();
+        enemies_tick(p, w, t);        // $10E7D6
         sound_state();
+        guns_at_planes(p, w, t);      // $10B682
         sound_driver();
         snapshot();
+        damaged_plane_smoke(p, w, t); // $101BFC
         fly_objects();
         strafe();
+        // ($101622 / $101510, the enemy carriers and airfields: none on
+        // the maps rebuilt so far.)
+        ships_sinking(p, w, t);       // $101CAE
+        soldiers_come_out(p, w, t);   // $101DE4
     }
 
 private:
@@ -65,6 +72,7 @@ private:
     // flying (oil only after damage, when it is no longer $80); the sea's
     // motion steps through its table.
     void timers() {
+        w.smoke_tick = !w.smoke_tick; // (-$3CB8, each tick)
         if (p.mode == flying) {
             if (p.oil != 0x80 && --p.oil_counter <= 0) {
                 p.oil_counter = 0x50;
@@ -329,6 +337,8 @@ private:
                     p.x = word(p.x - word(sliding + 4));
                     p.speed = 0;
                     resting = 2;
+                    w.islands.flash_frames = 7; // ($10CAB4: the screen flashes red)
+                    w.islands.flash_colour = 0xF00;
                     blast(c, p.altitude, false);
                 } else {
                     down = true;
@@ -364,12 +374,16 @@ private:
                 // where (altitude - the map's address) x 4 points: with the
                 // map at $xxxxFE04, as in the reference machine, (altitude +
                 // $1FC) x 4 - x 2040 at rest, far from the crash. Its sound
-                // starts the explosion again, quietly. (On land it then wrecks
-                // what stands in the column and the soldiers near it, $1046C6
-                // and $101A84: islands are not rebuilt yet.)
+                // starts the explosion again, quietly. On land the plane then
+                // wrecks what stands in its column ($1046C6, as a rocket would)
+                // and the soldiers within 8 ($101A84).
                 constexpr int map_address_low = 0xFE04;
                 const int x = std::int16_t(std::uint16_t((p.altitude - map_address_low) << 2));
                 if (w.effects.start_blast_at(x, 0, false)) boom(x);
+                if (surface == land) {
+                    island_hit(p, w, t, c * 8, 0);
+                    set_off_near(p.x, 8);
+                }
             }
         } else {
             p.climb = std::max(p.climb - t.pitch_rate, -0xC1C);
@@ -513,8 +527,25 @@ private:
             guns_or_engine.request[1].period = s.engine_period;
         }
         guns_or_engine.request[0].active = w.guns;
-        // (Channel 1 sounds the enemy planes' guns and engines: not rebuilt.)
-        channel(1).request[1].active = false;
+        // Channel 1: the enemy planes' guns (any firing) and the engine of
+        // the nearest one flying, louder the nearer ($1022CE).
+        int nearest = 0xFFFF;
+        bool enemy_guns = false;
+        for (const auto& o : w.enemies.planes) {
+            if (o.state == 0 || o.state > 2) continue;
+            const int d = std::uint16_t(std::abs(word(o.x - p.x)) + std::abs(word(o.altitude - p.altitude)));
+            nearest = std::min(nearest, d);
+            enemy_guns = enemy_guns || o.firing;
+        }
+        auto& enemy = channel(1);
+        enemy.request[1].active = false;
+        const int v = nearest >> 4;
+        const int loudness = v > 0x2C ? 0 : 0x40 - (v <= 5 ? v * 4 : v + 0x14);
+        if (loudness != 0) {
+            enemy.request[1].volume = loudness;
+            enemy.request[1].active = true;
+        }
+        enemy.request[0].active = enemy_guns;
         auto& blasts = channel(2);
         auto& deck = channel(3);
         if (w.elevator == 2 || w.elevator == 3) {
@@ -533,9 +564,11 @@ private:
             blasts.request[1].period = 0x15E;
             blasts.request[1].repeat = 1;
         }
-        // (Channel 3's first request sounds the enemy ships' guns, -$3E9A:
-        // not rebuilt.)
-        deck.request[0].active = false;
+        // Channel 3's first request: the anti-aircraft guns the last frame
+        // showed firing; they take over from the deck's sounds.
+        deck.request[0].active = w.islands.gun_sound;
+        if (w.islands.gun_sound) deck.request[1].active = false;
+        deck.request[0].volume = w.islands.gun_volume;
     }
 
     // $102066: each channel plays its first active request, else its second.
@@ -711,20 +744,13 @@ private:
         o.dy = sine(heading) * speed;
     }
 
-    // $101AE2: a blast here sets off the torpedoes near it (and, $101A8C,
-    // kills the soldiers within reach: not rebuilt yet).
-    void set_off_near(int x, int reach) {
-        for (auto& o : w.effects.objects) {
-            if (o.listed == Kind::none || o.weapon != 2) continue;
-            if (std::uint16_t(std::abs(word(o.shown_x - x))) > reach) continue;
-            o.kind = Kind::blast;
-            o.frame = 1;
-        }
-    }
+    // $101A8C: a blast here kills the soldiers within reach and ($101AE2)
+    // sets off the torpedoes near it.
+    void set_off_near(int x, int reach) { game::set_off_near(p, w, t, x, reach); }
 
-    // A weapon goes off where it is. (On an island it also wrecks what
-    // stands there and scores, $1046DC: not rebuilt yet.)
+    // A weapon goes off where it is, wrecking what stands there ($1046DC).
     void explode(FlyingObject& o) {
+        island_hit(p, w, t, o.pixel_x(), o.weapon, o.picture == 0xA);
         o.kind = Kind::blast;
         o.frame = 1;
         set_off_near(o.pixel_x(), 0x10);
@@ -739,12 +765,14 @@ private:
         }
         o.x = std::int32_t(std::uint32_t(o.x) + std::uint32_t(o.dx));
         if (surface_at(o.pixel_x()) != 0) {
-            // (Ships and islands hit: $1046DC, not rebuilt yet.) The blast
-            // keeps the water's frames.
+            // What it hits ($1046DC); the blast keeps the water's frames.
+            island_hit(p, w, t, o.pixel_x(), o.weapon, true);
             o.kind = Kind::blast;
             o.frame = 1;
             boom(o.pixel_x());
-            splash_sound(o.pixel_x());
+            // ($100D92 calls the splash with D0 as $102324 left it: the
+            // boom's volume, taken as an x. Far from the plane: silent.)
+            splash_sound(volume_at(o.pixel_x()));
             return;
         }
         w.effects.start_splash(o.pixel_x(), 0);
@@ -831,6 +859,8 @@ private:
             if (o.active() && o.kind != Kind::blast) fly_object(o);
         }
         w.frame_drawn = false;
+        auto& enemy = w.effects.enemy_torpedo;
+        if (enemy.active() && enemy.kind != Kind::blast) fly_object(enemy);
     }
 
     // $1019BC: the guns firing in a dive below $A0 hit the ground where the
@@ -1075,10 +1105,11 @@ private:
             p.mode = falling;
             p.speed = word(p.speed_x * 100);
             // $10BB9E: a blast two columns ahead, unless in the water or low
-            // on a ship's deck. (On an island it also wrecks what stands
-            // there, $1046C6: not rebuilt yet.)
+            // on a ship's deck; what stands in the plane's column is wrecked
+            // ($1046C6, as a rocket would).
             if (!over_water(c) && !(over_ship(c) && p.altitude < 0x14)) {
                 blast(column(p.x + p.facing * 16), p.altitude, false);
+                island_hit(p, w, t, c * 8, 0);
             }
             crash();
         }
@@ -1152,7 +1183,7 @@ private:
     // $10C660.
     void fly() {
         fire();
-        // ($10BC02, the timer that sends enemy planes, is not rebuilt.)
+        enemy_timer(p, w, t, cmd); // $10BC02
         if (w.menu) {
             // $10C676: while the weapon menu is up the plane waits.
             p.throttle = 0;
@@ -1270,6 +1301,7 @@ public:
         p.gear = 5;
         p.lift = false;
         p.fuel_period = p.fuel_counter = 0x1C;
+        p.enemy_timer = 0x546;
     }
 };
 
@@ -1311,10 +1343,79 @@ FlightTables read_flight_tables(const amiga::LoadedImage& wings) {
     // $10C88C writes the wreck's name as two words: 'hc' 'r5', or 'hc' 'rf'
     // facing left (immediates in the code).
     t.wreck_names = {"hcr5", "hcrf"};
+    t.islands = read_island_tables(wings);
+    t.enemies = read_enemy_tables(wings);
+    for (std::uint32_t at = 0x11AF52 - 0x63E2 - 32; at < 0x11AF52 - 0x63E2 + 288; ++at) t.gun_angles.push_back(wings.u8(at));
+    const auto text = [&](std::uint32_t at) {
+        std::string s;
+        for (char c; (c = char(wings.u8(at))) != 0; ++at) s += c;
+        return s;
+    };
+    t.messages.island_taken = text(0x11AF52 - 0x7604);
+    t.messages.next_mission = text(0x11AF52 - 0x7660);
+    t.messages.promoted = text(0x11AF52 - 0x75A4);
     for (std::size_t i = 0; i < t.sine_quarter.size(); ++i) t.sine_quarter[i] = wings.s16(0x11AF52 - 0x6692 + std::uint32_t(2 * i));
     for (std::size_t i = 0; i < t.slope.size(); ++i) t.slope[i] = wings.s16(0x11AF52 - 0x6892 + std::uint32_t(2 * i));
     for (std::size_t i = 0; i < t.arctangent.size(); ++i) t.arctangent[i] = wings.u8(0x11AF52 - 0x5810 + std::uint32_t(i));
     return t;
+}
+
+void set_off_near(PlayerFlight& p, FlightWorld& w, const FlightTables& t, int x, int reach) {
+    kill_soldiers_near(p, w, t, x, reach);
+    // $101AE2: the player's torpedoes in the table, then the enemy one.
+    for (auto& o : w.effects.objects) {
+        if (o.listed == FlyingObject::Kind::none || o.weapon != 2) continue;
+        if (std::uint16_t(std::abs(word(o.shown_x - x))) > reach) continue;
+        o.kind = FlyingObject::Kind::blast;
+        o.frame = 1;
+    }
+    auto& enemy = w.effects.enemy_torpedo;
+    if (enemy.listed != FlyingObject::Kind::none && std::uint16_t(std::abs(word(enemy.shown_x - x))) <= reach) {
+        enemy.kind = FlyingObject::Kind::blast;
+        enemy.frame = 1;
+    }
+}
+
+void ships_sinking(PlayerFlight& p, FlightWorld& w, const FlightTables&) {
+    for (auto& ship : w.ships) {
+        if (!ship.afloat || ship.ready != 0) continue;
+        // $101CD8: a step down when the timer runs out; each step comes
+        // sooner than the last.
+        if (--ship.sink_timer > 0) continue;
+        ++ship.sunk;
+        ship.sink_timer = ship.sink_delay;
+        if (ship.sink_delay != 0) --ship.sink_delay;
+        if (ship.value == 0) {
+            // The US carrier: a plane below deck comes up (the step test
+            // before it, `cmpi #1,$14`, has its flags overwritten: it acts
+            // at every step); a plane on deck at step $21 sinks with it; the
+            // game ends 100 frames later.
+            if (w.elevator == 1) {
+                p.mode = 0xB;
+                w.elevator = 2;
+                w.menu = false;
+                p.turn = 0;
+            }
+            if (ship.sunk == 0x21 && p.mode == 1) {
+                p.mode = 6;
+                p.altitude = 0;
+                w.spare_planes = 0;
+                w.menu = false;
+                w.game_over_countdown = 0x64;
+            }
+            if (ship.sunk < 0x78) continue;
+            ship.afloat = false; // (and -$5A3D is set: nothing rebuilt reads it)
+        } else {
+            // (Enemy ships: their score and message at step 10 ($101D0E)
+            // are not rebuilt; none on the maps rebuilt so far.)
+            if (ship.sunk < 0x78) continue;
+            ship.ready = -1;
+        }
+        // The ship's columns leave the map.
+        for (int c = ship.first; c <= ship.last && c / 2 < int(w.mission_map.words.size()); c += 2) {
+            w.mission_map.words[std::size_t(c / 2)] = 0;
+        }
+    }
 }
 
 void flight_tick(PlayerFlight& p, FlightWorld& w, const FlightTables& t, int command) {

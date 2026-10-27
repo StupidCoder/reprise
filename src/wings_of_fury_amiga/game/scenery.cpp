@@ -264,9 +264,11 @@ IndexedCanvas draw_sky_and_scenery(const data::Assets& assets, const data::Missi
 
 SpecialsShown specials_shown(const data::MissionMap& map, const BackdropState& state) {
     SpecialsShown shown;
-    if (state.eighth_scale) return shown;
     for_each_column(map, state, [&](int c, int) {
-        const auto special = map.words[std::size_t(c)] >> 2 & 0x1FFF;
+        const auto w = map.words[std::size_t(c)];
+        if ((w & 0x8000) != 0 && (w >> 2 & 0x1FFF) == 5) shown.wrecked_huts.push_back(c * 2);
+        if (state.eighth_scale) return;
+        const auto special = w >> 2 & 0x1FFF;
         if (special == special_us_flag) ++shown.us_flag;
         else if (special == special_deck_crew) ++shown.deck_crew;
         else if (special == special_enemy_flag) ++shown.enemy_flag;

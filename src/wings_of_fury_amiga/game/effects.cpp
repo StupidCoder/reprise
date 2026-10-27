@@ -79,11 +79,15 @@ void Effects::start_splash(int x, int surface) {
 void Effects::start_smoke(int x, int y, int size, BeamRandom& beam) {
     x += beam.next() & 7;
     y += 6;
+    start_puff(std::int32_t(x) * one, std::int32_t(y) * one, size, beam);
+}
+
+void Effects::start_puff(std::int32_t x, std::int32_t y, int size, BeamRandom& beam) {
     for (auto& puff : puffs) {
         if (puff.size != 0) continue;
         puff = Puff{};
-        puff.x = std::int32_t(x) * one;
-        puff.y = std::max(std::int32_t(y) * one, 16 * one); // ($105480: at least 16)
+        puff.x = x;
+        puff.y = std::max(y, 16 * one); // ($105480: at least 16)
         puff.size = size;
         puff.count = frames_per_size;
         puff.dx = (beam.next() & 0xFFFF) + one;
@@ -93,11 +97,11 @@ void Effects::start_smoke(int x, int y, int size, BeamRandom& beam) {
 }
 
 void Effects::frame_start() {
-    for (auto& b : objects) {
+    each_object([](FlyingObject& b) {
         b.listed = b.kind;
         b.shown_x = b.pixel_x();
         b.shown_y = b.pixel_y();
-    }
+    });
 }
 
 void Effects::advance() {
@@ -119,16 +123,21 @@ void Effects::advance() {
         s.shown = s.left;
         if (s.left > 0) --s.left;
     }
-    for (auto& b : objects) {
-        if (b.listed != FlyingObject::Kind::blast) continue;
+    each_object([](FlyingObject& b) {
+        if (b.listed != FlyingObject::Kind::blast) return;
         if (++b.frame == blast_frames_end) {
             b.kind = FlyingObject::Kind::none;
             b.frame = 0;
         }
-    }
+    });
 }
 
-void draw_effects(IndexedCanvas& canvas, const data::Assets& assets, const Effects& effects, const EffectView& view) {
+void draw_world_sprite(IndexedCanvas& canvas, const data::Assets& assets, const EffectView& view, const WorldSprite& s) {
+    put(canvas, assets, view, s.entry, s.x, s.y);
+}
+
+void draw_effects(IndexedCanvas& canvas, const data::Assets& assets, const Effects& effects, const EffectView& view,
+                  const std::vector<WorldSprite>& between) {
     const auto saved = canvas.clip;
     if (view.smoke_clip_bottom >= 0) canvas.clip.bottom = view.smoke_clip_bottom;
     for (const auto& puff : effects.puffs) {
@@ -138,6 +147,7 @@ void draw_effects(IndexedCanvas& canvas, const data::Assets& assets, const Effec
         put(canvas, assets, view, smoke_frames + size, puff.shown_x, puff.shown_y);
     }
     canvas.clip = saved;
+    for (const auto& s : between) put(canvas, assets, view, s.entry, s.x, s.y);
     for (const auto& s : effects.splashes) {
         if (s.shown == 0) continue;
         if (s.dust) put(canvas, assets, view, dust_frame, s.x, dust_y);
@@ -145,31 +155,30 @@ void draw_effects(IndexedCanvas& canvas, const data::Assets& assets, const Effec
     }
     // $1006BE: blasts, and weapons in flight (torpedo.shp; in the 1/8 view
     // every weapon is entry 9 of the 1/8-scale table, `bumb`: a dot).
-    for (const auto& b : effects.objects) {
+    effects.each_object([&](const FlyingObject& b) {
         if (b.listed == FlyingObject::Kind::blast) {
             // (advance() has freed the slot after its last frame.)
             if (b.kind == FlyingObject::Kind::blast) {
                 put(canvas, assets, view, (b.surface == 0 ? water_frames : fire_frames) + b.frame, b.shown_x, b.shown_y);
             }
-            continue;
+            return;
         }
-        if (b.listed == FlyingObject::Kind::none) continue;
-        if (b.listed == FlyingObject::Kind::torpedo && b.picture == torpedo_running) continue;
+        if (b.listed == FlyingObject::Kind::none) return;
+        if (b.listed == FlyingObject::Kind::torpedo && b.picture == torpedo_running) return;
         if (view.eighth_scale) {
             put(canvas, assets, view, eighth_scale_weapon, b.shown_x, b.shown_y);
-            continue;
+            return;
         }
         int entry = 0;
         switch (b.listed) {
         case FlyingObject::Kind::bomb: entry = bomb_pictures + b.picture; break;
         case FlyingObject::Kind::torpedo:
-            if (b.picture == torpedo_running) continue;
             entry = std::int8_t(b.surface) < 0 ? torpedo_left : torpedo_right;
             break;
         default: entry = (b.ignition != 0 ? rocket_unlit : rocket_pictures) + b.picture; break;
         }
         put_weapon(canvas, assets, view, entry, b.shown_x, b.shown_y);
-    }
+    });
 }
 
 CrewTables read_crew_tables(const amiga::LoadedImage& wings) {
