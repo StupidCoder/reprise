@@ -314,7 +314,9 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
             {"terrain", me.terrain, signed32(0x30) & 0xFFFF}, {"frame", me.frame, signed32(0x76)},
             {"speed", me.speed, signed32(0x82)}, {"view x", stage.view_x(), word(r.fields.at("view"), 0, 2)},
             {"view y", stage.view_y(), word(r.fields.at("view"), 2, 2)},
-            {"direction", stage.direction(), word(r.fields.at("direction"), 0, 4)}};
+            {"direction", stage.direction(), word(r.fields.at("direction"), 0, 4)},
+            {"aiming", me.aiming, signed32(0x86)}, {"cursor x", me.cursor_x, signed32(0x8A)},
+            {"cursor y", me.cursor_y, signed32(0x8E)}};
         for (const auto& f : list) {
             if (f.ours != f.theirs && ++differences <= print_limit)
                 std::printf("A read %d (frame %d) %s: ours %ld, original %ld\n", r.index, frames, f.name, f.ours, f.theirs);
@@ -338,6 +340,17 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
             if (stage.walker().hidden_frames != hidden && ++differences <= print_limit)
                 std::printf("A read %d (frame %d) hidden frames: ours %d, original %ld\n", r.index, frames,
                             stage.walker().hidden_frames, hidden);
+        }
+        // The bolt's mixer ($20648E), in recordings that have it (its every
+        // draw, so the branches' timing too).
+        if (r.fields.count("bolt")) {
+            const auto& b = r.fields.at("bolt");
+            const auto& m = stage.bolt().random();
+            const Field bolt[] = {{"bolt register", long(m.reg), word(b, 0, 4)}, {"bolt mix", m.mix, word(b, 4, 2)},
+                                  {"bolt counter", m.counter, word(b, 6, 2)}};
+            for (const auto& f : bolt)
+                if (f.ours != f.theirs && ++differences <= print_limit)
+                    std::printf("A read %d (frame %d) %s: ours %lx, original %lx\n", r.index, frames, f.name, f.ours, f.theirs);
         }
         // The flying creatures ($208128 on), the damage and the lives, in
         // recordings that have them.

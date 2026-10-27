@@ -111,7 +111,7 @@ public:
             std::snprintf(text, sizeof text,
                           landscape_->finished()       ? "The way on from the landscape is found (score %u). The tunnel is not rebuilt yet."
                           : landscape_->out_of_lives() ? "The creatures took every life (score %u). What follows is not rebuilt yet."
-                                                       : "Left the landscape (score %u). Finds and zapping are not rebuilt yet.",
+                                                       : "Left the landscape (score %u). Finds are not rebuilt yet.",
                           landscape_->score());
             return text;
         }

@@ -35,9 +35,9 @@ LandscapeStage::LandscapeStage(const data::GameFiles& files, const data::Assets&
     home_x_ = world_.start_x();
     home_y_ = world_.start_y();
     fidget_.state = a_.u32(fidget_seed);
-    // $20ADF6 draws two at the start (arguments for h47 with $20648E).
-    fidget_.next();
-    fidget_.next();
+    // $20ADF6: the bolt's mixer ($20648E, seeded by h47) from two draws.
+    const auto high = fidget_.next();
+    bolt_.seed(high, fidget_.next());
     // $20AEE4 (new game): facing north, x 120 (column 1), z 40 (row 0),
     // level 0, the view's first column left of the start cell.
     direction_ = 0;
@@ -101,11 +101,18 @@ void LandscapeStage::rebuild_view() {
     colours_ = cells_.colours;
 }
 
-void LandscapeStage::repaint() {
+// $201492 / $201602 (`full`): the whole view drawn again, the score printed
+// as it stands and the colours loaded ($2004AC: the aiming colours go). A
+// cell's marker alone ($204F48) leaves both as they were.
+void LandscapeStage::repaint(bool full) {
+    if (full) {
+        printed_score_ = score_;
+        aim_colours_ = false;
+    }
     view_canvas_.clear(0);
     bar_.draw(view_canvas_);
     if (lives_ > 0) // ($201492 draws no view once the last life is gone)
-        painter_.paint(view_canvas_, cells_, direction_, world_.floor_level(), world_.ceiling_level(), view_top, score_);
+        painter_.paint(view_canvas_, cells_, direction_, world_.floor_level(), world_.ceiling_level(), view_top, printed_score_);
     if (lives_ > 0) masks_ = painter_.depth_masks(cells_, direction_, world_.floor_level(), world_.ceiling_level());
 }
 
@@ -295,7 +302,12 @@ void LandscapeStage::step(const InputReader& read) {
     case 2: dz = -sz; dx = -sx; break;
     default: dx = -sz; dz = sx; break;
     }
-    if (fire) return; // aiming and zapping: not rebuilt yet
+    if (fire) {
+        aim(sx, sz);
+        return;
+    }
+    if (walker_.aiming) aim_colours_ = false; // LoadRGB4 of $2004AC: colours 19-31 back
+    walker_.aiming = false;
 
     const int limit = speed_limit_base + creatures_.attached(); // attached creatures speed the walker up
     if (dx == 0 && dz == 0) {
@@ -400,6 +412,40 @@ void LandscapeStage::step(const InputReader& read) {
     }
 }
 
+// $20A45C with fire held: the walker stands, the cursor (starting at the
+// walker) moves 15 pixels a frame with the stick, the walker faces it, a
+// bolt joins them, and a creature at the cursor is zapped.
+void LandscapeStage::aim(int sx, int sz) {
+    if (!walker_.aiming) {
+        walker_.aiming = true;
+        aim_colours_ = true;
+        walker_.cursor_x = walker_.screen_x;
+        walker_.cursor_y = walker_.screen_y;
+    }
+    walker_.cursor_x = std::clamp(walker_.cursor_x + sx * 15, 0, 319);
+    walker_.cursor_y = std::clamp(walker_.cursor_y - sz * 15, 0, 199);
+    const int dx = walker_.cursor_x - walker_.screen_x, dy = walker_.cursor_y - walker_.screen_y;
+    if (walker_.form == 2) walker_.frame = 5;
+    else if (std::abs(dy) < std::abs(dx)) walker_.frame = dx < 0 ? 4 : 0;
+    else walker_.frame = dy < 0 ? 0xC : 8;
+    place_sprite();
+    // $20578A: the walker's point again (its level, no water), the bolt from
+    // 10 rows above it ($2061BA), then its sprite's left edge ($209D4E).
+    int depth = 0, across = 0;
+    switch (direction_) {
+    case 0: depth = walker_.z; across = walker_.x - 160; break;
+    case 1: depth = walker_.x; across = 160 - walker_.z; break;
+    case 2: depth = 319 - walker_.z; across = 160 - walker_.x; break;
+    default: depth = 319 - walker_.x; across = walker_.z - 160; break;
+    }
+    const auto point = FixedCamera().project(across, walker_.level, depth + 0x18);
+    creatures_.hasten();
+    bolt_.draw(creatures_.layer(), point.x, std::max(point.y - 10, 0), walker_.cursor_x, walker_.cursor_y);
+    walker_.screen_x = std::clamp(point.x - 8, 0, 0x12F);
+    walker_.screen_y = point.y;
+    creatures_.zap(walker_.cursor_x, walker_.cursor_y, creature_scene());
+}
+
 // $20B18A: the view moved so that the walker's cell is in its front row,
 // facing `direction`.
 void LandscapeStage::anchor(int direction) {
@@ -458,7 +504,7 @@ void LandscapeStage::cell_events() {
         auto& objects = cells_.objects[std::size_t(walker_.column)][std::size_t(walker_.row)];
         objects |= 1;
         walker_.objects = objects;
-        repaint();
+        repaint(false); // $204F48 draws only the cell's marker: no new score, no colours
     }
 }
 
@@ -541,6 +587,8 @@ platform::Image LandscapeStage::picture() const {
         return image;
     }
     for (const auto c : colours_) colours.push_back(c & 0xFFF);
+    if (aim_colours_) // SetRGB4 at the aim's start: colours 19-31 lit (F, i - 16, F)
+        for (unsigned i = 19; i < 32; ++i) colours[i] = screen::Rgb4(0xF0F | (i - 16) << 4);
     auto image = view_canvas_.picture(colours);
     // The tether layer: display plane 4 over the view (pens + 16).
     const auto& tethers = creatures_.tethers();

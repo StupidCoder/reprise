@@ -6,6 +6,7 @@
 #include "mindwalker_amiga/landscape/landscape_bar.hpp"
 #include "mindwalker_amiga/landscape/view_cells.hpp"
 #include "mindwalker_amiga/landscape/view_scene.hpp"
+#include "mindwalker_amiga/landscape/zap_bolt.hpp"
 #include "mindwalker_amiga/screen/canvas.hpp"
 #include "mindwalker_amiga/world/random.hpp"
 #include "mindwalker_amiga/world/world.hpp"
@@ -23,7 +24,8 @@
 // catch the walker; a catch costs damage and, at 1600, a life. The opening
 // reveal and the catch picture play as sequences (interlude.hpp).
 // The walker's sprite is masked by the scenery in front of it (h11).
-// Not rebuilt yet: aiming and zapping (fire), the view's own creatures, finds,
+// Holding fire aims a lightning bolt at a cursor and zaps creatures.
+// Not rebuilt yet: the view's own creatures, finds,
 // pyramids ($1000 cells), the pause box.
 namespace mindwalker::landscape {
 
@@ -65,6 +67,8 @@ struct Walker {
     int depth{};                // $20B310: its depth into the view + 24
     std::vector<std::uint16_t> visible; // the sprite's rows as h11 masks them (bit 15 = left)
     int hidden_frames{};        // $20B386: frames wholly hidden (from the 9th the marker shows)
+    bool aiming{};              // $20B376: fire held (the target cursor shown, colours 19-31 lit)
+    int cursor_x{}, cursor_y{}; // $20B37A/$20B37E: the target (drawing rows)
 };
 
 class LandscapeStage {
@@ -105,12 +109,13 @@ public:
     // For replays of recordings that poke the damage ($20052E).
     void set_damage(int damage) { damage_ = damage; }
     const Creatures& creatures() const { return creatures_; }
+    const ZapBolt& bolt() const { return bolt_; }
     // The walker's sprite rows as shown (plane A << 16 | plane B), masked.
     std::vector<std::uint32_t> walker_sprite() const;
 
 private:
     void rebuild_view();
-    void repaint();
+    void repaint(bool full = true);
     void follow_height(const InputReader&); // $209D8A
     void caught();          // $209D8A's branch after a catch
     void creatures_tick();  // $2003C0
@@ -118,7 +123,8 @@ private:
     Display current_display() const;
     void draw_walker(platform::Image&, const std::vector<screen::Rgb4>& colours) const;
     const data::Bitmap& walker_bitmap() const;
-    void step(const InputReader&); // $20A45C without fire
+    void step(const InputReader&); // $20A45C
+    void aim(int sx, int sz);      // $20A45C with fire held
     void take_cell();       // $20AB4E
     void cell_events();     // $209F34 (the visited map so far)
     void place_sprite();    // $209B54 / $2057D0
@@ -144,6 +150,7 @@ private:
     std::array<std::uint16_t, 32> colours_{};
     Walker walker_;
     world::ShiftRegister fidget_;         // h51 ($2004..; A's own shift register)
+    ZapBolt bolt_;
     std::array<std::uint8_t, 512> map_{}; // 64 x 64 bits
     std::uint16_t map_centre_x_{}, map_centre_y_{}, map_x0_{}, map_x1_{}, map_y0_{}, map_y1_{};
     bool map_wrap_x_{}, map_wrap_y_{};
@@ -155,6 +162,8 @@ private:
     int damage_{};                        // $20052E
     int flash_{};                         // $200518: colour 13's counter
     bool beacon_taken_{};                 // $2099B6 (the marked block's state)
+    std::uint32_t printed_score_{};       // the score as last printed ($20655A)
+    bool aim_colours_{};                  // colours 19-31 lit by the aim's start
     screen::Canvas view_canvas_;
     LandscapeBar bar_;
     ViewPainter painter_;

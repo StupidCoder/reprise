@@ -280,6 +280,29 @@ void Creatures::move_free(int i, const Scene& scene) {
     place(i, c.x, c.y, scene);
 }
 
+void Creatures::hasten() {
+    timer_ = std::max(timer_, 3);
+    tether_clock_ = std::max(tether_clock_, 6);
+}
+
+void Creatures::zap(int x, int y, const Scene& scene) {
+    const int speed = a_.s32(follow_speeds + std::uint32_t(scene.stage / 7 * 4)); // $2083B2
+    for (int i = 0; i < 12; ++i) {
+        auto& c = creatures_[std::size_t(i)];
+        if (!c.present || c.kind == 4 || !near(x, y, c.x + 7, c.y + 7, 0x14)) continue;
+        c.present = false;
+        if (c.tether_x == -1) {
+            score_bonus_ += speed * 3;
+        } else {
+            c.tether_x = -1;
+            --attached_;
+            score_bonus_ += speed * 5;
+        }
+        place(i, off_screen, c.top, scene);
+        return;
+    }
+}
+
 // $207810: the tether's end creeps towards the walker's head.
 bool Creatures::follow(int i, const Scene& scene, int head_y) {
     auto& c = creatures_[std::size_t(i)];

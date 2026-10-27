@@ -75,6 +75,20 @@ public:
     const std::vector<std::uint8_t>& tethers() const { return tethers_; }
     // The timed clearing and redrawing of tethers ($2003C0).
     void tick_tethers();
+    // The layer for other drawings (the zap's bolt), marked as drawn so the
+    // tether timing clears it.
+    std::vector<std::uint8_t>& layer() {
+        tethers_drawn_ = true;
+        return tethers_;
+    }
+    // While zapping: the creatures' next move and the layer's clearing come
+    // sooner ($20A45C: timer at least 3, tether clock at least 6).
+    void hasten();
+    // $206F40: the first present creature (not of kind 4) within 20 pixels
+    // of (x, y) around its middle is zapped: gone, untethered if attached;
+    // the view's bonus grows by 3 (free) or 5 (attached) times the follow
+    // speed.
+    void zap(int x, int y, const Scene&);
     // $200E62: the tether layer cleared (a catch's picture; drawn again on
     // the next tick).
     void clear_tethers();
