@@ -2,6 +2,7 @@
 #include "mindwalker_amiga/data/assets.hpp"
 #include "mindwalker_amiga/data/game_files.hpp"
 #include "mindwalker_amiga/landscape/creatures.hpp"
+#include "mindwalker_amiga/landscape/interlude.hpp"
 #include "mindwalker_amiga/landscape/landscape_bar.hpp"
 #include "mindwalker_amiga/landscape/view_cells.hpp"
 #include "mindwalker_amiga/landscape/view_scene.hpp"
@@ -19,7 +20,8 @@
 // and its points. Rebuilt from A's main loop ($200262), the step $209D8A /
 // $20A45C and the routines they call.
 // The flying creatures (their own module, creatures.hpp) fly, attach and
-// catch the walker; a catch costs damage and, at 1600, a life.
+// catch the walker; a catch costs damage and, at 1600, a life. The opening
+// reveal and the catch picture play as sequences (interlude.hpp).
 // Not rebuilt yet: aiming and zapping (fire), the view's own creatures, finds,
 // landmarks' map re-centring, the marked block's ramp (the way on), pyramids
 // ($1000 cells), the pause box, the reveal animation and the walker's
@@ -74,7 +76,8 @@ public:
 
     LandscapeStage(const data::GameFiles&, const data::Assets&, const Start&);
 
-    // One frame of A's main loop; `gadget` is a gadget clicked this frame
+    // One frame of A's main loop (or of a picture sequence, which reads no
+    // input: the opening reveal, a catch); `gadget` is a gadget clicked this frame
     // (compass N E S W = ids 0-3 turn the view, $204278; any gadget ends the
     // wait a click started, $203FD0), or -1.
     void frame(const InputReader&, int gadget = -1);
@@ -92,8 +95,13 @@ public:
     bool finished() const { return finished_; }
     // The last life was lost to a catch ($204D6C).
     bool out_of_lives() const { return out_of_lives_; }
+    // The stage is over and its last picture sequence has played.
+    bool in_sequence() const { return interlude_.active(); }
+    bool over() const { return (finished_ || out_of_lives_) && !interlude_.active(); }
     int lives() const { return lives_; }
     int damage() const { return damage_; }
+    // For replays of recordings that poke the damage ($20052E).
+    void set_damage(int damage) { damage_ = damage; }
     const Creatures& creatures() const { return creatures_; }
 
 private:
@@ -103,6 +111,8 @@ private:
     void caught();          // $209D8A's branch after a catch
     void creatures_tick();  // $2003C0
     Creatures::Scene creature_scene() const;
+    Display current_display() const;
+    void draw_walker(platform::Image&, const std::vector<screen::Rgb4>& colours) const;
     void step(const InputReader&); // $20A45C without fire
     void take_cell();       // $20AB4E
     void cell_events();     // $209F34 (the visited map so far)
@@ -145,6 +155,7 @@ private:
     ViewPainter painter_;
     std::array<ViewPainter::DepthMask, 3> masks_;
     Creatures creatures_;
+    Interlude interlude_;
 };
 
 } // namespace mindwalker::landscape

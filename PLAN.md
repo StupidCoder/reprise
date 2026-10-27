@@ -651,10 +651,12 @@ seeds and a clock seed), not stored.
    frames, view shifts, height, visited map and points, beacons, compass
    turning; the walker sprite). The flying creatures are rebuilt
    (`landscape/creatures`: bands per view, appearing, flight, masking
-   behind the scenery, tethers, catches, damage and lives); the walking
-   recording now equals the original for all its 808 frames. Next:
-   zapping, view creatures and finds, the walker's mask, the catch
-   picture, the status bar; then B, C, P, sound, saves, high scores.
+   behind the scenery, tethers, catches, damage and lives), with the score
+   text, the catch picture and the opening reveal (timed on the reference
+   machine); five recordings (up to 10,601 input reads, catches, lost
+   lives to the stage's end, stage 21) equal the original read for read.
+   Next: zapping, view creatures and finds, the walker's mask, the status
+   bar; then B, C, P, sound, saves, high scores.
 
 Open: what each shared image set and icon is used for and its colours;
 sample playback periods and triggers; A's world model beyond the generator;

@@ -272,7 +272,17 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
     };
     for (int i = 0; i < t_reads; ++i) apply('T', i);
 
-    landscape::LandscapeStage stage(files, assets, {seed, 0, 3, 0});
+    // The new game's stage, lives and score from the shared block at A's
+    // first read (+$5C, +$6E, +$66; the log holds +$10 on).
+    landscape::LandscapeStage::Start start{seed, 0, 3, 0};
+    if (!reads.empty() && reads.front().fields.count("shared")) {
+        const auto& sh = reads.front().fields.at("shared");
+        const auto at = [&](int offset) { return std::stoul(sh.substr(std::size_t((offset - 0x10) * 2), 8), nullptr, 16); };
+        start.stage = int(at(0x5C));
+        start.lives = int(at(0x6E));
+        start.score = std::uint32_t(at(0x66));
+    }
+    landscape::LandscapeStage stage(files, assets, start);
     std::size_t next = 0;
     int frames = 0, differences = 0;
     bool out_of_step = false;
@@ -332,6 +342,10 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
             ++differences;
             std::printf("A read %d: the original read %s, the stage %s\n", r.index, r.address.c_str(), expected);
         }
+        // The recorder pokes before it logs the read: the damage ($20052E).
+        if (events.count({'A', r.index}))
+            for (const auto& ev : events.at({'A', r.index}))
+                if (ev.size() == 3 && ev[0] == "poke" && ev[1] == "20052E") stage.set_damage(int(std::stoul(ev[2], nullptr, 16)));
         if (kind == landscape::InputRead::button) compare(r);
         apply('A', r.index);
         ++next;
@@ -341,7 +355,13 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
         stage.frame(reader);
         ++frames;
     }
-    std::printf("%d frames, %zu reads compared, %d differences; score %u\n", frames, next, differences, stage.score());
+    // A picture sequence the last read started plays on without reads.
+    while (frame_limit < (1 << 30) && frames < frame_limit && stage.in_sequence()) {
+        stage.frame(reader);
+        ++frames;
+    }
+    std::printf("%d frames, %zu reads compared, %d differences; score %u, lives %d%s\n", frames, next, differences,
+                stage.score(), stage.lives(), stage.out_of_lives() ? " (out of lives: the stage ends)" : "");
     if (!png.empty()) platform::save_png(stage.picture(), png);
     return differences == 0 ? 0 : 1;
 }

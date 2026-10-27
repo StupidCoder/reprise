@@ -84,7 +84,7 @@ public:
             landscape::LandscapeInput in{input.up, input.down, input.left, input.right, input.fire,
                                          input.mouse_button, mouse_x_, mouse_y_};
             landscape_->frame([&](landscape::InputRead) { return in; }, gadget);
-            if (landscape_->finished()) leave_ = true;
+            if (landscape_->over()) leave_ = true;
             return;
         }
         title_.frame({mouse_x_, mouse_y_, input.mouse_button});
@@ -109,9 +109,9 @@ public:
         if (leave_) {
             char text[200];
             std::snprintf(text, sizeof text,
-                          landscape_->finished()
-                              ? "The way on from the landscape is found (score %u). The tunnel is not rebuilt yet."
-                              : "Left the landscape (score %u). Creatures, finds and zapping are not rebuilt yet.",
+                          landscape_->finished()       ? "The way on from the landscape is found (score %u). The tunnel is not rebuilt yet."
+                          : landscape_->out_of_lives() ? "The creatures took every life (score %u). What follows is not rebuilt yet."
+                                                       : "Left the landscape (score %u). Finds and zapping are not rebuilt yet.",
                           landscape_->score());
             return text;
         }

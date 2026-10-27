@@ -4,6 +4,7 @@
 #include "mindwalker_amiga/landscape/view_cells.hpp"
 #include "mindwalker_amiga/screen/canvas.hpp"
 #include <array>
+#include <string>
 #include <vector>
 
 // Drawing the landscape's view (A $201492 / $201758): the floor grid, then the
@@ -24,8 +25,12 @@ public:
     // Draws the view facing `direction` (0-3, the compass) into the canvas,
     // whose row 0 is the drawing bitmap's (the screen shows it from row
     // `top` on). Floor, ceiling levels come from the world.
+    // `score` is printed first, as the grid pass does ($205218 / $20655A).
     void paint(screen::Canvas&, const ViewCells&, int direction, int floor_level, int ceiling_level,
-               int top = 0) const;
+               int top = 0, std::uint32_t score = 0) const;
+    // The score as $20655A prints it: decimal without leading zeros, and
+    // nothing at all for 0.
+    static std::string score_text(std::uint32_t score);
 
     // The depth masks of the second pass ($201492: $201758(0, ...)): for
     // rows 0-2, which pixels of the drawing (row 0 = its top) that row's
@@ -41,7 +46,7 @@ private:
     };
     using Turned = std::array<std::array<Cell, 4>, 4>; // [screen column][row]
     Turned turn(const ViewCells&, int direction) const;
-    void paint_grid(screen::Canvas&, int top) const;
+    void paint_grid(screen::Canvas&, int top, std::uint32_t score) const;
     // `only_row` >= 0: the mask pass (that row's cells only; no grid, line
     // patterns or visited markers).
     void paint_cells(screen::Canvas&, const ViewCells&, int direction, int floor_level, int ceiling_level, int top,

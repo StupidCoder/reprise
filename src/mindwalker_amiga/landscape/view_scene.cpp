@@ -121,7 +121,14 @@ ViewPainter::Turned ViewPainter::turn(const ViewCells& view, int direction) cons
 }
 
 // $205218: the floor grid, 18 horizontal lines and 12 converging pairs.
-void ViewPainter::paint_grid(screen::Canvas& canvas, int top) const {
+std::string ViewPainter::score_text(std::uint32_t score) {
+    return score == 0 ? std::string() : std::to_string(score);
+}
+
+void ViewPainter::paint_grid(screen::Canvas& canvas, int top, std::uint32_t score) const {
+    // $20655A: the IntuiText at $2066CE (pen 14 on 0, JAM2, topaz 8) at
+    // (7, 11); its top edge there, so the baseline 6 rows lower.
+    canvas.text(7, top + 11 + 6, score_text(score), 14, screen::TextFont::topaz8, screen::plain, true, 0);
     for (std::uint32_t i = 0; i < 18; ++i) {
         const int y = a_.s16(grid_rows + i * 2);
         canvas.line(0, top + y, 319, top + y, grid_pen);
@@ -135,8 +142,8 @@ void ViewPainter::paint_grid(screen::Canvas& canvas, int top) const {
 }
 
 void ViewPainter::paint(screen::Canvas& canvas, const ViewCells& view, int direction, int floor_level,
-                        int ceiling_level, int top) const {
-    paint_grid(canvas, top);
+                        int ceiling_level, int top, std::uint32_t score) const {
+    paint_grid(canvas, top, score);
     paint_cells(canvas, view, direction, floor_level, ceiling_level, top, -1);
 }
 

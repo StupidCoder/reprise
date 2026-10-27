@@ -30,7 +30,7 @@ constexpr int form_figure_set[4] = {0, 3, 1, 2};
 LandscapeStage::LandscapeStage(const data::GameFiles& files, const data::Assets& assets, const Start& start)
     : a_(files.program(data::Stage::landscape)), assets_(assets), world_(start.seed, a_),
       stage_(start.stage), lives_(start.lives), score_(start.score), bar_(files), painter_(a_),
-      creatures_(a_, assets) {
+      creatures_(a_, assets), interlude_(a_) {
     home_x_ = world_.start_x();
     home_y_ = world_.start_y();
     fidget_.state = a_.u32(fidget_seed);
@@ -76,6 +76,21 @@ LandscapeStage::LandscapeStage(const data::GameFiles& files, const data::Assets&
     bar_.set(lives_, direction_, stage_);
     repaint();
     place_sprite();
+    // $201492(2): the view opens from the middle over the empty display.
+    Display empty;
+    bar_.draw(empty.planes);
+    empty.colours = colours_;
+    Display next = current_display();
+    std::fill(next.plane4.begin(), next.plane4.end(), 0);
+    interlude_.start_reveal(empty, next);
+}
+
+Display LandscapeStage::current_display() const {
+    Display d;
+    d.planes = view_canvas_;
+    d.plane4 = creatures_.tethers();
+    d.colours = colours_;
+    return d;
 }
 
 void LandscapeStage::rebuild_view() {
@@ -88,8 +103,9 @@ void LandscapeStage::rebuild_view() {
 void LandscapeStage::repaint() {
     view_canvas_.clear(0);
     bar_.draw(view_canvas_);
-    painter_.paint(view_canvas_, cells_, direction_, world_.floor_level(), world_.ceiling_level(), view_top);
-    masks_ = painter_.depth_masks(cells_, direction_, world_.floor_level(), world_.ceiling_level());
+    if (lives_ > 0) // ($201492 draws no view once the last life is gone)
+        painter_.paint(view_canvas_, cells_, direction_, world_.floor_level(), world_.ceiling_level(), view_top, score_);
+    if (lives_ > 0) masks_ = painter_.depth_masks(cells_, direction_, world_.floor_level(), world_.ceiling_level());
 }
 
 Creatures::Scene LandscapeStage::creature_scene() const {
@@ -141,6 +157,11 @@ bool LandscapeStage::may_mark() const {
 }
 
 void LandscapeStage::frame(const InputReader& read, int gadget) {
+    if (interlude_.active()) {
+        interlude_.advance();
+        return;
+    }
+    if (out_of_lives_ || finished_) return; // the main loop has ended
     // $203F58: a new press of the left button makes the stage wait;
     // $203FD0: a gadget message ends the wait and is handled.
     const bool button = read(InputRead::button).button;
@@ -179,6 +200,8 @@ void LandscapeStage::caught() {
     creatures_.hide_all(scene);
     creatures_.forget_views();
     damage_ += a_.s32(catch_damage + std::uint32_t(std::min(stage_ / 7, 5) * 4));
+    const Display before = current_display();
+    const int damage = damage_;
     creatures_.clear_tethers();
     const bool lost = damage_ / 100 >= damage_per_life / 100;
     if (lost) {
@@ -187,6 +210,9 @@ void LandscapeStage::caught() {
         bar_.set(lives_, direction_, stage_);
     }
     repaint();
+    Display next = current_display();
+    std::fill(next.plane4.begin(), next.plane4.end(), 0);
+    interlude_.start_catch(before, damage, lost, next);
     if (lost) {
         creatures_.reset();
         creatures_.clear_presence(scene);
@@ -467,6 +493,18 @@ void LandscapeStage::place_sprite() {
 
 platform::Image LandscapeStage::picture() const {
     std::vector<screen::Rgb4> colours;
+    if (interlude_.active()) {
+        // A sequence: its display and the walker (the creatures are hidden).
+        const auto& d = interlude_.display();
+        for (const auto c : d.colours) colours.push_back(c & 0xFFF);
+        auto image = d.planes.picture(colours);
+        for (int y = view_top; y < 200; ++y)
+            for (int x = 0; x < 320; ++x)
+                if (d.plane4[std::size_t(y * 320 + x)])
+                    image.put(x, y, screen::to_color(colours[16u | d.planes.pen(x, y)]));
+        draw_walker(image, colours);
+        return image;
+    }
     for (const auto c : colours_) colours.push_back(c & 0xFFF);
     auto image = view_canvas_.picture(colours);
     // The tether layer: display plane 4 over the view (pens + 16).
@@ -491,6 +529,11 @@ platform::Image LandscapeStage::picture() const {
             }
         }
     }
+    draw_walker(image, colours);
+    return image;
+}
+
+void LandscapeStage::draw_walker(platform::Image& image, const std::vector<screen::Rgb4>& colours) const {
     // The walker: a hardware sprite in colours 17-19, its feet on its screen
     // point (drawn over everything: the occlusion mask is not rebuilt yet).
     const auto& set = assets_.figures[std::size_t(form_figure_set[walker_.form])];
@@ -502,7 +545,6 @@ platform::Image LandscapeStage::picture() const {
             if (v) image.put(walker_.screen_x + x, top + y, screen::to_color(colours[16u + v]));
         }
     }
-    return image;
 }
 
 } // namespace mindwalker::landscape
