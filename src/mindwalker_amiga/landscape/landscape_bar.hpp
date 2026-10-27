@@ -16,6 +16,9 @@ public:
     // $203E74: figure i shows while i + 1 < lives; $203EF0: the facing
     // direction's letter in pen 31; $204312: the slider's pot = stage * $618.
     void set(int lives, int direction, int stage);
+    // OffGadget / OnGadget: the emblem (id 4) is off while the stage is
+    // paused ($204106) and ghosted.
+    void enable(int id, bool on) { bar_.find(id)->enabled = on; }
     void draw(screen::Canvas&) const;
     // The gadget under (x, y), or -1; -2 for Intuition's close gadget.
     int gadget_at(int x, int y) const;

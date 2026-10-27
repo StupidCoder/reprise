@@ -402,10 +402,11 @@ void ViewPainter::paint_cells(screen::Canvas& canvas, const ViewCells& view, int
                 const auto apex = camera_.project(x, peak_level - 0x19, z);
                 fill(canvas, {{face[0].x, far.y}, {face[3].x, near.y}, {face[2].x, near.y}, {face[1].x, far.y},
                               {apex.x, apex.y}}, 4, 0, top);
-                fill(canvas, {{face[3].x, near.y}, {apex.x, apex.y}, {face[2].x, near.y}}, 3, -1, top);
+                // (AREAOUTLINE stays on: all three outlined in pen 0.)
+                fill(canvas, {{face[3].x, near.y}, {apex.x, apex.y}, {face[2].x, near.y}}, 3, 0, top);
                 const int mid = (near.y + apex.y) >> 1;
                 fill(canvas, {{(face[2].x + face[3].x) >> 1, near.y}, {(apex.x + face[3].x) >> 1, mid},
-                              {(apex.x + face[2].x) >> 1, mid}}, 1, -1, top);
+                              {(apex.x + face[2].x) >> 1, mid}}, 1, 0, top);
             }
         }
     }

@@ -1,4 +1,5 @@
 #include "mindwalker_amiga/landscape/landscape_stage.hpp"
+#include "amiga/intuition_imagery.hpp"
 #include <algorithm>
 #include <cstdlib>
 
@@ -22,6 +23,9 @@ constexpr int water_speed = 4;                     // $206B74
 constexpr int click_wait = 300;                    // $203F58
 constexpr int view_top = 10;                       // the view is shown from display row 10
 constexpr int map_gadget = 4;                      // the emblem (GRELRIGHT, 32 wide, a toggle)
+constexpr int pause_gadget = 0x10;                 // the P box (a toggle)
+constexpr std::uint32_t screen_title = 0x204ADA;   // A's screen's DefaultTitle
+constexpr int title_text_pen = 0, title_bar_pen = 0x12; // its NewScreen's DetailPen and BlockPen
 constexpr int map_close_frames = 31;               // $200D02 on the A500 (measured)
 
 // The four forms' shared image sets (A $200040 keeps +$76, +$1C6, +$E6, +$156
@@ -68,12 +72,7 @@ LandscapeStage::LandscapeStage(const data::GameFiles& files, const data::Assets&
     while (walker_.form < 4 &&
            (cells_.terrain[2][0] & 0xC000) != a_.u16(form_kinds + std::uint32_t(walker_.form * 2)))
         ++walker_.form;
-    walker_.form &= 3; // (4 never matches: the four kinds cover the field)
-    walker_.height = a_.s32(form_heights + std::uint32_t(walker_.form * 4));
-    inputs_.colour17 = a_.u16(form_colour17 + std::uint32_t(walker_.form * 2));
-    inputs_.colour18 = a_.u16(form_colour18 + std::uint32_t(walker_.form * 2));
-    walker_.frame = 0;
-    walker_.frame_base = 4;
+    set_form(walker_.form & 3); // (4 never matches: the four kinds cover the field)
     // $200262: the view again (now with the form's colours), then drawn.
     rebuild_view();
     bar_.set(lives_, direction_, stage_);
@@ -122,8 +121,9 @@ void LandscapeStage::repaint(bool full) {
 // A repaint as the player sees it: the old picture through the repaint's
 // sequence (interlude.hpp), its star (if any) around the walker's cell
 // twelve levels up ($20A204: $203074/$203078).
-void LandscapeStage::repaint_shown(Interlude::Repaint kind, int repeats) {
-    const Display before = current_display();
+void LandscapeStage::repaint_shown(Interlude::Repaint kind, int repeats) { repaint_from(current_display(), kind, repeats); }
+
+void LandscapeStage::repaint_from(const Display& before, Interlude::Repaint kind, int repeats) {
     repaint();
     Display after = current_display();
     std::fill(after.plane4.begin() + view_top * 320, after.plane4.end(), 0);
@@ -132,6 +132,41 @@ void LandscapeStage::repaint_shown(Interlude::Repaint kind, int repeats) {
                                             walker_.view_row * 80 + 0x40);
     interlude_.start_repaint(before, after, kind, repeats, star.x, view_top + star.y,
                              [this](screen::Canvas& c) { painter_.draw_grid(c, view_top, printed_score_); });
+}
+
+// $204106: the pause. The tethers go, the walker and creatures hide, the
+// map's gadget is off, the window moves down 10 rows so that the screen's
+// title bar shows ("Click on Pause Box to Resume Game."); then the loop
+// waits for a message. (It also draws the next loading picture on S's
+// screen, which stays behind.)
+void LandscapeStage::pause() {
+    paused_ = true;
+    bar_.enable(map_gadget, false);
+    repaint(false); // (the bar drawn with the emblem ghosted)
+    creatures_.wipe_layer();
+    creatures_.hide_all(creature_scene());
+}
+
+// $204196: the gadget on again, the view area cleared, the window back up,
+// then 30 frames' wait.
+void LandscapeStage::resume() {
+    paused_ = false;
+    bar_.enable(map_gadget, true);
+    resume_wait_ = 30;
+}
+
+// ...then the view drawn again from the cleared screen and the creatures
+// shown ($201492(0), $207E5A), or the map drawn again ($20071C(0)).
+void LandscapeStage::after_pause() {
+    if (map_view_.open()) {
+        map_view_.redraw();
+        return;
+    }
+    Display black = current_display();
+    black.planes.fill(0, view_top, 319, 199, 0);
+    std::fill(black.plane4.begin(), black.plane4.end(), 0);
+    repaint_from(black, Interlude::Repaint::plain);
+    creatures_.show_present(creature_scene());
 }
 
 Creatures::Scene LandscapeStage::creature_scene() const {
@@ -183,9 +218,23 @@ bool LandscapeStage::may_mark() const {
 }
 
 void LandscapeStage::frame(const InputReader& read, int clicked) {
-    ++clock_frames_; // CurrentTime's seconds as 50 frames each
+    // CurrentTime's seconds as 50 frames each; the pause is left out ($2064BA
+    // before it, h29 after it).
+    if (!paused_) ++clock_frames_;
     // Gadget messages wait in the window's port until the loop reads it.
     if (clicked >= 0) queued_gadget_ = clicked;
+    if (paused_) {
+        // $204106's loop: Wait for a message; the P box again resumes.
+        if (queued_gadget_ == pause_gadget) {
+            queued_gadget_ = -1;
+            resume();
+        }
+        return;
+    }
+    if (resume_wait_ > 0) { // $204196: 30 WaitTOFs over the cleared view
+        if (--resume_wait_ == 0) after_pause();
+        return;
+    }
     if (interlude_.active()) {
         interlude_.advance();
         return;
@@ -219,6 +268,10 @@ void LandscapeStage::frame(const InputReader& read, int clicked) {
         frozen_ = 0;
         if (gadget < 4 && !map_view_.open()) face(gadget);
         if (gadget == map_gadget) toggle_map();
+        if (gadget == pause_gadget) {
+            pause();
+            return;
+        }
     }
     if (map_view_.open()) { // $200D92 instead of the walker's frame
         map_frames_left_ = map_view_.turn(input.pointer_x, input.pointer_y);
@@ -377,6 +430,13 @@ void LandscapeStage::take_cell() {
 // direction up to 4; 4 in water), the move, shifting the view by 4 cells
 // when the walker leaves it, and the new cell, taken unless it is higher.
 void LandscapeStage::step(const InputReader& read) {
+    // $2069E8: standing on a pyramid ($1000) for more than 30 steps turns the
+    // walker into the next form (the count carries over between pyramids).
+    if ((walker_.terrain & 0x1000) && ++pyramid_steps_ > 30) {
+        set_form((walker_.form + 1) & 3);
+        colours_[17] = inputs_.colour17; // $2004CE/$2004D0, loaded at once
+        colours_[18] = inputs_.colour18;
+    }
     if (walker_.column != walker_.last_column || walker_.row != walker_.last_row) cell_events();
     const auto stick = read(InputRead::stick);
     const bool fire = read(InputRead::fire).fire;
@@ -632,6 +692,18 @@ void LandscapeStage::cell_events() {
     }
 }
 
+// $206A2E: a form, with its sprite rows, head, surface kind, colours 17 and
+// 18 (for the view's builder and the palette) and frames from the start.
+void LandscapeStage::set_form(int form) {
+    walker_.form = form;
+    walker_.height = a_.s32(form_heights + std::uint32_t(form * 4));
+    inputs_.colour17 = a_.u16(form_colour17 + std::uint32_t(form * 2));
+    inputs_.colour18 = a_.u16(form_colour18 + std::uint32_t(form * 2));
+    pyramid_steps_ = 0;
+    walker_.frame = 0; // $20B160
+    walker_.frame_base = 4;
+}
+
 // $20A1B0: a find taken (E= for $10, mc2 for $20); with both held the
 // creatures slow down for a while ($20052A = $200); the view is built again
 // without it ($20A204 2).
@@ -723,6 +795,32 @@ const data::Bitmap& LandscapeStage::walker_bitmap() const {
 
 platform::Image LandscapeStage::picture() const {
     std::vector<screen::Rgb4> colours;
+    if (paused_ || resume_wait_ > 0) {
+        // Paused: the screen's title bar in rows 0-9 (text at (2, 7), the
+        // depth gadgets at the right), the window (the gadget bar) moved
+        // down over view rows 10-19, no sprites. Resuming: the bar back up
+        // over a cleared view.
+        for (const auto c : colours_) colours.push_back(c & 0xFFF);
+        screen::Canvas canvas = view_canvas_;
+        if (paused_) {
+            for (int y = 0; y < view_top; ++y)
+                for (int x = 0; x < 320; ++x) canvas.plot(x, y + view_top, view_canvas_.pen(x, y));
+            canvas.fill(0, 0, 319, view_top - 1, title_bar_pen);
+            std::string title;
+            for (std::uint32_t c = screen_title; a_.u8(c) != 0; ++c) title.push_back(char(a_.u8(c)));
+            canvas.text(2, 7, title, title_text_pen);
+            for (const auto& gadget : amiga::screen_depth_gadgets()) {
+                const int x0 = 319 + gadget.left;
+                for (int y = 0; y < gadget.height; ++y)
+                    for (int x = 0; x < gadget.width; ++x)
+                        canvas.plot(x0 + x, y, int(gadget.planes[0][std::size_t(y)] >> (31 - x) & 1) |
+                                                   int(gadget.planes[1][std::size_t(y)] >> (31 - x) & 1) << 1);
+            }
+        } else {
+            canvas.fill(0, view_top, 319, 199, 0);
+        }
+        return canvas.picture(colours);
+    }
     if (map_view_.open() || map_closing_ > 0) {
         // The map: its colours 0-29, no sprites (and no tethers: opening
         // cleared their plane); the emblem complemented (GADGHCOMP, selected).

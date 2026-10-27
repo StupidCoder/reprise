@@ -25,6 +25,9 @@ void MapView::show(const screen::Canvas& display, std::uint16_t view_x, std::uin
     open_ = true;
     held_ = false;
     build_ = build;
+    display_ = display;
+    view_x_ = view_x;
+    view_y_ = view_y;
     canvas_ = display;
     canvas_.fill(0, view_top, 319, 199, 0);
     load_colours();
@@ -45,8 +48,13 @@ void MapView::show(const screen::Canvas& display, std::uint16_t view_x, std::uin
     for (int c = 5; c <= 10; ++c)
         for (int r = 2; r <= 5; ++r) queue_square(c, r);
     pending_.push_back(-1);
+    if (fill_all_)
+        for (int c = 0; c < 16; ++c)
+            for (int r = 0; r < 8; ++r) queue_square(c, r);
     wait_ = open_frames;
 }
+
+void MapView::redraw() { show(display_, view_x_, view_y_, build_); }
 
 void MapView::queue_square(int column, int row) {
     row = std::clamp(row, 0, 7);

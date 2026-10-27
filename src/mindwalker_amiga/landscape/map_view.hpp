@@ -31,6 +31,8 @@ public:
     // bar, which stays), around the view at (view_x, view_y).
     void show(const screen::Canvas& display, std::uint16_t view_x, std::uint16_t view_y, const Builder&);
     void close() { open_ = false; fill_all_ = false; }
+    // $20071C(0) after a pause: drawn again (all squares when it was filled).
+    void redraw();
     // $2005C2: the left button pressed or released at the pointer.
     void button(bool down, int x, int y);
     // $200D92: one turn of the map's loop. Returns the display frames it
@@ -57,7 +59,8 @@ private:
     screen::Canvas canvas_;
     std::array<std::uint16_t, 30> colours_{};
     Builder build_;
-    std::uint16_t origin_x_{}, origin_y_{};
+    std::uint16_t origin_x_{}, origin_y_{}, view_x_{}, view_y_{};
+    screen::Canvas display_;
     bool open_{}, held_{}, fill_all_{}; // $204D6E, $20102E, $20101E
     std::uint16_t cycle_{};             // h7: colour 16's value
     std::deque<int> pending_;           // squares (column * 8 + row) to draw; -1: the view's box

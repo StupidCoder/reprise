@@ -113,6 +113,7 @@ public:
     bool out_of_lives() const { return out_of_lives_; }
     // The stage is over and its last picture sequence has played.
     bool in_sequence() const { return interlude_.active(); }
+    bool paused() const { return paused_; }
     bool over() const { return (finished_ || out_of_lives_) && !interlude_.active(); }
     int lives() const { return lives_; }
     int damage() const { return damage_; }
@@ -131,6 +132,10 @@ private:
     void rebuild_view();
     void repaint(bool full = true);
     void repaint_shown(Interlude::Repaint, int repeats = 1);
+    void repaint_from(const Display& before, Interlude::Repaint, int repeats = 1);
+    void pause();       // $204106
+    void resume();      // $204196
+    void after_pause();
     void follow_height(const InputReader&); // $209D8A
     void caught();          // $209D8A's branch after a catch
     void creatures_tick();  // $2003C0
@@ -145,6 +150,7 @@ private:
     void take_cell();       // $20AB4E
     void cell_events();     // $209F34
     void take_find();       // $20A1B0
+    void set_form(int form); // $206A2E
     void rebuild_view_keeping(); // $20A204 2
     void place_sprite();    // $209B54 / $2057D0
     void face(int direction);
@@ -184,6 +190,7 @@ private:
     std::uint32_t next_seed_{};           // shared +$4C: the next world's seed, set on the way on
     int slow_creatures_{};                // $20052A: both finds held
     int slow_count_{};                    // $20051C
+    int pyramid_steps_{};                 // $206B86
     int clock_frames_{}, clock_mark_{};   // the stage clock (shared +$6A as frames) and the last beacon
     std::uint32_t printed_score_{};       // the score as last printed ($20655A)
     bool aim_colours_{};                  // colours 19-31 lit by the aim's start
@@ -197,6 +204,8 @@ private:
     int map_frames_left_{};
     int queued_gadget_{-1};               // a gadget message not yet read
     int map_closing_{};                   // frames until the closed map's view shows
+    bool paused_{};                       // $204D70
+    int resume_wait_{};
     std::array<std::uint16_t, 32> map_palette_{}; // $2004AC as the map's view building leaves it
 };
 

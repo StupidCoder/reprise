@@ -98,7 +98,7 @@ void GadgetBar::draw(Canvas& canvas, int background) const {
         if (!gadget.enabled) {
             for (int gy = y; gy < y + gadget.height; ++gy) {
                 for (int gx = x; gx < x + gadget.width; ++gx) {
-                    if ((gx & 3) == ((gy & 1) ? 3 : 1)) canvas.plot(gx, gy, 15);
+                    if ((gx & 3) == ((gy & 1) ? 3 : 1)) canvas.plot(gx, gy, background);
                 }
             }
         }

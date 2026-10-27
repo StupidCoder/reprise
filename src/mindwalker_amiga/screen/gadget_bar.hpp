@@ -15,7 +15,8 @@
 // in the bar's background pen (T 15, A 18) and rows 10-11 in pen 0; gadget
 // images follow PlanePick and PlaneOnOff; a proportional gadget's container is cleared to pen 0 inset by
 // 2 pixels left and right and 1 top and bottom, with its knob image 4 pixels
-// in; a disabled gadget is ghosted with pen 15 in Intuition's screen-aligned
+// in; a disabled gadget is ghosted with the background pen (T 15, A 18; the
+// window's BlockPen) in Intuition's screen-aligned
 // pattern ($4444 on even rows, $1111 on odd ones).
 namespace mindwalker::screen {
 

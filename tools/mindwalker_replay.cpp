@@ -23,6 +23,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <deque>
 #include <map>
 #include <sstream>
 #include <string>
@@ -235,6 +236,8 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
     // Script events by module and read index; the held state carries over
     // from T (its events up to its last logged read).
     std::map<std::pair<char, int>, std::vector<std::vector<std::string>>> events;
+    std::deque<int> hook_gadgets;
+    bool pause_shot_done = false;
     {
         std::ifstream in(script_path);
         std::string line;
@@ -244,6 +247,8 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
             std::vector<std::string> w;
             for (std::string x; f >> x;) w.push_back(x);
             if (w.size() >= 3 && (w[0] == "T" || w[0] == "A")) events[{w[0][0], std::stoi(w[1])}].push_back({w.begin() + 2, w.end()});
+            // Clicks the recorder posts from hooks (loops without reads: the pause).
+            if (w.size() == 5 && w[0] == "hook" && w[1] == "A" && w[3] == "gadget") hook_gadgets.push_back(std::stoi(w[4], nullptr, 16));
         }
     }
     struct Read {
@@ -324,7 +329,7 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
         const auto& me = stage.walker();
         struct Field { const char* name; long ours, theirs; };
         const Field list[] = {
-            {"x", me.x, signed32(4)}, {"z", me.z, signed32(0xC)}, {"level", me.level, signed32(8)},
+            {"height", me.height, signed32(0)}, {"x", me.x, signed32(4)}, {"z", me.z, signed32(0xC)}, {"level", me.level, signed32(8)},
             {"cell x", me.cell_x, signed32(0x10)}, {"cell y", me.cell_y, signed32(0x14)},
             {"screen x", me.screen_x, signed32(0x18)}, {"screen y", me.screen_y, signed32(0x1C)},
             {"terrain", me.terrain, signed32(0x30) & 0xFFFF}, {"frame", me.frame, signed32(0x76)},
@@ -443,6 +448,14 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
     while (next < reads.size() && !out_of_step && frames < frame_limit) {
         int gadget = pending_gadget;
         pending_gadget = -1;
+        if (stage.paused() && std::getenv("MW_PAUSE_SHOT") && !pause_shot_done) { // research: the pause as shown
+            platform::save_png(stage.picture(), std::getenv("MW_PAUSE_SHOT"));
+            pause_shot_done = true;
+        }
+        if (stage.paused() && !hook_gadgets.empty()) {
+            gadget = hook_gadgets.front();
+            hook_gadgets.pop_front();
+        }
         frame_first_read = reads[next].index;
         if (events.count({'A', frame_first_read}))
             for (const auto& ev : events.at({'A', frame_first_read}))
@@ -564,10 +577,10 @@ int sim(const std::filesystem::path& content, std::uint32_t seed, int stage_numb
         if (reads % every == 0) {
             const auto& w = stage.walker();
             std::printf("read %5d cell %03x %03x view %03x %03x level %3d x %3d z %3d score %u lives %d damage %d "
-                        "attached %d found %d%d places %d%s%s\n",
+                        "attached %d found %d%d places %d form %d%s%s\n",
                         reads, w.cell_x, w.cell_y, stage.view_x(), stage.view_y(), w.level, w.x, w.z, stage.score(),
                         stage.lives(), stage.damage(), stage.creatures().attached(), stage.found()[0], stage.found()[1],
-                        stage.creature_places(), stage.ramp_closed() ? "" : " RAMP-OPEN", stage.finished() ? " FINISHED" : "");
+                        stage.creature_places(), w.form, stage.ramp_closed() ? "" : " RAMP-OPEN", stage.finished() ? " FINISHED" : "");
         }
         ++reads;
         return held;
