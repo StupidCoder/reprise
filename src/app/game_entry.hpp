@@ -63,6 +63,14 @@ struct GameEntry {
 
     // What can be played so far, for the launcher ("" = the whole game).
     std::string progress;
+
+    // Editorial history of this platform release; never reconstruction evidence.
+    int release_year{};
+    std::string description;
+    std::string history_title;
+    std::string history;
+    std::string history_sources; // Short credits; full references in docs/catalog-history.md.
+
 };
 
 } // namespace app

@@ -50,7 +50,9 @@ std::vector<std::size_t> Launcher::visible_games() const {
         result.push_back(i);
     }
     std::stable_sort(result.begin(), result.end(), [&](auto a, auto b) {
-        return bool(games[a].import) > bool(games[b].import);
+        if (games[a].release_year != games[b].release_year)
+            return games[a].release_year < games[b].release_year;
+        return games[a].title < games[b].title;
     });
     return result;
 }
@@ -105,7 +107,8 @@ void Launcher::open_details(std::size_t page) {
         try { previews_ = game.previews(library_.content_directory(selected_)); }
         catch (const std::exception& e) { details_error_ = std::string("Could not decode the imported data: ") + e.what(); }
     }
-    lessons_ = game.id == "bruce_lee_c64" && page == 0;
+    lessons_ = false;
+    about_ = page == 0;
     lesson_list_.resize(lesson_count,3);
     lesson_list_.reset(); lesson_selected_=0;
     page_ = std::min(page, previews_.size());
@@ -126,10 +129,22 @@ Launcher::Request Launcher::update(const platform::Controls& in, double now) {
         else chapter_->update(in,now);
         return Request::none;
     }
+    if (details_) {
+        if (hit(in,24,340,240,32)) {about_=true;lessons_=false;return Request::none;}
+        if (hit(in,24,380,240,32)) {about_=false;lessons_=false;return Request::none;}
+        if (about_ && (in.nav_left || in.nav_right)) {
+            about_=false;
+            lessons_=in.nav_left && library_.games()[selected_].id == "bruce_lee_c64";
+            return Request::none;
+        }
+        if (!about_ && !lessons_ && page_==0 && in.nav_left) {
+            about_=true;return Request::none;
+        }
+    }
     if (details_ && library_.games()[selected_].id == "bruce_lee_c64") {
-        if (hit(in,24,380,240,32)) {lessons_=false; return Request::none;}
-        if (hit(in,24,520,240,32)) {lessons_=true; return Request::none;}
+        if (hit(in,24,520,240,32)) {lessons_=true;about_=false; return Request::none;}
         if (lessons_) {
+            if(in.nav_left || in.nav_right) {lessons_=false;about_=in.nav_left;return Request::none;}
             if(in.back || hit(in,24,22,104,36)) {close_details();return Request::none;}
             const int delta=int(in.nav_down)-int(in.nav_up)+in.wheel+
                 (int(in.page_down)-int(in.page_up))*3;
@@ -147,13 +162,13 @@ Launcher::Request Launcher::update(const platform::Controls& in, double now) {
     if (details_) {
         const auto pages = previews_.size() + 1;
         if (in.back || in.accept || hit(in, 24, 22, 104, 36)) close_details();
-        else if (in.nav_right || hit(in, 858, 112, 54, 34)) page_ = (page_ + 1) % pages;
-        else if (in.nav_left || hit(in, 794, 112, 54, 34)) page_ = (page_ + pages - 1) % pages;
-        else if (page_ == 0 && files_.scrollable()) {
+        else if (!about_ && (in.nav_right || hit(in, 858, 112, 54, 34))) page_ = (page_ + 1) % pages;
+        else if (!about_ && (in.nav_left || hit(in, 794, 112, 54, 34))) page_ = (page_ + pages - 1) % pages;
+        else if (!about_ && page_ == 0 && files_.scrollable()) {
             files_.scroll(int(in.nav_down) - int(in.nav_up) + in.wheel);
             files_.page(int(in.page_down) - int(in.page_up));
-        } else if (in.nav_down) page_ = (page_ + 1) % pages;
-        else if (in.nav_up) page_ = (page_ + pages - 1) % pages;
+        } else if (!about_ && in.nav_down) page_ = (page_ + 1) % pages;
+        else if (!about_ && in.nav_up) page_ = (page_ + pages - 1) % pages;
         if (details_ && (in.remove || hit(in, 24, 474, 240, 34)) && library_.installed(selected_)) {
             library_.remove(selected_);
             close_details();
@@ -224,7 +239,7 @@ void Launcher::draw_card(Image& im, std::size_t index, int x, int y, double) con
     ui::rounded(im, x, y, card_w, card_h, 7, s::card);
     s::cover(im, game.id, x + 6, y + 6, card_w - 12, 154);
     s::text(im, game.title, x + 12, y + 163, 18, s::ink, true);
-    s::text(im, std::string(machine_name(game.machine)) + "   /   " + status(index), x + 12, y + 187, 12, s::muted);
+    s::text(im, std::to_string(game.release_year) + "   /   " + machine_name(game.machine) + "   /   " + status(index), x + 12, y + 187, 12, s::muted);
     ui::rounded(im, x + card_w - 24, y + 174, 9, 9, 4,
                 library_.installed(index) && game.start ? s::green : s::muted);
 }
@@ -261,22 +276,31 @@ void Launcher::draw_details(Image& im) const {
     ui::fill(im, s::paper);
     s::button(im, "<  Library", 24, 22, 104, 36);
     s::text(im, "Game details", 150, 25, 22, s::ink, true);
-    s::right(im, machine_name(game.machine), 934, 30, 15, s::muted);
+    s::right(im, std::string(machine_name(game.machine)) + " / " + std::to_string(game.release_year), 934, 30, 15, s::muted);
     ui::rect(im, 24, 78, 912, 1, s::line);
     s::cover(im, game.id, 24, 106, 240, 110);
     s::wrap(im, game.title, 24, 234, 240, 2, 25, s::ink);
     s::text(im, status(selected_), 24, 304, 15, installed && game.start ? s::green : s::muted, true);
-    s::wrap(im, !game.import ? "Planned for a future version of Joyport." : !installed ?
-        "Import your own copy to get started." : game.start ? "Your imported copy is ready to play." :
-        "Explore the decoded data. This game is not playable yet.", 24, 340, 240, 3, 15);
+    s::button(im,"About the game",24,340,240,32,about_);
+    s::button(im,"Extracted assets",24,380,240,32,!about_ && !lessons_);
     if (game.import && (!installed || game.start)) s::button(im, installed ? "Play game" : "Import your copy", 24, 426, 240, 36, true);
     if (installed) s::button(im, "Remove imported files", 24, 474, 240, 34);
     if (game.id == "bruce_lee_c64") {
-        s::button(im,"Extracted assets",24,380,240,32,!lessons_);
         s::button(im,"Lessons",24,520,240,32,lessons_);
         if(lessons_){draw_lessons(im);return;}
     }
     ui::rounded(im, 288, 102, 648, 446, 10, s::card);
+    if (about_) {
+        s::text(im,"THE GAME",312,124,12,s::cobalt,true);
+        s::wrap(im,game.description,312,152,594,6,19,s::ink);
+        ui::rect(im,312,298,594,1,s::line);
+        s::clipped(im,game.history_title,312,318,594,21,s::ink,true);
+        s::wrap(im,game.history,312,354,594,6,17,s::ink);
+        s::wrap(im,"Sources: " + game.history_sources,312,494,594,3,12,s::muted);
+        s::text(im,"Left / Right: explore sections     Esc or Enter: library",24,582,14,s::muted);
+        return;
+    }
+
     const auto pages = previews_.size() + 1;
     s::clipped(im, page_ == 0 ? (installed ? "Imported files" : "About this game") : previews_[page_ - 1].title, 308, 116, 460, 20, s::ink, true);
     if (pages > 1) { s::button(im, "<", 794, 112, 54, 34); s::button(im, ">", 858, 112, 54, 34); }
@@ -328,6 +352,7 @@ Image Launcher::draw(double now) const {
     s::button(im, "+  Import game", 798, 20, 138, 36);
     ui::rect(im, 184, 78, 1, 465, s::line);
     s::text(im, "Your library", grid_x, 69, 23, s::ink, true);
+    s::text(im, "Release year · oldest first", 390, 76, 13, s::muted);
     for (int i = 0; i < 4; ++i) {
         const bool active = i == filter_;
         if (active) ui::rounded(im, 18, 110 + i * 46, 160, 38, 7, sidebar_focus_ ? s::cobalt : s::pale);
@@ -355,7 +380,7 @@ Image Launcher::draw(double now) const {
     const auto& game = library_.games()[selected_];
     s::cover(im, game.id, 24, 576, 100, 46);
     s::text(im, game.title, 140, 573, 20, s::ink, true);
-    s::text(im, std::string(machine_name(game.machine)) + "   /   " + status(selected_), 140, 602, 13, s::muted);
+    s::text(im, std::to_string(game.release_year) + "   /   " + machine_name(game.machine) + "   /   " + status(selected_), 140, 602, 13, s::muted);
     s::text(im, "Arrows: choose   I: details", 444, 586, 13, s::muted);
     const auto action = !game.import ? "About" : !library_.installed(selected_) ? "Import" : game.start ? "Play" : "View data";
     s::button(im, action, 706, 578, 104, 38, true);

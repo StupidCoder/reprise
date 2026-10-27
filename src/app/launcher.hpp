@@ -47,6 +47,7 @@ private:
 
     std::unique_ptr<Lesson> chapter_;
     bool lessons_{};
+    bool about_{};
     int lesson_selected_{};
     ui::ScrollList lesson_list_;
     void open_lesson(double now);
