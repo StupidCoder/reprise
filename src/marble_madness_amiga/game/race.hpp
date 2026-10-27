@@ -74,6 +74,8 @@ public:
     void set_crowd(bool on);
     bool crowd() const { return crowd_; }
     const CrowdMap* crowd_map() const { return crowd_map_.get(); }
+    // The crowd holds back while ahead of the players (rubber banding).
+    bool crowd_close{true};
     // Research: the crowd's driving steers marble 0 too (tools).
     bool bot_drives_player{};
     // A crowd marble (not a player's).
@@ -246,6 +248,8 @@ private:
     void steer_bot(Marble&);
     void plan(Marble&);
     void carry_off_screen(Marble&);
+    void careful_near_vacuums(const Marble&, Push&) const;
+    void keep_the_pack_close(const Marble&, Push&) const;
     Push usual_push(Marble&);
     CrowdDriver new_driver(int index) const;
 

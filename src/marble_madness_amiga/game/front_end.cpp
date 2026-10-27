@@ -108,6 +108,7 @@ void GameFlow::load_course(data::Course course) {
     // introduction counts the course's time in.
     m.time = course < data::Course::intermediate ? 0 : time_;
     race_->set_crowd(crowd_);
+    race_->crowd_close = crowd_close_;
     view_ = std::make_unique<View>(*files_, *assets_, *race_);
     view_->update(*race_);
     sounds_ = std::make_unique<sound::SoundBoard>(*files_, course);

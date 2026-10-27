@@ -382,6 +382,12 @@ void Race::dizzy_surprise() {
                     if (players_ == 2 && marbles[1].status == 1) {
                         marbles[1].stunned = 1;
                     }
+                    // (The crowd race's marbles race too: dizzy as well.)
+                    for (int b = players_; b < marble_count_; ++b) {
+                        if (marbles[std::size_t(b)].status == 1) {
+                            marbles[std::size_t(b)].stunned = 1;
+                        }
+                    }
                     return;
                 }
                 break;

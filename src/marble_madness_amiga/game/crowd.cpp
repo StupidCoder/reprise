@@ -66,15 +66,16 @@ struct PortalSeen {
     int zone_out{-99}; // the zone on the far side, when the way crosses a zone line
     bool bridge{};     // a drawbridge: carried across only off the screen
     int push_x{}, push_y{}; // the funnel's push out (pixels an update; race.cpp)
+    int alt_x{-1}, alt_y{-1}; // where the funnel puts a marble when its exit is taken (race.cpp)
 };
 constexpr PortalSeen portals_seen[] = {
     {data::Course::beginner, 492, 444, 488, 484, -1, -1, 6, true}, // the drawbridge (beg_goal 581-617)
-    {data::Course::beginner, 507, 619, 524, 612, -1, -1, -99, false, 4, 0},
-    {data::Course::beginner, 649, 686, 668, 740, -1, -1, -99, false, 0, 4},
-    {data::Course::intermediate, 620, 654, 620, 596, -1, -1, -99, false, 0, -4},
+    {data::Course::beginner, 507, 619, 524, 612, -1, -1, -99, false, 4, 0, 516, 612},
+    {data::Course::beginner, 649, 686, 668, 740, -1, -1, -99, false, 0, 4, 668, 732},
+    {data::Course::intermediate, 620, 654, 620, 596, -1, -1, -99, false, 0, -4, 620, 604},
     {data::Course::intermediate, 660, 620, 660, 740, -1, -1, -99, true}, // the wave's channel, drawn only on the screen
-    {data::Course::silly, 711, 718, 684, 688, -1, -1, -99, false, 0, -4},
-    {data::Course::ultimate, 181, 257, 240, 320, 181, 108, -99, false, 4, 0},
+    {data::Course::silly, 711, 718, 684, 688, -1, -1, -99, false, 0, -4, 732, 688},
+    {data::Course::ultimate, 181, 257, 240, 320, 181, 108, -99, false, 4, 0, 240, 256},
 };
 
 // Moving ground as it is while drawn, where filling in from the floor
@@ -229,7 +230,8 @@ CrowdMap::CrowdMap(const data::GameFiles& files, data::Course course, const Terr
     for (const auto& p : portals_seen) {
         if (p.course == course) {
             portals_.push_back({p.in_x >> 3, p.in_y >> 3, p.out_x >> 3, p.out_y >> 3, p.from_x < 0 ? -1 : p.from_x >> 3,
-                                p.from_y < 0 ? -1 : p.from_y >> 3, p.zone_out, p.bridge, p.push_x, p.push_y});
+                                p.from_y < 0 ? -1 : p.from_y >> 3, p.zone_out, p.bridge, p.push_x, p.push_y,
+                                p.alt_x, p.alt_y});
         }
     }
 
@@ -292,10 +294,16 @@ int CrowdMap::floor(int cx, int cy) const {
 std::optional<CrowdMap::Exit> CrowdMap::funnel_exit(int cx, int cy) const {
     for (const auto& p : portals_) {
         if (std::max(std::abs(p.in_x - cx), std::abs(p.in_y - cy)) <= 2) {
-            return Exit{p.out_x * 8 + 4, p.out_y * 8 + 4, p.zone_out, p.push_x, p.push_y};
+            return Exit{p.out_x * 8 + 4, p.out_y * 8 + 4, p.zone_out, p.push_x, p.push_y, p.alt_x, p.alt_y};
         }
     }
     return std::nullopt;
+}
+
+bool CrowdMap::near_exit(int cx, int cy) const {
+    return std::any_of(portals_.begin(), portals_.end(), [&](const Portal& p) {
+        return std::max(std::abs(p.out_x - cx), std::abs(p.out_y - cy)) <= 3;
+    });
 }
 
 bool CrowdMap::near_way_in(int cx, int cy) const {
@@ -367,14 +375,28 @@ std::vector<std::uint16_t> CrowdMap::flood(const std::vector<std::pair<int, int>
         }
         const int ax = i % grid, ay = i / grid;
         // Through a funnel: its way in is as near as its way out.
-        // (A run-up's lane counts from its first cell.)
+        // (A run-up's lane counts from its first cell. A funnel's mouth is
+        // reached from any floor within 2 cells, whatever its height: the
+        // marble rolls off into the bowl.)
         for (const auto& p : portals_) {
-            if (p.out_x == ax && p.out_y == ay) {
-                const int x = p.from_x >= 0 ? p.from_x : p.in_x, y = p.from_x >= 0 ? p.from_y : p.in_y;
-                auto& slot = to_go[std::size_t(y * grid + x)];
-                if (d + 4 < slot) {
-                    slot = std::uint16_t(d + 4);
-                    queue.push({d + 4, y * grid + x});
+            if (p.out_x != ax || p.out_y != ay) {
+                continue;
+            }
+            const bool lane = p.from_x >= 0;
+            const int reach = lane || p.bridge ? 0 : 2;
+            for (int oy = -reach; oy <= reach; ++oy) {
+                for (int ox = -reach; ox <= reach; ++ox) {
+                    const int x = (lane ? p.from_x : p.in_x) + ox, y = (lane ? p.from_y : p.in_y) + oy;
+                    const Cell* c = cell(x, y);
+                    if (c == nullptr || (c->floor == 0 && (ox != 0 || oy != 0))) {
+                        continue;
+                    }
+                    const int value = d + 4 + std::max(std::abs(ox), std::abs(oy)) * 4;
+                    auto& slot = to_go[std::size_t(y * grid + x)];
+                    if (value < slot) {
+                        slot = std::uint16_t(value);
+                        queue.push({value, y * grid + x});
+                    }
                 }
             }
         }
@@ -553,6 +575,18 @@ void Race::carry_off_screen(Marble& m) {
     if (m.status != 1 || !crowd_map_ || m.mode == Marble::respawning || m.mode == Marble::breaking) {
         return;
     }
+    // (Past the goal line but not finishing, as a bounce can leave it: home.
+    // Off the map altogether: lost, as a fall would be.)
+    if (m.feature == -1 && m.mode != Marble::finishing) {
+        m.status = 3;
+        return;
+    }
+    constexpr int map_size = CrowdMap::grid * 8;
+    if ((m.x >> 16) < 0 || (m.y >> 16) < 0 || (m.x >> 16) >= map_size || (m.y >> 16) >= map_size) {
+        m.delay = 0x65;
+        set_mode(m, Marble::respawning);
+        return;
+    }
     // (Visible from -$10 to $100, $11F486; a margin either way.)
     const int screen_y = std::int16_t(m.screen[0]);
     if (screen_y > -0x30 && screen_y < 0x130) {
@@ -562,14 +596,18 @@ void Race::carry_off_screen(Marble& m) {
     if (!out) {
         return;
     }
-    // To a free spot: the way out or a cell beside it at its height (two
-    // marbles on one spot would hold each other there); none free: later.
-    static constexpr int offsets[9][2] = {{0, 0}, {8, 0}, {0, 8}, {-8, 0}, {0, -8}, {8, 8}, {-8, 8}, {8, -8}, {-8, -8}};
+    // To a free spot (two marbles on one spot would hold each other there):
+    // a funnel's exit or the spot it uses when that is taken (beside it can
+    // be inside the tube's walls); the bridge's end or a cell beside it at
+    // its height. None free: later.
+    static constexpr int beside[9][2] = {{0, 0}, {8, 0}, {0, 8}, {-8, 0}, {0, -8}, {8, 8}, {-8, 8}, {8, -8}, {-8, -8}};
+    const bool funnel = out->alt_x >= 0;
     const int floor = crowd_map_->floor(out->x >> 3, out->y >> 3);
     int to_x = -1, to_y = -1;
-    for (const auto& o : offsets) {
-        const int x = out->x + o[0], y = out->y + o[1];
-        if (crowd_map_->floor(x >> 3, y >> 3) != floor) {
+    for (int n = 0; n < (funnel ? 2 : 9); ++n) {
+        const int x = funnel ? (n == 0 ? out->x : out->alt_x) : out->x + beside[n][0];
+        const int y = funnel ? (n == 0 ? out->y : out->alt_y) : out->y + beside[n][1];
+        if (!funnel && crowd_map_->floor(x >> 3, y >> 3) != floor) {
             continue;
         }
         const bool free = std::none_of(marbles.begin(), marbles.end(), [&](const Marble& other) {
@@ -645,10 +683,84 @@ void Race::steer_bot(Marble& m) {
         }
         if (!d.plan_steer) {
             push = {d.plan_forward, d.plan_side};
+            careful_near_vacuums(m, push);
+            keep_the_pack_close(m, push);
             return;
         }
     }
     push = usual_push(m);
+    careful_near_vacuums(m, push);
+    keep_the_pack_close(m, push);
+}
+
+// Rubber banding (an option of the crowd race): a crowd marble ahead of
+// the leading player by the map's distance to the goal rolls slower the
+// further ahead it is, and uses no fire, so a player who lost a marble is
+// not left behind for good; one level or behind races flat out.
+void Race::keep_the_pack_close(const Marble& m, Push& push) const {
+    if (!crowd_close || !crowd_map_) {
+        return;
+    }
+    const CrowdMap& map = *crowd_map_;
+    int leader = -1;
+    for (int i = 0; i < players_; ++i) {
+        const Marble& p = marbles[std::size_t(i)];
+        const auto d = map.to_goal(p.x >> 19, p.y >> 19);
+        if (p.status == 1 && d != CrowdMap::none && (leader < 0 || d < leader)) {
+            leader = d;
+        }
+    }
+    const auto mine = map.to_goal(m.x >> 19, m.y >> 19);
+    if (leader < 0 || mine == CrowdMap::none) {
+        return;
+    }
+    // Lead in map units (about 4-6 a cell): none up to 60; from there the
+    // speed limit falls from full to a slow roll at 260.
+    // (Not by a funnel's exit or while a course piece holds it: it needs
+    // its push to get out.)
+    const int lead = leader - int(mine);
+    if (lead <= 60 || m.region_code != 0 || map.near_exit(m.x >> 19, m.y >> 19)) {
+        return;
+    }
+    const double share = std::clamp(1.0 - (lead - 60) / 200.0, 0.0, 1.0);
+    const double limit = 0xC000 + share * (0x40000 - 0xC000); // 0.75 to 4 pixels an update
+    auto calm = [](std::int16_t p) { return std::int16_t(std::clamp<int>(p, -0x20, 0x20)); };
+    push.forward = calm(push.forward);
+    push.side = calm(push.side);
+    if (std::hypot(double(m.vx), double(m.vy)) > limit) {
+        // Braking against the roll.
+        const double half = limit / 2;
+        push.forward = std::int16_t(m.vx > half ? -0x20 : m.vx < -half ? 0x20 : push.forward);
+        push.side = std::int16_t(m.vy > half ? 0x20 : m.vy < -half ? -0x20 : push.side);
+    }
+}
+
+// Near a vacuum a crowd marble goes carefully, as a player would: no fire
+// and no more than a slow roll (braking down to it), so the suck can take
+// it (at full speed it crosses the reach before the pull tells).
+void Race::careful_near_vacuums(const Marble& m, Push& push) const {
+    constexpr int near = 56;                 // pixels from the vacuum's point
+    constexpr std::int32_t slow = 0x14000;   // 1.25 pixels an update
+    bool close = false;
+    for (const auto& r : regions_.all()) {
+        if (r.active && (r.code == 11 || r.code == 13) && std::abs((r.x - m.x) >> 16) < near &&
+            std::abs((r.y - m.y) >> 16) < near) {
+            close = true;
+            break;
+        }
+    }
+    if (!close) {
+        return;
+    }
+    auto limit = [](std::int16_t p) { return std::int16_t(std::clamp<int>(p, -0x20, 0x20)); };
+    push.forward = limit(push.forward);
+    push.side = limit(push.side);
+    const double speed = std::hypot(double(m.vx), double(m.vy));
+    if (speed > slow) {
+        // Against the roll (push.forward adds to vx, push.side takes from vy).
+        push.forward = std::int16_t(m.vx > slow / 2 ? -0x20 : m.vx < -slow / 2 ? 0x20 : push.forward);
+        push.side = std::int16_t(m.vy > slow / 2 ? 0x20 : m.vy < -slow / 2 ? -0x20 : push.side);
+    }
 }
 
 // Trying pushes ahead: on copies of the race the marble holds each of the
@@ -691,6 +803,9 @@ void Race::plan(Marble& m) {
             const std::int32_t was_x = copy.marbles[std::size_t(index)].x, was_y = copy.marbles[std::size_t(index)].y;
             copy.update({copy.push_[0], copy.push_[1]});
             const Marble& cm = copy.marbles[std::size_t(index)];
+            if (cm.mode == Marble::captured) {
+                break; // (scored where it is)
+            }
             if (cm.respawns == m.respawns && cm.status == 1 &&
                 (std::abs((cm.x - was_x) >> 16) > 24 || std::abs((cm.y - was_y) >> 16) > 24)) {
                 score = 1e8 - t; // a funnel took it through
@@ -709,8 +824,10 @@ void Race::plan(Marble& m) {
             const bool in_mouth = map.near_way_in(cm.x >> 19, cm.y >> 19);
             const bool falling = (cm.air == 2 && cm.fall_start_z - cm.z > 0x600000 && !in_mouth) ||
                                  (cm.air != 0 && map.floor(cm.x >> 19, cm.y >> 19) == 0 && !in_mouth);
+            // (A vacuum taking it is no loss to the plan: a player does not
+            // see the suck coming either, so the crowd blunders in too.)
             if (cm.status != 1 || cm.respawns != m.respawns || falling || cm.mode == Marble::breaking ||
-                cm.mode == Marble::respawning || cm.mode == Marble::captured || cm.mode == Marble::dissolving ||
+                cm.mode == Marble::respawning || cm.mode == Marble::dissolving ||
                 cm.mode == Marble::eaten || cm.mode == Marble::frozen) {
                 score = -1e9 + t * 1e6; // later is better
                 lost = true;

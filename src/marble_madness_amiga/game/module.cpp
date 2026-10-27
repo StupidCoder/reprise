@@ -17,7 +17,7 @@ namespace {
 // vertical blanks per update).
 constexpr double update_seconds = 2.0 / 50.0;
 
-enum Option { steering = 0, vhs_look = 1, stop_timer = 2, safe_falls = 3, crowd_race = 4 };
+enum Option { steering = 0, vhs_look = 1, stop_timer = 2, safe_falls = 3, crowd_race = 4, crowd_close = 5 };
 
 // The game as the program runs it (front_end.hpp): the options screen, the
 // courses with their introductions, finishes and the end. One player.
@@ -79,6 +79,13 @@ public:
                                 "computer, each in its own colour. They bump, fall, break and come back by the "
                                 "same rules as yours. Turning it on mid-race puts them on the course's start; "
                                 "turning it off takes them away.",
+                 .group = "Crowd race"},
+                {.name = "Keep the pack close",
+                 .choices = {"Off", "On"},
+                 .value = crowd_close_ ? 1 : 0,
+                 .description = "Rubber banding for the crowd race: a computer marble ahead of you rolls slower "
+                                "the further ahead it gets, so a lost marble does not leave you behind for good. "
+                                "Behind you they race flat out.",
                  .group = "Crowd race"}};
     }
     void set_option(std::size_t index, int value) override {
@@ -95,6 +102,9 @@ public:
         } else if (index == crowd_race) {
             crowd_ = value != 0;
             flow_.set_crowd(crowd_);
+        } else if (index == crowd_close) {
+            crowd_close_ = value != 0;
+            flow_.set_crowd_close(crowd_close_);
         }
     }
 
@@ -113,6 +123,7 @@ public:
         next_push_ = saved_push_;
         flow_.set_device(device_);
         flow_.set_crowd(crowd_);
+        flow_.set_crowd_close(crowd_close_);
         return true;
     }
     bool has_save() const override { return saved_.has_value(); }
@@ -148,6 +159,7 @@ private:
     int vhs_{};
     Race::Cheats cheats_;
     bool crowd_{};
+    bool crowd_close_{true};
     long frames_{};
     std::optional<GameFlow> saved_;
     Push saved_push_{};

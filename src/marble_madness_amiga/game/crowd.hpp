@@ -68,11 +68,14 @@ public:
     struct Exit {
         int x, y, zone;
         int push_x, push_y; // the funnel's push out, pixels an update
+        int alt_x, alt_y;   // its spot when the exit is taken (-1: none, a bridge)
     };
     std::optional<Exit> funnel_exit(int cx, int cy) const;
     // Whether the cell is next to a funnel's way in (not the bridge's: on
     // the screen the bridge must be crossed).
     bool near_way_in(int cx, int cy) const;
+    // Whether the cell is within 3 of a funnel's (or bridge's) way out.
+    bool near_exit(int cx, int cy) const;
 
 private:
     struct Cell {
@@ -103,6 +106,7 @@ private:
         int zone_out{-99};
         bool bridge{};
         int push_x{}, push_y{};
+        int alt_x{-1}, alt_y{-1};
     };
     std::vector<Portal> portals_;
 };

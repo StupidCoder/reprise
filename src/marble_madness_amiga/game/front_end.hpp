@@ -104,6 +104,13 @@ public:
             race_->set_crowd(on);
         }
     }
+    // The crowd holds back while ahead of the player (rubber banding).
+    void set_crowd_close(bool on) {
+        crowd_close_ = on;
+        if (race_) {
+            race_->crowd_close = on;
+        }
+    }
     Race::Cheats cheats;
     // Research: the race being run.
     const Race* race() const { return race_.get(); }
@@ -156,6 +163,7 @@ private:
     std::vector<Ball> balls_;
     Random random_;
     bool crowd_{};
+    bool crowd_close_{true};
 };
 
 } // namespace marble_madness::game
