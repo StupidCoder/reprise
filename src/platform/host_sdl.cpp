@@ -20,6 +20,8 @@ struct Host::Implementation {
     bool ui_shown{true};
     float wheel_rest{}; // mouse wheel movement not yet a whole step
     SDL_FRect overlay_box{}; // where the last game overlay was shown (device pixels)
+    SDL_FRect game_box{};    // where the last game frame was shown (device pixels)
+    int game_width{}, game_height{}; // that frame's size in pixels
     SDL_Gamepad* gamepad{};
     SDL_Gamepad* gamepad2{}; // a second one: the second joystick
     SDL_AudioStream* audio{};
@@ -253,6 +255,18 @@ Controls Host::poll() {
         input.down2 |= button(SDL_GAMEPAD_BUTTON_DPAD_DOWN) || y > 12000;
         input.fire2 |= button(SDL_GAMEPAD_BUTTON_SOUTH);
     }
+    // The mouse over the game frame, for games played with a mouse.
+    float mx = 0, my = 0;
+    const auto buttons = SDL_GetMouseState(&mx, &my);
+    input.mouse_held = (buttons & SDL_BUTTON_LMASK) != 0;
+    float rx = 0, ry = 0;
+    if (!i.ui_shown && i.game_box.w > 0 && SDL_RenderCoordinatesFromWindow(i.renderer, mx, my, &rx, &ry)) {
+        const float fx = (rx - i.game_box.x) * float(i.game_width) / i.game_box.w;
+        const float fy = (ry - i.game_box.y) * float(i.game_height) / i.game_box.h;
+        if (fx >= 0 && fy >= 0 && fx < float(i.game_width) && fy < float(i.game_height)) {
+            input.game_pointer = std::array<int, 2>{int(fx), int(fy)};
+        }
+    }
     return input;
 }
 
@@ -288,6 +302,9 @@ void Host::present_game(const Image& frame, double pixel_aspect, const Image* ov
     const double scale = std::min(cw / shown_width, double(ch) / frame.height);
     const float w = float(shown_width * scale), h = float(frame.height * scale);
     const SDL_FRect target{float(int((cw - w) / 2)), float(int((ch - h) / 2)), w, h};
+    i.game_box = target;
+    i.game_width = frame.width;
+    i.game_height = frame.height;
     const Uint8 brightness = dim ? 90 : 255;
     SDL_SetTextureColorMod(i.texture, brightness, brightness, brightness);
     SDL_RenderTexture(i.renderer, i.texture, nullptr, &target);

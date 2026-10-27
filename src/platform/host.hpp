@@ -56,6 +56,10 @@ struct Controls {
     int mouse_x{}, mouse_y{};
     // A file dropped onto the window.
     std::optional<std::filesystem::path> dropped_file;
+    // The mouse over the last game frame shown (present_game), in the frame's
+    // pixels; unset outside it and on UI screens. The left button, held.
+    std::optional<std::array<int, 2>> game_pointer;
+    bool mouse_held{};
 };
 
 class Host {

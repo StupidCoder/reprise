@@ -236,7 +236,7 @@ int main(int argc, char** argv) {
         shell.select(0); shell.update(left, 1); shell.update(down, 1); shell.update(down, 1);
         shell.update(right, 1); check(shell.selected() == 4, "Keyboard filter must select first Amiga entry");
         shell.update(left, 1); shell.update(down, 1); shell.update(right, 1);
-        check(shell.selected() == 3, "Planned filter must select Mindwalker");
+        check(shell.selected() == 6, "Planned filter must select Rock 'n Roll (the first planned game)");
         shell.update(click(40, 125), 1); // All games
         shell.select(0); shell.update(click(915, 80), 1);
         check(shell.selected() == 2, "Pointer paging must follow chronological order");

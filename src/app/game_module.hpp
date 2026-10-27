@@ -22,6 +22,11 @@ struct GameInput {
     bool up2{}, down2{}, left2{}, right2{}, fire2{};
     // The C64 keyboard matrix, held (index row * 8 + column; see Controls).
     std::array<bool, 64> c64_keys{};
+    // The mouse, for games played with one: whether it is over the game's
+    // picture, where (in picture pixels), and the left button held.
+    bool pointer{};
+    int pointer_x{}, pointer_y{};
+    bool mouse_button{};
 };
 
 // A setting the player can change in the pause menu (a fix or an

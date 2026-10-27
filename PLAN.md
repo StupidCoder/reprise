@@ -43,7 +43,7 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
 | --- | --- | --- | --- |
 | Fort Apocalypse | C64 | `Fort_Apocalypse.tap` (MD5 `bec7409816865f3ad160af9984f127cd`) | playable from title to debrief, compared with the original in scripted runs; pause menu with the enemy-pilot option |
 | Bruce Lee | C64 | `Bruce_Lee_(Original).g64` (MD5 `8cbfd1595cdc18a8e68fe4d43eec6aa8`) | playable from the title to the end and the next round, with sound, the demo and both two-player modes; compared with the original pass by pass (actors, rooms, screen, SID); smooth motion, particle and VHS options |
-| Mindwalker | Amiga | — | planned |
+| Mindwalker | Amiga | `Mind Walker (1986)(Commodore).adf` (SHA-256 `2e83a67a…a8969c`) | disk import and decoded assets with launcher viewer; title, world menu and new game playable (mouse), matching the original frame for frame and pen for pen; world generator's base layer verified against the original; the landscape and later stages not rebuilt yet |
 | Marble Madness | Amiga | `Marble_Madness.adf` (MD5 `735dc697d64b3eeaa000778eb0b1153a`) | disk import (both encrypted programs decrypted, checked against the original's memory); asset previews; all six courses complete in play (physics, covers, creatures, special regions, music and effects; each compared with the original update for update from start to goal); front end for one player (options, introductions, bonus, game over, the end) |
 | Wizball | C64 | `Wizball.g64` (MD5 `73e1a136da4b6972d39f00817b86983e`) | disk import, asset decoding with launcher previews; play rebuilt and checked in lockstep (places, enemies, catellite, tunnels, lives, bonus wave, Wizlab, level flight, round end, sound and music); front end, high scores and keys rebuilt |
 | Cannon Fodder | Amiga | — | planned |
@@ -281,7 +281,7 @@ Notes: `.analysis/bruce_lee_c64/` (`disk.md` loader and protection,
   only been exercised from the command line (`joyport --import`) so far.
 - Only one dump of Fort Apocalypse has been tried; other dumps of the same
   release should work (recognised by content), other releases are rejected.
-- Images for Mindwalker, Cannon Fodder, Rock 'n Roll and Wings of Fury are not in the project folder yet.
+- Images for Cannon Fodder, Rock 'n Roll and Wings of Fury are not in the project folder yet.
 - Bruce Lee: not compared with the original yet: the two-player modes
   (needs a harness run with both joysticks), the idle pause (11 minutes),
   the pause key. Not rebuilt: the idle pause's colour cycling ($1675,
@@ -585,6 +585,69 @@ same disk is used as a guide; claims are checked against the image's code.
    funnel portals from recordings), a look-ahead planner on race copies;
    pause-menu mode, spawn/despawn mid-race. Open items in play.md.
    Next: two players, mouse input.
+
+## Mind Walker (Amiga) milestones
+
+Notes: `.analysis/mindwalker_amiga/` (`disk.md` files, boot chain, the
+module protocol, the reference machine and harness; `formats.md` data
+formats; `game.md` stages, shared block, code map, plan and open items).
+No outside material on this game was used (RetroReverse has none).
+
+The game is seven compiled-C programs run one at a time by a small loader
+(S set-up, T title/menus, A the physical level, B the tunnel, C the arena,
+P the psyche screen, E errors). The state that crosses between them lives in
+a 784-byte block the loader owns; the stage order follows a mode word
+(T → A → B → C → P → A …). The worlds are generated from a seed (four preset
+seeds and a clock seed), not stored.
+
+1. **Disk import and assets** — done (2026-10-27). `import/disk_import`
+   keeps the seven stage programs (recognised by SHA-256) and `MindB`,
+   `MindF1-6`, `MindHighs`. `data/assets` decodes the title picture (HAM:
+   data planes 0-3 and the modify-red plane, on T's palette; equal to the
+   emulator's title), the six portraits, S's five shared image sets (16-pixel,
+   2-plane frames with their frame orders) and icons, B's hands (colours
+   8 + value, as B's blits make them), C's cells and images, the stage
+   palettes, P's 32 words, the sound samples and waveforms of B, C and P,
+   and the high-score table. Launcher viewer (31 pages) and
+   `mindwalker_assets import|export` (PNG, WAV, summary).
+2. **Reference harness** — done (2026-10-27): research boot disk
+   (`mkboot.py`), FS-UAE on port 6861 with pid tracking (`run.sh`), module
+   location and input injection (`mw.py`), the per-frame recorder
+   (`mwrec.py`: every input read, state fields, screen dumps, hooks, module
+   switches), dumps to pens and palettes (`rawpng.py`), and an oracle that
+   runs A's own world routines in batches (`worldref.py`).
+3. **Title stage** — done (2026-10-27; `title/`, `screen/`, `game/`): the
+   title picture with its twinkle, the world menu (grid, bands, pillars and
+   their animation, items, the edge-triggered click), the gadget bar as
+   Intuition draws it, the new-game record (preset or New Game seed, stage
+   from the slider, lives, bonus) and the loading picture on S's screen.
+   Topaz 8 embedded in `amiga/topaz.cpp` (owner's decision, same terms as
+   topaz 9). Checked with `mindwalker_replay title` on three recordings:
+   every frame's state, the title, menu and loading screens pen for pen and
+   colour for colour (S's title bar with Intuition's screen-depth gadgets,
+   embedded in `amiga/intuition_imagery.cpp` on the owner's decision).
+   The launcher plays it with the mouse (new `GameInput` pointer fields) and
+   Intuition's pointer from the disk's preferences, then stops at the
+   loading picture naming the generated world.
+4. **World generator** — base layer done (2026-10-27; `world/`): seed →
+   keys, terrain levels, start cell; both coordinate chains; platform cells.
+   Equal to the original's routines for every chain coordinate in two
+   worlds and 2,460 cells in one (`mindwalker_world check`;
+   `.analysis/mindwalker_amiga/harness/regress.sh` replays all runs).
+5. **Landscape (A)** — started (2026-10-27). The view builder
+   (`landscape/view_cells`: the 4 × 4 cells in front of the walker, their
+   terrain and object words and the view's 32 colours) equals the
+   original's routine in 1,396 oracle calls across stages 0-35. Next: the
+   3D drawing of the view (checked against A's screen dumps), the walker
+   sprite, the status bar, movement; then B, C, P, sound, saves, high
+   scores.
+
+Open: what each shared image set and icon is used for and its colours;
+sample playback periods and triggers; A's world model beyond the generator;
+P's rules; T's high scores, command screen (save/load), pause box and end
+screens; the slider drag (modelled, not compared); the release's video
+standard (50 Hz assumed); the shared fields
+marked as hypotheses in `game.md`.
 
 ## Launcher visual exploration (2026-10-26)
 

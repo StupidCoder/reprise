@@ -52,7 +52,8 @@ add_library(amiga
     src/amiga/byte_run1.cpp
     src/amiga/iff.cpp
     src/amiga/paula.cpp
-    src/amiga/topaz.cpp)
+    src/amiga/topaz.cpp
+    src/amiga/intuition_imagery.cpp)
 target_include_directories(amiga PUBLIC ${SOURCE_ROOT})
 target_compile_options(amiga PRIVATE ${PROJECT_WARNINGS})
 
@@ -169,6 +170,23 @@ target_include_directories(marble_madness_amiga PUBLIC ${SOURCE_ROOT})
 target_link_libraries(marble_madness_amiga PUBLIC amiga platform ui)
 target_compile_options(marble_madness_amiga PRIVATE ${PROJECT_WARNINGS})
 
+# --- mindwalker_amiga: Mind Walker (Amiga) --------------------------------------
+add_library(mindwalker_amiga
+    src/mindwalker_amiga/entry.cpp
+    src/mindwalker_amiga/data/assets.cpp
+    src/mindwalker_amiga/data/game_files.cpp
+    src/mindwalker_amiga/data/preview.cpp
+    src/mindwalker_amiga/world/world.cpp
+    src/mindwalker_amiga/screen/canvas.cpp
+    src/mindwalker_amiga/screen/gadget_bar.cpp
+    src/mindwalker_amiga/title/title_stage.cpp
+    src/mindwalker_amiga/game/module.cpp
+    src/mindwalker_amiga/landscape/view_cells.cpp
+    src/mindwalker_amiga/import/disk_import.cpp)
+target_include_directories(mindwalker_amiga PUBLIC ${SOURCE_ROOT})
+target_link_libraries(mindwalker_amiga PUBLIC amiga platform ui)
+target_compile_options(mindwalker_amiga PRIVATE ${PROJECT_WARNINGS})
+
 # --- joyport: the launcher application -----------------------------------------
 add_executable(joyport
     src/app/main.cpp
@@ -180,7 +198,7 @@ add_executable(joyport
     src/app/launcher.cpp
     src/app/pause_menu.cpp
     src/app/saved_options.cpp)
-target_link_libraries(joyport PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga ui)
+target_link_libraries(joyport PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga ui)
 target_compile_options(joyport PRIVATE ${PROJECT_WARNINGS})
 
 # --- tools ---------------------------------------------------------------------
@@ -216,6 +234,18 @@ add_executable(marble_madness_assets tools/marble_madness_assets.cpp)
 target_link_libraries(marble_madness_assets PRIVATE marble_madness_amiga)
 target_compile_options(marble_madness_assets PRIVATE ${PROJECT_WARNINGS})
 
+add_executable(mindwalker_assets tools/mindwalker_assets.cpp)
+target_link_libraries(mindwalker_assets PRIVATE mindwalker_amiga)
+target_compile_options(mindwalker_assets PRIVATE ${PROJECT_WARNINGS})
+
+add_executable(mindwalker_world tools/mindwalker_world.cpp)
+target_link_libraries(mindwalker_world PRIVATE mindwalker_amiga)
+target_compile_options(mindwalker_world PRIVATE ${PROJECT_WARNINGS})
+
+add_executable(mindwalker_replay tools/mindwalker_replay.cpp)
+target_link_libraries(mindwalker_replay PRIVATE mindwalker_amiga)
+target_compile_options(mindwalker_replay PRIVATE ${PROJECT_WARNINGS})
+
 # The same resources are used by loose builds and packaged hosts. Android may
 # place their contents in assets/; access goes through SDL IO.
 add_custom_target(joyport_resources ALL
@@ -230,7 +260,7 @@ if(BUILD_TESTING)
     src/bruce_lee_c64/game/room_chapter.cpp
     src/bruce_lee_c64/game/background_article.cpp
     src/app/launcher.cpp src/app/pause_menu.cpp)
-    target_link_libraries(shell_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga ui)
+    target_link_libraries(shell_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga ui)
     target_compile_options(shell_checks PRIVATE ${PROJECT_WARNINGS})
     add_dependencies(shell_checks joyport_resources)
     add_test(NAME shell_navigation COMMAND shell_checks)

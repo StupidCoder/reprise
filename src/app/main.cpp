@@ -217,10 +217,16 @@ int run(const Options& options) {
                 }
                 // Fixed steps at the original's frame rate; at most a few per
                 // displayed frame, so a stall does not fast-forward the game.
-                const app::GameInput input{controls.up,    controls.down,  controls.left,  controls.right,
-                                           controls.fire,  controls.f1,    controls.f3,    controls.f5,
-                                           controls.f7,    controls.c64_space, controls.up2, controls.down2,
-                                           controls.left2, controls.right2, controls.fire2, controls.c64_keys};
+                app::GameInput input{controls.up,    controls.down,  controls.left,  controls.right,
+                                     controls.fire,  controls.f1,    controls.f3,    controls.f5,
+                                     controls.f7,    controls.c64_space, controls.up2, controls.down2,
+                                     controls.left2, controls.right2, controls.fire2, controls.c64_keys};
+                input.pointer = controls.game_pointer.has_value();
+                if (controls.game_pointer) {
+                    input.pointer_x = (*controls.game_pointer)[0];
+                    input.pointer_y = (*controls.game_pointer)[1];
+                }
+                input.mouse_button = controls.mouse_held;
                 const auto canvas = host.canvas_size();
                 game->set_canvas(canvas[0], canvas[1]);
                 game_clock = std::max(game_clock, now - 4 * game->step_seconds());
