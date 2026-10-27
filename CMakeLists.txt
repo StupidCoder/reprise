@@ -221,6 +221,8 @@ add_library(wings_of_fury_amiga
     src/wings_of_fury_amiga/game/scenery.cpp
     src/wings_of_fury_amiga/game/ticker.cpp
     src/wings_of_fury_amiga/game/briefing.cpp
+    src/wings_of_fury_amiga/game/frontend.cpp
+    src/wings_of_fury_amiga/game/music.cpp
     src/wings_of_fury_amiga/import/disk_import.cpp)
 target_include_directories(wings_of_fury_amiga PUBLIC ${SOURCE_ROOT})
 target_link_libraries(wings_of_fury_amiga PUBLIC amiga platform ui)

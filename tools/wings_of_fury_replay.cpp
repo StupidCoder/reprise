@@ -27,6 +27,8 @@
 #include "wings_of_fury_amiga/game/flight.hpp"
 #include "wings_of_fury_amiga/game/ticker.hpp"
 #include "wings_of_fury_amiga/game/briefing.hpp"
+#include "wings_of_fury_amiga/game/frontend.hpp"
+#include "wings_of_fury_amiga/game/music.hpp"
 #include "wings_of_fury_amiga/data/preview.hpp"
 #include "wings_of_fury_amiga/game/module.hpp"
 #include "wings_of_fury_amiga/game/scenery.hpp"
@@ -211,6 +213,17 @@ void load_islands(const Recording& r, std::size_t k, wings::game::FlightWorld& w
         s.island = at[5];
         s.state = std::int16_t(u16(at + 6));
     }
+    // Pillboxes ($E bytes): +0 offset, +6 island, +8 destroyed ($FFFF),
+    // +$A puffs of smoke left, +$C frames to the next.
+    for (std::size_t i = 0; i < w.islands.pillboxes.size() && int(i) < b.pillbox_count; ++i) {
+        const auto* at = b.pillboxes + i * 14;
+        auto& x = w.islands.pillboxes[i];
+        x.offset = u16(at);
+        x.island = u16(at + 6);
+        x.destroyed = u16(at + 8) != 0;
+        x.smoke_left = std::int16_t(u16(at + 10));
+        x.smoke_timer = std::int16_t(u16(at + 12));
+    }
     for (std::size_t i = 0; i < w.islands.targets.size(); ++i) {
         w.islands.targets[i].soldiers = r.s16(k, 0x1153A4 + std::uint32_t(4 * i));
         w.islands.targets[i].pillboxes = r.s16(k, 0x1153A6 + std::uint32_t(4 * i));
@@ -252,7 +265,17 @@ std::vector<std::string> island_differences(const wings::game::FlightWorld& a, c
             out.push_back(line);
         }
     }
+    for (std::size_t i = 0; i < a.islands.pillboxes.size(); ++i) {
+        const auto &p = a.islands.pillboxes[i], &q = b.islands.pillboxes[i];
+        if (p.offset != q.offset || p.island != q.island || p.destroyed != q.destroyed || p.smoke_left != q.smoke_left ||
+            p.smoke_timer != q.smoke_timer) {
+            std::snprintf(line, sizeof line, "pillbox%zu %d %d %d %d / %d %d %d %d", i, p.offset, p.destroyed, p.smoke_left,
+                          p.smoke_timer, q.offset, q.destroyed, q.smoke_left, q.smoke_timer);
+            out.push_back(line);
+        }
+    }
     for (std::size_t i = 0; i < a.islands.targets.size(); ++i) {
+        if (a.islands.targets[i].pillboxes != b.islands.targets[i].pillboxes) out.push_back("island pillboxes");
         if (a.islands.targets[i].soldiers != b.islands.targets[i].soldiers) {
             std::snprintf(line, sizeof line, "island%zu soldiers %d/%d", i, a.islands.targets[i].soldiers,
                           b.islands.targets[i].soldiers);
@@ -630,7 +653,6 @@ int check_flight(const std::string& content, const std::string& map_name, const 
     FlightWorld w;
     w.set_map(*map);
     w.islands = wings::game::find_islands(*map);
-    wings::game::find_gun_posts(w);
     wings::game::set_up_sounds(w, wings::game::sample_lengths(assets));
     // The sound from the recording's first tick: what each channel plays.
     for (int n = 0; n < 4; ++n) {
@@ -1049,7 +1071,6 @@ int simulate(const std::string& content, const std::string& map_name, const std:
     w.islands = wings::game::find_islands(*map);
     load_world(rec, 0, w);
     const auto commands = parse_script(script);
-    wings::game::find_gun_posts(w);
     for (std::size_t k = 0; k < commands.size(); ++k) {
         // One drawn frame per tick, as the module draws.
         ++w.draw_counter;
@@ -1091,13 +1112,17 @@ int play(const std::string& content, const std::string& script, const std::strin
         input.fire = (commands[k] & 0x30) != 0; // held for the tick: released within 10 blanks = a tap
         for (int v = 0; v < 4; ++v) {
             module->tick(input);
+            // (1/50 s at 44,100 Hz, reused, as the app does: the music's
+            // timer runs as its samples are made.)
+            static std::vector<float> frame(882 * 2);
+            module->audio(frame, 44100);
             if (wav) {
-                // (1/50 s at 44,100 Hz; reused, as the app does)
-                static std::vector<float> frame(882 * 2);
-                module->audio(frame, 44100);
                 for (float f : frame) audio.push_back(std::int16_t(std::clamp(f, -1.0f, 1.0f) * 32767.0f));
             }
         }
+        // WOF_SAVE=<tick>, WOF_LOAD=<tick>: quick save and load after those ticks.
+        if (const char* at = std::getenv("WOF_SAVE"); at != nullptr && std::atoi(at) == int(k)) module->save();
+        if (const char* at = std::getenv("WOF_LOAD"); at != nullptr && std::atoi(at) == int(k)) module->load();
         if (wanted.count(int(k))) {
             platform::save_png(module->picture(), platform::utf8_path(out) / ("tick" + std::to_string(k) + ".png"));
         }
@@ -1155,6 +1180,108 @@ int briefing(const std::string& content, int rank, int mission, int islands, int
     return 0;
 }
 
+// A front-end screen after `frames` vertical blanks without input:
+// rank (rank selection), entry (the name for a score of 20000), table (the
+// hall of fame). The table file is read from `scores` (and never written).
+int frontend(const std::string& content, const std::string& screen, int frames, const std::string& scores,
+             const std::string& out) {
+    const auto assets = wings::data::load_assets(platform::utf8_path(content));
+    const auto font = wings::game::read_ticker_font(assets.ticker_font);
+    wings::game::FrontEnd fe(assets, font, platform::utf8_path(scores));
+    if (screen == "rank") fe.start_rank_select();
+    else fe.start_game_over(screen == "entry" ? 20000 : 0, 0);
+    app::GameInput none;
+    for (int i = 0; i < frames; ++i) fe.step(none);
+    platform::save_png(fe.picture(221), platform::utf8_path(out));
+    return 0;
+}
+
+// The music player against a recording of the original's (harness/
+// musicrec.py: the tracks before each timer interrupt).
+int music(const std::string& content, const std::string& song_list, const std::string& file) {
+    std::vector<int> songs_played;
+    {
+        std::istringstream items(song_list);
+        for (std::string item; std::getline(items, item, ',');) songs_played.push_back(std::stoi(item));
+    }
+    std::size_t next_song = 0;
+    const auto read = [&](const char* name) { return platform::read_file(platform::utf8_path(content) / name); };
+    wings::game::MusicPlayer player(read("songplay"), read("wofsongs"));
+    const auto bytes = platform::read_file(platform::utf8_path(file));
+    if (bytes.size() < 20 || std::string(bytes.begin(), bytes.begin() + 8) != "WOFMUS1\n") throw std::runtime_error("not a WOFMUS1 recording");
+    const auto be32 = [&](std::size_t at) { return std::uint32_t(bytes[at] << 24 | bytes[at + 1] << 16 | bytes[at + 2] << 8 | bytes[at + 3]); };
+    const auto be16 = [&](std::size_t at) { return int(bytes[at] << 8 | bytes[at + 1]); };
+    const std::uint32_t songs = be32(16);
+    const auto native = [&](std::uint32_t a) { return a == 0 ? 0u : a - songs + 0x19011Cu; };
+    constexpr std::size_t tick_size = 2 + 4 * 0x4A;
+    const std::size_t ticks = (bytes.size() - 20) / tick_size;
+    std::size_t first = 0;
+    while (first < ticks && be16(20 + first * tick_size) != 1) ++first; // (the song starts)
+    int bad = 0, compared = 0;
+    int repeats = 0, interrupt_timing = 0;
+    for (std::size_t k = first; k + 1 < ticks; ++k) {
+        const std::size_t at = 20 + (k + 1) * tick_size;
+        // (A record equal to the one before: the recorder's stop seen twice.)
+        if (std::equal(bytes.begin() + std::ptrdiff_t(at), bytes.begin() + std::ptrdiff_t(at + tick_size),
+                       bytes.begin() + std::ptrdiff_t(at - tick_size))) {
+            ++repeats;
+            continue;
+        }
+        // The game's calls between interrupts, as the record before this
+        // tick shows them: a fade started ($1023DC: speed 2), a song started.
+        const int before = be16(at - tick_size);
+        if (before == 1 && player.state() == 0 && next_song < songs_played.size()) player.play(songs_played[next_song++]);
+        player.tick();
+        player.play_to_next_tick(709379);
+        const int state = be16(at);
+        // (A fade or a new song the game asked for after this interrupt.)
+        if (state == 4 && player.state() == 2) player.fade(2);
+        if (state == 1 && player.state() == 0 && next_song < songs_played.size()) player.play(songs_played[next_song++]);
+        const auto v = player.view();
+        std::string diff;
+        if (state != player.state()) diff += " state " + std::to_string(player.state()) + "/" + std::to_string(state);
+        for (int n = 0; n < 4; ++n) {
+            const std::size_t t = at + 2 + std::size_t(n) * 0x4A;
+            const auto& x = v[std::size_t(n)];
+            const auto check = [&](const char* name, long a, long b) {
+                if (a != b) diff += " t" + std::to_string(n) + "." + name + " " + std::to_string(a) + "/" + std::to_string(b);
+            };
+            check("active", x.active, be16(t) != 0);
+            if (!x.active && be16(t) == 0) continue;
+            check("pattern", x.pattern, native(be32(t + 6)));
+            check("entry", x.entry, be32(t + 0xA));
+            check("left", x.left, be16(t + 0xE));
+            check("release", x.release, be16(t + 0x10));
+            // A note's stage follows the audio interrupts (block starts):
+            // their timing differs by the hardware's (and the original's
+            // handler loses an interrupt that arrives while it serves another
+            // channel). Counted, and taken as recorded.
+            if (std::int16_t(x.stage) != std::int16_t(be16(t + 0x12))) {
+                ++interrupt_timing;
+                player.set_stage(n, std::int16_t(be16(t + 0x12)));
+            }
+            check("volume", x.volume, be16(t + 0x1E));
+            check("period", x.period, be16(t + 0x20));
+            check("loop_words", x.loop_words, be16(t + 0x22));
+            check("loop_start", x.loop_start, native(be32(t + 0x24)));
+            check("hold", x.hold, be16(t + 0x38));
+            check("tie", x.tie, be16(t + 0x3A));
+            check("voice", x.voice, native(be32(t + 0x3C)));
+            check("note", x.note, be16(t + 0x40));
+            check("slid", std::uint16_t(x.slid), be16(t + 0x42));
+            check("slide_step", std::int16_t(x.slide_step), std::int16_t(be16(t + 0x44)));
+        }
+        ++compared;
+        if (!diff.empty()) {
+            std::printf("tick %zu (latch %d):%s\n", k - first, player.latch(), diff.c_str());
+            if (++bad >= 5) break;
+        }
+    }
+    std::printf("music: %d ticks compared from the song's start, %d differ (%d repeated records skipped, %d track ticks with "
+                "the audio interrupt's timing taken as recorded)\n", compared, bad, repeats, interrupt_timing);
+    return bad == 0 ? 0 : 1;
+}
+
 int main(int argc, char** argv) {
     const std::string command = argc > 1 ? argv[1] : "";
     try {
@@ -1162,6 +1289,8 @@ int main(int argc, char** argv) {
         if (command == "briefing" && argc == 8) {
             return briefing(argv[2], std::stoi(argv[3]), std::stoi(argv[4]), std::stoi(argv[5]), std::stoi(argv[6]), argv[7]);
         }
+        if (command == "frontend" && argc == 7) return frontend(argv[2], argv[3], std::stoi(argv[4]), argv[5], argv[6]);
+        if (command == "music" && argc == 5) return music(argv[2], argv[3], argv[4]);
         if (command == "ticker" && argc == 6) return ticker(argv[2], argv[3], std::stoi(argv[4]), argv[5]);
         if (command == "play" && argc == 6) return play(argv[2], argv[3], argv[4], argv[5]);
         if (command == "simulate" && (argc == 6 || argc == 7)) {

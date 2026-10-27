@@ -360,6 +360,25 @@ public:
         }
     }
 
+    // $103DE8 (each frame): the pillboxes. A standing one aims and fires its
+    // gun as a dugout does (drawn $16 up); a destroyed one smokes: 50 puffs,
+    // each a frame later than the last.
+    void pillboxes() {
+        for (auto& b : is.pillboxes) {
+            const int x = b.offset * 4;
+            if (b.destroyed) {
+                if (b.smoke_left == 0 || --b.smoke_timer > 0 || --b.smoke_left == 0) continue;
+                b.smoke_timer = 0x32 - b.smoke_left;
+                w.effects.start_puff(std::int32_t(std::uint32_t(x + 8) << 16), 0x110000, 5, w.beam);
+                continue;
+            }
+            const int entry = gun_picture(x);
+            if (entry < 0) continue;
+            is.sprites.push_back({entry, x, 0x16, true});
+            flak(x);
+        }
+    }
+
     // $104FEE: an empty dugout calls a soldier from the nearest hut of its
     // island that still has two or more inside.
     void call_soldier(const Shelter& d) {
@@ -529,6 +548,7 @@ void islands_frame(PlayerFlight& p, FlightWorld& w, const FlightTables& t, const
     w.islands.gun_distance = 0x2710;
     for (int offset : wrecked_huts) work.hut_smoke(offset);
     work.dugout_guns();
+    work.pillboxes();
     work.soldiers();
     // $1038EA (the view's end): the guns' sound for the next tick.
     w.islands.gun_sound = w.islands.guns_heard;

@@ -9,6 +9,11 @@
 #include "wings_of_fury_amiga/game/scenery.hpp"
 #include "wings_of_fury_amiga/game/ticker.hpp"
 #include "wings_of_fury_amiga/game/briefing.hpp"
+#include "wings_of_fury_amiga/game/frontend.hpp"
+#include "wings_of_fury_amiga/game/music.hpp"
+#include "platform/files.hpp"
+#include "ui/vhs.hpp"
+#include <optional>
 #include <algorithm>
 #include <random>
 #include <string>
@@ -28,7 +33,9 @@ public:
           crew_tables_(read_crew_tables(assets_.program)), dash_tables_(read_dashboard_tables(assets_.program)),
           briefing_tables_(read_briefing_tables(assets_.program)),
           map_(&assets_.maps.front()), day_(data::find_palette(assets_, "wingspalette")),
-          sea_(data::find_palette(assets_, "ocean.palette")), ticker_font_(read_ticker_font(assets_.ticker_font)) {
+          sea_(data::find_palette(assets_, "ocean.palette")), ticker_font_(read_ticker_font(assets_.ticker_font)),
+          front_end_(assets_, ticker_font_, content / "highscore"),
+          music_(platform::read_file(content / "songplay"), platform::read_file(content / "wofsongs")) {
         // $1087BA: the ticker's copper list sets colour 1 for its first ten
         // lines from `wings` $1158E8 (the last stays below).
         for (std::size_t i = 0; i < ticker_colours_.size(); ++i) {
@@ -37,19 +44,79 @@ public:
         for (const auto& picture : assets_.pictures) {
             if (picture.name == "iff-dash") dashboard_ = &picture.picture;
         }
-        start_mission();
+        front_end_.start_opening();
     }
 
     double step_seconds() const override { return 1.0 / 50.0; } // PAL vertical blank
     double pixel_aspect() const override { return 0.5; }         // lowres view doubled to the hires dashboard
 
     void tick(const app::GameInput& input) override {
-        if (world_.game_over || mission_over_) return;
+        ++frames_;
+        if (mission_over_) return;
+        if (front_end_.screen() != FrontEnd::Screen::none) {
+            // $1023DC / $102470: a new song (or none) waits for the playing
+            // one to fade out; the screens wait with it.
+            if (song_pending_ != -1) {
+                if (music_.state() != 0) return;
+                if (song_pending_ >= 0) music_.play(song_pending_);
+                playing_song_ = song_pending_ >= 0 ? song_pending_ : -1;
+                song_pending_ = -1;
+            }
+            if (front_end_.step(input) == FrontEnd::Result::play) {
+                new_game(front_end_.chosen_rank());
+                return;
+            }
+            if (const int song = front_end_.take_song_request(); song != -1) {
+                if (music_.state() != 0) {
+                    music_.fade(2);
+                    song_pending_ = song;
+                } else if (song >= 0) {
+                    music_.play(song);
+                    playing_song_ = song;
+                }
+            }
+            return;
+        }
+        // $10CD2C: the key `r` ends the game (-$5A3E): the fade, then rank
+        // selection without the hall of fame.
+        const bool r_key = input.c64_keys[17];
+        if (r_key && !r_was_ && !world_.game_over) {
+            world_.game_over = true;
+            quit_ = true;
+        }
+        r_was_ = r_key;
+        if (world_.game_over) {
+            // $1001C6: the sound stops, the ticker is cleared, and the last
+            // frame fades out ($1073E6); then the hall of fame ($109856).
+            if (end_fade_ < 0) {
+                for (int c = 0; c < 4; ++c) paula_.flush(c);
+                ticker_ = Ticker{};
+            }
+            if (++end_fade_ >= 16) {
+                end_fade_ = -1;
+                if (quit_) front_end_.start_rank_select();
+                else front_end_.start_game_over(world_.score, world_.rank);
+                quit_ = false;
+            }
+            return;
+        }
         if (briefing_ > 0) {
             // $1086FA: the briefing waits 240 frames or for fire.
             const bool pressed = input.fire && !fire_down_;
             fire_down_ = input.fire;
-            if (--briefing_ <= 0 || pressed) briefing_ = 0;
+            // $107084 before, $1073B0 after: 16 frames of fading each way.
+            if (briefing_fade_ >= 0) {
+                if (++briefing_fade_ >= 16) {
+                    briefing_fade_ = -1;
+                    if (briefing_out_) briefing_ = 0;
+                }
+                return;
+            }
+            if (--briefing_ <= 0 || pressed) {
+                briefing_ = 1;
+                briefing_out_ = true;
+                briefing_fade_ = 0;
+            }
             return;
         }
         // $10184E (each vertical blank): the message ticker. A message the
@@ -140,6 +207,7 @@ public:
         // (The host hands in the last frame's buffer: Paula adds to it.)
         std::fill(stereo.begin(), stereo.end(), 0.0f);
         paula_.render(stereo, sample_rate, [](int, int) {});
+        music_.render(stereo, sample_rate);
     }
 
     std::string stopped() const override {
@@ -147,14 +215,75 @@ public:
             return "Mission " + std::to_string(world_.mission) + " (" + map_->name +
                    ") needs parts of the game not rebuilt yet: the port stops here.";
         }
-        if (!world_.game_over) return "";
-        if (!world_.ships[4].afloat || world_.ships[4].ready <= 0) {
-            return "The carrier was sunk: the mission is over (the debriefing is not rebuilt yet).";
-        }
-        return "No planes left: the mission is over (the debriefing is not rebuilt yet).";
+        return "";
     }
 
     platform::Image picture() const override {
+        const auto image = game_picture();
+        return vhs_ ? ui::vhs(image, frames_, vhs_) : image;
+    }
+
+    // Quick save and load: the game where it is (front-end screen, mission,
+    // flight, effects, ticker); the sound effects start again from the next
+    // tick, a front-end song from its start.
+    bool save() override {
+        saved_.emplace(Snapshot{world_, plane_, map_, blackout_, random_, vblank_, press_start_, fire_down_, tapped_, held_,
+                                gear_offset_, us_flag_step_, flash_, flash_counter_, enemy_sprites_, front_end_,
+                                song_pending_, playing_song_, ticker_, mission_over_, end_fade_, quit_, r_was_, briefing_,
+                                briefing_fade_, briefing_out_, frame_facing_, enemy_flag_counter_, enemy_flags_drawn_});
+        return true;
+    }
+    bool load() override {
+        if (!saved_) return false;
+        const auto& s = *saved_;
+        world_ = s.world;
+        plane_ = s.plane;
+        map_ = s.map;
+        blackout_ = s.blackout;
+        random_ = s.random;
+        vblank_ = s.vblank;
+        press_start_ = s.press_start;
+        fire_down_ = s.fire_down;
+        tapped_ = s.tapped;
+        held_ = s.held;
+        gear_offset_ = s.gear_offset;
+        us_flag_step_ = s.us_flag_step;
+        flash_ = s.flash;
+        flash_counter_ = s.flash_counter;
+        enemy_sprites_ = s.enemy_sprites;
+        front_end_ = s.front_end;
+        song_pending_ = s.song_pending;
+        playing_song_ = s.playing_song;
+        ticker_ = s.ticker;
+        mission_over_ = s.mission_over;
+        end_fade_ = s.end_fade;
+        quit_ = s.quit;
+        r_was_ = s.r_was;
+        briefing_ = s.briefing;
+        briefing_fade_ = s.briefing_fade;
+        briefing_out_ = s.briefing_out;
+        frame_facing_ = s.frame_facing;
+        enemy_flag_counter_ = s.enemy_flag_counter;
+        enemy_flags_drawn_ = s.enemy_flags_drawn;
+        for (int c = 0; c < 4; ++c) paula_.flush(c);
+        channels_ = {};
+        music_.silence();
+        if (playing_song_ >= 0 && front_end_.screen() != FrontEnd::Screen::none) music_.play(playing_song_);
+        return true;
+    }
+    bool has_save() const override { return saved_.has_value(); }
+
+    std::vector<app::GameOption> options() const override {
+        return {{"VHS look", {"Off", "Light", "Medium", "Heavy", "Broken"}, vhs_,
+                 "A worn video tape's colour bleed and noise."}};
+    }
+    void set_option(std::size_t index, int value) override {
+        if (index == 0) vhs_ = std::clamp(value, 0, ui::vhs_levels - 1);
+    }
+
+private:
+    platform::Image game_picture() const {
+        if (front_end_.screen() != FrontEnd::Screen::none) return front_end_.picture(picture_height());
         if (briefing_ > 0) {
             // The briefing's hires screen, 147 lines from the top, black below.
             const auto screen = draw_briefing(assets_, ticker_font_, briefing_tables_, world_.rank, world_.mission,
@@ -162,7 +291,9 @@ public:
             platform::Image image(640, picture_height());
             for (int y = 0; y < screen.height; ++y) {
                 for (int x = 0; x < screen.width; ++x) {
-                    image.put(x, y, data::to_color(briefing_tables_.palette[screen.at(x, y) & 7]));
+                    const auto c = briefing_tables_.palette[screen.at(x, y) & 7];
+                    const int step = briefing_fade_ < 0 ? 15 : briefing_fade_;
+                    image.put(x, y, data::to_color(briefing_out_ ? fade_colour(step, c, 0) : fade_colour(step, 0, c)));
                 }
             }
             return image;
@@ -238,6 +369,13 @@ public:
         if (world_.elevator != 0) effects.smoke_clip_bottom = smoke_clip_line + backdrop.vertical_scroll + deck.bob;
         draw_effects(canvas, assets_, world_.effects, effects, soldiers);
         if (world_.menu) draw_weapon_menu(canvas, assets_, world_.weapon);
+        // $1010C2: the last plane lost, `gmov` (THE END) over the view.
+        if (world_.the_end) {
+            for (const auto& l : assets_.libraries) {
+                if (l.name != "world.shp") continue;
+                if (const auto* s = l.library.find("gmov")) canvas.draw(*s, 0xA0 - s->offset_x, 0x51 - s->offset_y);
+            }
+        }
         return compose(canvas, draw_dashboard(assets_, dash_tables_, world_.gauges, dashboard_input()));
     }
 
@@ -349,12 +487,32 @@ private:
         return 11 - int((vblank_ / vblanks_per_tick / 2) % 12);
     }
 
-    int picture_height() const { return view_height + 37 + 1 + Ticker::rows; }
+    // The tallest screen: the hall of fame's two viewports ($4C + $91).
+    int picture_height() const { return std::max(view_height + 37 + 1 + Ticker::rows, 0x4C + 0x91); }
 
-    // The maps rebuilt so far need nothing more than islands with huts and
-    // dugouts, the US carrier and torpedo bombers (c.map on adds pillboxes,
-    // later maps ships, airfields and more).
-    static bool map_supported(const std::string& name) { return name == "a.map" || name == "b.map"; }
+    // $103562 (a new game at the chosen rank, $108262): score, spare planes
+    // and the carrier's hits set, mission 1 of the rank.
+    void new_game(int rank) {
+        if (front_end_.load_chosen()) {
+            // (RETURN FROM R&R, saved games: not rebuilt yet; back to the choice.)
+            front_end_.start_rank_select();
+            return;
+        }
+        front_end_.close();
+        world_ = FlightWorld{};
+        world_.rank = rank;
+        world_.mission = 1;
+        world_.score = 0;
+        world_.spare_planes = 3;
+        world_.kills = 0;
+        mission_over_ = false;
+        start_mission();
+    }
+
+    // The maps rebuilt so far need nothing more than islands with huts,
+    // dugouts and pillboxes, the US carrier and torpedo bombers (d.map on
+    // adds index $B and the $114 places, later maps ships, airfields, ...).
+    static bool map_supported(const std::string& name) { return name == "a.map" || name == "b.map" || name == "c.map"; }
 
     // $102ADC and $1035A8 for the mission (rank -$5C40, mission -$5C3E): the
     // map is the sum of the missions of the ranks below plus the mission
@@ -388,6 +546,8 @@ private:
         }
         first_plane();
         briefing_ = BriefingScreen::frames;
+        briefing_fade_ = 0;
+        briefing_out_ = false;
     }
 
     // The map scan ($102DE8 -> $103032): the US carrier spans the byte
@@ -396,7 +556,6 @@ private:
         world_.set_map(*map_);
         world_.islands = find_islands(*map_);
         set_up_sounds(world_, sample_lengths(assets_));
-        find_gun_posts(world_);
         world_.carrier_x = map_->carrier_x();
         auto& carrier = world_.ships[4];
         for (std::size_t c = 0; c < map_->words.size(); ++c) {
@@ -432,14 +591,16 @@ private:
     platform::Image compose(const IndexedCanvas& canvas, const IndexedCanvas& dash) const {
         const int dash_height = dashboard_ ? dash.height : 0;
         platform::Image image(640, picture_height());
+        // (After the game the colours fade to black, $1073E6.)
+        const auto col = [&](std::uint16_t c) { return data::to_color(end_fade_ >= 0 ? fade_colour(end_fade_, c, 0) : c); };
         for (int y = 0; y < canvas.height; ++y) {
             const auto& palette = y < 151 ? day_ : sea_;
             for (int x = 0; x < canvas.width; ++x) {
                 const auto index = canvas.at(x, y);
-                auto colour = data::to_color(index < palette.size() ? palette[index] : 0);
+                auto colour = col(index < palette.size() ? palette[index] : 0);
                 // (The flash sets the upper palette's colour 0 in the copper
                 // list; hypothesis: rows above the sea's palette split.)
-                if (index == 0 && flash_ != 0 && y < 151) colour = data::to_color(std::uint16_t(flash_));
+                if (index == 0 && flash_ != 0 && y < 151) colour = col(std::uint16_t(flash_));
                 image.put(2 * x, y, colour);
                 image.put(2 * x + 1, y, colour);
             }
@@ -448,14 +609,14 @@ private:
             for (int y = 0; y < dash.height; ++y) {
                 for (int x = 0; x < dash.width; ++x) {
                     const auto index = dash.at(x, y);
-                    image.put(x, canvas.height + y, data::to_color(dashboard_->palette[index % dashboard_->palette.size()]));
+                    image.put(x, canvas.height + y, col(dashboard_->palette[index % dashboard_->palette.size()]));
                 }
             }
         }
         // The ticker, a line below the dashboard: 640 of its 672 pixels.
         const int ticker_top = canvas.height + dash_height + 1;
         for (int y = 0; y < Ticker::rows; ++y) {
-            const auto colour = data::to_color(ticker_colours_[std::min<std::size_t>(std::size_t(y), ticker_colours_.size() - 1)]);
+            const auto colour = col(ticker_colours_[std::min<std::size_t>(std::size_t(y), ticker_colours_.size() - 1)]);
             for (int x = 0; x < 640; ++x) {
                 if (ticker_.pixel(x, y)) image.put(x, ticker_top + y, colour);
             }
@@ -489,10 +650,41 @@ private:
     std::array<ChannelState, 4> channels_{};
     std::vector<EnemySprite> enemy_sprites_;
     TickerFont ticker_font_;
+    FrontEnd front_end_;
+    MusicPlayer music_;
+    int song_pending_ = -1;   // a song waiting for the last one's fade (-2: none)
     Ticker ticker_;
     std::array<std::uint16_t, 10> ticker_colours_{};
     bool mission_over_ = false;
+    int end_fade_ = -1;       // $1073E6 after the game: the step of the fade to black
+    bool quit_ = false, r_was_ = false;
+    int playing_song_ = -1;   // the song the front end plays (for quick load)
+    long frames_ = 0;         // vertical blanks (the VHS look follows them)
+    int vhs_ = 0;
+    struct Snapshot {
+        FlightWorld world;
+        PlayerFlight plane;
+        const data::MissionMap* map;
+        int blackout;
+        std::minstd_rand random;
+        long vblank, press_start;
+        bool fire_down, tapped, held;
+        int gear_offset, us_flag_step, flash, flash_counter;
+        std::vector<EnemySprite> enemy_sprites;
+        FrontEnd front_end;
+        int song_pending, playing_song;
+        Ticker ticker;
+        bool mission_over;
+        int end_fade;
+        bool quit, r_was;
+        int briefing, briefing_fade;
+        bool briefing_out;
+        int frame_facing, enemy_flag_counter, enemy_flags_drawn;
+    };
+    std::optional<Snapshot> saved_;
     int briefing_ = 0;        // vertical blanks the briefing still shows
+    int briefing_fade_ = -1;  // its fade's step (-1: none)
+    bool briefing_out_ = false;
     int frame_facing_ = -1;   // -$4084: the facing at the frame start
     int enemy_flag_counter_ = 0;
     int enemy_flags_drawn_ = 0;

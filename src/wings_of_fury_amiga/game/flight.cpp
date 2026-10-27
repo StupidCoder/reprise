@@ -260,6 +260,7 @@ private:
         p.facing = -1;
         if (w.spare_planes <= 0 || carrier().ready <= 0) {
             w.game_over = true;
+            w.the_end = true; // ($103612)
             w.spare_planes = 0;
             return;
         }
@@ -280,6 +281,7 @@ private:
 
     // $10AF7C: the wreck waits 150 ticks, or a fire press after 30.
     void wreck_timer() {
+        if (w.spare_planes == 1 || w.spare_planes == 0) w.the_end = true; // ($10AF80)
         ++p.wreck_time;
         if (p.wreck_time == 0x96 || (p.wreck_time > 0x1E && (cmd & (command::fire_held | command::fire_tapped)))) {
             plane_lost();
@@ -675,13 +677,13 @@ private:
         return word(w.frame_camera - (p.facing < 0 ? along : -along));
     }
 
-    // $10115C: the first standing gun post with lo <= offset < hi (map byte
-    // offsets); 0 when none. ($1011A6 first searches the guns on enemy
-    // ships: none are rebuilt yet.)
+    // $10115C: the first standing pillbox (list -$5AFA) with lo <= offset <
+    // hi (map byte offsets); 0 when none. ($1011A6 first searches the guns
+    // on enemy ships: none are rebuilt yet.)
     int gun_post_between(int a, int b) const {
         const int lo = std::min(a, b), hi = std::max(a, b);
-        for (const auto& g : w.gun_posts) {
-            if (g.standing && lo <= g.offset && g.offset < hi) return g.offset;
+        for (const auto& g : w.islands.pillboxes) {
+            if (!g.destroyed && lo <= g.offset && g.offset < hi) return g.offset;
         }
         return 0;
     }
@@ -1455,14 +1457,6 @@ void set_up_sounds(FlightWorld& w, const std::array<int, 9>& lengths) {
     s.channels[3].request[0] = {false, Sample::machinegun, len(Sample::machinegun), 0x140, 0x40, 0xFFFF};
 }
 
-void find_gun_posts(FlightWorld& w) {
-    // $102DE8 / $103236: every drawn `pila` column (scenery index $F).
-    w.gun_posts.clear();
-    for (std::size_t c = 0; c < w.map->words.size(); ++c) {
-        const auto v = w.map->words[c];
-        if ((v & 0x8000) != 0 && (v >> 2 & 0x1FF) == 0xF) w.gun_posts.push_back({int(c) * 2, true});
-    }
-}
 
 void new_plane(PlayerFlight& p, FlightWorld& w, const FlightTables& t, int random_load) {
     Tick(p, w, t, 0).new_plane(random_load);

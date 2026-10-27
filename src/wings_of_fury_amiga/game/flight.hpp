@@ -237,16 +237,10 @@ struct FlightWorld {
         int speed_y{}, speed_x{}, x{}, altitude{};
         int pitch{}; // -$5BFA: the smoothed climb in the game's angle steps (1024 to the circle)
     } last;
-    // The islands' gun posts (`pila` columns, -$5AFA, $103236): the map byte
-    // offset of each, and whether it still stands. Rockets home on them.
-    struct GunPost {
-        int offset{};
-        bool standing{true};
-    };
-    std::vector<GunPost> gun_posts;
     // Set by the tick, for the game around it.
     int blackout{};                   // -$3BAC: a plane was lost; the view goes black this many waits
-    bool game_over{};                 // -$5C9C / -$5C3C: no plane left (or no carrier)
+    bool game_over{};                 // -$5C3C: no plane left (or no carrier)
+    bool the_end{};                   // -$5C9C: the last plane is lost: THE END shows
     // -$5A3C: drawn frames left before the game is over (the carrier went
     // down with the plane on deck: $64); 0 when not counting.
     int game_over_countdown{};
@@ -266,8 +260,6 @@ std::array<int, 9> sample_lengths(const data::Assets&);
 // each sample's length in bytes (by Sample).
 void set_up_sounds(FlightWorld&, const std::array<int, 9>& lengths);
 
-// The gun posts of the world's map, as the mission start finds them.
-void find_gun_posts(FlightWorld&);
 
 // The islands (islands.cpp).
 void soldiers_come_out(PlayerFlight&, FlightWorld&, const FlightTables&);   // $101DE4

@@ -48,7 +48,7 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
 | Wizball | C64 | `Wizball.g64` (MD5 `73e1a136da4b6972d39f00817b86983e`) | disk import, asset decoding with launcher previews; play rebuilt and checked in lockstep (places, enemies, catellite, tunnels, lives, bonus wave, Wizlab, level flight, round end, sound and music); front end, high scores and keys rebuilt |
 | Cannon Fodder | Amiga | three ADFs, `Cannon Fodder (1993)(Virgin)(Disk N of 3)[cr CSL].adf` (SHA-256 `2b01cbc9…`, `9089815b…`, `87ea9c1d…`; a cracked copy) | import of all three disks (Sensible disk format, RNC unpacking) and decoded screens, sprite sheets, tile sets, colours and the 72 mission maps with launcher viewer; map view, camera, tile drawer, mission set-up, object drawing, panel, squad walking, shooting, deaths, enemy soldiers, grenades, rockets, huts, mission objectives, music and sound effects rebuilt and checked against the original; the phases play in the shell from map 1 on (mouse); no front end, recruits or vehicles yet |
 | Rock 'n Roll | Amiga | — | planned |
-| Wings of Fury | Amiga | `Wings_of_Fury_v1.0_1990_Broderbund_cr_Hysteria.adf` (SHA-256 `638d9a9d…4620044`, a cracked copy) | disk import and decoded assets with launcher viewer (pictures, all 12 shape libraries, palettes, sounds, texts); the first mission playable (flight, carrier, weapons, islands, enemy bombers, dashboard, sound effects, message ticker); no front end or music yet |
+| Wings of Fury | Amiga | `Wings_of_Fury_v1.0_1990_Broderbund_cr_Hysteria.adf` (SHA-256 `638d9a9d…4620044`, a cracked copy) | disk import and decoded assets with launcher viewer (pictures, all 12 shape libraries, palettes, sounds, texts); missions 1-3 playable with the original's front end (story, pictures, rank selection, briefings, hall of fame) and music; later maps not yet |
 | Tower of Babel | Amiga | — | planned; original interpretive shell cover added, importer and gameplay not implemented |
 
 ## Fort Apocalypse (C64) milestones
@@ -832,9 +832,21 @@ and songs `wofsongs` (both with their symbols), IFF pictures, "Rpck"-packed
    unrebuilt parts (c.map on: pillboxes' guns, ships, airfields, ...). The
    random numbers now come from `std::mt19937` (the wreck's blasts and the
    beam-position stand-in): the replay checks those by their rules.
-14. Next: mission 3's pillboxes, then the front end (title, story scroller,
-   rank selection, high scores), music (`songplay` rewrite), the later maps
-   (enemy ships, airfields, balloons, fighters, night), glue.
+14. **Done 2026-10-27: mission 3, the front end and the music.** Pillboxes
+   (guns, flak, smoke, rocket hits; the rockets home on them): c.map plays,
+   equal tick for tick (recY; 25 recordings). `game/frontend`: the opening
+   (story scroll with the copper's fades, Broderbund, title, credits), rank
+   selection, game over with THE END and the fade, the hall-of-fame name
+   entry (host keyboard) and table, written back to `highscore`; each screen
+   matches captures of the original. `game/music`: `songplay` rebuilt over
+   the `wofsongs` data (tracks, 8SVX octaves, arpeggio, slide, fades, CIA
+   tempo) on the shared register-level Paula model (now with the audio
+   interrupt); equal to the original's player tick for tick. Quick save
+   and load (the whole game where it is; checked: the same picture and the
+   same play after loading) and the shared VHS look in the pause menu.
+15. Next: RETURN FROM R&R and saving (`$108B96`, keys `g`/`l`), the other
+   in-game keys (`s` sound, `f`, pause), the later maps (index $B and the
+   $114 places, enemy ships, airfields, balloons, fighters, night).
 
 Open: the elevator's tie to the draw rate (the port draws once per tick;
 effects, crew and flags step per drawn frame too), shape-mirroring first
@@ -853,9 +865,15 @@ guns' muzzle flashes (with the islands); enemy planes: the lone fighters (modes 
 and airfields `$101510`/`$101622`) are rebuilt but not met on map a, the
 skid counter (-$4368) is not recorded, the hit timer's and new heights'
 beam-random draws are taken as recorded; enemy ships' sinking score and
-message (`$101D0E`), -$5A3D, -$5C8E; what follows game over (high scores,
-title, rank); the briefing's `r` key (back to the title); briefings of
-missions 2 and 3 not grabbed (the same text routine as mission 1's); the FFP oracle crashing after ~1,000
+message (`$101D0E`), -$5A3D, -$5C8E; the briefing's `r` key (back to the title);
+briefings of missions 2 and 3 not grabbed (the same text routine as mission
+1's); the front end: RETURN FROM R&R (saved games), the demo playback
+(`wofdemo`, not on the disk), the line editor's timeout, a fire press
+during a fade ignored (as there), the host keyboard through the C64 key
+matrix (lowercase letters, digits, a few marks); music: the player's sound
+effects (commands 7-12, unused by the game), the CIA timer's first latch
+($FFFF assumed), sound off (`s`), song 0 (hall of fame) not compared, the
+original's lost audio interrupts (a one-shot playing twice) not reproduced; the FFP oracle crashing after ~1,000
 calls; the meaning of -$5C94 (drawn as the propeller, 0 throughout a real
 flight); the player's -$5BE0/-$5BE4 parts, upset
 and facing right not yet seen; the
