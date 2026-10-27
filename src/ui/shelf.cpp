@@ -92,6 +92,11 @@ void button(Image& im, std::string_view s, int x, int y, int w, int h, bool prim
     if (!primary) ui::rounded(im, x + 1, y + 1, w - 2, h - 2, 6, card);
     text(im, s, x + (w - width(s, 15, true)) / 2, y + (h - 22) / 2, 15, primary ? white : ink, true);
 }
+void danger_button(Image& im, std::string_view s, int x, int y, int w, int h, bool filled) {
+    ui::rounded(im, x, y, w, h, 7, red);
+    if (!filled) ui::rounded(im, x + 1, y + 1, w - 2, h - 2, 6, card);
+    text(im, s, x + (w - width(s, 15, true)) / 2, y + (h - 22) / 2, 15, filled ? white : red, true);
+}
 void cover(Image& im, std::string_view id, int x, int y, int w, int h) {
     using Key = std::tuple<std::string, int, int>;
     static std::map<Key, Image> thumbnails;

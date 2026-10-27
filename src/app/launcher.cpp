@@ -4,6 +4,8 @@
 #include "bruce_lee_c64/game/background_article.hpp"
 #include "ui/shelf.hpp"
 #include <algorithm>
+#include <span>
+#include "marble_madness_amiga/game/mechanics_chapter.hpp"
 #include <exception>
 
 namespace app {
@@ -15,13 +17,28 @@ namespace {
 constexpr int grid_x = 198, grid_y = 106, card_w = 350, card_h = 208, gap = 18;
 constexpr int footer_y = 558;
 constexpr int file_list_y = 182, file_row = 25, file_rows_shown = 11;
+// The details page's left column below Play: Lessons (for games that have
+// them), then Remove imported files at the bottom for every game.
+constexpr int lessons_y = 474, remove_y = 520, side_button_h = 34;
+// The remove confirmation.
+constexpr int dialog_x = 270, dialog_y = 220, dialog_w = 420, dialog_h = 196;
+constexpr int cancel_x = 450, confirm_x = 566, dialog_button_y = 362, dialog_button_w = 104, dialog_button_h = 36;
 struct LessonEntry { const char* title; const char* summary; const char* format; };
 constexpr LessonEntry lessons[] = {
     {"Behind the enemy decisions", "Inspect the Ninja and Yamo: facing, distance, movement and attack choices.", "Live experiment"},
     {"A floor opens", "Discover the progress conditions, step through the opening, and read how room logic meets data.", "Experiment + illustrated article"},
     {"Building a background", "Peel apart a room: shared tiles, compressed runs, color and measured storage savings.", "Illustrated article"},
 };
-constexpr int lesson_count = int(std::size(lessons));
+constexpr LessonEntry marble_lessons[] = {
+    {"A marble in a painted world", "Explore the height field, rolling, collisions and the masks that hide a sprite behind a wall.", "Illustrated explanation + live laboratory"},
+    {"Inside the black marble", "Follow imported routes, inspect patrol and chase decisions, and experiment with momentum.", "Decision diagram + live laboratory"},
+    {"How Silly Race bends the rules", "Reverse the slope response, chase the critters and inspect the course-specific surprises.", "Illustrated explanation + live laboratory"},
+};
+std::span<const LessonEntry> lessons_for(const GameEntry& game) {
+    if(game.id=="bruce_lee_c64") return lessons;
+    if(game.id=="marble_madness_amiga") return marble_lessons;
+    return {};
+}
 constexpr const char* filters[] = {"All games", "Commodore 64", "Amiga", "Planned"};
 bool hit(const platform::Controls& in, int x, int y, int w, int h) {
     return in.click && in.mouse_x >= x && in.mouse_x < x + w && in.mouse_y >= y && in.mouse_y < y + h;
@@ -109,13 +126,13 @@ void Launcher::open_details(std::size_t page) {
     }
     lessons_ = false;
     about_ = page == 0;
-    lesson_list_.resize(lesson_count,3);
+    lesson_list_.resize(int(lessons_for(game).size()),3);
     lesson_list_.reset(); lesson_selected_=0;
     page_ = std::min(page, previews_.size());
     files_.resize(int(library_.installed_files(selected_).size()), file_rows_shown);
     files_.reset();
 }
-void Launcher::close_details() { details_ = false; previews_.clear(); }
+void Launcher::close_details() { details_ = false; confirm_remove_ = false; previews_.clear(); }
 void Launcher::activate() {
     const auto& game = library_.games()[selected_];
     if (!game.import) { open_details(); return; }
@@ -129,26 +146,27 @@ Launcher::Request Launcher::update(const platform::Controls& in, double now) {
         else chapter_->update(in,now);
         return Request::none;
     }
+    if (details_ && confirm_remove_) return update_confirm(in, now);
     if (details_) {
         if (hit(in,24,340,240,32)) {about_=true;lessons_=false;return Request::none;}
         if (hit(in,24,380,240,32)) {about_=false;lessons_=false;return Request::none;}
         if (about_ && (in.nav_left || in.nav_right)) {
             about_=false;
-            lessons_=in.nav_left && library_.games()[selected_].id == "bruce_lee_c64";
+            lessons_=in.nav_left && !lessons_for(library_.games()[selected_]).empty();
             return Request::none;
         }
         if (!about_ && !lessons_ && page_==0 && in.nav_left) {
             about_=true;return Request::none;
         }
     }
-    if (details_ && library_.games()[selected_].id == "bruce_lee_c64") {
-        if (hit(in,24,520,240,32)) {lessons_=true;about_=false; return Request::none;}
+    if (details_ && !lessons_for(library_.games()[selected_]).empty()) {
+        if (hit(in,24,lessons_y,240,side_button_h)) {lessons_=true;about_=false; return Request::none;}
         if (lessons_) {
             if(in.nav_left || in.nav_right) {lessons_=false;about_=in.nav_left;return Request::none;}
             if(in.back || hit(in,24,22,104,36)) {close_details();return Request::none;}
             const int delta=int(in.nav_down)-int(in.nav_up)+in.wheel+
                 (int(in.page_down)-int(in.page_up))*3;
-            lesson_selected_=std::clamp(lesson_selected_+delta,0,lesson_count-1);
+            lesson_selected_=std::clamp(lesson_selected_+delta,0,int(lessons_for(library_.games()[selected_]).size())-1);
             if(lesson_selected_<lesson_list_.first())lesson_list_.scroll(lesson_selected_-lesson_list_.first());
             if(lesson_selected_>=lesson_list_.first()+3)lesson_list_.scroll(lesson_selected_-lesson_list_.first()-2);
             for(int row=0;row<lesson_list_.shown();++row) if(hit(in,308,178+row*106,600,96)) {
@@ -156,7 +174,7 @@ Launcher::Request Launcher::update(const platform::Controls& in, double now) {
             }
             if(in.accept){open_lesson(now);return Request::none;}
             // Keep the ordinary import/play/remove controls available on the left.
-            if(!hit(in,24,426,240,36)&&!hit(in,24,474,240,34)&&!in.remove)return Request::none;
+            if(!hit(in,24,426,240,36)&&!hit(in,24,remove_y,240,side_button_h)&&!in.remove)return Request::none;
         }
     }
     if (details_) {
@@ -169,10 +187,10 @@ Launcher::Request Launcher::update(const platform::Controls& in, double now) {
             files_.page(int(in.page_down) - int(in.page_up));
         } else if (!about_ && in.nav_down) page_ = (page_ + 1) % pages;
         else if (!about_ && in.nav_up) page_ = (page_ + pages - 1) % pages;
-        if (details_ && (in.remove || hit(in, 24, 474, 240, 34)) && library_.installed(selected_)) {
-            library_.remove(selected_);
-            close_details();
-            show_message("Imported files removed. You can import your copy again.", true, now);
+        if (details_ && (in.remove || hit(in, 24, remove_y, 240, side_button_h)) && library_.installed(selected_)) {
+            confirm_remove_ = true;
+            confirm_focus_ = 0; // Cancel: Enter alone never deletes
+            return Request::none;
         }
         if (details_ && hit(in, 24, 426, 240, 36) && library_.games()[selected_].import) {
             // The data viewer's action stays here; playing/importing uses the
@@ -221,6 +239,39 @@ Launcher::Request Launcher::update(const platform::Controls& in, double now) {
     if (pending_play_) { pending_play_ = false; close_details(); return Request::play; }
     return Request::none;
 }
+Launcher::Request Launcher::update_confirm(const platform::Controls& in, double now) {
+    if (in.nav_left || in.nav_right) confirm_focus_ = 1 - confirm_focus_;
+    const bool cancel = in.back || hit(in, cancel_x, dialog_button_y, dialog_button_w, dialog_button_h) ||
+                        (in.accept && confirm_focus_ == 0);
+    const bool confirm = hit(in, confirm_x, dialog_button_y, dialog_button_w, dialog_button_h) ||
+                         (in.accept && confirm_focus_ == 1);
+    if (cancel) {
+        confirm_remove_ = false;
+    } else if (confirm) {
+        confirm_remove_ = false;
+        library_.remove(selected_);
+        close_details();
+        show_message("Imported files removed. You can import your copy again.", true, now);
+    }
+    return Request::none;
+}
+void Launcher::draw_confirm(Image& im) const {
+    const auto& game = library_.games()[selected_];
+    ui::blend_rect(im, 0, 0, platform::ui_width, platform::ui_height, s::ink, 140);
+    ui::rounded(im, dialog_x, dialog_y, dialog_w, dialog_h, 10, s::card);
+    s::text(im, "Remove imported files?", dialog_x + 24, dialog_y + 20, 21, s::ink, true);
+    s::wrap(im, "Joyport deletes the files it extracted from your copy of " + game.title +
+                ". Your own image file is not touched, so you can import it again.",
+            dialog_x + 24, dialog_y + 58, dialog_w - 48, 3, 15, s::muted);
+    for (int i = 0; i < 2; ++i) {
+        if (confirm_focus_ == i) {
+            ui::rounded(im, (i == 0 ? cancel_x : confirm_x) - 3, dialog_button_y - 3, dialog_button_w + 6,
+                        dialog_button_h + 6, 9, s::cobalt);
+        }
+    }
+    s::button(im, "Cancel", cancel_x, dialog_button_y, dialog_button_w, dialog_button_h);
+    s::danger_button(im, "Remove", confirm_x, dialog_button_y, dialog_button_w, dialog_button_h, true);
+}
 void Launcher::show_message(std::string message, bool ok, double now) {
     message_ = std::move(message); message_ok_ = ok; message_time_ = now;
 }
@@ -248,7 +299,9 @@ void Launcher::open_lesson(double now) {
     if(!library_.installed(selected_)) {show_error("Import your copy to open this lesson.",now);return;}
     try {
         const auto path=library_.content_directory(selected_);
-        if(lesson_selected_==0) chapter_=std::make_unique<bruce_lee::game::EnemyChapter>(path);
+        if(library_.games()[selected_].id=="marble_madness_amiga")
+            chapter_=std::make_unique<marble_madness::game::MechanicsChapter>(path,lesson_selected_);
+        else if(lesson_selected_==0) chapter_=std::make_unique<bruce_lee::game::EnemyChapter>(path);
         else if(lesson_selected_==1) chapter_=std::make_unique<bruce_lee::game::RoomChapter>(path);
         else chapter_=std::make_unique<bruce_lee::game::BackgroundArticle>(path);
     } catch(const std::exception& e){show_error(std::string("Could not open lesson: ")+e.what(),now);}
@@ -259,7 +312,7 @@ void Launcher::draw_lessons(Image& im) const {
     s::text(im,"Choose a lesson. Explore at your own pace.",308,153,14,s::muted);
     for(int row=0;row<lesson_list_.shown();++row){
         const int index=lesson_list_.first()+row,y=178+row*106;
-        const auto& lesson=lessons[index];
+        const auto& lesson=lessons_for(library_.games()[selected_])[std::size_t(index)];
         ui::rounded(im,308,y,600,96,6,index==lesson_selected_?s::pale:s::paper);
         s::text(im,std::to_string(index+1)+"  "+lesson.title,322,y+12,19,s::ink,true);
         s::wrap(im,lesson.summary,322,y+39,564,2,14);
@@ -284,9 +337,9 @@ void Launcher::draw_details(Image& im) const {
     s::button(im,"About the game",24,340,240,32,about_);
     s::button(im,"Extracted assets",24,380,240,32,!about_ && !lessons_);
     if (game.import && (!installed || game.start)) s::button(im, installed ? "Play game" : "Import your copy", 24, 426, 240, 36, true);
-    if (installed) s::button(im, "Remove imported files", 24, 474, 240, 34);
-    if (game.id == "bruce_lee_c64") {
-        s::button(im,"Lessons",24,520,240,32,lessons_);
+    if (installed) s::danger_button(im, "Remove imported files", 24, remove_y, 240, side_button_h);
+    if (!lessons_for(game).empty()) {
+        s::button(im,"Lessons",24,lessons_y,240,side_button_h,lessons_);
         if(lessons_){draw_lessons(im);return;}
     }
     ui::rounded(im, 288, 102, 648, 446, 10, s::card);
@@ -344,6 +397,7 @@ Image Launcher::draw(double now) const {
             ui::rounded(im, 300, 480, 624, 60, 6, s::card);
             s::wrap(im, message_, 312, 486, 600, 2, 15, message_ok_ ? s::green : s::red);
         }
+        if (confirm_remove_) draw_confirm(im);
         return im;
     }
     ui::fill(im, s::paper);

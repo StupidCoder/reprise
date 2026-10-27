@@ -14,6 +14,9 @@ void right(Image&, std::string_view, int x, int y, int size = 16, Color = ink, b
 void clipped(Image&, std::string_view, int x, int y, int w, int size = 16, Color = ink, bool bold = false);
 int wrap(Image&, std::string_view, int x, int y, int w, int lines, int size = 16, Color = muted);
 void button(Image&, std::string_view, int x, int y, int w, int h, bool primary = false);
+// A destructive action: red outline and text, or filled red for the
+// confirmation itself.
+void danger_button(Image&, std::string_view, int x, int y, int w, int h, bool filled = false);
 void cover(Image&, std::string_view id, int x, int y, int w, int h);
 void port(Image&, int x, int y, int scale = 1);
 }

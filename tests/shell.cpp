@@ -1,6 +1,7 @@
 // Interaction checks against the real catalog, without importing or changing any
 // user data. A fake module isolates menu navigation from game rules.
 #include "app/catalog.hpp"
+#include "marble_madness_amiga/game/mechanics_chapter.hpp"
 #include "bruce_lee_c64/game/room_chapter.hpp"
 #include "bruce_lee_c64/game/background_article.hpp"
 #include "app/launcher.hpp"
@@ -37,6 +38,78 @@ platform::Controls click(int x, int y) {
 }
 int main(int argc, char** argv) {
     try {
+        if(argc==4 && std::string(argv[1])=="--marble") {
+            using namespace marble_madness::game;
+            std::filesystem::create_directories(argv[3]);
+            app::Library library(std::filesystem::path(argv[2]).parent_path().parent_path(),app::catalog());
+            app::Launcher browser(library);browser.select(4);browser.open_details();browser.update(click(50,490),0);
+            const auto list=browser.draw(0);
+            platform::save_png(list,std::string(argv[3])+"/browser.png");
+            for(int i=0;i<3;++i){browser.update(click(450,210+i*106),0);
+                const auto page=browser.draw(0);MechanicsChapter expected(argv[2],i);const auto actual=expected.draw();
+                check(std::memcmp(page.pixels.data(),actual.pixels.data(),page.pixels.size()*sizeof(platform::Color))==0,"Browser must open the selected Marble lesson");
+                platform::Controls back;back.back=true;browser.update(back,1);
+            }
+            for(int topic=0;topic<3;++topic) {
+                const bool enemies=topic==1,silly=topic==2;
+                MechanicsChapter lesson(argv[2],topic);
+                const std::string prefix=std::string(argv[3])+(silly?"/silly":enemies?"/steelie":"/physics");
+                const auto start=lesson.race().marbles[0].x;
+                lesson.update({},0);lesson.update({},1);
+                check(lesson.steps()==0 && lesson.race().marbles[0].x==start,"Lesson starts paused");
+                platform::Controls next;next.page_down=true;
+                for(int page=0;page<((enemies||silly)?4:5);++page) {
+                    const auto illustration=lesson.draw();
+                    platform::save_png(illustration,prefix+"-"+std::to_string(page)+".png");
+                    if(topic==0 && page==1) {
+                        Probe probe;const auto& m=lesson.race().marbles[0];
+                        probe.locate(lesson.race().terrain(),m.x,m.y,m.z);probe.ground_height();
+                        check(probe.slope_x || probe.slope_y,"Triangle illustration must use a real sloped cell");
+                    }
+                    if(topic==0 && page==3) {
+                        int removed=0;
+                        for(int y=315;y<423;++y)for(int x=540;x<700;++x){const auto c=illustration.pixels[y*960+x];
+                            removed+=c.r==ui::shelf::red.r && c.g==ui::shelf::red.g && c.b==ui::shelf::red.b;}
+                        check(removed>0,"Occlusion illustration must demonstrate actual removed pixels");
+                    }
+                    if(page<((enemies||silly)?3:4))lesson.update(next,2+page);
+                }
+                lesson.update(click(175,90),10);
+                check(lesson.steps()==1,"Step must advance exactly one world update");
+                lesson.update(click(280,90),11);
+                check(lesson.steps()==0,"Reset must discard experiment progress");
+                if(enemies) {
+                    const int expected[]={Marble::patrolling,Marble::hunting,Marble::chasing};
+                    for(int i=0;i<3;++i) {
+                        lesson.update(click(380+i*105,90),12+i);
+                        const auto& race=lesson.race();
+                        const auto& e=race.steelies[0].body.status?race.steelies[0]:race.steelies[1];
+                        std::cout<<"Scenario "<<i<<" mode="<<int(e.body.mode)<<" position="<<(e.body.x>>16)<<","<<(e.body.y>>16)<<" player="<<(race.marbles[0].x>>16)<<","<<(race.marbles[0].y>>16)<<"\n";
+                        check(e.body.sprite_flag!=0,"Scenario steelie must be visible in the course view");
+                        check(e.body.status && e.body.mode==expected[i],"Imported scenario must enter intended decision branch");
+                        platform::save_png(lesson.draw(),prefix+"-scenario-"+std::to_string(i)+".png");
+                    }
+                }
+                if(silly) {
+                    lesson.update(click(510,90),16);
+                    const int score=lesson.race().marbles[0].score,time=lesson.race().marbles[0].time;
+                    lesson.update(click(175,90),17);
+                    check(lesson.race().marbles[0].score==score+500,"Silly catch must award 500 points through the real collision rule");
+                    check(lesson.race().marbles[0].time==time+3,"Silly catch must add three clock seconds");
+                    platform::save_png(lesson.draw(),prefix+"-caught.png");
+                    lesson.update(click(660,90),18);
+                    Probe probe;const auto& m=lesson.race().marbles[0];probe.locate(lesson.race().terrain(),m.x,m.y,m.z);probe.ground_height();
+                    check(probe.slope_x || probe.slope_y,"Silly comparison must use a sloped cell");
+                }
+                lesson.update(click(65,90),20);
+                platform::Controls steer;steer.right=true;
+                for(int i=1;i<=80;++i)lesson.update(steer,20+i*.04);
+                check(lesson.steps()>=79,"Live laboratory must advance at its fixed rate");
+                platform::save_png(lesson.draw(),prefix+"-running.png");
+            }
+            std::cout<<"Marble lesson scenarios, pause, stepping and reset passed.\n";
+            return 0;
+        }
         if (argc == 3) {
             using namespace bruce_lee::game;
             const auto assets=bruce_lee::data::load_assets(argv[1]);
@@ -80,12 +153,28 @@ int main(int argc, char** argv) {
             platform::save_png(chapter.draw(), std::string(argv[2])+"-height.png");
             app::Library installed(std::filesystem::path(argv[1]).parent_path().parent_path(),app::catalog());
             app::Launcher launcher(installed); launcher.select(1); launcher.open_details();
-            launcher.update(click(50,535),12);
+            launcher.update(click(50,490),12);
             platform::save_png(launcher.draw(12),std::string(argv[2])+"-lessons.png");
             launcher.update(click(450,210),12);
             platform::save_png(launcher.draw(12),std::string(argv[2])+"-entry.png");
             platform::Controls back; back.back=true; launcher.update(back,13);
             platform::save_png(launcher.draw(13),std::string(argv[2])+"-exit.png");
+            {
+                // Remove asks first; Cancel, Esc and Enter (on Cancel) keep the files.
+                app::Launcher remover(installed); remover.select(1); remover.open_details();
+                const auto before=remover.draw(14);
+                remover.update(click(50,535),14);
+                check(installed.installed(1),"Remove must ask before deleting");
+                const auto dialog=remover.draw(14);
+                platform::save_png(dialog,std::string(argv[2])+"-remove-confirm.png");
+                check(std::memcmp(before.pixels.data(),dialog.pixels.data(),before.pixels.size()*sizeof(platform::Color))!=0,"Remove must show the confirmation");
+                platform::Controls enter; enter.accept=true; remover.update(enter,15);
+                check(installed.installed(1),"Enter on Cancel must keep the files");
+                remover.open_details(); remover.update(click(50,535),16); remover.update(back,16);
+                check(installed.installed(1),"Esc must cancel the removal");
+                remover.open_details(); remover.update(click(50,535),17); remover.update(click(500,375),17);
+                check(installed.installed(1)&&std::memcmp(before.pixels.data(),remover.draw(17).pixels.data(),before.pixels.size()*sizeof(platform::Color))==0,"Cancel must close the confirmation");
+            }
             bruce_lee::game::RoomChapter room(argv[1]);
             for(int i=0;i<10;++i)room.update(click(180,100),20+i*.1);
             check(room.stage()==0,"Missing prerequisite must hold the floor closed");

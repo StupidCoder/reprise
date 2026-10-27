@@ -44,6 +44,11 @@ private:
     void close_details();
     void draw_card(platform::Image&, std::size_t game, int x, int y, double now) const;
     void draw_details(platform::Image&) const;
+    // Removing a game's imported files asks first (focus 0 Cancel, 1 Remove).
+    bool confirm_remove_{};
+    int confirm_focus_{};
+    Request update_confirm(const platform::Controls&, double now);
+    void draw_confirm(platform::Image&) const;
 
     std::unique_ptr<Lesson> chapter_;
     bool lessons_{};
