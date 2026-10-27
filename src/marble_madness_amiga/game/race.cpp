@@ -24,7 +24,6 @@ constexpr std::uint32_t scroll_top = 0x10237C;        // word
 constexpr std::uint32_t scroll_bottom = 0x10237E;     // word
 constexpr std::uint32_t scroll_medium_gap = 0x102380; // word
 constexpr std::uint32_t scroll_fast_gap = 0x102382;   // word
-constexpr std::uint32_t random_state = 0x109288;      // 13 longs: the generator's start
 constexpr std::uint32_t race_times = 0x102350;        // per difficulty (0-7): seconds per course
 
 } // namespace
@@ -37,7 +36,7 @@ Race::Race(const data::GameFiles& files, data::Course course, int players, int d
     respawn_points_ = t.u32(header + 4);
     zones_ = t.u32(header + 8);
     marble_data_ = files.marble_data().first_filled_hunk();
-    random = seed != nullptr ? *seed : program_random(files);
+    random = seed != nullptr ? *seed : Random();
     for (std::size_t i = 0; i < acids.size(); ++i) {
         acids[i].index = std::uint8_t(i);
     }
@@ -121,14 +120,6 @@ Race::Race(const data::GameFiles& files, data::Course course, int players, int d
     surprise_armed_ = true;
     surprise_roll_ = std::uint8_t(random.next(0x100));
     display_.sort([this](std::uint8_t type, std::uint8_t index) { return box_of(type, index); });
-}
-
-Random Race::program_random(const data::GameFiles& files) {
-    std::array<std::uint32_t, 13> seeds{};
-    for (std::uint32_t i = 0; i < 13; ++i) {
-        seeds[i] = files.program().u32(random_state + i * 4);
-    }
-    return Random::from_program(seeds);
 }
 
 void Race::show(std::uint8_t type, std::uint8_t index) {

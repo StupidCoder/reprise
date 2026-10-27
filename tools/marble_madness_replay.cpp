@@ -292,40 +292,12 @@ std::string acid_diff(const game::Acid& a, const std::uint8_t* r) {
     return out;
 }
 
-// The original's random numbers (mmref.py --random): the generator's state
-// before the course start and the beam bits of each call, for the race.
-std::optional<game::Random> logged_random(const std::string& run) {
-    std::vector<std::uint8_t> text;
-    try {
-        text = platform::read_file(platform::utf8_path(run.substr(0, run.size() - 4) + "-random.txt"));
-    } catch (const std::exception&) {
-        return std::nullopt;
-    }
-    game::Random random;
-    std::istringstream in(std::string(text.begin(), text.end()));
-    std::string line;
-    while (std::getline(in, line)) {
-        std::istringstream l(line);
-        std::string kind;
-        l >> kind;
-        if (kind == "s") {
-            int update = 0, first = 0, second = 0;
-            std::string hex;
-            l >> update >> first >> second >> hex;
-            std::array<std::uint32_t, 13> state{};
-            for (std::size_t i = 0; i < 13 && hex.size() >= (i + 1) * 8; ++i) {
-                state[i] = std::uint32_t(std::stoul(hex.substr(i * 8, 8), nullptr, 16));
-            }
-            const auto bits = random.forced_bits;
-            random = game::Random::from_program(state, first, second);
-            random.forced_bits = bits;
-        } else if (kind == "b") {
-            int update = 0, bits = 0;
-            l >> update >> bits;
-            random.forced_bits.push_back(bits);
-        }
-    }
-    return random;
+// MM_SEED=n: the race's random numbers from that seed (default: the
+// generator's fixed seed). The original's numbers depend on its display
+// timing, so random choices part from a recording wherever they matter.
+game::Random race_random() {
+    const char* seed = std::getenv("MM_SEED");
+    return seed ? game::Random(std::uint32_t(std::stoul(seed))) : game::Random();
 }
 
 std::string steelie_diff(const game::Steelie& s, const std::uint8_t* r) {
@@ -438,6 +410,88 @@ void take_start(game::Race& race, const std::uint8_t* start) {
     m.region_timer = start[0x63];
 }
 
+// What a race shows of its random choices: the player, the creatures and
+// the pistons. Races that differ only in their seeds agree on it until a
+// random number first matters.
+std::vector<std::int64_t> fingerprint(const game::Race& race) {
+    std::vector<std::int64_t> out;
+    for (const auto& f : fields()) out.push_back(native(race.marbles[0], f));
+    out.push_back(race.marbles[0].screen[0]);
+    for (const auto& s : race.steelies) {
+        for (const auto& f : fields()) out.push_back(native(s.body, f));
+    }
+    for (const auto& s : race.slinkies) out.insert(out.end(), {s.status, s.state, s.x, s.y, s.z});
+    for (const auto& a : race.acids) out.insert(out.end(), {a.status, a.x, a.y, std::int64_t(a.path)});
+    out.push_back(race.pistons_on());
+    for (const auto& t : race.pistons) out.insert(out.end(), {t.state, t.z});
+    for (const auto& g : race.piston_groups) out.insert(out.end(), {g.timer, g.column, g.row, g.pattern});
+    for (const auto& c : race.critters) out.insert(out.end(), {c.status, c.state, c.x, c.y, c.direction});
+    for (const auto& b : race.birds) out.insert(out.end(), {b.status, b.state, b.y, b.count, b.period});
+    return out;
+}
+
+// The original's random choices that its creature log shows, checked by
+// the rules that make them (the numbers themselves come from its display
+// timing): a piston group's pattern and first piston ($11DB4C) and its wait
+// after coming down (random(4) * 16), a critter's start in the pen
+// (pen + 4 * random(32), $11C78C), a bird's new walk count (random(2) + 4
+// at the fast pace, + 1 at the slow one).
+struct RandomRules {
+    std::size_t checked = 0, allowed = 0;
+    std::string first_broken;
+    void check(bool ok, std::size_t k, const std::string& what) {
+        ++checked;
+        if (ok) {
+            ++allowed;
+        } else if (first_broken.empty()) {
+            first_broken = "update " + std::to_string(k) + " " + what;
+        }
+    }
+};
+
+void check_random_rules(RandomRules& rules, data::Course course, const CreatureLayout& layout,
+                        const std::uint8_t* before, const std::uint8_t* now, std::size_t k) {
+    if (course == data::Course::aerial && layout.has("piston_groups")) {
+        for (int g = 0; g < 3; ++g) {
+            const auto* p = before + layout.at.at("piston_groups") + std::size_t(g) * 0x14;
+            const auto* r = now + layout.at.at("piston_groups") + std::size_t(g) * 0x14;
+            const int timer = std::int16_t(be16(r + 8)), was = std::int16_t(be16(p + 8));
+            const int column = be16(r + 0xE), row = be16(r + 0x10), pattern = be16(r + 0x12);
+            if (timer < 0 && was >= 0) {
+                const bool ok = pattern == 0   ? column == 0 && row < 4
+                                : pattern == 1 ? column < 3 && row < 2
+                                : pattern <= 3 ? column == 0 && row < 2
+                                               : false;
+                rules.check(ok, k, "group " + std::to_string(g) + " pattern " + std::to_string(pattern));
+            } else if (was == -1 && timer >= 0) {
+                rules.check(timer % 16 == 0 && timer <= 48, k, "group " + std::to_string(g) + " wait " + std::to_string(timer));
+            }
+        }
+    }
+    if (course == data::Course::silly && layout.has("critters")) {
+        constexpr int pen_x = 0x2CA, pen_y = 0x2D2;
+        for (int i = 0; i < 9; ++i) {
+            const auto* p = before + layout.at.at("critters") + std::size_t(i) * 0x28;
+            const auto* r = now + layout.at.at("critters") + std::size_t(i) * 0x28;
+            if (p[0x18] == 0 && r[0x18] == 1) {
+                // Spawned this update; it may have taken its first step.
+                const int x = be32(r + 0xC) >> 16, y = be32(r + 0x10) >> 16;
+                auto near_grid = [](int v, int pen) { return v >= pen - 2 && v <= pen + 124 + 2; };
+                rules.check(near_grid(x, pen_x) && near_grid(y, pen_y), k, "critter " + std::to_string(i) + " start " +
+                            std::to_string(x) + "," + std::to_string(y));
+            }
+        }
+        for (int i = 0; i < 10; ++i) {
+            const auto* p = before + layout.at.at("birds") + std::size_t(i) * 0x3E;
+            const auto* r = now + layout.at.at("birds") + std::size_t(i) * 0x3E;
+            if (r[0x1B] > p[0x1B] && p[0x1B] <= 1) {
+                const bool ok = r[0x25] == 1 ? (r[0x1B] == 4 || r[0x1B] == 5) : (r[0x1B] == 1 || r[0x1B] == 2);
+                rules.check(ok, k, "bird " + std::to_string(i) + " count " + std::to_string(r[0x1B]));
+            }
+        }
+    }
+}
+
 int lockstep(int argc, char** argv) {
     const auto content = platform::utf8_path(argv[2]);
     const auto run = platform::read_file(platform::utf8_path(argv[3]));
@@ -447,8 +501,8 @@ int lockstep(int argc, char** argv) {
     const std::size_t first = std::max(start_record, argc > 5 ? std::size_t(std::stoul(argv[5])) : 0);
     std::size_t count = argc > 6 ? std::size_t(std::stoul(argv[6])) : frames;
     data::GameFiles files(content);
-    const auto random = logged_random(argv[3]);
-    game::Race race(files, course, 1, 0, random ? &*random : nullptr);
+    const auto random = race_random();
+    game::Race race(files, course, 1, 0, &random);
     if (!std::getenv("MM_NO_RENDER_TIMES")) race.regions().forced_render_times = logged_render_times(argv[3], run);
     // MM_NO_COUNTS=1: keep the port's own update count (research).
     const bool counts = has_counts(run) && !std::getenv("MM_NO_COUNTS");
@@ -470,6 +524,26 @@ int lockstep(int argc, char** argv) {
     } else {
         adopt(race.marbles[0], start);
     }
+    // The port's random numbers cannot follow the original's (those come
+    // from its display timing). Races on other seeds show where a random
+    // choice first matters: up to that update the race must equal the
+    // recording; from it on the comparison only reports, and the
+    // original's random choices are checked by their rules instead.
+    std::vector<game::Race> shadows;
+    for (std::uint32_t seed = 1; seed <= 3; ++seed) {
+        const game::Random other(game::Random::default_seed + seed * 0x9E3779B9u);
+        auto& shadow = shadows.emplace_back(files, course, 1, 0, &other);
+        shadow.regions().forced_render_times = race.regions().forced_render_times;
+        if (first == start_record) {
+            take_start(shadow, start);
+        } else {
+            adopt(shadow.marbles[0], start);
+        }
+    }
+    std::optional<std::size_t> random_from;
+    std::size_t matched_before_random = 0, compared_before_random = 0;
+    RandomRules rules;
+    const bool show_all = std::getenv("MM_SHOW_ALL") != nullptr;
     const auto covers = read_covers(argv[3]);
     bool race_over_shown = false;
     std::vector<std::uint8_t> creatures;
@@ -492,6 +566,18 @@ int lockstep(int argc, char** argv) {
         game::Push p0{be16(rec + forces_at), be16(rec + forces_at + 4)};
         follow_count(race, run, k, counts);
         race.update({p0, game::Push{}});
+        if (!random_from) {
+            const auto own = fingerprint(race);
+            for (auto& shadow : shadows) {
+                follow_count(shadow, run, k, counts);
+                shadow.update({p0, game::Push{}});
+                shadow.take_sounds();
+                if (fingerprint(shadow) != own) random_from = k;
+            }
+            if (random_from) shadows.clear();
+        }
+        const bool before_random = !random_from;
+        const bool report = before_random || show_all;
         if (const char* dd = std::getenv("MM_DISPLAY_DUMP"); dd && std::size_t(std::atoi(dd)) <= k && k < std::size_t(std::atoi(dd)) + 3) {
             for (int i = 0; i < game::DisplayList::capacity; ++i) {
                 const auto& s = race.display().slot(i);
@@ -527,6 +613,8 @@ int lockstep(int argc, char** argv) {
                         race.view());
         }
         if ((k + 2) * creatures_size <= creatures.size()) {
+            check_random_rules(rules, course, layout, creatures.data() + k * creatures_size,
+                               creatures.data() + (k + 1) * creatures_size, k);
             ++steelies_compared;
             std::string diff;
             for (int i = 0; i < 2; ++i) {
@@ -625,7 +713,7 @@ int lockstep(int argc, char** argv) {
             }
             if (diff.empty()) {
                 ++steelies_matched;
-            } else if (steelies_shown++ < 12) {
+            } else if (report && steelies_shown++ < 12) {
                 std::printf("update %zu creatures:%s\n", k, diff.c_str());
             }
         }
@@ -634,7 +722,7 @@ int lockstep(int argc, char** argv) {
             const auto got = covers_of(race.marbles[0]);
             if (got == c->second) {
                 ++covers_matched;
-            } else if (covers_shown++ < 12) {
+            } else if (report && covers_shown++ < 12) {
                 std::printf("update %zu covers: recorded [%s] native [%s]\n", k, c->second.c_str(), got.c_str());
             }
         }
@@ -655,11 +743,17 @@ int lockstep(int argc, char** argv) {
                           std::int16_t(race.marbles[0].screen[0]));
             diff += line;
         }
+        // The creatures and covers above count the same way: before the
+        // first random choice they must match too.
+        if (before_random) {
+            ++compared_before_random;
+            if (diff.empty() && steelies_shown == 0 && covers_shown == 0) ++matched_before_random;
+        }
         if (diff.empty()) {
             ++matched;
             continue;
         }
-        if (shown++ < 12) {
+        if (report && shown++ < 12) {
             std::printf("update %zu (push %d %d):%s\n", k, p0.forward, p0.side, diff.c_str());
         }
     }
@@ -679,6 +773,17 @@ int lockstep(int argc, char** argv) {
     if (covers_compared != 0) {
         std::printf("covers: %zu of %zu updates match\n", covers_matched, covers_compared);
     }
+    if (random_from) {
+        std::printf("random: choices matter from update %zu; %zu of %zu updates before match\n", *random_from,
+                    matched_before_random, compared_before_random);
+    } else {
+        std::printf("random: no choice matters (%zu of %zu updates match)\n", matched_before_random,
+                    compared_before_random);
+    }
+    if (rules.checked != 0) {
+        std::printf("random rules: %zu of %zu of the original's choices match%s%s\n", rules.allowed, rules.checked,
+                    rules.first_broken.empty() ? "" : "; first not: ", rules.first_broken.c_str());
+    }
     return 0;
 }
 
@@ -694,9 +799,9 @@ int pictures(int argc, char** argv) {
     data::GameFiles files(content);
     const auto assets = data::load_assets(content);
     // MM_COURSE=n: a course other than Practice.
-    const auto random = logged_random(argv[3]);
+    const auto random = race_random();
     game::Race race(files, data::Course(std::getenv("MM_COURSE") ? std::stoi(std::getenv("MM_COURSE")) : 0), 1, 0,
-                    random ? &*random : nullptr);
+                    &random);
     race.regions().forced_render_times = logged_render_times(argv[3], run);
     const bool counts = has_counts(run);
     take_start(race, run.data() + race_start(run) * record_size + players_at);
@@ -1222,8 +1327,8 @@ int audio(int argc, char** argv) {
     const auto wav = platform::utf8_path(argv[4]);
     data::GameFiles files(content);
     const auto course = data::Course(std::getenv("MM_COURSE") ? std::stoi(std::getenv("MM_COURSE")) : 0);
-    const auto random = logged_random(argv[3]);
-    game::Race race(files, course, 1, 0, random ? &*random : nullptr);
+    const auto random = race_random();
+    game::Race race(files, course, 1, 0, &random);
     race.regions().forced_render_times = logged_render_times(argv[3], run);
     const bool counts = has_counts(run);
     sound::SoundBoard board(files, course);
@@ -1615,11 +1720,8 @@ int search(int argc, char** argv) {
     };
     // MM_SEARCH_PREFIX=script: play that script first and search on from
     // its end (the output starts with it).
-    // MM_SEARCH_RANDOM=run.bin: the generator and beam bits a recording of
-    // the original logged (mmref.py --random).
-    std::optional<game::Random> logged;
-    if (const char* r = std::getenv("MM_SEARCH_RANDOM")) logged = logged_random(r);
-    game::Race first_race(files, course, 1, 0, logged ? &*logged : nullptr);
+    const auto random = race_random();
+    game::Race first_race(files, course, 1, 0, &random);
     // MM_TIME=n: start with that many seconds.
     if (const char* t = std::getenv("MM_TIME")) first_race.marbles[0].time = std::int16_t(std::atoi(t));
     // MM_SEARCH_START=run.bin: the start fields of a recording of the

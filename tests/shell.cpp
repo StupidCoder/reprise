@@ -218,6 +218,19 @@ int main(int argc, char** argv) {
             std::cout << "Room storage and article checks passed; room 1: " << assets.rooms[0].encoded_bytes << " bytes.\n";
             return 0;
         }
+        {
+            // Marble Madness's random numbers: in range, and reduced once past
+            // the range as the original does (random(3): 0 half the time).
+            marble_madness::game::Random random;
+            std::array<int,5> counts{};
+            for(int i=0;i<40000;++i){const auto v=random.next(5);check(v<5,"Marble random(5) stays in range");++counts[v];}
+            check(counts[0]>9000 && counts[0]<11000 && counts[4]>4000 && counts[4]<6000,"Marble random(5) keeps the original's odds");
+            int zeros=0;
+            for(int i=0;i<40000;++i) zeros+=random.next(3)==0;
+            check(zeros>19000 && zeros<21000,"Marble random(3) gives 0 half the time");
+            marble_madness::game::Random again;
+            check(again.next(0x100)==marble_madness::game::Random().next(0x100),"Marble fixed seed repeats");
+        }
         const auto root = std::filesystem::temp_directory_path() / ("joyport-shell-test-" + std::to_string(SDL_GetTicksNS()));
         app::Library library(root, app::catalog()); // read-only, deliberately nonexistent
         app::Launcher shell(library);

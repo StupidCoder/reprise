@@ -84,7 +84,7 @@ std::string number_text(std::int32_t value, int digits, int style) {
 }
 
 GameFlow::GameFlow(const data::GameFiles& files, const data::Assets& assets)
-    : files_(&files), assets_(&assets), random_(Race::program_random(files)) {
+    : files_(&files), assets_(&assets), random_(Random::seeded()) {
     // Until a race has run, the screens take Practice's colours.
     load_course(data::Course::practice);
     start_options();

@@ -552,9 +552,9 @@ same disk is used as a guide; claims are checked against the image's code.
    are rebuilt and checked against captures.
 7. **Intermediate** — done (2026-10-26): the acid puddles, the funnel,
    the wave down the long ramp (two routines the Track stores as 68000
-   code, rebuilt), the dizzy surprise, the random-number generator. A
-   recording from start to goal equals the original update for update,
-   creatures, regions and covers included; the dissolve in the acid too.
+   code, rebuilt), the dizzy surprise. A recording from start to goal
+   equals the original update for update, creatures, regions and covers
+   included; the dissolve in the acid too.
 8. **Aerial** — done (2026-10-26): the chutes, vacuums (with the capture),
    launcher, pistons, random region groups, zone sounds and the course's
    occlusions. Recordings from start to goal, of a capture and through the
@@ -585,6 +585,17 @@ same disk is used as a guide; claims are checked against the image's code.
    funnel portals from recordings), a look-ahead planner on race copies;
    pause-menu mode, spawn/despawn mid-race. Open items in play.md.
    Next: two players, mouse input.
+15. **Random numbers** — changed (2026-10-27, by the user's rule): a
+   standard C++ generator (`std::mt19937`, seeded once per program start;
+   the tools use a fixed seed) instead of the original's beam-fed
+   generator, with the same masks, ranges and draws. The replays no longer
+   feed the original's random bits (`mmref.py --random`,
+   `MM_SEARCH_RANDOM` retired). `harness/regress.sh` now requires each
+   run to equal the original up to the update where a random choice first
+   matters (found with races on other seeds; all 19 runs do) and checks
+   the original's later piston, critter and bird choices against their
+   rules; past that point aer_pistons, sil_funnel and sil_goal part from
+   their recordings, as expected.
 
 ## Mind Walker (Amiga) milestones
 

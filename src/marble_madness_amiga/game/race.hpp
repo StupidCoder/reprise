@@ -37,11 +37,10 @@ struct SoundEvent {
 class Race {
 public:
     // A race from its start ($1030B4); difficulty 0-7 sets the time.
-    // `random` replaces the generator's start (replays of the original).
+    // `random` is the generator to go on with (the game's, carried from race
+    // to race); without one the race starts its own from the fixed seed.
     Race(const data::GameFiles&, data::Course, int players = 1, int difficulty = 0,
          const Random* random = nullptr);
-    // The generator as the program file starts it.
-    static Random program_random(const data::GameFiles&);
     // Races copy as independent races (quick saves, look-ahead).
 
     // $10B1EE: one world update with the players' pushes. The game reads the
@@ -64,7 +63,7 @@ public:
     // Pictures the pistons put into the playfield since the last call (as the
     // regions' blits: item, x, screen line).
     std::vector<Regions::Blit> take_piston_blits() { return std::exchange(piston_blits_, {}); }
-    Random random;                          // $109136
+    Random random;                          // $109136 (a standard generator)
     int players() const { return players_; }
     // The marbles in the race: the players', and the crowd's while it runs.
     int marble_count() const { return marble_count_; }
