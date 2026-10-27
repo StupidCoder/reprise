@@ -78,8 +78,8 @@ tools/               build, packaging and command-line tools
   `src/c64/character_rom.cpp`, marked as not covered by the MIT licence.
   Likewise (2026-10-27) the Kickstart 1.3 topaz 9 glyphs Marble Madness
   draws with, in `src/amiga/topaz.cpp`, and for Mind Walker the topaz 8
-  glyphs (same file) and Intuition's two screen-depth gadget images
-  (`src/amiga/intuition_imagery.cpp`). Add
+  glyphs (same file) and Intuition's two screen-depth gadget images and
+  window close-gadget image (`src/amiga/intuition_imagery.cpp`). Add
   no other firmware or ROM contents without asking.
 - Real game titles appear only to name the game a dump belongs to
   (descriptive use). Don't use the original logos or box art in Joyport's own

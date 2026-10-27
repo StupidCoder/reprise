@@ -1,4 +1,5 @@
 #include "mindwalker_amiga/landscape/landscape_bar.hpp"
+#include "amiga/intuition_imagery.hpp"
 #include <vector>
 
 namespace mindwalker::landscape {
@@ -40,6 +41,17 @@ void LandscapeBar::set(int lives, int direction, int stage) {
     }
     for (int d = 0; d < 4; ++d) bar_.find(compass_first + d)->texts.front().front = d == (direction & 3) ? 0x1F : 0;
     bar_.find(slider_gadget)->horizontal_pot = std::uint16_t(stage * 0x618);
+}
+
+void LandscapeBar::draw(screen::Canvas& canvas) const {
+    bar_.draw(canvas, 18);
+    const auto& close = amiga::window_close_gadget();
+    for (int y = 0; y < close.height; ++y) {
+        for (int x = 0; x < close.width; ++x) {
+            const int bit = 15 - x;
+            canvas.plot(x, y, (close.planes[0][std::size_t(y)] >> bit & 1) | (close.planes[1][std::size_t(y)] >> bit & 1) << 1);
+        }
+    }
 }
 
 } // namespace mindwalker::landscape
