@@ -31,6 +31,7 @@ struct Push {
 struct SoundEvent {
     int id{};
     bool right{};
+    int marble{-1}; // a crowd race marble's sound (its slot), or -1
 };
 
 class Race {
@@ -74,8 +75,17 @@ public:
     void set_crowd(bool on);
     bool crowd() const { return crowd_; }
     const CrowdMap* crowd_map() const { return crowd_map_.get(); }
+    // The crowd race's standings (marble slots, the best first): those
+    // home in the order they came in, then the others by their distance
+    // to the goal; and a marble's place in them (1-based, 0: not racing).
+    std::vector<int> standings() const;
+    int place(int marble) const;
     // The crowd holds back while ahead of the players (rubber banding).
     bool crowd_close{true};
+    // The crowd's skill: 0 easy (slower, no fire, frequent lapses), 1
+    // normal (no fire, the odd lapse), 2 hard (fire, no lapses).
+    enum Skill { easy = 0, normal = 1, hard = 2 };
+    int crowd_skill{normal};
     // Research: the crowd's driving steers marble 0 too (tools).
     bool bot_drives_player{};
     // A crowd marble (not a player's).
@@ -250,6 +260,7 @@ private:
     void carry_off_screen(Marble&);
     void careful_near_vacuums(const Marble&, Push&) const;
     void keep_the_pack_close(const Marble&, Push&) const;
+    void within_skill(const Marble&, Push&) const;
     Push usual_push(Marble&);
     CrowdDriver new_driver(int index) const;
 
@@ -259,7 +270,7 @@ private:
     // $1224D8: on the side of the point last looked up in the height map.
     void sound(int id) { sound(id, probe_.x() < probe_.y()); }
     void sound(int id, bool right) { // $1222E4
-        if (!quiet_) sounds_.push_back({id, right});
+        sounds_.push_back({id, right, sound_source_});
     }
     // $12250A: ends the rolling sounds (entries $F and, except on
     // Intermediate, $10).
@@ -279,10 +290,11 @@ private:
     std::array<Push, max_marbles> push_{};
     int marble_count_{1};
     bool crowd_{};
-    bool quiet_{}; // the crowd's marbles make no sounds
+    int sound_source_{-1}; // the crowd marble being updated (its sounds are its own)
     bool planning_{}; // a copy the crowd tries pushes on
     std::shared_ptr<const CrowdMap> crowd_map_; // read-only: shared by copies
     std::array<CrowdDriver, max_marbles> drivers_{};
+    std::vector<int> home_order_; // the crowd race: marbles home, in order
     std::vector<SoundEvent> sounds_;
 
     // The marble's position at the start of its update ($1006D0-$1006D8)

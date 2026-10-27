@@ -17,7 +17,7 @@ namespace {
 // vertical blanks per update).
 constexpr double update_seconds = 2.0 / 50.0;
 
-enum Option { steering = 0, vhs_look = 1, stop_timer = 2, safe_falls = 3, crowd_race = 4, crowd_close = 5 };
+enum Option { steering = 0, vhs_look = 1, stop_timer = 2, safe_falls = 3, crowd_race = 4, crowd_close = 5, crowd_skill = 6 };
 
 // The game as the program runs it (front_end.hpp): the options screen, the
 // courses with their introductions, finishes and the end. One player.
@@ -86,6 +86,13 @@ public:
                  .description = "Rubber banding for the crowd race: a computer marble ahead of you rolls slower "
                                 "the further ahead it gets, so a lost marble does not leave you behind for good. "
                                 "Behind you they race flat out.",
+                 .group = "Crowd race"},
+                {.name = "Computer skill",
+                 .choices = {"Easy", "Normal", "Hard"},
+                 .value = crowd_skill_,
+                 .description = "How well the computer's marbles race. Easy: slower, no fire button, and now and "
+                                "then they roll off an edge or miss a jump. Normal: no fire button and the odd "
+                                "mistake. Hard: fire button and no mistakes.",
                  .group = "Crowd race"}};
     }
     void set_option(std::size_t index, int value) override {
@@ -105,6 +112,9 @@ public:
         } else if (index == crowd_close) {
             crowd_close_ = value != 0;
             flow_.set_crowd_close(crowd_close_);
+        } else if (index == crowd_skill) {
+            crowd_skill_ = std::clamp(value, 0, 2);
+            flow_.set_crowd_skill(crowd_skill_);
         }
     }
 
@@ -124,6 +134,7 @@ public:
         flow_.set_device(device_);
         flow_.set_crowd(crowd_);
         flow_.set_crowd_close(crowd_close_);
+        flow_.set_crowd_skill(crowd_skill_);
         return true;
     }
     bool has_save() const override { return saved_.has_value(); }
@@ -160,6 +171,7 @@ private:
     Race::Cheats cheats_;
     bool crowd_{};
     bool crowd_close_{true};
+    int crowd_skill_{Race::normal};
     long frames_{};
     std::optional<GameFlow> saved_;
     Push saved_push_{};

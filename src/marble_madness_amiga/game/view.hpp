@@ -45,7 +45,10 @@ public:
         int x{}, top{};           // view pixels
         std::string text;
         int pen{7}, paper{4};     // palette registers
+        std::optional<platform::Color> colour{}; // instead of the pen (the crowd race's results)
     };
+    // A marble's colour for texts: its light shade (the crowd race).
+    platform::Color marble_colour(int marble) const;
     struct Overlay {
         enum class Base { course, course_without_sprites, cleared, black };
         Base base{Base::course};

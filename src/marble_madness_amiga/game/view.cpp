@@ -390,12 +390,16 @@ void View::put_text(platform::Image& image, const std::string& text, int x, int 
 
 void View::draw_text(platform::Image& image, const Text& text, const Race& race) const {
     const data::Palette palette = palette_at(race.scroll_lines() + text.top, race);
-    const auto pen = data::to_color(palette[std::size_t(text.pen & 15)]);
+    const auto pen = text.colour ? *text.colour : data::to_color(palette[std::size_t(text.pen & 15)]);
     std::optional<platform::Color> paper;
     if (text.paper >= 0) {
         paper = data::to_color(palette[std::size_t(text.paper & 15)]);
     }
     put_text(image, text.text, text.x, bar_height + text.top, pen, paper, bar_height, bar_height + height);
+}
+
+platform::Color View::marble_colour(int marble) const {
+    return data::to_color(plain_ramp(files_->program(), std::size_t(marble) % Race::max_marbles)[2]);
 }
 
 // Display type $2C ($111D68, $106632): the marble's draw record $106928
@@ -516,6 +520,17 @@ void View::draw_bar(platform::Image& image, const Race& race, const Overlay* ove
     put_text(image, text, 0, 1, colours[12], std::nullopt, 0, bar_height);
     std::snprintf(text, sizeof text, "%02d", std::clamp(time, 0, 99));
     put_text(image, text, 0x80, 1, colours[11], std::nullopt, 0, bar_height);
+    // The crowd race (not the original game): the player's place in the
+    // pack at the right of the bar, in the score's colour.
+    if (race.crowd()) {
+        static constexpr const char* places[] = {"1ST", "2ND", "3RD", "4TH", "5TH", "6TH", "7TH", "8TH"};
+        const int place = race.place(0);
+        const int field = int(race.standings().size());
+        if (place > 0 && place <= 8) {
+            put_text(image, std::string(places[place - 1]) + "/" + std::to_string(field), 0xD0, 1, colours[12],
+                     std::nullopt, 0, bar_height);
+        }
+    }
 }
 
 // $105ECC: the marble's sprite, shown while the race's visibility rule

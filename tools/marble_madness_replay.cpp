@@ -798,6 +798,7 @@ int crowd(int argc, char** argv) {
     for (int i = 6; i < argc; ++i) wanted.insert(std::stoi(argv[i]));
     race.cheats.stop_timer = true;
     race.crowd_close = std::getenv("MM_NO_BAND") == nullptr;
+    race.crowd_skill = std::getenv("MM_SKILL") ? std::atoi(std::getenv("MM_SKILL")) : game::Race::hard; // (the tool's default: the planner alone)
     // MM_IDLE=n: marble 0 stays idle and the crowd starts after n updates
     // (the computer's marbles alone, from different moments).
     const int idle = std::getenv("MM_IDLE") ? std::atoi(std::getenv("MM_IDLE")) : -1;
@@ -1860,6 +1861,7 @@ int main(int argc, char** argv) {
             // and run both on, comparing pictures and sound every tick.
             const long save_at = std::getenv("MM_SAVE_AT") ? std::atol(std::getenv("MM_SAVE_AT")) : -1;
             std::optional<game::GameFlow> copy;
+            std::vector<float> flow_audio;
             for (long tick = 0; tick <= last; ++tick) {
                 started = started || (flow.racing() && !was_racing);
                 was_racing = flow.racing();
@@ -1905,6 +1907,11 @@ int main(int argc, char** argv) {
                 } else if (save_at >= 0) {
                     std::vector<float> a(1764);
                     flow.audio(a, 44100);
+                } else if (std::getenv("MM_FLOW_WAV")) {
+                    // The game's sound, an update's worth (two blanks).
+                    std::vector<float> a(1764 * 2);
+                    flow.audio(a, 44100);
+                    flow_audio.insert(flow_audio.end(), a.begin(), a.end());
                 }
                 const int fire = f ? 2 : 1;
                 next = {std::int16_t(((d ? 0x20 : 0) - (u ? 0x20 : 0)) * fire), std::int16_t(((l ? 0x20 : 0) - (r ? 0x20 : 0)) * fire)};
@@ -1912,6 +1919,25 @@ int main(int argc, char** argv) {
                 if (wanted.contains(tick)) {
                     platform::save_png(flow.picture(), out / ("flow-" + std::to_string(tick) + ".png"));
                 }
+            }
+            if (const char* wav = std::getenv("MM_FLOW_WAV")) {
+                std::vector<std::uint8_t> out;
+                auto u32 = [&](std::uint32_t v) { for (int b = 0; b < 4; ++b) out.push_back(std::uint8_t(v >> (8 * b))); };
+                auto u16 = [&](std::uint16_t v) { out.push_back(std::uint8_t(v)); out.push_back(std::uint8_t(v >> 8)); };
+                const auto bytes = std::uint32_t(flow_audio.size() * 2);
+                out.insert(out.end(), {'R', 'I', 'F', 'F'});
+                u32(36 + bytes);
+                out.insert(out.end(), {'W', 'A', 'V', 'E', 'f', 'm', 't', ' '});
+                u32(16); u16(1); u16(2); u32(44100); u32(44100 * 4); u16(4); u16(16);
+                out.insert(out.end(), {'d', 'a', 't', 'a'});
+                u32(bytes);
+                double sum = 0;
+                for (const float v : flow_audio) {
+                    u16(std::uint16_t(std::int16_t(std::clamp(v, -1.0f, 1.0f) * 32767.0f)));
+                    sum += double(v) * v;
+                }
+                platform::write_file(platform::utf8_path(wav), out);
+                std::printf("audio: %.1f s, rms %.4f\n", flow_audio.size() / 2.0 / 44100.0, std::sqrt(sum / std::max<std::size_t>(1, flow_audio.size())));
             }
             return 0;
         }
@@ -1937,6 +1963,21 @@ int main(int argc, char** argv) {
             std::printf("copy %.1f us, copy + 24 updates %.1f us (%ld) size %zu\n",
                         std::chrono::duration<double, std::micro>(t1 - t0).count() / 1000,
                         std::chrono::duration<double, std::micro>(t2 - t1).count() / 100, sum % 7, sizeof(game::Race));
+            return 0;
+        }
+        if (command == "regioncount" && argc >= 3) {
+            // Research: each course's region list (block entry 0: band
+            // range, script; 0 = a random group of four) against the slots.
+            data::GameFiles files(platform::utf8_path(argv[2]));
+            for (int c = 0; c < data::course_count; ++c) {
+                game::Regions regions(files, data::Course(c));
+                const auto& t = files.track(data::Course(c));
+                int single = 0, groups = 0;
+                for (std::uint32_t e = regions.block_entry(0); t.u8(e) != 0xFF; e += 6) {
+                    (t.u32(e + 2) == 0 ? groups : single)++;
+                }
+                std::printf("course %d: %d regions + %d random groups of 4 (%d slots)\n", c, single, groups, game::Regions::slots);
+            }
             return 0;
         }
         if (command == "crowdmap" && argc >= 8) {

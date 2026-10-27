@@ -514,6 +514,12 @@ void Race::set_crowd(bool on) {
         }
         crowd_ = true;
         marble_count_ = max_marbles;
+        home_order_.clear();
+        for (int i = 0; i < players_; ++i) {
+            if (marbles[std::size_t(i)].status == 3 || marbles[std::size_t(i)].mode == Marble::finishing) {
+                home_order_.push_back(i);
+            }
+        }
         display_.set_limit(DisplayList::max_capacity);
         for (int i = players_; i < max_marbles; ++i) {
             spawn_bot(i);
@@ -531,6 +537,30 @@ void Race::set_crowd(bool on) {
         display_.set_limit(DisplayList::capacity);
     }
     probe_ = probe;
+}
+
+std::vector<int> Race::standings() const {
+    std::vector<int> order = home_order_;
+    std::vector<std::pair<int, int>> racing; // distance to the goal, slot
+    for (int i = 0; i < marble_count_; ++i) {
+        if (std::find(order.begin(), order.end(), i) != order.end() || marbles[std::size_t(i)].status != 1) {
+            continue;
+        }
+        const Marble& m = marbles[std::size_t(i)];
+        const int left = crowd_map_ ? crowd_map_->to_goal(m.x >> 19, m.y >> 19) : CrowdMap::none;
+        racing.push_back({left, i});
+    }
+    std::stable_sort(racing.begin(), racing.end());
+    for (const auto& [left, i] : racing) {
+        order.push_back(i);
+    }
+    return order;
+}
+
+int Race::place(int marble) const {
+    const auto order = standings();
+    const auto it = std::find(order.begin(), order.end(), marble);
+    return it == order.end() ? 0 : int(it - order.begin()) + 1;
 }
 
 // A crowd marble on its start spot, as the course start places the
@@ -563,7 +593,7 @@ CrowdDriver Race::new_driver(int i) const {
     static constexpr std::int32_t paces[max_marbles] = {0x24000, 0x2C000, 0x20000, 0x30000,
                                                          0x26000, 0x1C000, 0x34000, 0x28000};
     CrowdDriver d;
-    d.top_speed = paces[i];
+    d.top_speed = crowd_skill == easy ? paces[i] * 3 / 5 : paces[i];
     d.seed = std::uint32_t(0x9E3779B9u * std::uint32_t(i + 1) + std::uint32_t(course_));
     return d;
 }
@@ -663,6 +693,27 @@ void Race::steer_bot(Marble& m) {
     const bool steerable = m.air == 0 && (m.mode == Marble::rolling || m.mode == Marble::landing || m.mode == Marble::bumped);
     // (A run-up looks like a fall to the plan: in the lane, flat out.)
     const bool running_up = crowd_map_->run_up(m.x >> 19, m.y >> 19).has_value();
+    // Lapses (Normal: about one in 600 updates; Easy: one in 250): a wrong
+    // push for a moment, or careless driving that may roll off an edge.
+    if (!planning_ && steerable && !running_up && crowd_skill != hard && d.lapse == 0) {
+        d.seed ^= d.seed << 13;
+        d.seed ^= d.seed >> 17;
+        d.seed ^= d.seed << 5;
+        if (d.seed % (crowd_skill == easy ? 250u : 600u) == 0) {
+            const std::uint32_t kind = (d.seed >> 8) % 16;
+            d.lapse = 12 + int((d.seed >> 12) % 20);
+            d.lapse_careless = kind < 8;
+            static constexpr int lx[8] = {1, 1, 0, -1, -1, -1, 0, 1}, ly[8] = {0, 1, 1, 1, 0, -1, -1, -1};
+            d.lapse_forward = std::int16_t(lx[kind % 8] * 0x20);
+            d.lapse_side = std::int16_t(-ly[kind % 8] * 0x20);
+        }
+    }
+    if (!planning_ && d.lapse > 0) {
+        --d.lapse;
+        push = d.lapse_careless ? usual_push(m) : Push{d.lapse_forward, d.lapse_side};
+        keep_the_pack_close(m, push);
+        return;
+    }
     if (!planning_ && steerable) {
         const double progress = double(crowd_map_->rank(m.feature)) * 65536.0 +
                                 crowd_map_->to_go(m.feature, m.x >> 19, m.y >> 19);
@@ -685,12 +736,27 @@ void Race::steer_bot(Marble& m) {
             push = {d.plan_forward, d.plan_side};
             careful_near_vacuums(m, push);
             keep_the_pack_close(m, push);
+            within_skill(m, push);
             return;
         }
     }
     push = usual_push(m);
     careful_near_vacuums(m, push);
     keep_the_pack_close(m, push);
+    within_skill(m, push);
+}
+
+// The crowd's skill on the push: Normal and Easy use no fire (but on a
+// run-up), Easy also stops pushing above 2.5 pixels an update.
+void Race::within_skill(const Marble& m, Push& push) const {
+    if (crowd_skill == hard || crowd_map_->run_up(m.x >> 19, m.y >> 19)) {
+        return;
+    }
+    push.forward = std::int16_t(std::clamp<int>(push.forward, -0x20, 0x20));
+    push.side = std::int16_t(std::clamp<int>(push.side, -0x20, 0x20));
+    if (crowd_skill == easy && std::hypot(double(m.vx), double(m.vy)) > 0x28000) {
+        push = {}; // rolling on, not pushing harder
+    }
 }
 
 // Rubber banding (an option of the crowd race): a crowd marble ahead of
@@ -782,7 +848,8 @@ void Race::plan(Marble& m) {
     candidates[1] = {false, 0, 0};
     static constexpr int dx[8] = {1, 1, 0, -1, -1, -1, 0, 1}, dy[8] = {0, 1, 1, 1, 0, -1, -1, -1};
     for (int k = 0; k < 24; ++k) {
-        const int size = k < 8 ? 0x20 : 0x40;
+        // (Below Hard no fire: the dashes too at single strength.)
+        const int size = k < 8 || crowd_skill != hard ? 0x20 : 0x40;
         candidates[std::size_t(2 + k)] = {false, std::int16_t(dx[k % 8] * size), std::int16_t(-dy[k % 8] * size), k >= 16};
     }
     double best = -1e18;
@@ -919,12 +986,17 @@ Push Race::usual_push(Marble& m) {
             }
             return push;
         }
+        if (!d.running) {
+            // Easy: one run-up in three without fire (it misses the jump).
+            d.run_up_fire = crowd_skill != easy || dice() % 3 != 0;
+        }
         d.running = true;
         const double rx = lane->to_x - m.x / 65536.0, ry = lane->to_y - m.y / 65536.0;
         const double size = std::max(std::abs(rx), std::abs(ry));
+        const int strength = d.run_up_fire ? 0x40 : 0x20;
         if (size > 0) {
-            push.forward = std::int16_t(std::lround(rx / size * 0x40));
-            push.side = std::int16_t(-std::lround(ry / size * 0x40));
+            push.forward = std::int16_t(std::lround(rx / size * strength));
+            push.side = std::int16_t(-std::lround(ry / size * strength));
         }
         return push;
     }

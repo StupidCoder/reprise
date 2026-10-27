@@ -285,14 +285,18 @@ void Race::update(const std::array<Push, 2>& pushes) {
     for (int i = 0; i < marble_count_; ++i) {
         Marble& m = marbles[std::size_t(i)];
         const bool bot = i >= players_;
-        quiet_ = bot;
+        sound_source_ = bot ? i : -1;
         if (m.status != 0) {
             update_marble(m);
             if (bot) {
                 carry_off_screen(m);
             }
         }
-        quiet_ = false;
+        sound_source_ = -1;
+        if (crowd_ && (m.status == 3 || m.mode == Marble::finishing) &&
+            std::find(home_order_.begin(), home_order_.end(), i) == home_order_.end()) {
+            home_order_.push_back(i);
+        }
         if (bot) {
             // A crowd marble home goes off the course.
             if (m.status == 3) {

@@ -28,6 +28,10 @@ public:
 
     // $1222E4: plays table entry `id` on the right or left channels.
     void play(int id, bool right);
+    // Whether an entry starts or stops the music.
+    bool music(int id) const {
+        return id >= 0 && std::size_t(id) < entries_.size() && (entries_[std::size_t(id)].kind == 0 || entries_[std::size_t(id)].kind == 2);
+    }
     // The same from a world update: the update runs into the next vertical
     // blank before it gets to its sounds, so they start after that blank's
     // steps.

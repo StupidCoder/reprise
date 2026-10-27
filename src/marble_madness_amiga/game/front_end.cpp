@@ -107,11 +107,16 @@ void GameFlow::load_course(data::Course course) {
     // $114AA2: the clock restarts on the first two courses; the
     // introduction counts the course's time in.
     m.time = course < data::Course::intermediate ? 0 : time_;
+    race_->crowd_skill = crowd_skill_; // (before the crowd starts: Easy's pace)
     race_->set_crowd(crowd_);
     race_->crowd_close = crowd_close_;
+    race_->crowd_skill = crowd_skill_;
     view_ = std::make_unique<View>(*files_, *assets_, *race_);
     view_->update(*race_);
     sounds_ = std::make_unique<sound::SoundBoard>(*files_, course);
+    for (auto& board : crowd_sounds_) {
+        board.reset(); // the new course's sounds
+    }
 }
 
 void GameFlow::playfield_text(int column, int row, const std::string& text, std::vector<View::Text>& out) const {
@@ -307,19 +312,71 @@ void GameFlow::intro_tick() {
     }
     // The race: the course's music ($1030B4), the boxes go.
     overlay_ = {};
-    for (const auto& e : race_->take_sounds()) {
-        sounds_->play(e.id, e.right);
-    }
+    play_race_sounds(false);
     stage_ = Stage::race;
+}
+
+// The race's sounds: the players' and the course's on the game's board;
+// a crowd marble's on its own (not its music), at a volume by how near the
+// screen it is (full while on it, gone 256 lines off it).
+void GameFlow::play_race_sounds(bool after_blank) {
+    for (const auto& e : race_->take_sounds()) {
+        if (e.marble < 0) {
+            if (after_blank) {
+                sounds_->play_after_blank(e.id, e.right);
+            } else {
+                sounds_->play(e.id, e.right);
+            }
+            continue;
+        }
+        auto& board = crowd_sounds_[std::size_t(e.marble) % 8];
+        if (!board) {
+            board = std::make_unique<sound::SoundBoard>(*files_, course_);
+        }
+        if (!board->music(e.id)) {
+            board->play_after_blank(e.id, e.right);
+        }
+    }
+    for (int i = 0; i < 8; ++i) {
+        const Marble& m = race_->marbles[std::size_t(i)];
+        const int y = std::int16_t(m.screen[0]);
+        const int off = y < -0x10 ? -0x10 - y : y > 0x110 ? y - 0x110 : 0;
+        constexpr float level = 0.6f; // a crowd marble a little under the player's
+        crowd_gain_[std::size_t(i)] = m.status == 1 ? level * std::max(0.0f, 1.0f - float(off) / 256.0f) : 0.0f;
+    }
+}
+
+void GameFlow::audio(std::span<float> stereo, int sample_rate) {
+    sounds_->render(stereo, sample_rate);
+    if (stage_ != Stage::race) {
+        return; // (their rolling ends with the race)
+    }
+    bool mixed = false;
+    for (std::size_t i = 0; i < crowd_sounds_.size(); ++i) {
+        auto& board = crowd_sounds_[i];
+        if (!board) {
+            continue;
+        }
+        crowd_mix_.resize(stereo.size());
+        board->render(crowd_mix_, sample_rate);
+        const float gain = crowd_gain_[i];
+        for (std::size_t k = 0; k < stereo.size(); ++k) {
+            stereo[k] += crowd_mix_[k] * gain;
+        }
+        mixed = true;
+    }
+    if (mixed) {
+        for (auto& sample : stereo) {
+            sample = std::clamp(sample, -1.0f, 1.0f);
+        }
+    }
 }
 
 void GameFlow::race_tick(const Controls& in) {
     race_->cheats = cheats;
     race_->update({in.push, Push{}});
     view_->update(*race_);
-    for (const auto& e : race_->take_sounds()) {
-        sounds_->play_after_blank(e.id, e.right);
-    }
+    play_race_sounds(true);
     random_ = race_->random;
     const auto& m = race_->marbles[0];
     score_ = m.score;
@@ -366,6 +423,9 @@ void GameFlow::finish_tick() {
         overlay_.texts.push_back({x + 2, y + 2, read_string(program, program.u32(bonus_for)), 7, 4});
         overlay_.texts.push_back({x + 2, y + 0xB, read_string(program, program.u32(time_left)), 7, 4});
         overlay_.texts.push_back({x + 0x6C, y + 0xB, number_text(total_, 4, 0), 7, 4});
+        if (race_->crowd()) {
+            crowd_results(x, y + 0x18);
+        }
         step_ = 1;
         wait(0x180);
     }
@@ -388,6 +448,24 @@ void GameFlow::finish_tick() {
         stage_ = Stage::loading;
         step_ = 0;
         wait(loading_blanks);
+    }
+}
+
+// The crowd race (not the original game): the standings under the bonus
+// box, in the box's style, each name in its marble's colour.
+void GameFlow::crowd_results(int x, int y) {
+    static constexpr const char* places[] = {"1ST", "2ND", "3RD", "4TH", "5TH", "6TH", "7TH", "8TH"};
+    static constexpr const char* names[] = {"YOU", "BLUE", "GREEN", "PURPLE", "CYAN", "ORANGE", "WHITE", "PINK"};
+    const auto order = race_->standings();
+    const int rows = int(order.size()) + 1;
+    overlay_.boxes.push_back({x, y, 0x96, rows * 9 + 4, 4});
+    overlay_.texts.push_back({x + 2, y + 2, "RESULTS", 7, 4});
+    for (std::size_t n = 0; n < order.size() && n < 8; ++n) {
+        const int top = y + 2 + int(n + 1) * 9;
+        overlay_.texts.push_back({x + 2, top, places[n], 7, 4});
+        View::Text name{x + 0x2A, top, names[order[n] % 8], 7, 4};
+        name.colour = view_->marble_colour(order[n]);
+        overlay_.texts.push_back(name);
     }
 }
 

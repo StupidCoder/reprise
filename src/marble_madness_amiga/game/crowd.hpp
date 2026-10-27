@@ -133,6 +133,12 @@ struct CrowdDriver {
     double plan_best{1e18};
     int plan_stall{};
     int bold{};
+    // A lapse (Normal and Easy skill): updates of a wrong push or careless
+    // driving (no look-ahead, no braking at edges) to come.
+    int lapse{};
+    bool lapse_careless{};
+    std::int16_t lapse_forward{}, lapse_side{};
+    bool run_up_fire{true}; // Easy: whether this run-up gets fire (else it misses the jump)
     std::int16_t trial_forward{}, trial_side{};
 };
 

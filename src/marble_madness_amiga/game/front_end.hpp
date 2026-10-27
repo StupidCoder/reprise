@@ -83,7 +83,7 @@ public:
     // One world update's time (two vertical blanks).
     void tick(const Controls&);
     platform::Image picture() const;
-    void audio(std::span<float> stereo, int sample_rate) { sounds_->render(stereo, sample_rate); }
+    void audio(std::span<float> stereo, int sample_rate);
 
     const Settings& settings() const { return settings_; }
     // Research and tools: whether a race is running, and the course.
@@ -102,6 +102,13 @@ public:
         crowd_ = on;
         if (race_) {
             race_->set_crowd(on);
+        }
+    }
+    // The crowd's skill (Race::easy, normal, hard).
+    void set_crowd_skill(int skill) {
+        crowd_skill_ = skill;
+        if (race_) {
+            race_->crowd_skill = skill;
         }
     }
     // The crowd holds back while ahead of the player (rubber banding).
@@ -127,6 +134,7 @@ private:
     void intro_tick();
     void race_tick(const Controls&);
     void finish_tick();
+    void crowd_results(int x, int y);
     void out_of_time_tick();
     void ending_tick();
     void wait(int blanks) { wait_ = blanks; }
@@ -139,6 +147,13 @@ private:
     Owned<Race> race_;
     Owned<View> view_;
     Owned<sound::SoundBoard> sounds_;
+    // The crowd race (not the original game): each crowd marble's sounds on
+    // a board of its own (four more channels each, past the Amiga's four),
+    // mixed in by how near the screen it is.
+    std::array<Owned<sound::SoundBoard>, 8> crowd_sounds_;
+    std::array<float, 8> crowd_gain_{};
+    std::vector<float> crowd_mix_;
+    void play_race_sounds(bool after_blank);
     Stage stage_{Stage::options};
     int step_{};
     int wait_{};              // vertical blanks to wait before the next step
@@ -164,6 +179,7 @@ private:
     Random random_;
     bool crowd_{};
     bool crowd_close_{true};
+    int crowd_skill_{Race::normal};
 };
 
 } // namespace marble_madness::game
