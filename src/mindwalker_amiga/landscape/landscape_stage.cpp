@@ -11,6 +11,7 @@ constexpr std::uint32_t form_colour17 = 0x206B30;  // colour 17 by form (4 words
 constexpr std::uint32_t form_colour18 = 0x206B38;  // colour 18 by form
 constexpr std::uint32_t form_kinds = 0x206B50;     // the surface kind of each form (4 words)
 constexpr std::uint32_t form_heads = 0x206B40;     // the head: rows above the feet, by form (4 longs)
+constexpr std::uint32_t walker_marker = 0x20B2B4;  // 8 sprite rows (2 words each) shown when the walker is hidden
 constexpr std::uint32_t catch_damage = 0x203E2C;   // damage per catch by stage / 7 (6 longs)
 constexpr int damage_per_life = 1600;              // h14: damage / 100 reaching 16 costs a life
 constexpr std::uint32_t neighbour_dx = 0x205CEC, neighbour_dy = 0x205D0C; // 8 longs each
@@ -349,7 +350,7 @@ void LandscapeStage::step(const InputReader& read) {
         // re-anchors the view on the walker ($20B18A); then the window
         // shifts by 4 cells when the walker leaves it ($20ACFA/$20AD78).
         const int across = (direction_ & 1) ? z : x;
-        if ((across < 0 || across > 319) && walker_.marked_row != 0) {
+        if ((across < 0 || across > 319) && walker_.view_row != 0) {
             anchor(direction_);
             new_view = true;
             x = dx + walker_.x;
@@ -449,10 +450,10 @@ void LandscapeStage::cell_events() {
         ++score_;
         fidget_.next(); // $209F34 draws a random sound length ($20C89C)
         switch (direction_) {
-        case 0: walker_.marked_row = walker_.row; walker_.marked_column = walker_.column; break;
-        case 1: walker_.marked_row = walker_.column; walker_.marked_column = 3 - walker_.row; break;
-        case 2: walker_.marked_row = 3 - walker_.row; walker_.marked_column = 3 - walker_.column; break;
-        default: walker_.marked_row = 3 - walker_.column; walker_.marked_column = walker_.row; break;
+        case 0: walker_.view_row = walker_.row; walker_.view_column = walker_.column; break;
+        case 1: walker_.view_row = walker_.column; walker_.view_column = 3 - walker_.row; break;
+        case 2: walker_.view_row = 3 - walker_.row; walker_.view_column = 3 - walker_.column; break;
+        default: walker_.view_row = 3 - walker_.column; walker_.view_column = walker_.row; break;
         }
         auto& objects = cells_.objects[std::size_t(walker_.column)][std::size_t(walker_.row)];
         objects |= 1;
@@ -471,7 +472,11 @@ void LandscapeStage::place_sprite() {
     case 2: depth = 319 - walker_.z; across = 160 - walker_.x; break;
     default: depth = 319 - walker_.x; across = walker_.z - 160; break;
     }
+    // $2057D0: its row and column facing the view.
+    walker_.view_row = depth / 80;
+    walker_.view_column = (across + 160) / 80;
     depth += 0x18;
+    walker_.depth = depth;
     const FixedCamera camera;
     const int level = walker_.in_water ? world_.floor_level() : walker_.level;
     const auto p = camera.project(across, level, depth);
@@ -488,7 +493,37 @@ void LandscapeStage::place_sprite() {
     }
     walker_.sprite_rows = std::max(rows, 0);
     // $209D4E: the sprite's left edge, 8 left of the point, kept on screen.
-    if (walker_.sprite_rows >= 1) walker_.screen_x = std::clamp(walker_.screen_x - 8, 0, 0x12F);
+    if (walker_.sprite_rows < 1) return;
+    walker_.screen_x = std::clamp(walker_.screen_x - 8, 0, 0x12F);
+    // h11: the sprite masked by the scenery in front of it; wholly hidden
+    // for more than 8 placings, the marker shows instead ($209D04).
+    if (lives_ <= 0) return;
+    ViewPainter::WalkerPlace place;
+    place.x = walker_.screen_x;
+    place.top = std::max(walker_.screen_y - walker_.height, 0);
+    place.rows = walker_.height;
+    place.feet = walker_.screen_y;
+    place.view_row = walker_.view_row;
+    place.view_column = walker_.view_column;
+    place.depth = walker_.depth;
+    place.terrain = walker_.terrain;
+    place.beacon_taken = beacon_taken_;
+    walker_.visible = painter_.walker_mask(cells_, direction_, world_.floor_level(), place, masks_);
+    const auto& bitmap = walker_bitmap();
+    bool any = false;
+    const int top = walker_.screen_y - walker_.height;
+    for (int y = 0; y < std::min(walker_.sprite_rows, bitmap.height); ++y) {
+        const int r = top + y - place.top;
+        if (r < 0 || r >= int(walker_.visible.size())) continue;
+        for (int x = 0; x < 16; ++x)
+            any |= bitmap.at(x, y) != 0 && (walker_.visible[std::size_t(r)] >> (15 - x) & 1);
+    }
+    walker_.hidden_frames = any ? 0 : walker_.hidden_frames + 1;
+}
+
+const data::Bitmap& LandscapeStage::walker_bitmap() const {
+    const auto& set = assets_.figures[std::size_t(form_figure_set[walker_.form])];
+    return set.frames[std::size_t(set.sequence[std::size_t(walker_.frame)])];
 }
 
 platform::Image LandscapeStage::picture() const {
@@ -535,16 +570,40 @@ platform::Image LandscapeStage::picture() const {
 
 void LandscapeStage::draw_walker(platform::Image& image, const std::vector<screen::Rgb4>& colours) const {
     // The walker: a hardware sprite in colours 17-19, its feet on its screen
-    // point (drawn over everything: the occlusion mask is not rebuilt yet).
-    const auto& set = assets_.figures[std::size_t(form_figure_set[walker_.form])];
-    const auto& bitmap = set.frames[std::size_t(set.sequence[std::size_t(walker_.frame)])];
+    // point, masked by the scenery in front (h11). Hidden for more than 8
+    // placings, its first 8 rows show the marker ($20B2B4, unmasked).
+    const auto rows = walker_sprite();
     const int top = walker_.screen_y - walker_.height + view_top;
-    for (int y = 0; y < std::min(walker_.sprite_rows, bitmap.height); ++y) {
-        for (int x = 0; x < bitmap.width; ++x) {
-            const auto v = bitmap.at(x, y);
-            if (v) image.put(walker_.screen_x + x, top + y, screen::to_color(colours[16u + v]));
+    for (std::size_t y = 0; y < rows.size(); ++y)
+        for (int x = 0; x < 16; ++x) {
+            const unsigned v = (rows[y] >> (31 - x) & 1) | (rows[y] >> (15 - x) & 1) << 1;
+            if (v) image.put(walker_.screen_x + x, top + int(y), screen::to_color(colours[16u + v]));
         }
+}
+
+std::vector<std::uint32_t> LandscapeStage::walker_sprite() const {
+    std::vector<std::uint32_t> out;
+    const auto& bitmap = walker_bitmap();
+    const int top = walker_.screen_y - walker_.height;
+    const int mask_top = std::max(top, 0);
+    for (int y = 0; y < std::min(walker_.sprite_rows, bitmap.height); ++y) {
+        const int r = top + y - mask_top;
+        const std::uint16_t shown = r >= 0 && r < int(walker_.visible.size()) ? walker_.visible[std::size_t(r)] : 0xFFFF;
+        std::uint16_t a = 0, b = 0;
+        for (int x = 0; x < 16; ++x) {
+            const int v = bitmap.at(x, y);
+            a = std::uint16_t(a << 1 | (v & 1));
+            b = std::uint16_t(b << 1 | (v >> 1 & 1));
+        }
+        a &= shown;
+        b &= shown;
+        if (walker_.hidden_frames > 8 && y < 8) {
+            a = a_.u16(walker_marker + std::uint32_t(y * 4));
+            b = a_.u16(walker_marker + std::uint32_t(y * 4 + 2));
+        }
+        out.push_back(std::uint32_t(a) << 16 | b);
     }
+    return out;
 }
 
 } // namespace mindwalker::landscape

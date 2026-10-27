@@ -120,6 +120,53 @@ ViewPainter::Turned ViewPainter::turn(const ViewCells& view, int direction) cons
     return turned;
 }
 
+std::vector<std::uint16_t> ViewPainter::walker_mask(const ViewCells& view, int direction, int floor_level,
+                                                    const WalkerPlace& w, const std::array<DepthMask, 3>& masks) const {
+    // $2035D2 on the mask bitmap's plane 0: the box set, then cleared where
+    // the pole and the edge walls are (here 1 = shown).
+    screen::Canvas box;
+    box.fill(w.x, w.top, w.x + 16, std::min(w.top + w.rows, 199), 1);
+    const int level = w.terrain & 0xFF, z = w.view_row * 80;
+    if ((w.terrain & 0x800) && (w.beacon_taken || !(w.terrain & 0x100)) && z + 0x40 < w.depth) {
+        const auto pole = camera_.project(w.view_column * 80 - 120, level, z + 0x40);
+        box.fill(pole.x - 9, 0, pole.x + 9, pole.y, 0);
+    }
+    if (w.view_column == 0 || w.view_column == 3) {
+        const auto cells = turn(view, direction);
+        const auto next = cells[w.view_column == 0 ? 1 : 2][std::size_t(w.view_row)].terrain;
+        const int next_level = next & 0xFF;
+        if (next_level < floor_level && next_level < level - 8) {
+            const int side = w.view_column == 0 ? -80 : 80, widen = w.view_column == 0 ? 16 : -16;
+            const auto front = camera_.project(side, next_level, z + 0x68);
+            const auto back = camera_.project(side, next_level, z + 0x18);
+            std::vector<Point> wall{{front.x, front.y}, {front.x + widen, front.y}};
+            if ((next & 0xC000) == 0) {
+                wall.push_back({front.x + widen, w.feet});
+                wall.push_back({back.x, w.feet});
+            } else {
+                wall.push_back({front.x + widen, back.y});
+            }
+            wall.push_back({back.x, back.y});
+            fill(box, wall, 0);
+        }
+    }
+    // $20309C: AND the depth minterm of the walker's row ($2039A0).
+    std::vector<std::uint16_t> rows(std::size_t(w.rows + 1));
+    for (int r = 0; r <= w.rows; ++r) {
+        const int y = w.top + r;
+        std::uint16_t bits = 0;
+        for (int c = 0; c < 16; ++c) {
+            const int x = w.x + c;
+            bool shown = y >= 0 && y < 200 && x < 320 && box.pen(x, y) == 1;
+            for (int d = 0; shown && d < std::min(w.view_row, 3); ++d)
+                shown = masks[std::size_t(d)][std::size_t(y * 320 + x)] == 0;
+            bits = std::uint16_t(bits << 1 | (shown ? 1 : 0));
+        }
+        rows[std::size_t(r)] = bits;
+    }
+    return rows;
+}
+
 // $205218: the floor grid, 18 horizontal lines and 12 converging pairs.
 std::string ViewPainter::score_text(std::uint32_t score) {
     return score == 0 ? std::string() : std::to_string(score);

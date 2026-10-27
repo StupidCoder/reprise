@@ -13,9 +13,9 @@
 //
 // Close to the original, not pixel-exact: polygons are filled by our own
 // scanline fill rather than graphics.library's AreaEnd (owner's decision,
-// 2026-10-27: the landscape need not be pixel perfect). Not drawn yet:
-// creatures, finds, ramps, landmark decorations, objects ($20105C), the
-// walker and the occlusion mask.
+// 2026-10-27: the landscape need not be pixel perfect). The depth masks
+// and the walker's mask hide the sprites behind the scenery. Not drawn yet:
+// finds, landmark decorations, objects ($20105C).
 namespace mindwalker::landscape {
 
 class ViewPainter {
@@ -38,6 +38,22 @@ public:
     // nothing (the masking minterms at A $2039A0).
     using DepthMask = std::vector<std::uint8_t>; // 320 x 200, 1 = covered
     std::array<DepthMask, 3> depth_masks(const ViewCells&, int direction, int floor_level, int ceiling_level) const;
+
+    // h11's mask for the walker's sprite ($20309C with $2035D2): which pixels
+    // of the 16 x (rows + 1) box at (x, top) (drawing rows) show. The box
+    // loses the marked block's ramp pole in the walker's cell when the
+    // walker is behind it, and at the view's edge columns the side wall of
+    // a neighbour more than 8 higher; then the rows in front of the
+    // walker's own row cover it as they cover the creatures.
+    struct WalkerPlace {
+        int x{}, top{}, rows{}, feet{};  // sprite box and its feet (drawing rows)
+        int view_row{}, view_column{};   // $20B318 / $20B31C: its place facing the view
+        int depth{};                     // $20B310: its depth + 24
+        std::uint16_t terrain{};         // its cell's terrain word ($20B320)
+        bool beacon_taken{};             // $2099B6
+    };
+    std::vector<std::uint16_t> walker_mask(const ViewCells&, int direction, int floor_level, const WalkerPlace&,
+                                           const std::array<DepthMask, 3>& masks) const;
 
 private:
     struct Cell {

@@ -22,10 +22,9 @@
 // The flying creatures (their own module, creatures.hpp) fly, attach and
 // catch the walker; a catch costs damage and, at 1600, a life. The opening
 // reveal and the catch picture play as sequences (interlude.hpp).
+// The walker's sprite is masked by the scenery in front of it (h11).
 // Not rebuilt yet: aiming and zapping (fire), the view's own creatures, finds,
-// landmarks' map re-centring, the marked block's ramp (the way on), pyramids
-// ($1000 cells), the pause box, the reveal animation and the walker's
-// occlusion mask (the walker is drawn over everything).
+// pyramids ($1000 cells), the pause box.
 namespace mindwalker::landscape {
 
 struct LandscapeInput {
@@ -62,7 +61,10 @@ struct Walker {
     int frame_counter{};        // $20B36A
     int speed{2}, speed_counter{2}; // $20B372/$20B36E
     int last_dx{}, last_dz{};   // $20B35A/$20B35E
-    int marked_row{}, marked_column{}; // $20B318/$20B31C: the last marked cell's place, facing
+    int view_row{}, view_column{}; // $20B318/$20B31C: its place facing the view ($2057D0, each placing)
+    int depth{};                // $20B310: its depth into the view + 24
+    std::vector<std::uint16_t> visible; // the sprite's rows as h11 masks them (bit 15 = left)
+    int hidden_frames{};        // $20B386: frames wholly hidden (from the 9th the marker shows)
 };
 
 class LandscapeStage {
@@ -103,6 +105,8 @@ public:
     // For replays of recordings that poke the damage ($20052E).
     void set_damage(int damage) { damage_ = damage; }
     const Creatures& creatures() const { return creatures_; }
+    // The walker's sprite rows as shown (plane A << 16 | plane B), masked.
+    std::vector<std::uint32_t> walker_sprite() const;
 
 private:
     void rebuild_view();
@@ -113,6 +117,7 @@ private:
     Creatures::Scene creature_scene() const;
     Display current_display() const;
     void draw_walker(platform::Image&, const std::vector<screen::Rgb4>& colours) const;
+    const data::Bitmap& walker_bitmap() const;
     void step(const InputReader&); // $20A45C without fire
     void take_cell();       // $20AB4E
     void cell_events();     // $209F34 (the visited map so far)

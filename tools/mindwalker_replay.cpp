@@ -19,7 +19,9 @@
 #include "mindwalker_amiga/world/world.hpp"
 #include "platform/files.hpp"
 #include "platform/host.hpp"
+#include <bit>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <map>
 #include <sstream>
@@ -206,6 +208,11 @@ int view(const std::filesystem::path& content, std::uint32_t seed, const std::fi
                 best_bad = bad;
                 best = direction * 100 + top;
                 platform::save_png(canvas.picture(colours), out);
+                if (const char* pens = std::getenv("MW_PENS")) { // research: our pens as .idx
+                    std::ofstream f(pens, std::ios::binary);
+                    for (int py = 0; py < 200; ++py)
+                        for (int px = 0; px < 320; ++px) f.put(char(canvas.pen(px, py)));
+                }
             }
         }
     }
@@ -217,6 +224,9 @@ int view(const std::filesystem::path& content, std::uint32_t seed, const std::fi
 // stage's input reads takes the next logged read (their kinds must agree) and
 // gets the script's input for that read's index; at every frame's first read
 // the walker's record is compared with the logged one.
+// How many differences to print (MW_DIFFS overrides 15).
+const int print_limit = std::getenv("MW_DIFFS") ? std::atoi(std::getenv("MW_DIFFS")) : 15;
+
 int walk(const std::filesystem::path& content, std::uint32_t seed, const std::filesystem::path& script_path,
          const std::filesystem::path& log_path, int frame_limit, const std::filesystem::path& png) {
     using namespace mindwalker;
@@ -285,6 +295,9 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
     landscape::LandscapeStage stage(files, assets, start);
     std::size_t next = 0;
     int frames = 0, differences = 0;
+    // The walker's mask is close, not exact (our polygon fill): its pixel
+    // differences are counted apart from the state's.
+    int sprite_pixels = 0, sprite_rows_differing = 0;
     bool out_of_step = false;
     const auto word = [](const std::string& hexs, int offset, int bytes) {
         return std::stol(hexs.substr(std::size_t(offset * 2), std::size_t(bytes * 2)), nullptr, 16);
@@ -303,8 +316,28 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
             {"view y", stage.view_y(), word(r.fields.at("view"), 2, 2)},
             {"direction", stage.direction(), word(r.fields.at("direction"), 0, 4)}};
         for (const auto& f : list) {
-            if (f.ours != f.theirs && ++differences <= 15)
+            if (f.ours != f.theirs && ++differences <= print_limit)
                 std::printf("A read %d (frame %d) %s: ours %ld, original %ld\n", r.index, frames, f.name, f.ours, f.theirs);
+        }
+        // The walker's sprite data after h11 (header, then plane A and B
+        // words a row), in recordings that have it.
+        if (r.fields.count("sprite") && stage.walker().sprite_rows > 0) {
+            const auto& sp = r.fields.at("sprite");
+            const auto rows = stage.walker_sprite();
+            const int top = stage.walker().screen_y - stage.walker().height;
+            for (std::size_t y = 0; y < rows.size() && 4 + y * 4 + 4 <= sp.size() / 2; ++y) {
+                if (top + int(y) < 0) continue; // above the screen: h11 leaves these rows as they were
+                const long theirs = word(sp, int(4 + y * 4), 4);
+                if (long(rows[y]) == theirs) continue;
+                sprite_pixels += std::popcount(std::uint32_t(rows[y] ^ std::uint32_t(theirs)));
+                if (++sprite_rows_differing <= print_limit)
+                    std::printf("A read %d (frame %d) sprite row %zu: ours %08lx, original %08lx\n", r.index, frames, y,
+                                long(rows[y]), theirs);
+            }
+            const long hidden = word(r.fields.at("walker"), 0x96, 4);
+            if (stage.walker().hidden_frames != hidden && ++differences <= print_limit)
+                std::printf("A read %d (frame %d) hidden frames: ours %d, original %ld\n", r.index, frames,
+                            stage.walker().hidden_frames, hidden);
         }
         // The flying creatures ($208128 on), the damage and the lives, in
         // recordings that have them.
@@ -325,12 +358,12 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
                                    long_at(0xD2 + 4 * i), long_at(0xA2 + 4 * i), long_at(0x222 + 4 * i),
                                    long_at(0x1F2 + 4 * i)};
             for (int k = 0; k < 7; ++k)
-                if (ours[k] != theirs[k] && ++differences <= 15)
+                if (ours[k] != theirs[k] && ++differences <= print_limit)
                     std::printf("A read %d (frame %d) creature %d %s: ours %ld, original %ld\n", r.index, frames, i,
                                 names[k], ours[k], theirs[k]);
         }
         for (const auto& f : more)
-            if (f.ours != f.theirs && ++differences <= 15)
+            if (f.ours != f.theirs && ++differences <= print_limit)
                 std::printf("A read %d (frame %d) %s: ours %ld, original %ld\n", r.index, frames, f.name, f.ours, f.theirs);
     };
     const landscape::InputReader reader = [&](landscape::InputRead kind) {
@@ -360,8 +393,13 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
         stage.frame(reader);
         ++frames;
     }
-    std::printf("%d frames, %zu reads compared, %d differences; score %u, lives %d%s\n", frames, next, differences,
+    if (std::getenv("MW_STATE")) // research: the walker at the end
+        std::printf("walker x %d y %d row %d column %d hidden %d\n", stage.walker().screen_x, stage.walker().screen_y,
+                    stage.walker().view_row, stage.walker().view_column, stage.walker().hidden_frames);
+    std::printf("%d frames, %zu reads compared, %d differences; score %u, lives %d%s", frames, next, differences,
                 stage.score(), stage.lives(), stage.out_of_lives() ? " (out of lives: the stage ends)" : "");
+    if (sprite_pixels) std::printf("; walker mask: %d pixels in %d rows differ", sprite_pixels, sprite_rows_differing);
+    std::printf("\n");
     if (!png.empty()) platform::save_png(stage.picture(), png);
     return differences == 0 ? 0 : 1;
 }
