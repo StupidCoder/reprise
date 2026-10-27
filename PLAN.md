@@ -658,9 +658,14 @@ seeds and a clock seed), not stored.
    The walker hides behind the scenery (h11), zapping (fire: cursor,
    lightning bolt, zapped creatures) and the map (the emblem: 16 x 8
    squares, its legend and fill buttons) are rebuilt and compared with
-   the original read for read and against screen dumps. Next: view
-   creatures and finds, pyramids, the pause screen; then B, C, P, sound,
-   saves, high scores.
+   the original read for read and against screen dumps. The landscape
+   is now playable as a whole: finds, creatures' places, beacons with
+   their time bonus, the way on (the next world's seed), pyramids (form
+   changes), the pause, every repaint's sequence (view change, flashes,
+   stars) at the measured pace, and its sound (timer-paced sequencer with
+   echo, effects, the aim's synth, the catch's rumble). Open items in
+   game.md. Next: the tunnel (B), the arena (C), the psyche screen (P),
+   then saves, high scores and T's end screens.
 
 Open: what each shared image set and icon is used for and its colours;
 sample playback periods and triggers; A's world model beyond the generator;
