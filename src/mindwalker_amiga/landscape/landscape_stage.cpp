@@ -836,7 +836,8 @@ void LandscapeStage::place_sprite() {
     const auto& bitmap = walker_bitmap();
     bool any = false;
     const int top = walker_.screen_y - walker_.height;
-    for (int y = 0; y < std::min(walker_.sprite_rows, bitmap.height); ++y) {
+    // (h11's blits cover height + 1 rows of the image, one past the shown ones.)
+    for (int y = 0; y < std::min(walker_.height + 1, bitmap.height); ++y) {
         const int r = top + y - place.top;
         if (r < 0 || r >= int(walker_.visible.size())) continue;
         for (int x = 0; x < 16; ++x)

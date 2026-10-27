@@ -11,9 +11,8 @@
 // 4 x 4 cells from the back row to the front, each cell's body (pillar,
 // pedestal or box), top face, side faces and markers, in the original's pens.
 //
-// Close to the original, not pixel-exact: polygons are filled by our own
-// scanline fill rather than graphics.library's AreaEnd (owner's decision,
-// 2026-10-27: the landscape need not be pixel perfect). The depth masks
+// Polygons are filled as graphics.library's AreaEnd does (the blitter's
+// one-dot-per-row lines and inclusive fill), matching the original's pens. The depth masks
 // and the walker's mask hide the sprites behind the scenery. Not drawn yet:
 // finds, landmark decorations, objects ($20105C).
 namespace mindwalker::landscape {

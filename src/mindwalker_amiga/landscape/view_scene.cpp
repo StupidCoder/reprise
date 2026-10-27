@@ -1,6 +1,7 @@
 #include "mindwalker_amiga/landscape/view_scene.hpp"
 #include "mindwalker_amiga/world/random.hpp"
 #include <algorithm>
+#include <cstdlib>
 #include <vector>
 
 namespace mindwalker::landscape {
@@ -20,27 +21,54 @@ struct Point {
     int x, y;
 };
 
-// Even-odd scanline fill of a polygon (pixel centres), plus its outline.
+// graphics.library's AreaEnd, as the blitter does it: each edge is drawn
+// into a scratch plane by the line mode with one dot per raster line (SING:
+// the first dot of each row as Bresenham steps from the edge's start to its
+// end, both ends included), exclusive-or; flat edges give none. The plane is
+// then filled row by row from right to left, inclusively (the boundary dots
+// are filled too), and the filled pixels take the pen. Then, with
+// AREAOUTLINE, the outline in its own pen. (Matches the original's view and
+// sprite masks pixel for pixel in every recording so far.)
 void fill(screen::Canvas& canvas, const std::vector<Point>& points, int pen, int outline = -1, int top = 0) {
-    int y0 = 1 << 30, y1 = -(1 << 30);
+    int y0 = 1 << 30, y1 = -(1 << 30), x0 = 1 << 30, x1 = -(1 << 30);
     for (const auto& p : points) {
         y0 = std::min(y0, p.y);
         y1 = std::max(y1, p.y);
+        x0 = std::min(x0, p.x);
+        x1 = std::max(x1, p.x);
     }
-    std::vector<int> xs;
-    for (int y = y0; y <= y1; ++y) {
-        xs.clear();
-        for (std::size_t i = 0; i < points.size(); ++i) {
-            const auto a = points[i], b = points[(i + 1) % points.size()];
-            if (a.y == b.y) continue;
-            const bool upward = a.y < b.y;
-            const auto lo = upward ? a : b, hi = upward ? b : a;
-            if (y < lo.y || y >= hi.y) continue;
-            xs.push_back(lo.x + (y - lo.y) * (hi.x - lo.x) / (hi.y - lo.y));
+    const int w = x1 - x0 + 1, h = y1 - y0 + 1;
+    std::vector<std::uint8_t> dots(std::size_t(w) * std::size_t(h));
+    for (std::size_t i = 0; i < points.size(); ++i) {
+        const auto a = points[i], b = points[(i + 1) % points.size()];
+        if (a.y == b.y) continue;
+        const int dx = std::abs(b.x - a.x), dy = std::abs(b.y - a.y);
+        const int sx = b.x > a.x ? 1 : -1, sy = b.y > a.y ? 1 : -1;
+        const bool y_major = dy >= dx;
+        const int major = y_major ? dy : dx, minor = y_major ? dx : dy;
+        int error = 2 * minor - major, x = a.x, y = a.y, last_row = 1 << 30;
+        for (int k = 0; k <= major; ++k) {
+            if (y != last_row) {
+                dots[std::size_t((y - y0) * w + (x - x0))] ^= 1;
+                last_row = y;
+            }
+            if (error >= 0) {
+                if (y_major) x += sx;
+                else y += sy;
+                error += 2 * (minor - major);
+            } else {
+                error += 2 * minor;
+            }
+            if (y_major) y += sy;
+            else x += sx;
         }
-        std::sort(xs.begin(), xs.end());
-        for (std::size_t k = 0; k + 1 < xs.size(); k += 2) {
-            for (int x = xs[k]; x <= xs[k + 1]; ++x) canvas.plot(x, top + y, pen);
+    }
+    for (int y = y0; y <= y1; ++y) {
+        bool inside = false;
+        for (int x = x1; x >= x0; --x) {
+            const bool dot = dots[std::size_t((y - y0) * w + (x - x0))] != 0;
+            if (dot) inside = !inside;
+            if (inside || dot) canvas.plot(x, top + y, pen);
         }
     }
     if (outline >= 0) {
@@ -269,7 +297,7 @@ void ViewPainter::paint_cells(screen::Canvas& canvas, const ViewCells& view, int
                 fill(canvas,
                      {{centre.x - w, centre.y}, {centre.x + w, centre.y}, {centre.x + 2 * w, row_top_y},
                       {centre.x - 2 * w, row_top_y}},
-                     lattice_pen, marked ? outline_pen : -1, top);
+                     lattice_pen, marked ? outline_pen : 0, top); // (always outlined: pen 0 unless marked)
             } else if (kind == 0x8000) {
                 // A pillar: lines from the corners up out of the picture.
                 for (const auto& p : face) canvas.line(p.x, top + p.y, p.x, top, marked ? outline_pen : body_pen);
@@ -353,7 +381,8 @@ void ViewPainter::paint_cells(screen::Canvas& canvas, const ViewCells& view, int
                 for (int i = 0; i + 1 < 6; ++i)
                     canvas.line(kite[i].x, top + kite[i].y, kite[i + 1].x, top + kite[i + 1].y, place_pen);
                 for (int ty = kite_top; ty > 0; ty -= w + 3)
-                    fill(canvas, {{mx, ty}, {mx + (w >> 1), w + ty}, {mx - (w >> 1), w + ty}}, 0, place_pen, top);
+                    fill(canvas, {{mx, ty}, {mx + (w >> 1), w + ty}, {mx - (w >> 1), w + ty}}, 0,
+                         colour_pass ? place_pen : -1, top); // (outlined in the colour pass only)
             }
             if (t & 0x2000) {
                 // A tree ($205538, pen 12): a trunk, then three branches, all
