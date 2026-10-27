@@ -1,10 +1,13 @@
 #pragma once
 #include "amiga/hunk.hpp"
 #include "wings_of_fury_amiga/data/assets.hpp"
+#include "wings_of_fury_amiga/game/dashboard.hpp"
 #include "wings_of_fury_amiga/game/effects.hpp"
 #include "wings_of_fury_amiga/game/ffp.hpp"
 #include <array>
+#include <cstdint>
 #include <string>
+#include <vector>
 
 // The player's Hellcat: how it taxis, takes off, flies, turns, lands and
 // crashes. Rebuilt from `wings`' compiled-C flight code ($10C660 and the
@@ -28,6 +31,43 @@ constexpr int fire_held = 0x10;  // a press held 10 ticks or longer
 constexpr int fire_tapped = 0x20; // a shorter press
 } // namespace command
 
+// The sound effects (`sounds/*`, loaded by $103368).
+enum class Sample : std::uint8_t { none, boom, splash, machinegun, engine, grind, clang, screech, scream };
+
+// The game's sound board ($101F76 .. $102306). Each of Paula's four channels
+// has two requests; the tick's driver ($102066) plays the first that is
+// active, else the second, and starts, retunes or stops the channel when
+// that changes. Events (a blast, a splash, the elevator, a landing) set a
+// request and clear what the channel last started, so it starts again.
+struct SoundRequest {
+    bool active{};
+    Sample sample{};
+    int length{};  // bytes (played as whole words)
+    int period{}, volume{};
+    int repeat{};  // 1: once; $FFFF: on and on
+};
+struct SoundBoard {
+    struct Channel {
+        std::array<SoundRequest, 2> request{};
+        Sample playing{};         // +$10: the sample last started
+        int playing_period{}, playing_volume{};
+    };
+    std::array<Channel, 4> channels{};
+    // The engine's drone: loudness and pitch ease toward targets the flight
+    // code sets (-$5BD2 toward -$5BD6, -$5BD0 toward -$5BD4 + climb / 128 +
+    // altitude / 16).
+    int engine_level{}, engine_target{};
+    int engine_period{}, engine_base{};
+    std::array<int, 9> lengths{}; // by Sample: the files' lengths
+    // What the driver did this tick, for the host's Paula.
+    struct Command {
+        enum class Kind : std::uint8_t { start, retune, stop } kind{};
+        int channel{};
+        SoundRequest request{};
+    };
+    std::vector<Command> commands;
+};
+
 // What the flight code needs from the map and the ships.
 struct FlightTables {
     // `wings` data, read at load (addresses in flight.cpp).
@@ -36,7 +76,7 @@ struct FlightTables {
     std::array<int, 6> turn_height{};         // $115A54
     std::array<ffp::Ffp, 26> turn_speed{};    // $115A60: horizontal speed factor per turn step
     std::array<ffp::Ffp, 91> sine{};          // $115AC8: sin of 0..90 degrees
-    std::array<int, 20> attitude{};           // $115A2C: the propeller index per pitch step
+    std::array<int, 20> attitude{};           // $115A2C: the attitude (gun flash and gear frames) per pitch step
     std::array<std::string, 20> flying_names{}; // $115D34
     std::array<std::string, 26> turn_left_names{}, turn_right_names{}; // $115C64, $115CCC
     std::array<std::string, 12> deck_names{};    // $115C34
@@ -47,6 +87,12 @@ struct FlightTables {
     int pitch_rate{};                          // $115E6A (600)
     std::array<int, 3> weapon_loads{};         // $114B4D: rockets, bombs, torpedo
     std::array<std::string, 2> wreck_names{};  // `hcr5` facing right, `hcrf` facing left ($10C88C)
+    // The game's trigonometry: sine over a quarter (-$6692, 257 words of a
+    // 1024-step circle, x 32767), the cotangent-like table the guns' line of
+    // fire uses (-$6892, 256 words) and the arctangent (-$5810, 257 bytes).
+    std::array<int, 257> sine_quarter{};
+    std::array<int, 256> slope{};
+    std::array<int, 257> arctangent{};
 };
 FlightTables read_flight_tables(const amiga::LoadedImage& wings);
 
@@ -118,6 +164,8 @@ struct FlightWorld {
     int weapon{1};                    // -$5C5A: 0 rockets, 1 bombs, 2 torpedo
     int weapon_load{};                // -$5C91 ($FF: none)
     int spare_planes{3};              // -$5CA2
+    long score{};                     // -$5CB2
+    int kills{};                      // -$5C7F: enemy planes shot down
     int caught_wire_x{};              // -$42C4: the wire the hook caught (drawn as a cable)
     // The elevator moves once per drawn frame: it steps on a tick only when
     // the draw counter (-$5C36) has changed since the last step (-$3CAC).
@@ -131,7 +179,30 @@ struct FlightWorld {
     Effects effects;
     CRandom random;
     BeamRandom beam;
+    SoundBoard sound;
     DeckCrew crew;    // the deck crew's flags, stepped as frames are drawn
+    DashboardGauges gauges; // the dashboard's needles, lights and rolling digits
+    // The weapons ($10B5B0, $1007F2, $100A72, $1019BC).
+    bool guns{};                      // -$5C94: the guns firing
+    int gun_supply{};                 // -$50EA: $600 for a new plane; never counts down
+    std::int32_t gravity{0x6000};     // -$5CAE: what falling weapons gain per tick ($103562)
+    // The frame's copies the tick reads ($100F88): the camera (-$41A2), the
+    // altitude (-$419E) and the 1/8 view (-$60CA); and whether a frame was
+    // drawn since the last tick (-$41C2). Set by the caller before a tick.
+    int frame_camera{}, frame_altitude{};
+    bool frame_eighth{}, frame_drawn{};
+    // $101274 at the end of each tick: the plane as the weapons see it.
+    struct Snapshot {
+        int speed_y{}, speed_x{}, x{}, altitude{};
+        int pitch{}; // -$5BFA: the smoothed climb in the game's angle steps (1024 to the circle)
+    } last;
+    // The islands' gun posts (`pila` columns, -$5AFA, $103236): the map byte
+    // offset of each, and whether it still stands. Rockets home on them.
+    struct GunPost {
+        int offset{};
+        bool standing{true};
+    };
+    std::vector<GunPost> gun_posts;
     // Set by the tick, for the game around it.
     int blackout{};                   // -$3BAC: a plane was lost; the view goes black this many waits
     bool game_over{};                 // -$5C9C / -$5C3C: no plane left (or no carrier)
@@ -141,6 +212,18 @@ struct FlightWorld {
 // elevator down with the weapon menu shown. `random_load` stands for the
 // record's +$10 (the original takes the beam position: random 6..9).
 void new_plane(PlayerFlight&, FlightWorld&, const FlightTables&, int random_load);
+
+// The sound file each Sample is (`sounds/boom`, ...), or nullptr.
+const data::Sample* sample_file(const data::Assets&, Sample);
+// Their lengths in bytes, by Sample.
+std::array<int, 9> sample_lengths(const data::Assets&);
+
+// $101F76: the sound board's requests as a mission starts; `lengths` gives
+// each sample's length in bytes (by Sample).
+void set_up_sounds(FlightWorld&, const std::array<int, 9>& lengths);
+
+// The gun posts of the world's map, as the mission start finds them.
+void find_gun_posts(FlightWorld&);
 
 // One logic tick ($101386: the timers, then the flight code $10C660).
 void flight_tick(PlayerFlight&, FlightWorld&, const FlightTables&, int command);

@@ -22,6 +22,7 @@
 #include "platform/files.hpp"
 #include "platform/host.hpp"
 #include "wings_of_fury_amiga/data/assets.hpp"
+#include "wings_of_fury_amiga/game/dashboard.hpp"
 #include "wings_of_fury_amiga/game/ffp.hpp"
 #include "wings_of_fury_amiga/game/flight.hpp"
 #include "wings_of_fury_amiga/game/module.hpp"
@@ -83,23 +84,29 @@ constexpr std::uint32_t random_seed = 0x11696A;
 class Recording {
 public:
     using Range = std::pair<std::uint32_t, std::uint32_t>;
-    static constexpr std::array<Range, 6> all_ranges = {{{0x114680, 0x115F00},
+    static constexpr std::array<Range, 7> all_ranges = {{{0x114680, 0x115F00},
                                                          {0x116C80, 0x116CE0},
                                                          {0x117080, 0x1172C0},
                                                          {0x117D30, 0x117EC0},
                                                          {0x116960, 0x116970},
+                                                         {0x116D80, 0x116DE0},
                                                          {splash_list, splash_list + 21 * 4}}};
 
     explicit Recording(const std::string& file) : bytes_(platform::read_file(platform::utf8_path(file))) {
         const std::string magic = bytes_.size() < 8 ? "" : std::string(bytes_.begin(), bytes_.begin() + 8);
-        if (magic == "WOFREC3\n") {
-            range_count_ = 6;
-        } else if (magic != "WOFREC2\n") {
-            throw std::runtime_error("not a WOFREC2/3 recording");
+        if (magic == "WOFREC4\n") {
+            ranges_ = {0, 1, 2, 3, 4, 5, 6};
+        } else if (magic == "WOFREC3\n") {
+            ranges_ = {0, 1, 2, 3, 4, 6};
+        } else if (magic == "WOFREC2\n") {
+            ranges_ = {0, 1, 2, 3};
+        } else {
+            throw std::runtime_error("not a WOFREC2/3/4 recording");
         }
-        for (std::size_t i = 0; i < range_count_; ++i) size_ += all_ranges[i].second - all_ranges[i].first;
+        for (const auto i : ranges_) size_ += all_ranges[i].second - all_ranges[i].first;
     }
-    bool has_effects() const { return range_count_ == 6; }
+    bool has_effects() const { return ranges_.size() >= 6; }
+    bool has_frame_copies() const { return ranges_.size() == 7; }
     std::uint32_t u32(std::size_t tick, std::uint32_t address) const {
         return std::uint32_t(s16(tick, address) & 0xFFFF) << 16 | std::uint32_t(s16(tick, address + 2) & 0xFFFF);
     }
@@ -120,7 +127,7 @@ private:
     std::size_t base(std::size_t tick) const { return 8 + tick * (2 + size_); }
     std::size_t offset(std::size_t tick, std::uint32_t address) const {
         std::size_t at = base(tick) + 2;
-        for (std::size_t i = 0; i < range_count_; ++i) {
+        for (const auto i : ranges_) {
             const auto [a, b] = all_ranges[i];
             if (address >= a && address < b) return at + (address - a);
             at += b - a;
@@ -128,7 +135,7 @@ private:
         throw std::runtime_error("address outside the recording");
     }
     std::vector<std::uint8_t> bytes_;
-    std::size_t range_count_ = 4;
+    std::vector<std::size_t> ranges_;
     std::size_t size_{};
 };
 
@@ -137,6 +144,19 @@ using wings::game::PlayerFlight;
 
 int r16(const Recording& r, std::size_t k, std::uint32_t address) {
     return r.s16(k, address);
+}
+
+// The dashboard's stepping state (-$30D4 .. -$309E).
+wings::game::DashboardGauges recorded_gauges(const Recording& rec, std::size_t at) {
+    wings::game::DashboardGauges g;
+    g.oil_needle = r16(rec, at, 0x117EAC);
+    g.fuel_needle = r16(rec, at, 0x117EAE);
+    g.oil_blink = r16(rec, at, 0x117EB2);
+    g.fuel_blink = r16(rec, at, 0x117EB4);
+    g.load_tens = r16(rec, at, 0x117E7E);
+    g.load_units = r16(rec, at, 0x117E80);
+    g.spares_roll = r16(rec, at, 0x117E82);
+    return g;
 }
 
 void load_player(const Recording& r, std::size_t k, PlayerFlight& p) {
@@ -186,15 +206,34 @@ void load_player(const Recording& r, std::size_t k, PlayerFlight& p) {
 // The blasts (-$6350: 15 x $2A bytes) and, in WOFREC3, the splash list.
 constexpr std::uint32_t blast_table = 0x114C02;
 void load_effects(const Recording& r, std::size_t k, wings::game::Effects& e) {
-    for (std::size_t i = 0; i < e.blasts.size(); ++i) {
+    using Kind = wings::game::FlyingObject::Kind;
+    for (std::size_t i = 0; i < e.objects.size(); ++i) {
         const auto at = blast_table + std::uint32_t(i * 0x2A);
-        auto& b = e.blasts[i];
-        b.active = r.u8(k, at + 0x20) == 8;
-        b.listed = r.u8(k, at + 0xC) == 8;
-        b.x = r.s16(k, at);
-        b.y = r.s16(k, at + 4);
-        b.frame = r.u8(k, at + 0x21);
-        b.water = r.u8(k, at + 0x1F) == 0;
+        auto& o = e.objects[i];
+        o.weapon = r.s16(k, at + 0x22);
+        const auto kind = [&](int state) {
+            if (state == 0) return Kind::none;
+            if (state == 8) return Kind::blast;
+            return o.weapon == 0 ? Kind::rocket : o.weapon == 2 ? Kind::torpedo : Kind::bomb;
+        };
+        o.kind = kind(r.u8(k, at + 0x20));
+        o.listed = kind(r.u8(k, at + 0xC));
+        o.shown_x = r.s16(k, at + 8);
+        o.shown_y = r.s16(k, at + 0xA);
+        o.x = std::int32_t(r.u32(k, at));
+        o.y = std::int32_t(r.u32(k, at + 4));
+        o.dx = std::int32_t(r.u32(k, at + 0xE));
+        o.dy = std::int32_t(r.u32(k, at + 0x12));
+        o.thrust_x = std::int32_t(r.u32(k, at + 0x16));
+        o.thrust_y = std::int32_t(r.u32(k, at + 0x1A));
+        o.wake_frame = r.s16(k, at + 0x1A);
+        o.run = o.dy;
+        o.picture = r.u8(k, at + 0x1E);
+        o.surface = r.u8(k, at + 0x1F);
+        o.frame = r.u8(k, at + 0x21);
+        o.ignition = r.s16(k, at + 0x24);
+        o.angle = r.s16(k, at + 0x26);
+        o.speed = r.s16(k, at + 0x28);
     }
     if (!r.has_effects()) return;
     for (std::size_t i = 0; i < e.splashes.size(); ++i) {
@@ -212,10 +251,14 @@ void load_effects(const Recording& r, std::size_t k, wings::game::Effects& e) {
 using Started = std::vector<std::array<int, 3>>;
 Started started(const wings::game::Effects& before, const wings::game::Effects& after) {
     Started out;
-    for (std::size_t i = 0; i < after.blasts.size(); ++i) {
-        const auto &a = before.blasts[i], &b = after.blasts[i];
-        if (b.active && (!a.active || b.frame < a.frame || a.x != b.x || a.y != b.y || a.water != b.water)) {
-            out.push_back({b.water ? 1 : 0, b.x, b.y});
+    using Kind = wings::game::FlyingObject::Kind;
+    for (std::size_t i = 0; i < after.objects.size(); ++i) {
+        const auto &a = before.objects[i], &b = after.objects[i];
+        const bool water = b.surface == 0;
+        if (b.kind == Kind::blast &&
+            (a.kind != Kind::blast || b.frame < a.frame || a.pixel_x() != b.pixel_x() || a.pixel_y() != b.pixel_y() ||
+             (a.surface == 0) != water)) {
+            out.push_back({water ? 1 : 0, b.pixel_x(), b.pixel_y()});
         }
     }
     for (std::size_t i = 0; i < after.splashes.size(); ++i) {
@@ -333,9 +376,37 @@ int check_flight(const std::string& content, const std::string& map_name, const 
     load_player(rec, 0, p);
     FlightWorld w;
     w.map = map;
+    wings::game::find_gun_posts(w);
+    wings::game::set_up_sounds(w, wings::game::sample_lengths(assets));
+    // The sound from the recording's first tick: what each channel plays.
+    for (int n = 0; n < 4; ++n) {
+        const auto at = 0x117DC2 + std::uint32_t(n * 0x1E);
+        if (rec.u32(0, at) == 0) continue;
+        const int words = std::uint16_t(rec.s16(0, at + 0xA));
+        for (std::size_t i = 1; i < w.sound.lengths.size(); ++i) {
+            if (w.sound.lengths[i] / 2 == words) w.sound.channels[std::size_t(n)].playing = wings::game::Sample(i);
+        }
+    }
+    w.sound.engine_level = rec.s16(0, 0x115380);
+    w.sound.engine_target = rec.s16(0, 0x11537C);
+    w.sound.engine_period = rec.s16(0, 0x115382);
+    w.sound.engine_base = rec.s16(0, 0x11537E);
+    int sound_ticks = 0, sound_bad = 0, enemy_sound = 0;
+    // What the hardware channels were told, as the game's records keep it:
+    // the sample, the period it started at ($10EB4C retunes only the
+    // hardware's period) and the volume (a negative one is not applied).
+    std::array<int, 4> hw_words{}, hw_period{}, hw_volume{};
+    for (int n = 0; n < 4; ++n) {
+        const auto at = 0x117DC2 + std::uint32_t(n * 0x1E);
+        hw_words[std::size_t(n)] = rec.u32(0, at) == 0 ? -1 : int(std::uint16_t(rec.s16(0, at + 0xA)));
+        hw_period[std::size_t(n)] = std::uint16_t(rec.s16(0, at + 0xC));
+        hw_volume[std::size_t(n)] = std::uint16_t(rec.s16(0, at + 0xE));
+    }
     int bad_ticks = 0;
     int carrier_frames = 0, carrier_bad = 0, hidden_frames = 0, hidden_bad = 0;
-    int effects_started = 0, misplaced = 0, unchecked = 0;
+    int gauge_gaps = 0, gauge_bad = 0, gauge_unchecked = 0;
+    int weapon_checks = 0, beam_inputs = 0, damage_inputs = 0;
+    int effects_started = 0, unchecked = 0;
     if (rec.has_effects()) w.random.seed = rec.u32(0, random_seed);
     for (std::size_t k = 0; k + 1 < rec.ticks(); ++k) {
         if (resync) load_player(rec, k, p);
@@ -356,8 +427,30 @@ int check_flight(const std::string& content, const std::string& map_name, const 
         // tick starts is compared.
         load_effects(rec, k, w.effects);
         if (resync && rec.has_effects()) w.random.seed = rec.u32(k, random_seed);
+        // What the weapons read: the guns, the frame copies and the end of
+        // the last tick ($101274: the plane as recorded at this tick).
+        w.guns = rec.s16(k, 0x1152BE) != 0;
+        w.gun_supply = rec.s16(k, 0x115E68);
+        if (rec.has_frame_copies()) {
+            w.frame_camera = rec.s16(k, 0x116DB0);
+            w.frame_altitude = rec.s16(k, 0x116DB4);
+            w.frame_drawn = rec.u8(k, 0x116D90) != 0;
+        } else {
+            // (Not recorded: the plane at this tick, a frame drawn when the
+            // draw counter moved since the last.)
+            w.frame_camera = p.x;
+            w.frame_altitude = p.altitude;
+            w.frame_drawn = k == 0 || rec.s16(k, 0x11531C) != rec.s16(k - 1, 0x11531C);
+        }
+        w.frame_eighth = rec.s16(k, 0x114E88) != 0;
+        {
+            PlayerFlight at;
+            load_player(rec, k, at);
+            w.last = {at.speed_y, at.speed_x, at.x, at.altitude,
+                      std::int16_t(std::int16_t(at.smoothed_climb * 2) * 0x200 / 0x4650)};
+        }
+        w.gauges = recorded_gauges(rec, k);
         const auto effects_before = w.effects;
-        const int x_before = p.x;
         const int mode_before = p.mode;
         wings::game::flight_tick(p, w, tables, rec.command(k));
         PlayerFlight want;
@@ -366,6 +459,13 @@ int check_flight(const std::string& content, const std::string& map_name, const 
         want_world.map = map;
         load_world(rec, k + 1, want_world);
         if (!rec.has_effects()) p.next_blast = want.next_blast; // (it comes from the unrecorded seed)
+        // Hits from the islands' guns and enemy planes lower the oil (damage
+        // is not rebuilt yet): an oil drop the tick did not make is taken as
+        // recorded.
+        if (want.oil < p.oil && p.oil == rec.s16(k, 0x114FDE)) {
+            p.oil = want.oil;
+            ++damage_inputs;
+        }
         auto diff = differences(p, want);
         for (const auto& d : world_differences(w, want_world)) diff.push_back(d);
         wings::game::Effects recorded_before, recorded_after;
@@ -376,16 +476,91 @@ int check_flight(const std::string& content, const std::string& map_name, const 
         }
         const auto native = started(effects_before, w.effects);
         auto original = started(recorded_before, recorded_after);
-        // ($10B304's blast, placed by a memory address, is left out: a blast
-        // far from the plane.)
-        const auto far = [&](const std::array<int, 3>& e) {
-            return e[0] == 0 && std::abs(e[1] - x_before) > 0x40 && std::abs(e[1] - want.x) > 0x40;
-        };
-        misplaced += int(std::count_if(original.begin(), original.end(), far));
-        original.erase(std::remove_if(original.begin(), original.end(), far), original.end());
         effects_started += int(native.size());
         // Without the seed a wreck's blasts cannot be placed.
         const bool wreck = mode_before == 6 || mode_before == 8;
+        // The sound: the engine's values (-$5BD6..-$5BD0) and what each of
+        // the game's channel records (-$3190, $1E each) plays: the sample (by
+        // its length in words), period and volume.
+        {
+            ++sound_ticks;
+            for (const auto& command : w.sound.commands) {
+                if (std::getenv("WOF_SOUND_LOG")) {
+                    std::printf("tick %zu: %s ch%d sample %d period %x volume %d\n", k,
+                                command.kind == wings::game::SoundBoard::Command::Kind::start ? "start"
+                                : command.kind == wings::game::SoundBoard::Command::Kind::stop ? "stop" : "retune",
+                                command.channel, int(command.request.sample), command.request.period, command.request.volume);
+                }
+                const auto n = std::size_t(command.channel);
+                using CK = wings::game::SoundBoard::Command::Kind;
+                if (command.kind == CK::start) {
+                    hw_words[n] = w.sound.lengths[std::size_t(command.request.sample)] / 2;
+                    hw_period[n] = command.request.period;
+                    hw_volume[n] = command.request.volume;
+                } else if (command.kind == CK::retune) {
+                    if (std::int16_t(command.request.volume) >= 0) hw_volume[n] = command.request.volume;
+                } else {
+                    hw_words[n] = -1;
+                }
+            }
+            bool bad = w.sound.engine_level != rec.s16(k + 1, 0x115380) || w.sound.engine_target != rec.s16(k + 1, 0x11537C) ||
+                       (w.sound.engine_level != 0 && w.sound.engine_period != rec.s16(k + 1, 0x115382)) ||
+                       w.sound.engine_base != rec.s16(k + 1, 0x11537E);
+            std::string line;
+            for (int n = 0; n < 4; ++n) {
+                const auto at = 0x117DC2 + std::uint32_t(n * 0x1E);
+                if (rec.u32(k + 1, at) == 0) continue; // (nothing started on it)
+                // The enemies' guns and engines (channel 1, and channel 3's
+                // gun at period $140) are not rebuilt yet.
+                const int period_at = std::uint16_t(rec.s16(k + 1, at + 0xC));
+                if (n == 1 || (n == 3 && period_at == 0x140)) {
+                    ++enemy_sound;
+                    continue;
+                }
+                const int words = int(std::uint16_t(rec.s16(k + 1, at + 0xA)));
+                const int native_words = hw_words[std::size_t(n)];
+                const int period = std::uint16_t(rec.s16(k + 1, at + 0xC)), volume = std::uint16_t(rec.s16(k + 1, at + 0xE));
+                if (native_words != words || hw_period[std::size_t(n)] != period || hw_volume[std::size_t(n)] != volume) {
+                    bad = true;
+                    char text[120];
+                    std::snprintf(text, sizeof text, " ch%d %d/%d %x/%x %d/%d", n, native_words, words, hw_period[std::size_t(n)], period,
+                                  hw_volume[std::size_t(n)], volume);
+                    line += text;
+                }
+            }
+            if (bad && ++sound_bad <= 6) {
+                std::printf("tick %zu sound: engine %d %d %x %x / %d %d %x %x%s\n", k, w.sound.engine_level,
+                            w.sound.engine_target, w.sound.engine_period, w.sound.engine_base, rec.s16(k + 1, 0x115380),
+                            rec.s16(k + 1, 0x11537C), rec.s16(k + 1, 0x115382), rec.s16(k + 1, 0x11537E), line.c_str());
+            }
+            w.sound.commands.clear();
+        }
+        // The weapons in flight, field by field.
+        {
+            using Kind = wings::game::FlyingObject::Kind;
+            for (std::size_t i = 0; i < w.effects.objects.size(); ++i) {
+                const auto& a = w.effects.objects[i];
+                const auto& b = recorded_after.objects[i];
+                const auto weapon = [](Kind kind) { return kind == Kind::rocket || kind == Kind::bomb || kind == Kind::torpedo; };
+                if (!weapon(a.kind) && !weapon(b.kind)) continue;
+                ++weapon_checks;
+                const bool running = b.kind == Kind::torpedo && b.picture == 0xA;
+                // A new rocket's ignition delay comes from the beam position
+                // (hardware): taken as recorded.
+                const bool launched = effects_before.objects[i].kind == Kind::none && b.kind == Kind::rocket;
+                if (launched) ++beam_inputs;
+                if (a.kind != b.kind || a.x != b.x || a.y != b.y || a.dx != b.dx || a.picture != b.picture ||
+                    (!launched && a.ignition != b.ignition) || (running ? a.run != b.run : a.dy != b.dy)) {
+                    char line[200];
+                    std::snprintf(line, sizeof line, "slot%zu kind %d/%d x %08x/%08x y %08x/%08x dx %08x/%08x dy %08x/%08x pic %d/%d",
+                                  i, int(a.kind), int(b.kind), unsigned(a.x), unsigned(b.x), unsigned(a.y), unsigned(b.y),
+                                  unsigned(a.dx), unsigned(b.dx), unsigned(running ? a.run : a.dy),
+                                  unsigned(b.dy), a.picture, b.picture);
+                    diff.push_back(line);
+                }
+            }
+            if (w.guns != (rec.s16(k + 1, 0x1152BE) != 0)) diff.push_back("guns");
+        }
         if (!rec.has_effects() && wreck) {
             unchecked += int(original.size());
         } else if (native != original) {
@@ -436,6 +611,38 @@ int check_flight(const std::string& content, const std::string& map_name, const 
                 }
             }
         }
+        // The dashboard's needles, warning-light counters and rolling digits
+        // (-$30D4..-$309E) step once per frame drawn between the snapshots,
+        // from the values after the tick.
+        {
+            const auto load_gauges = [&](std::size_t at) { return recorded_gauges(rec, at); };
+            auto g = w.gauges; // (after the tick: it may have set the load digits)
+            wings::game::DashboardInput in;
+            in.mode = want.mode;
+            in.oil = want.oil;
+            in.fuel = want.fuel;
+            in.engine = want.engine_loud;
+            in.load = rec.u8(k + 1, 0x1152C1);
+            in.spare_planes = std::int8_t(rec.u8(k + 1, 0x1152B0));
+            const int frames = std::int16_t(rec.s16(k + 1, 0x11531C) - rec.s16(k, 0x11531C));
+            if (frames > 0 && want.fuel <= 0) {
+                ++gauge_unchecked; // (the empty fuel needle flickers by the beam position)
+            } else if (frames > 0) {
+                for (int f = 0; f < frames; ++f) g.step(in, 0);
+                const auto got = load_gauges(k + 1);
+                ++gauge_gaps;
+                if (g.oil_needle != got.oil_needle || g.fuel_needle != got.fuel_needle || g.oil_blink != got.oil_blink ||
+                    g.fuel_blink != got.fuel_blink || g.load_tens != got.load_tens || g.load_units != got.load_units ||
+                    g.spares_roll != got.spares_roll) {
+                    if (++gauge_bad <= 5) {
+                        std::printf("tick %zu gauges: %d %d %d %d %d %d %d / %d %d %d %d %d %d %d\n", k, g.oil_needle,
+                                    g.fuel_needle, g.oil_blink, g.fuel_blink, g.load_tens, g.load_units, g.spares_roll,
+                                    got.oil_needle, got.fuel_needle, got.oil_blink, got.fuel_blink, got.load_tens,
+                                    got.load_units, got.spares_roll);
+                    }
+                }
+            }
+        }
         if (!diff.empty()) {
             std::printf("tick %zu (command %02x, mode %d):", k, rec.command(k), want.mode);
             for (const auto& d : diff) std::printf(" %s", d.c_str());
@@ -443,11 +650,17 @@ int check_flight(const std::string& content, const std::string& map_name, const 
             if (++bad_ticks >= (resync ? 40 : 1)) break;
         }
     }
+    std::printf("sound: %d ticks compared, %d differ (%d channel ticks of enemy sounds not compared)\n", sound_ticks,
+                sound_bad, enemy_sound);
+    std::printf("weapons: %d slot ticks compared (%d rocket ignition delays and %d oil hits taken as recorded)\n",
+                weapon_checks, beam_inputs, damage_inputs);
+    std::printf("dashboard gauges: %d tick gaps with frames drawn, %d differ (%d with the fuel out unchecked)\n",
+                gauge_gaps, gauge_bad, gauge_unchecked);
     std::printf("carrier animation: %d tick gaps with the crew or the flag drawn, %d differ; %d off screen, %d moved\n",
                 carrier_frames, carrier_bad, hidden_frames, hidden_bad);
-    std::printf("%zu ticks, %d differ%s; %d effects started (kind:x,y; %s), %d misplaced blasts left out, %d wreck blasts unchecked\n",
+    std::printf("%zu ticks, %d differ%s; %d effects started (kind:x,y; %s), %d wreck blasts unchecked\n",
                 rec.ticks() - 1, bad_ticks, resync ? " (resynced)" : "", effects_started,
-                rec.has_effects() ? "blasts, splashes and the seed recorded" : "blasts only", misplaced, unchecked);
+                rec.has_effects() ? "blasts, splashes and the seed recorded" : "blasts only", unchecked);
     return bad_ticks == 0 ? 0 : 1;
 }
 
@@ -479,8 +692,17 @@ int simulate(const std::string& content, const std::string& map_name, const std:
     w.map = map;
     load_world(rec, 0, w);
     const auto commands = parse_script(script);
+    wings::game::find_gun_posts(w);
     for (std::size_t k = 0; k < commands.size(); ++k) {
+        // One drawn frame per tick, as the module draws.
+        ++w.draw_counter;
+        w.frame_camera = p.x;
+        w.frame_altitude = p.altitude;
+        w.frame_eighth = p.eighth_scale;
+        w.frame_drawn = true;
+        w.effects.frame_start();
         wings::game::flight_tick(p, w, tables, commands[k]);
+        w.effects.advance();
         if (int(k) % every == 0 || k + 1 == commands.size()) {
             std::printf("%4zu cmd %02x mode %d alt %4d x %6d facing %2d speed %4d climb %5d turn %2d fuel %3d %s%s\n", k,
                         commands[k], p.mode, p.altitude, p.x, p.facing, p.speed, p.climb, p.turn, p.fuel,
@@ -498,6 +720,9 @@ int play(const std::string& content, const std::string& script, const std::strin
     auto module = wings::game::start(platform::utf8_path(content));
     const auto commands = parse_script(script);
     std::filesystem::create_directories(platform::utf8_path(out));
+    // WOF_WAV=file: the sound as a 16-bit stereo WAV at 44,100 Hz.
+    const char* wav = std::getenv("WOF_WAV");
+    std::vector<std::int16_t> audio;
     for (std::size_t k = 0; k < commands.size(); ++k) {
         app::GameInput input;
         input.up = commands[k] & 1;
@@ -505,10 +730,33 @@ int play(const std::string& content, const std::string& script, const std::strin
         input.right = commands[k] & 4;
         input.left = commands[k] & 8;
         input.fire = (commands[k] & 0x30) != 0; // held for the tick: released within 10 blanks = a tap
-        for (int v = 0; v < 4; ++v) module->tick(input);
+        for (int v = 0; v < 4; ++v) {
+            module->tick(input);
+            if (wav) {
+                // (1/50 s at 44,100 Hz; reused, as the app does)
+                static std::vector<float> frame(882 * 2);
+                module->audio(frame, 44100);
+                for (float f : frame) audio.push_back(std::int16_t(std::clamp(f, -1.0f, 1.0f) * 32767.0f));
+            }
+        }
         if (wanted.count(int(k))) {
             platform::save_png(module->picture(), platform::utf8_path(out) / ("tick" + std::to_string(k) + ".png"));
         }
+    }
+    if (wav) {
+        std::vector<std::uint8_t> file;
+        const auto put = [&](std::uint32_t v, int bytes) {
+            for (int i = 0; i < bytes; ++i) file.push_back(std::uint8_t(v >> (8 * i)));
+        };
+        const auto bytes = std::uint32_t(audio.size() * 2);
+        for (char c : std::string("RIFF")) file.push_back(std::uint8_t(c));
+        put(36 + bytes, 4);
+        for (char c : std::string("WAVEfmt ")) file.push_back(std::uint8_t(c));
+        put(16, 4); put(1, 2); put(2, 2); put(44100, 4); put(44100 * 4, 4); put(4, 2); put(16, 2);
+        for (char c : std::string("data")) file.push_back(std::uint8_t(c));
+        put(bytes, 4);
+        for (auto v : audio) put(std::uint16_t(v), 2);
+        platform::write_file(platform::utf8_path(wav), file);
     }
     return 0;
 }

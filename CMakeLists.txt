@@ -202,6 +202,7 @@ add_library(wings_of_fury_amiga
     src/wings_of_fury_amiga/data/preview.cpp
     src/wings_of_fury_amiga/data/shapes.cpp
     src/wings_of_fury_amiga/game/ffp.cpp
+    src/wings_of_fury_amiga/game/dashboard.cpp
     src/wings_of_fury_amiga/game/effects.cpp
     src/wings_of_fury_amiga/game/flight.cpp
     src/wings_of_fury_amiga/game/module.cpp

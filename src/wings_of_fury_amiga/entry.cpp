@@ -44,10 +44,11 @@ app::GameEntry entry() {
         .import = import::import_disk,
         .previews = previews,
         .start = game::start,
-        .progress = "Free flight on the first mission's map: take off from the carrier, fly, turn, climb into the "
-                    "high view and land on the carrier's arresting wires; crashes with explosions, fire, smoke "
-                    "and splashes, the next plane on the elevator, the deck crew's flags. Not rebuilt yet: "
-                    "enemies, weapons, sound, the front end and the missions.",
+        .progress = "The first mission's map: take off from the carrier, fly, turn, climb into the high view "
+                    "and land on the carrier's arresting wires; bombs, rockets, torpedoes and guns; the "
+                    "cockpit dashboard; crashes with explosions, fire, smoke and splashes; the sound "
+                    "effects. Not rebuilt yet: the islands' defences and targets, enemies, the music, the "
+                    "front end and the missions.",
     };
 }
 

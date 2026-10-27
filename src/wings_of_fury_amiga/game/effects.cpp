@@ -17,6 +17,12 @@ constexpr int island_surface = 2;
 constexpr int smoke_frames = 0x60;    // entry + size (1..6): smk0..smk5
 constexpr int frames_per_size = 6;    // +$12 counts 6..0 (seven frames)
 constexpr std::int32_t one = 0x10000;
+constexpr int bomb_pictures = 0x40;   // torpedo.shp by the game's list: bom0..bomb
+constexpr int rocket_pictures = 0x4C; // rc01.. (burning)
+constexpr int rocket_unlit = 0x74;    // ro01.. (before the motor lights)
+constexpr int torpedo_right = 0x88, torpedo_left = 0x89;
+constexpr int torpedo_running = 0xA;
+constexpr int eighth_scale_weapon = 9;
 
 // $105174: an entry at world (x, y): the screen y is the ground line + $B - y;
 // in the 1/8 view both are scaled down by 8 (from the 1/8-scale table);
@@ -31,19 +37,33 @@ void put(IndexedCanvas& canvas, const data::Assets& assets, const EffectView& vi
     canvas.draw(*shape, sx - shape->offset_x, sy - shape->offset_y);
 }
 
+// The same placement for the weapons' own pictures.
+void put_weapon(IndexedCanvas& canvas, const data::Assets& assets, const EffectView& view, int entry, int x, int y) {
+    const auto* shape = data::weapon_shape(assets, entry);
+    const int origin = std::int16_t(view.camera + std::int16_t(0xFF60));
+    const int sx = std::int16_t(x - origin);
+    const int sy = std::int16_t(-y + 0xB + view.ground_line);
+    if (shape == nullptr || sx < -0x80 || sx > 0x1C0) return;
+    canvas.draw(*shape, sx - shape->offset_x, sy - shape->offset_y);
+}
+
 } // namespace
 
-void Effects::start_blast(int column, int height, bool water) {
-    for (auto& b : blasts) {
-        if (b.active) continue;
-        b = Blast{};
-        b.active = true;
-        b.x = column * 8;
-        b.y = blast_base_y + height;
+bool Effects::start_blast_at(int x, int height, bool water) {
+    for (auto& b : objects) {
+        if (b.active()) continue;
+        // Only the whole parts of x and y are written; the speeds are cleared.
+        b.dx = b.dy = 0;
+        b.set_pixel_x(x);
+        b.set_pixel_y(blast_base_y + height);
+        b.picture = 0;
+        b.weapon = 1;
+        b.kind = FlyingObject::Kind::blast;
         b.frame = 1;
-        b.water = water;
-        return;
+        b.surface = water ? 0 : 2;
+        return true;
     }
+    return false;
 }
 
 void Effects::start_splash(int x, int surface) {
@@ -73,7 +93,11 @@ void Effects::start_smoke(int x, int y, int size, BeamRandom& beam) {
 }
 
 void Effects::frame_start() {
-    for (auto& b : blasts) b.listed = b.active;
+    for (auto& b : objects) {
+        b.listed = b.kind;
+        b.shown_x = b.pixel_x();
+        b.shown_y = b.pixel_y();
+    }
 }
 
 void Effects::advance() {
@@ -95,10 +119,10 @@ void Effects::advance() {
         s.shown = s.left;
         if (s.left > 0) --s.left;
     }
-    for (auto& b : blasts) {
-        if (!b.listed) continue;
+    for (auto& b : objects) {
+        if (b.listed != FlyingObject::Kind::blast) continue;
         if (++b.frame == blast_frames_end) {
-            b.active = false;
+            b.kind = FlyingObject::Kind::none;
             b.frame = 0;
         }
     }
@@ -119,9 +143,32 @@ void draw_effects(IndexedCanvas& canvas, const data::Assets& assets, const Effec
         if (s.dust) put(canvas, assets, view, dust_frame, s.x, dust_y);
         else put(canvas, assets, view, splash_frames + s.shown, s.x, splash_y);
     }
-    for (const auto& b : effects.blasts) {
-        if (!b.listed || !b.active) continue;
-        put(canvas, assets, view, (b.water ? water_frames : fire_frames) + b.frame, b.x, b.y);
+    // $1006BE: blasts, and weapons in flight (torpedo.shp; in the 1/8 view
+    // every weapon is entry 9 of the 1/8-scale table, `bumb`: a dot).
+    for (const auto& b : effects.objects) {
+        if (b.listed == FlyingObject::Kind::blast) {
+            // (advance() has freed the slot after its last frame.)
+            if (b.kind == FlyingObject::Kind::blast) {
+                put(canvas, assets, view, (b.surface == 0 ? water_frames : fire_frames) + b.frame, b.shown_x, b.shown_y);
+            }
+            continue;
+        }
+        if (b.listed == FlyingObject::Kind::none) continue;
+        if (b.listed == FlyingObject::Kind::torpedo && b.picture == torpedo_running) continue;
+        if (view.eighth_scale) {
+            put(canvas, assets, view, eighth_scale_weapon, b.shown_x, b.shown_y);
+            continue;
+        }
+        int entry = 0;
+        switch (b.listed) {
+        case FlyingObject::Kind::bomb: entry = bomb_pictures + b.picture; break;
+        case FlyingObject::Kind::torpedo:
+            if (b.picture == torpedo_running) continue;
+            entry = std::int8_t(b.surface) < 0 ? torpedo_left : torpedo_right;
+            break;
+        default: entry = (b.ignition != 0 ? rocket_unlit : rocket_pictures) + b.picture; break;
+        }
+        put_weapon(canvas, assets, view, entry, b.shown_x, b.shown_y);
     }
 }
 

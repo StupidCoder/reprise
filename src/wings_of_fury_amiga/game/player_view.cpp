@@ -8,8 +8,8 @@ constexpr int screen_centre = 0xA0;
 constexpr int normal_bottom = 0xA1; // the plane's clip bottom ($100462)
 constexpr int deck_clip_base = 0xA2;
 constexpr int gear_lift = 5;
-constexpr int propeller_first = 0x43; // fa*
-constexpr int propeller_second = 0x57; // fb*
+constexpr int flash_first = 0x43; // fa*
+constexpr int flash_second = 0x57; // fb*
 constexpr int facing_left_step = 10;
 
 constexpr int elevator_entry = 0x25;
@@ -67,12 +67,12 @@ void draw_weapon_menu(IndexedCanvas& canvas, const data::Assets& assets, int wea
     }
 }
 
-const data::Shape* propeller_shape(const data::Assets& assets, bool engine_running, bool upset, int counter, int attitude,
+const data::Shape* gun_flash_shape(const data::Assets& assets, bool guns_firing, bool upset, int counter, int attitude,
                                    bool facing_left) {
-    if (!engine_running || upset) return nullptr;
-    const int step = assets.propeller_steps[std::size_t(counter & 3)];
+    if (!guns_firing || upset) return nullptr;
+    const int step = assets.gun_flash_steps[std::size_t(counter & 3)];
     if (step == 0) return nullptr;
-    const int entry = attitude - gear_lift + (step == 1 ? propeller_first : propeller_second) +
+    const int entry = attitude - gear_lift + (step == 1 ? flash_first : flash_second) +
                       (facing_left ? facing_left_step : 0);
     return data::hellcat_shape(assets, entry);
 }
@@ -130,8 +130,8 @@ void draw_player(IndexedCanvas& canvas, const PlayerPicture& player) {
     if (player.deck_part_shown && player.upset) put(player.deck_part, player.deck_part_mirrored, y);
     canvas.clip = saved; // $10524A: the full view again
 
-    if (player.propeller != nullptr) {
-        canvas.draw_xor(*player.propeller, x - player.propeller->offset_x, y - player.propeller->offset_y);
+    if (player.gun_flash != nullptr) {
+        canvas.draw_xor(*player.gun_flash, x - player.gun_flash->offset_x, y - player.gun_flash->offset_y);
     }
 }
 

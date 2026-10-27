@@ -26,6 +26,8 @@ public:
     struct Write {
         const LoadedImage* image{}; // where the samples are
         std::uint32_t data{};       // address of the first sample
+        // Or the samples themselves (a sample file), `data` an offset into them.
+        std::span<const std::int8_t> samples{};
         std::uint32_t length{};     // bytes
         std::uint16_t period{}, volume{};
         int cycles{};               // 0: repeat until flushed

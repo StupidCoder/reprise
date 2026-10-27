@@ -4,6 +4,7 @@
 //   wings_of_fury_assets import <image.adf> <content folder>
 //   wings_of_fury_assets export <content folder> <output folder>
 //   wings_of_fury_assets view <content folder> <map> <state file> <out.png>
+//   wings_of_fury_assets dash <content folder> <map> <grab> <out.idx>
 //
 // The export writes PNG pictures, the samples as 8-bit WAV files (at 8,000 Hz:
 // the playback periods are not read yet), each library's shape headers as a
@@ -13,6 +14,7 @@
 #include "platform/host.hpp"
 #include "wings_of_fury_amiga/data/assets.hpp"
 #include "wings_of_fury_amiga/data/preview.hpp"
+#include "wings_of_fury_amiga/game/dashboard.hpp"
 #include "wings_of_fury_amiga/game/player_view.hpp"
 #include "wings_of_fury_amiga/game/scenery.hpp"
 #include "wings_of_fury_amiga/import/disk_import.hpp"
@@ -226,7 +228,7 @@ int main(int argc, char** argv) {
             deck.vertical_scroll = state.vertical_scroll;
             deck.deck = player.carrier_deck;
             deck.bob = player.carrier_bob;
-            player.propeller = wings::game::propeller_shape(assets, propeller.engine, player.upset, propeller.counter,
+            player.gun_flash = wings::game::gun_flash_shape(assets, propeller.engine, player.upset, propeller.counter,
                                                             propeller.attitude, propeller.left);
             for (const auto& map : assets.maps) {
                 if (map.name != argv[3]) continue;
@@ -251,8 +253,64 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "wings_of_fury_assets: no map %s\n", argv[3]);
             return 1;
         }
+        if (command == "dash" && argc == 6) {
+            // dash <content> <map> <grab> <out.idx>: the dashboard
+            // (game/dashboard) from a harness/dashgrab.py grab: GRAB.a4 (the
+            // small-data area that drew it) and GRAB.cache (that buffer's
+            // dashboard cache: the warning lights and needles it shows).
+            const auto assets = load_assets(platform::utf8_path(argv[2]));
+            const std::string grab = argv[4];
+            const auto a4 = platform::read_file(platform::utf8_path(grab + ".a4"));
+            int cache = 0;
+            if (auto* f = std::fopen((grab + ".cache").c_str(), "r")) {
+                if (std::fscanf(f, "%d", &cache) != 1) cache = 0;
+                std::fclose(f);
+            }
+            const auto u8 = [&](int off) { return int(a4[std::size_t(0x8000 - off)]); };
+            const auto s16 = [&](int off) { return int(std::int16_t(u8(off) << 8 | u8(off - 1))); };
+            const auto s32 = [&](int off) { return long(std::int32_t(std::uint32_t(s16(off)) << 16 | std::uint16_t(s16(off - 2)))); };
+            wings::game::DashboardInput in;
+            in.mode = s16(0x5F7A);
+            in.oil = s16(0x5F74);
+            in.fuel = s16(0x5F78);
+            in.engine = s16(0x3216) != 0;
+            in.weapon = s16(0x5C5A);
+            in.load = u8(0x5C91);
+            in.spare_planes = std::int8_t(u8(0x5CA2));
+            in.score = s32(0x5CB2);
+            in.kills = u8(0x5C7F);
+            in.camera = s16(0x41A2);
+            in.altitude = s16(0x419E);
+            in.facing = s16(0x5F72);
+            in.eighth_scale = s16(0x60C8) == 1;
+            // The ships $104A52 searches: active enemy slots, then the carrier.
+            const std::pair<int, int> slots[] = {{0x5B9E, 0x5C84}, {0x5B80, 0x5C87}, {0x5B62, 0x5C83}, {0x5B44, 0x5C86}};
+            for (const auto& [ship, flag] : slots) {
+                if (u8(flag)) in.ships.push_back({s16(ship), s16(ship - 2), s16(ship - 0x1C), s16(ship - 0x12)});
+            }
+            in.ships.push_back({s16(0x5B26), s16(0x5B26 - 2), s16(0x5B26 - 0x1C), s16(0x5B26 - 0x12)});
+            wings::game::DashboardGauges gauges;
+            const int c = 0x30CE - cache; // the buffer's cache: light, needle (oil), light, needle (fuel)
+            gauges.oil_lit = s16(c) == 0x10;
+            gauges.oil_needle = s16(c - 2);
+            gauges.fuel_lit = s16(c - 4) == 0x10;
+            gauges.fuel_needle = s16(c - 6);
+            gauges.load_tens = s16(0x30D4);
+            gauges.load_units = s16(0x30D2);
+            gauges.spares_roll = s16(0x30D0);
+            for (const auto& map : assets.maps) {
+                if (map.name != argv[3]) continue;
+                in.map = &map;
+                const auto tables = wings::game::read_dashboard_tables(assets.program);
+                const auto canvas = wings::game::draw_dashboard(assets, tables, gauges, in);
+                platform::write_file(platform::utf8_path(argv[5]), canvas.pixels);
+                return 0;
+            }
+            std::fprintf(stderr, "wings_of_fury_assets: no map %s\n", argv[3]);
+            return 1;
+        }
         std::fprintf(stderr, "usage: wings_of_fury_assets import <adf> <content> | export <content> <out> | "
-                             "view <content> <map> <state file> <out.png>\n");
+                             "view <content> <map> <state file> <out.png> | dash <content> <map> <grab> <out.idx>\n");
         return 2;
     } catch (const std::exception& error) {
         std::fprintf(stderr, "wings_of_fury_assets: %s\n", error.what());

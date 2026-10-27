@@ -61,14 +61,19 @@ void Paula::render(std::span<float> stereo, int rate, const Done& done) {
                 continue;
             }
             const Write& w = c.queue.front();
-            if (w.length == 0 || w.image == nullptr) {
+            if (w.length == 0 || (w.image == nullptr && w.samples.empty())) {
                 c.queue.pop_front();
                 done(n, w.tag);
                 start_front(c);
                 continue;
             }
             const auto at = w.data + std::uint32_t(c.position);
-            const float sample = w.image->contains(at) ? float(w.image->s8(at)) / 128.0f : 0.0f;
+            float sample = 0.0f;
+            if (w.image != nullptr) {
+                sample = w.image->contains(at) ? float(w.image->s8(at)) / 128.0f : 0.0f;
+            } else if (at < w.samples.size()) {
+                sample = float(w.samples[at]) / 128.0f;
+            }
             const int volume = c.volume > 64 ? 64 : c.volume;
             mix[(n == 1 || n == 2) ? 1 : 0] += sample * float(volume) / 64.0f * 0.5f;
             const std::uint16_t period = c.period == 0 ? 1 : c.period;

@@ -33,10 +33,11 @@ constexpr int rank_count = 7;
 constexpr std::uint32_t story_pointer = 0x1158E0;
 constexpr int story_lines = 0x35;
 constexpr std::uint32_t us_flag_steps = 0x114BA1; // -$63B1(A4), read by $103D10
-constexpr std::uint32_t propeller_steps = 0x114B5C; // -$63F6(A4), read by $10063A
+constexpr std::uint32_t gun_flash_steps = 0x114B5C; // -$63F6(A4), read by $10063A
 // The Hellcat name list (-$72CA(A4)): hellcat.shp is loaded with it ($1029F4),
 // so the pointer list -$417C follows its order. Ends with a zero long.
 constexpr std::uint32_t hellcat_names = 0x113C88;
+constexpr std::uint32_t weapon_names = 0x1142F4; // -$6C5E(A4), looked up in torpedo.shp ($102A2E)
 
 // The scenery table's parts in order ($10535A copies 184, 24, 27, 13 and 25
 // entries; the loaders pair each library with its name list).
@@ -118,6 +119,14 @@ const Shape* hellcat_shape(const Assets& assets, int index) {
     return nullptr;
 }
 
+const Shape* weapon_shape(const Assets& assets, int index) {
+    if (index < 0 || std::size_t(index) >= assets.weapon_names.size()) return nullptr;
+    for (const auto& library : assets.libraries) {
+        if (library.name == "torpedo.shp") return library.library.find(assets.weapon_names[std::size_t(index)]);
+    }
+    return nullptr;
+}
+
 const Shape* eighth_scale_shape(const Assets& assets, int index) {
     if (index < 0 || std::size_t(index) >= assets.scenery.size()) {
         return nullptr;
@@ -189,12 +198,17 @@ Assets load_assets(const std::filesystem::path& content) {
         }
         for (std::size_t i = 0; i < assets.us_flag_steps.size(); ++i) {
             assets.us_flag_steps[i] = wings.u8(us_flag_steps + std::uint32_t(i));
-            assets.propeller_steps[i] = wings.u8(propeller_steps + std::uint32_t(i));
+            assets.gun_flash_steps[i] = wings.u8(gun_flash_steps + std::uint32_t(i));
         }
         for (std::uint32_t at = hellcat_names; wings.u32(at) != 0; at += 4) {
             std::string name;
             for (std::uint32_t c = 0; c < 4; ++c) name += char(wings.u8(at + c));
             assets.hellcat_names.push_back(std::move(name));
+        }
+        for (std::uint32_t at = weapon_names; wings.u32(at) != 0; at += 4) {
+            std::string name;
+            for (std::uint32_t c = 0; c < 4; ++c) name += char(wings.u8(at + c));
+            assets.weapon_names.push_back(std::move(name));
         }
         std::uint32_t line = wings.u32(story_pointer);
         for (int i = 0; i < story_lines; ++i) {

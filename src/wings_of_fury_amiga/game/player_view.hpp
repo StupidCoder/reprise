@@ -45,21 +45,21 @@ struct PlayerPicture {
     bool gear_shown{};
     int gear_offset{};    // after this frame's step
     // -$4086 (from -$5BF0, the turn step): while turning the gear and the
-    // propeller are not drawn.
+    // gun flash are not drawn.
     bool upset{};
-    // The propeller blur, XORed over the plane ($110E24); null on frames
-    // without it (see propeller_shape).
-    const data::Shape* propeller{};
+    // The guns' muzzle flash, XORed over the plane ($110E24); null on frames
+    // without it (see gun_flash_shape).
+    const data::Shape* gun_flash{};
     bool eighth_scale{};
 };
 
-// The propeller blur for a frame ($10063A): while the engine runs (-$5C94)
-// and the plane is not upset, the counter -$5C76 steps 0..3 each frame and
+// The muzzle flash for a frame ($10063A): while the guns fire (-$5C94) and
+// the plane is not upset, the counter -$5C76 steps 0..3 each frame and
 // picks a step from `wings` $114B5C (-$63F6); step 0 shows nothing, step 1
 // the Hellcat entry attitude - 5 + $43 (fa*), any other step attitude - 5 +
 // $57 (fb*), each 10 entries further when the plane faces left (-$4084 < 0).
 // `attitude` is -$5A6C. Returns null when nothing is shown.
-const data::Shape* propeller_shape(const data::Assets&, bool engine_running, bool upset, int counter, int attitude,
+const data::Shape* gun_flash_shape(const data::Assets&, bool guns_firing, bool upset, int counter, int attitude,
                                    bool facing_left);
 
 // The plane in the 1/8-scale view ($100468): not -$5F82 but an 8thscale.shp

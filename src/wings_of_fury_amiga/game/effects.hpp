@@ -7,10 +7,11 @@
 
 // The short-lived pictures a crash leaves, and the carrier's deck crew:
 //
-// - blasts: the object table `wings` also flies its bombs, rockets and
-//   torpedoes in (-$6350, 15 slots; only the explosion state 8 is rebuilt).
-//   A blast plays world.shp `exp0`..`exp5` (fire turning into smoke) on land
-//   and ships, `spl0`..`spl5` on water, one frame per drawn frame ($1006BE).
+// - the object table (-$6350, 15 slots): the player's rockets, bombs and
+//   torpedoes in flight (moved by the tick, flight.cpp) and blasts. A blast
+//   plays world.shp `exp0`..`exp5` (fire turning into smoke) on land and
+//   ships, `spl0`..`spl5` on water, one frame per drawn frame ($1006BE); a
+//   weapon becomes a blast where it hits.
 // - splashes: the list -$40CE (20 entries) of water splashes (`spl5`..`spl1`)
 //   and, over an island, dust (`ric0`) ($1052AC, drawn by $1052F8).
 // - smoke: the puff list -$40A6 (40 entries; $105460, drawn by $100EE0),
@@ -44,13 +45,34 @@ struct BeamRandom {
     }
 };
 
-struct Blast {
-    bool active{};    // +$20 = 8
-    bool listed{};    // +$C: active when the frame began ($100FBA copies it)
-    int x{};          // +0: the column's left edge (a multiple of 8)
-    int y{};          // +4: height of the blast's foot above the ground line - $B
-    int frame{};      // +$21: 1 when started, 2..7 drawn, 8 ends it
-    bool water{};     // +$1F = 0: a splash of water instead of fire and smoke
+// A slot of the object table. Positions and speeds are 16.16 fixed point;
+// the game rewrites only the whole part of some of them, so a slot keeps its
+// fractions from one use to the next.
+struct FlyingObject {
+    enum class Kind : std::uint8_t { none, blast, rocket, bomb, torpedo };
+    Kind kind{};                          // +$20 (8: blast) and +$22 (0 rocket, 1 bomb, 2 torpedo)
+    // What the drawing sees: the kind and the place at the frame start
+    // ($100FBA copies +$20, +0 and +4 into +$C, +8 and +$A).
+    Kind listed{};
+    int shown_x{}, shown_y{};
+    std::int32_t x{}, y{};                // +0, +4: y is the height above the ground line - $B
+    std::int32_t dx{}, dy{};              // +$E, +$12
+    std::int32_t thrust_x{}, thrust_y{};  // +$16, +$1A: a rocket's acceleration
+    int picture{};    // +$1E: weapon picture step (bomb tumbling 0..11, rocket angle); $A: torpedo running
+    int surface{};    // +$1F: blasts: what was hit (0 water: splash frames); torpedo: its facing byte
+    int frame{};      // +$21: a blast's frame: 1 when started, 2..7 drawn, 8 ends it
+    int ignition{};   // +$24: ticks before a rocket's motor lights
+    int angle{};      // +$26: a rocket's launch angle (-$5BFA / 2)
+    int speed{};      // +$28: the plane's speed at launch
+    int weapon{1};    // +$22: 0 rocket, 1 bomb (and blasts the spawner starts), 2 torpedo
+    int run{};        // +$12 once running: a torpedo's ticks left
+    int wake_frame{}; // +$1A once in the water: the draw counter at the last wake splash
+
+    bool active() const { return kind != Kind::none; }
+    int pixel_x() const { return std::int16_t(x >> 16); }
+    int pixel_y() const { return std::int16_t(y >> 16); }
+    void set_pixel_x(int v) { x = std::int32_t(std::uint32_t(std::uint16_t(v)) << 16 | std::uint16_t(x)); }
+    void set_pixel_y(int v) { y = std::int32_t(std::uint32_t(std::uint16_t(v)) << 16 | std::uint16_t(y)); }
 };
 
 struct Splash {
@@ -69,20 +91,22 @@ struct Puff {
 };
 
 struct Effects {
-    std::array<Blast, 15> blasts{};
+    std::array<FlyingObject, 15> objects{};
     std::array<Splash, 20> splashes{};
     std::array<Puff, 40> puffs{};
 
     // $100820: a blast in the column at `column`, `height` above the ground
     // (sinking wrecks: 0); ignored when every slot is busy. (A blast on land
     // also starts the explosion sample, -$7F92: sound is not rebuilt.)
-    void start_blast(int column, int height, bool water);
+    bool start_blast(int column, int height, bool water) { return start_blast_at(column * 8, height, water); }
+    // The same at a pixel x (the spawner's x is the map byte offset x 4).
+    bool start_blast_at(int x, int height, bool water);
     // $1052AC: a splash at world x; `surface` is the map's under x ($1050C8).
     void start_splash(int x, int surface);
     // $10CAE0: a puff of smoke of `size` at world (x, y), nudged 0..7 to the
     // right and 6 up; $105460 gives it a drift of 1..2 right and up.
     void start_smoke(int x, int y, int size, BeamRandom&);
-    // $100FBA (frame start): which blasts the drawing will see.
+    // $100FBA (frame start): what the drawing will see.
     void frame_start();
     // What the drawers change as they draw one frame ($100EE0, $1052F8,
     // $1006BE): puffs drift and shrink, splashes count down, blasts step

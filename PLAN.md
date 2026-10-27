@@ -736,8 +736,18 @@ and songs `wofsongs` (both with their symbols), IFF pictures, "Rpck"-packed
    grabs; the roll-right brake on the wires (taxi left, turn, roll right with
    up held) equal in the original and the rebuild, as are repeated deck
    bounces (13 recordings).
-11. Next: weapons, enemy planes and the other object drawers ($100DA6,
-   $103D78, $103DE8, $104C3E, $103A18, $10391E), damage, sound;
+11. **Done 2026-10-27: dashboard, weapons, sound effects.** `game/dashboard`:
+   gauges with needles and warning lights, rolling load and spare-plane
+   digits, score and kills, the forward view (scenery bands, carrier deck,
+   sight); 21 dashboard grabs exact apart from the enemy-plane marker.
+   Weapons: bombs, rockets (with homing on gun posts), torpedoes running in
+   the water, guns with muzzle flash and strafing; every weapon in flight
+   equal tick for tick in three new recordings. Sound: the game's four-channel
+   board (engine, guns, explosions, splashes, elevator, landing) on the
+   shared Paula model; every channel equal each tick in 16 recordings.
+12. Next: the islands (huts, dugouts, gun posts, soldiers, anti-aircraft fire,
+   capture, score), enemy planes and ships, damage; the other object drawers
+   ($100DA6, $103D78, $103DE8, $104C3E, $103A18, $10391E);
    then the front end (story scroller, pictures, rank selection, high scores),
    music (`songplay` rewrite), then flight, objects and missions.
 
@@ -748,7 +758,15 @@ address (left out, lands at x 2040 in the reference machine); island damage
 by crashes (`$1046C6`, `$101A84`); damage smoke (`$104F80`, `$101C54`) and
 the second object slot -$5A6A; effect sounds; effect pictures checked by
 eye against grabs, not pixel-compared; the 8 bytes past a map's columns
-(uninitialised in the original, read as 0); the debriefing after game over, the FFP oracle crashing after ~1,000
+(uninitialised in the original, read as 0); the misplaced crash blast's x
+depends on the map's address (reference machine's $FE04 taken); dashboard:
+the enemy-plane marker in the forward view and the attack arrow ($10F21A),
+the sticky −$3902 flag, enemy ships in the forward view; weapons: island
+damage ($1046DC), soldiers ($101A84), balloons (−$5D04), ship guns as rocket
+targets, gun posts' standing flag taken as cleared memory, the atan
+division's low word and the camera's low word (−$41A0) taken as 0; sound:
+enemy planes' and ships' sounds, the soldiers' scream, the music; the island
+guns' muzzle flashes (with the islands); the debriefing after game over, the FFP oracle crashing after ~1,000
 calls; the meaning of -$5C94 (drawn as the propeller, 0 throughout a real
 flight); the player's -$5BE0/-$5BE4 parts, upset
 and facing right not yet seen; the

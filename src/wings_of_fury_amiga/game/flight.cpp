@@ -44,9 +44,15 @@ public:
             elevator();
         }
         fly();
+        sound_state();
+        sound_driver();
+        snapshot();
+        fly_objects();
+        strafe();
     }
 
 private:
+    using Kind = FlyingObject::Kind;
     PlayerFlight& p;
     FlightWorld& w;
     const FlightTables& t;
@@ -208,6 +214,7 @@ private:
             w.weapon = 0;
         }
         if (w.weapon_load != 0xFF) w.weapon_load = t.weapon_loads[std::size_t(w.weapon)];
+        w.gauges.set_load(w.weapon_load); // ($10136E: the digits jump to it)
     }
 
     // $101460: the elevator moves a pixel per drawn frame; at the top it is
@@ -218,10 +225,19 @@ private:
         if (w.elevator == 2) {
             if (--w.lift == 0) {
                 w.elevator = 0;
-                p.engine_loud = false; // ($10B9CC: engine sound)
+                silence();
+                clang();
+                // $10B9CC: the engine ticks over.
+                w.sound.engine_level = w.sound.engine_target = 0x28;
+                w.sound.engine_period = w.sound.engine_base = 0x328;
+                p.engine_loud = false;
             }
         } else if (w.elevator == 3) {
-            if (++w.lift == 0x20) new_plane(w.random_load);
+            if (++w.lift == 0x20) {
+                silence();
+                clang();
+                new_plane(w.random_load);
+            }
         }
     }
 
@@ -246,11 +262,12 @@ private:
     // splashing at the waterline) every 0..12 ticks, up to a column either
     // side.
     void wreck_blasts() {
+        w.sound.engine_target = 0; // ($10AF20)
         const bool sinking_now = p.mode == sinking;
         const int height = sinking_now ? 0 : word(p.altitude - clearance());
         if (p.wreck_time >= 0x4B || p.wreck_time < p.next_blast) return;
         p.next_blast = p.wreck_time + (w.random.next() & 0xC);
-        w.effects.start_blast(column(p.x + (w.random.next() & 0xF) - 8), height, sinking_now);
+        blast(column(p.x + (w.random.next() & 0xF) - 8), height, sinking_now);
     }
 
     // $10AF7C: the wreck waits 150 ticks, or a fire press after 30.
@@ -298,7 +315,7 @@ private:
                 p.altitude = clearance();
                 shapes(0); // ($10ABDE with step 0: the attitude only)
                 down = true;
-                w.effects.start_blast(c, p.altitude - 1, false);
+                blast(c, p.altitude - 1, false);
             } else {
                 falling_on = true;
             }
@@ -312,7 +329,7 @@ private:
                     p.x = word(p.x - word(sliding + 4));
                     p.speed = 0;
                     resting = 2;
-                    w.effects.start_blast(c, p.altitude, false);
+                    blast(c, p.altitude, false);
                 } else {
                     down = true;
                     level_out();
@@ -339,14 +356,21 @@ private:
             slide();
             p.speed -= 0x55;
             if (p.speed < 100) p.speed = 0;
-            // ($10B304: on land and ships the original also starts a blast
-            // here, but passes the plane's x and altitude where the column's
-            // map address belongs: it lands at a fixed spot that depends on
-            // where the map sits in memory (x 2040 in the reference machine)
-            // and is left out. On land it then wrecks what stands in the
-            // column and the soldiers near it, $1046C6 and $101A84: islands
-            // are not rebuilt yet.)
-            if (surface == water) splash();
+            if (surface == water) {
+                splash();
+            } else {
+                // $10B304: the blast here gets the plane's x and altitude
+                // words where the column's map address belongs, so it lands
+                // where (altitude - the map's address) x 4 points: with the
+                // map at $xxxxFE04, as in the reference machine, (altitude +
+                // $1FC) x 4 - x 2040 at rest, far from the crash. Its sound
+                // starts the explosion again, quietly. (On land it then wrecks
+                // what stands in the column and the soldiers near it, $1046C6
+                // and $101A84: islands are not rebuilt yet.)
+                constexpr int map_address_low = 0xFE04;
+                const int x = std::int16_t(std::uint16_t((p.altitude - map_address_low) << 2));
+                if (w.effects.start_blast_at(x, 0, false)) boom(x);
+            }
         } else {
             p.climb = std::max(p.climb - t.pitch_rate, -0xC1C);
             falling_on = true;
@@ -356,7 +380,7 @@ private:
             p.altitude = word(p.altitude + p.speed_y);
             if (word(p.altitude - clearance()) <= 0) {
                 p.altitude = clearance();
-                w.effects.start_blast(c, p.altitude - 1, false);
+                blast(c, p.altitude - 1, false);
             }
             slide();
         }
@@ -372,11 +396,24 @@ private:
 
     // $10B5B0: the fire button. On deck, a press while standing still on the
     // elevator spot takes the plane below (elevator state 3). In the air, a
-    // tap fires the guns and a long press drops/launches the load (not
-    // rebuilt yet: they only start objects).
+    // tap drops or launches the load ($10107C) and a long press fires the
+    // guns (their muzzle flash and the hits on the ground: strafe()).
     void fire() {
-        if ((cmd & (command::fire_held | command::fire_tapped)) == 0) return;
+        if ((cmd & (command::fire_held | command::fire_tapped)) == 0) {
+            w.guns = false;
+            return;
+        }
+        if (p.mode == flying) {
+            if (cmd & command::fire_tapped) {
+                // Not while upside down in the middle of a turn.
+                if (p.turn < 6 || p.turn > 0x10) release_weapon();
+            } else {
+                w.guns = p.turn == 0 && w.gun_supply > 0;
+            }
+            return;
+        }
         if (p.mode == on_deck && w.elevator == 0 && carrier().ready != 0 && on_elevator_spot() && p.speed == 0) {
+            w.sound.engine_target = 0; // ($10B646)
             p.signal = 3;
             w.elevator = 3;
             p.mode = going_below;
@@ -384,11 +421,437 @@ private:
         }
     }
 
+    // $100820: a blast in a column; one on land also sounds ($102324).
+    void blast(int column, int height, bool water) {
+        if (w.effects.start_blast(column, height, water) && !water) boom(column * 8);
+    }
+
+    // ---- the sound effects ----
+
+    SoundBoard::Channel& channel(int n) { return w.sound.channels[std::size_t(n)]; }
+
+    // $102306 / $1022F6: louder the nearer to the plane (64 down to 0).
+    int volume_at(int x) const {
+        const int distance = word(std::abs(word(x - p.x)) + std::abs(word(0x14 - p.altitude)));
+        const int v = std::uint16_t(distance) >> 5;
+        return v > 0x40 ? 0 : 0x40 - v;
+    }
+    // $102324: the explosion on channel 2.
+    void boom(int x) {
+        auto& c = channel(2);
+        c.request[0].active = true;
+        c.request[0].volume = volume_at(x);
+        c.playing = Sample::none;
+    }
+    // $10233E: the splash on channel 2.
+    void splash_sound(int x) {
+        auto& c = channel(2);
+        c.request[0].active = false;
+        c.request[1].active = true;
+        c.request[1].volume = volume_at(x);
+        c.playing = Sample::none;
+    }
+    // $102354 (the elevator stopping) and $102380 (wheels on the deck): a
+    // one-shot on channel 3, at lengths given in the code.
+    void deck_sound(Sample sample, int length, int period) {
+        auto& c = channel(3);
+        c.request[1] = {true, sample, length, period, 0x40, 1};
+        c.request[0].active = false;
+        c.playing = Sample::none;
+    }
+    void clang() { deck_sound(Sample::clang, 0x1646, 0x1C2); }
+    // $101F4E: every request off, and the channels stopped at once.
+    void silence() {
+        for (auto& c : w.sound.channels) {
+            for (auto& r : c.request) r.active = false;
+        }
+        sound_driver();
+    }
+    void screech() { deck_sound(Sample::screech, 0x1A5A, 0x15E); }
+    // The engine's target loudness and pitch (the flight code sets them
+    // with the engine flag: $40/$14F flat out, $31/$181 cruising).
+    void engine_sound(bool loud) {
+        w.sound.engine_target = loud ? 0x40 : 0x31;
+        w.sound.engine_base = loud ? 0x14F : 0x181;
+    }
+    // On deck and on the elevator the engine ticks over.
+    void engine_idle() {
+        w.sound.engine_target = 0x28;
+        w.sound.engine_base = 0x328;
+    }
+
+    // $102132: the requests the game state keeps up each tick.
+    void sound_state() {
+        auto& s = w.sound;
+        auto& guns_or_engine = channel(0);
+        guns_or_engine.request[1].active = false;
+        // The engine eases up by 1, down by 2. The comparisons are unsigned:
+        // from 1 toward 0 the level steps past 0 to -1 and on down (the
+        // channel then keeps its last volume: negative ones are not set).
+        const auto above = [](int a, int b) { return std::uint16_t(a) > std::uint16_t(b); };
+        if (s.engine_target != s.engine_level) {
+            if (above(s.engine_target, s.engine_level)) {
+                s.engine_level = word(s.engine_level + 1);
+            } else {
+                const int down = word(s.engine_level - 2);
+                s.engine_level = above(s.engine_target, down) ? s.engine_target : down;
+            }
+        }
+        guns_or_engine.request[1].volume = s.engine_level;
+        if (s.engine_level != 0) {
+            guns_or_engine.request[1].active = true;
+            const int pitch = word((p.climb >> 7) + s.engine_base + (p.altitude >> 4));
+            if (pitch != s.engine_period) {
+                if (above(pitch, s.engine_period)) {
+                    const int up = word(s.engine_period + 0x14);
+                    s.engine_period = above(pitch, up) ? up : pitch;
+                } else {
+                    const int down = word(s.engine_period - 0xA);
+                    s.engine_period = above(pitch, down) ? pitch : down;
+                }
+            }
+            guns_or_engine.request[1].period = s.engine_period;
+        }
+        guns_or_engine.request[0].active = w.guns;
+        // (Channel 1 sounds the enemy planes' guns and engines: not rebuilt.)
+        channel(1).request[1].active = false;
+        auto& blasts = channel(2);
+        auto& deck = channel(3);
+        if (w.elevator == 2 || w.elevator == 3) {
+            // The elevator's machinery grinds.
+            deck.request[1] = {true, Sample::grind, w.sound.lengths[std::size_t(Sample::grind)], 0x1C2, 0x40, 0xFFFF};
+            deck.request[0].active = false;
+            blasts.request[1].active = false;
+        }
+        if (w.elevator == 1) {
+            // Below deck: the sea, slow and quiet, on and on.
+            blasts.request[1].period = 0x320;
+            blasts.request[1].volume = 0x22;
+            blasts.request[1].repeat = 0xFFFF;
+            blasts.request[1].active = true;
+        } else {
+            blasts.request[1].period = 0x15E;
+            blasts.request[1].repeat = 1;
+        }
+        // (Channel 3's first request sounds the enemy ships' guns, -$3E9A:
+        // not rebuilt.)
+        deck.request[0].active = false;
+    }
+
+    // $102066: each channel plays its first active request, else its second.
+    void sound_driver() {
+        auto& s = w.sound;
+        for (int n = 0; n < 4; ++n) {
+            auto& c = channel(n);
+            const SoundRequest* chosen = nullptr;
+            for (const auto& r : c.request) {
+                if (r.sample != Sample::none && r.active) {
+                    chosen = &r;
+                    break;
+                }
+            }
+            if (chosen == nullptr) {
+                if (c.playing != Sample::none) s.commands.push_back({SoundBoard::Command::Kind::stop, n, {}});
+                c.playing = Sample::none;
+            } else if (chosen->sample == c.playing) {
+                if (chosen->period != c.playing_period || chosen->volume != c.playing_volume) {
+                    c.playing_period = chosen->period;
+                    c.playing_volume = chosen->volume;
+                    s.commands.push_back({SoundBoard::Command::Kind::retune, n, *chosen});
+                }
+            } else {
+                c.playing = chosen->sample;
+                c.playing_period = chosen->period;
+                c.playing_volume = chosen->volume;
+                s.commands.push_back({SoundBoard::Command::Kind::start, n, *chosen});
+            }
+        }
+    }
+
+    // ---- the weapons ----
+
+    // $105108 / $105104: sine and cosine of a 1024-step angle (x 32767).
+    int sine(int a) const {
+        a &= 0x3FF;
+        if (a < 0x100) return t.sine_quarter[std::size_t(a)];
+        if (a < 0x200) return t.sine_quarter[std::size_t(0x200 - a)];
+        a -= 0x200;
+        if (a >= 0x100) a = 0x200 - a;
+        return -t.sine_quarter[std::size_t(a)];
+    }
+    int cosine(int a) const { return sine(a + 0x100); }
+
+    // $105CA6: the angle of (x, y), by octant from the arctangent table.
+    // (The division's low word comes from the caller's register: taken as 0.)
+    int arctangent(int y, int x) const {
+        int octant = 0;
+        if (y < 0) {
+            octant |= 0x10;
+            y = -y;
+        }
+        if (x < 0) {
+            octant |= 8;
+            x = -x;
+        }
+        int a = 0;
+        if (y == x) {
+            if (y == 0) return 0;
+            a = 0x80;
+        } else {
+            int small = y, big = x;
+            if (y > x) {
+                std::swap(small, big);
+                octant |= 4;
+            }
+            const std::uint32_t q = (std::uint32_t(std::uint16_t(small)) << 16) / std::uint16_t(big);
+            const int index = int((q & 0xFFFF) >> 8) + int(q >> 7 & 1); // rounded
+            a = t.arctangent[std::size_t(index)];
+        }
+        switch (octant) {
+        case 0x4: return 0x100 - a;
+        case 0x8: return 0x200 - a;
+        case 0xC: return a + 0x100;
+        case 0x10: return -a;
+        case 0x14: return a - 0x100;
+        case 0x18: return a - 0x200;
+        case 0x1C: return -(a + 0x100);
+        default: return a;
+        }
+    }
+
+    // $101274 (end of the tick): what the weapons read of the plane.
+    void snapshot() {
+        w.last.speed_y = p.speed_y;
+        w.last.speed_x = p.speed_x;
+        w.last.x = p.x;
+        w.last.altitude = p.altitude;
+        // (muls gives a long product; divs a word quotient.)
+        w.last.pitch = word(word(p.smoothed_climb * 2) * 0x200 / 0x4650);
+    }
+
+    // $101A46: where a line from the plane at this (downward) angle meets the
+    // ground; 0 when the angle does not point down.
+    int ground_point(int angle) const {
+        if (angle >= 0) return 0;
+        if (angle == -0xFF) angle = -0xFE;
+        const std::uint32_t height = std::uint32_t(std::int32_t(w.last.altitude) << 16 >> 8);
+        const int slope = t.slope[std::size_t(-angle & 0xFF)];
+        // divu: on overflow the dividend's low word stays.
+        const std::uint32_t q = height / std::uint16_t(slope);
+        const int along = q > 0xFFFF ? std::uint16_t(height) : std::uint16_t(q);
+        return word(w.frame_camera - (p.facing < 0 ? along : -along));
+    }
+
+    // $10115C: the first standing gun post with lo <= offset < hi (map byte
+    // offsets); 0 when none. ($1011A6 first searches the guns on enemy
+    // ships: none are rebuilt yet.)
+    int gun_post_between(int a, int b) const {
+        const int lo = std::min(a, b), hi = std::max(a, b);
+        for (const auto& g : w.gun_posts) {
+            if (g.standing && lo <= g.offset && g.offset < hi) return g.offset;
+        }
+        return 0;
+    }
+
+    // $1007F2 (through $10107C): a tap drops a bomb, launches a rocket or a
+    // torpedo from where the plane was at the end of the last tick.
+    void release_weapon() {
+        if (w.weapon_load == 0) return;
+        auto slot = std::find_if(w.effects.objects.begin(), w.effects.objects.end(),
+                                 [](const FlyingObject& o) { return !o.active(); });
+        if (slot == w.effects.objects.end()) return;
+        auto& o = *slot;
+        if (w.weapon_load != 0xFF) --w.weapon_load;
+        o.weapon = w.weapon;
+        o.dy = std::int32_t(std::uint32_t(std::uint16_t(w.last.speed_y)) << 16);
+        o.dx = std::int32_t(std::uint32_t(std::uint16_t(w.last.speed_x)) << 16);
+        if (p.facing < 0) o.dx = -o.dx;
+        o.set_pixel_y(word(w.frame_altitude + 0xB));
+        o.x = std::int32_t(std::uint32_t(std::uint16_t(w.last.x)) << 16);
+        o.picture = o.dx < 0 ? 3 : 9;
+        if (w.weapon == 1) {
+            o.kind = Kind::bomb;
+        } else if (w.weapon == 2) {
+            o.surface = std::int8_t(p.facing); // (-$5F71: the facing word's low byte)
+            o.kind = Kind::torpedo;
+        } else {
+            const int angle = w.last.pitch >> 1;
+            o.angle = angle;
+            o.speed = p.speed;
+            o.thrust_y = sine(angle) * 0x10 >> 3;
+            o.thrust_x = cosine(angle) * 0x10 >> 3;
+            if (o.dx < 0) o.thrust_x = -o.thrust_x;
+            // The motor lights after 4, 8 or 12 ticks (the fourth of four
+            // beam-position numbers, rotated left by one: bits 2-3, 0 -> 8).
+            int r = 0;
+            for (int i = 0; i < 4; ++i) r = w.beam.next();
+            const int rotated = (r << 1 | r >> 15) & 0xFFFF;
+            o.ignition = (rotated & 0xC) != 0 ? rotated & 0xC : 8;
+            o.picture = std::clamp(4 - (w.last.pitch >> 5), 0, 9) + (o.dx < 0 ? 10 : 0);
+            o.kind = Kind::rocket;
+        }
+    }
+
+    // $10099A: when its motor lights, a rocket pointing down turns toward a
+    // gun post the plane's line of fire (± $14 angle steps) passes over.
+    void aim(FlyingObject& o) {
+        const int angle = o.angle >> 1;
+        if (angle >= 0) return;
+        const int mid = ground_point(angle), steep = ground_point(angle + 0x14), shallow = ground_point(angle - 0x14);
+        if (mid == 0 || steep == 0 || shallow == 0) return;
+        int target = gun_post_between(mid >> 2, steep >> 2) * 4;
+        if (target == 0) target = gun_post_between(mid >> 2, shallow >> 2) * 4;
+        if (target == 0) return;
+        int heading = arctangent(o.pixel_y(), std::abs(word(target - o.pixel_x())));
+        if (heading >= 0) heading = -heading;
+        const int speed = int(std::uint16_t(o.speed) / 100u);
+        const std::int32_t old_dx = o.dx;
+        o.dx = cosine(heading) * speed;
+        if (old_dx < 0) o.dx = -o.dx;
+        o.dy = sine(heading) * speed;
+    }
+
+    // $101AE2: a blast here sets off the torpedoes near it (and, $101A8C,
+    // kills the soldiers within reach: not rebuilt yet).
+    void set_off_near(int x, int reach) {
+        for (auto& o : w.effects.objects) {
+            if (o.listed == Kind::none || o.weapon != 2) continue;
+            if (std::uint16_t(std::abs(word(o.shown_x - x))) > reach) continue;
+            o.kind = Kind::blast;
+            o.frame = 1;
+        }
+    }
+
+    // A weapon goes off where it is. (On an island it also wrecks what
+    // stands there and scores, $1046DC: not rebuilt yet.)
+    void explode(FlyingObject& o) {
+        o.kind = Kind::blast;
+        o.frame = 1;
+        set_off_near(o.pixel_x(), 0x10);
+    }
+
+    // $100D50: a torpedo running in the water, a splash of wake each tick.
+    void run_torpedo(FlyingObject& o) {
+        if (--o.run <= 0) {
+            o.kind = Kind::none;
+            o.frame = 0;
+            return;
+        }
+        o.x = std::int32_t(std::uint32_t(o.x) + std::uint32_t(o.dx));
+        if (surface_at(o.pixel_x()) != 0) {
+            // (Ships and islands hit: $1046DC, not rebuilt yet.) The blast
+            // keeps the water's frames.
+            o.kind = Kind::blast;
+            o.frame = 1;
+            boom(o.pixel_x());
+            splash_sound(o.pixel_x());
+            return;
+        }
+        w.effects.start_splash(o.pixel_x(), 0);
+    }
+
+    // $100AA6: one object's tick.
+    void fly_object(FlyingObject& o) {
+        int next_y = 0;
+        if (o.kind == Kind::rocket) {
+            bool burning = true;
+            if (o.ignition != 0) {
+                if (--o.ignition != 0) {
+                    // Still dropping: it slips back a pixel and down a pixel.
+                    o.set_pixel_x(o.pixel_x() - (p.facing >= 0 ? 1 : -1));
+                    o.set_pixel_y(o.pixel_y() - 1);
+                    burning = false;
+                } else {
+                    aim(o);
+                }
+            }
+            if (burning) {
+                o.dy = std::int32_t(std::uint32_t(o.dy) + std::uint32_t(o.thrust_y));
+                o.dx = std::int32_t(std::uint32_t(o.dx) + std::uint32_t(o.thrust_x));
+            }
+            o.x = std::int32_t(std::uint32_t(o.x) + std::uint32_t(o.dx));
+            // Lost once it is $500 from the camera ($1680 in the 1/8 view).
+            const std::int32_t camera = std::int32_t(std::uint32_t(std::uint16_t(w.frame_camera)) << 16);
+            std::int32_t distance = std::int32_t(std::uint32_t(camera) - std::uint32_t(o.x));
+            if (distance < 0) distance = -distance;
+            int beyond = word(int(std::uint32_t(distance) >> 16) - 0x280);
+            if (w.frame_eighth) beyond = word(beyond - 0x1180);
+            if (beyond > 0x280) {
+                o.kind = Kind::none;
+                return;
+            }
+            // (The next height counts the thrust twice.)
+            next_y = word(int((std::uint32_t(o.dy) + std::uint32_t(o.thrust_y) + std::uint32_t(o.y)) >> 16));
+        } else {
+            if (o.kind == Kind::torpedo && o.picture == 0xA) {
+                run_torpedo(o);
+                return;
+            }
+            // Drag: a tenth of the horizontal speed's whole part; then gravity.
+            const int drag = std::int16_t(o.dx >> 16) / 10;
+            o.dx = std::int32_t(std::uint32_t(o.dx) - (std::uint32_t(std::uint16_t(drag)) << 16));
+            o.x = std::int32_t(std::uint32_t(o.x) + std::uint32_t(o.dx));
+            o.dy = std::int32_t(std::uint32_t(o.dy) - std::uint32_t(w.gravity));
+            next_y = word(int((std::uint32_t(o.dy) + std::uint32_t(o.y)) >> 16));
+        }
+        // ($101126 would first test the barrage balloons' cables: none on the
+        // maps rebuilt so far.)
+        o.set_pixel_y(next_y);
+        const int x = o.pixel_x(), surface = surface_at(x);
+        int ground = 0xC;
+        if (surface == 1) ground = word(obstacle(int(std::uint16_t(x) >> 3)) + 0xB);
+        if (next_y <= ground) {
+            o.set_pixel_y(ground);
+            o.surface = surface;
+            if (surface == 0) splash_sound(x);
+            else boom(x);
+            o.wake_frame = w.draw_counter;
+            if (o.kind == Kind::torpedo) {
+                // $100D00: into the water flat enough, it runs.
+                if (surface != 0 || word(int(o.dy >> 16)) < -5) {
+                    explode(o);
+                    return;
+                }
+                o.dx = std::int16_t(o.dx >> 16) < 0 ? -0x45000 : 0x45000;
+                o.picture = 0xA;
+                o.run = 0xC8;
+                run_torpedo(o);
+                return;
+            }
+            explode(o);
+            return;
+        }
+        // Falling bombs tumble a step every second drawn frame.
+        if (o.kind == Kind::bomb && w.frame_drawn && (w.draw_counter & 1) && ++o.picture > 0xB) o.picture = 0;
+    }
+
+    // $100A72.
+    void fly_objects() {
+        for (auto& o : w.effects.objects) {
+            if (o.active() && o.kind != Kind::blast) fly_object(o);
+        }
+        w.frame_drawn = false;
+    }
+
+    // $1019BC: the guns firing in a dive below $A0 hit the ground where the
+    // line of fire meets it: a splash, or dust on land.
+    void strafe() {
+        if (!w.guns || w.last.speed_y >= 0 || p.altitude >= 0xA0 || p.pulling_up) return;
+        const bool room = std::any_of(w.effects.splashes.begin(), w.effects.splashes.end(),
+                                      [](const Splash& s) { return s.left == 0; });
+        if (!room) return;
+        const int x = ground_point(w.last.pitch);
+        set_off_near(x, 0x10);
+        w.effects.start_splash(x, surface_at(x));
+    }
+
     // $10C4E8: rolling on deck. Pushing the way the plane faces opens the
     // throttle (the step grows to 8); pushing the other way brakes and, at a
     // standstill, turns the plane round (six steps, then facing flips).
     void deck_throttle() {
+        w.guns = false;
         if ((cmd & (command::left | command::right)) == 0) {
+            engine_idle();
             p.engine_loud = false;
             p.throttle = 0;
             p.speed -= 8;
@@ -397,12 +860,15 @@ private:
             if (p.facing == pushed) {
                 p.engine_loud = true;
                 if (p.turn == 0) {
+                    engine_sound(true);
                     p.throttle = std::min(p.throttle + 1, 8);
                 } else {
+                    engine_idle();
                     --p.turn;
                 }
                 p.speed += p.throttle;
             } else {
+                engine_idle();
                 p.engine_loud = false;
                 p.throttle = 0;
                 if (p.speed == 0 && ++p.turn > 6) {
@@ -502,8 +968,10 @@ private:
             p.throttle = std::max(p.throttle - 1, 4);
             if (p.speed > stall_speed) p.speed = std::max(p.speed - p.throttle, stall_speed);
             p.engine_loud = false;
+            engine_sound(false);
         } else if ((cmd & (command::left | command::right)) == 0) {
             p.engine_loud = false;
+            engine_sound(false);
             if ((cmd & command::down) == 0) {
                 if (cmd & command::up) {
                     if (p.facing == -1) {
@@ -517,6 +985,7 @@ private:
                 }
             } else {
                 p.engine_loud = true;
+                engine_sound(true);
                 p.climb = std::max(p.climb - t.pitch_rate * 2, climb_floor);
             }
             p.climb_kick = 0;
@@ -524,6 +993,7 @@ private:
         } else {
             if (p.facing == pushed) {
                 p.engine_loud = true;
+                engine_sound(true);
                 unwind_turn(true);
                 p.throttle = std::min(p.throttle + 1, 8);
                 p.speed = std::min(p.speed + p.throttle, max_speed);
@@ -593,11 +1063,13 @@ private:
         if (deck) {
             if (p.facing == -1 && p.pulling_up) {
                 p.mode = on_deck;
+                screech();
                 p.altitude = word(clearance() + obstacle(c));
             } else {
                 p.speed_y = -p.speed_y;
                 p.climb = -p.climb;
                 p.altitude = word(p.altitude + 6);
+                screech();
             }
         } else {
             p.mode = falling;
@@ -606,7 +1078,7 @@ private:
             // on a ship's deck. (On an island it also wrecks what stands
             // there, $1046C6: not rebuilt yet.)
             if (!over_water(c) && !(over_ship(c) && p.altitude < 0x14)) {
-                w.effects.start_blast(column(p.x + p.facing * 16), p.altitude, false);
+                blast(column(p.x + p.facing * 16), p.altitude, false);
             }
             crash();
         }
@@ -715,6 +1187,7 @@ private:
             officer();
             break;
         case caught:
+            engine_idle(); // ($10C882)
             p.altitude = ground_level();
             p.climb = 0;
             p.climb_kick = 0;
@@ -726,12 +1199,16 @@ private:
             ground_roll();
             break;
         case falling:
+            w.sound.engine_target = 0x19; // ($10C74E: the engine whines down)
+            w.sound.engine_base = 0x3C0;
             p.engine_loud = false;
+            w.guns = false;
             p.climb_kick = 0;
             p.signal = 3;
             crash();
             break;
         case sinking:
+            w.sound.engine_target = 0; // ($10C78C)
             if (++p.sink_step > 2) {
                 p.sink_step = 0;
                 p.altitude = word(p.altitude - 1);
@@ -766,6 +1243,7 @@ public:
         w.weapon = 1;
         p.signal = 3;
         w.crew.phase = 0; // ($1036A8)
+        w.sound.engine_level = w.sound.engine_target = 0; // ($10B9BC: the engine stops)
         p.speed = 0;
         w.elevator = 1;
         w.lift = 0x20;
@@ -773,6 +1251,9 @@ public:
         p.fresh_on_deck = true;
         p.engine_loud = false;
         if (w.weapon_load != 0xFF) w.weapon_load = t.weapon_loads[std::size_t(w.weapon)];
+        w.gauges.set_load(w.weapon_load);
+        w.guns = false;        // ($1036E8)
+        w.gun_supply = 0x600;  // ($1036B0)
         p.sea_counter = -1;
         w.menu_repeat = 1;
         // $10B7EC: the record.
@@ -830,11 +1311,56 @@ FlightTables read_flight_tables(const amiga::LoadedImage& wings) {
     // $10C88C writes the wreck's name as two words: 'hc' 'r5', or 'hc' 'rf'
     // facing left (immediates in the code).
     t.wreck_names = {"hcr5", "hcrf"};
+    for (std::size_t i = 0; i < t.sine_quarter.size(); ++i) t.sine_quarter[i] = wings.s16(0x11AF52 - 0x6692 + std::uint32_t(2 * i));
+    for (std::size_t i = 0; i < t.slope.size(); ++i) t.slope[i] = wings.s16(0x11AF52 - 0x6892 + std::uint32_t(2 * i));
+    for (std::size_t i = 0; i < t.arctangent.size(); ++i) t.arctangent[i] = wings.u8(0x11AF52 - 0x5810 + std::uint32_t(i));
     return t;
 }
 
 void flight_tick(PlayerFlight& p, FlightWorld& w, const FlightTables& t, int command) {
     Tick(p, w, t, command).run();
+}
+
+const data::Sample* sample_file(const data::Assets& assets, Sample sample) {
+    // ($103368 loads them by these names.)
+    static constexpr std::array<const char*, 9> names = {"",        "boom",          "splash",  "machinegun", "engine",
+                                                         "grind.1", "metal.clang.1", "screech", "scream"};
+    for (const auto& s : assets.samples) {
+        if (s.name == names[std::size_t(sample)]) return &s;
+    }
+    return nullptr;
+}
+
+std::array<int, 9> sample_lengths(const data::Assets& assets) {
+    std::array<int, 9> lengths{};
+    for (std::size_t i = 1; i < lengths.size(); ++i) {
+        if (const auto* s = sample_file(assets, Sample(i))) lengths[i] = int(s->data.size());
+    }
+    return lengths;
+}
+
+void set_up_sounds(FlightWorld& w, const std::array<int, 9>& lengths) {
+    auto& s = w.sound;
+    s.lengths = lengths;
+    const auto len = [&](Sample sample) { return lengths[std::size_t(sample)]; };
+    // $101F76: the guns and the engine (channel 0), the enemy planes' guns
+    // and engines (1), explosions and splashes (2), the enemy ships' guns (3).
+    s.channels[0].request = {SoundRequest{false, Sample::machinegun, len(Sample::machinegun), 0xC8, 0x40, 0xFFFF},
+                             SoundRequest{false, Sample::engine, len(Sample::engine), 0x17C, 0x3E, 0xFFFF}};
+    s.channels[1].request = {SoundRequest{false, Sample::machinegun, len(Sample::machinegun), 0xA0, 0x39, 0xFFFF},
+                             SoundRequest{false, Sample::engine, len(Sample::engine), 0x14A, 0x40, 0xFFFF}};
+    s.channels[2].request = {SoundRequest{false, Sample::boom, len(Sample::boom), 0x1F4, 0x40, 1},
+                             SoundRequest{false, Sample::splash, len(Sample::splash), 0x15E, 0x40, 1}};
+    s.channels[3].request[0] = {false, Sample::machinegun, len(Sample::machinegun), 0x140, 0x40, 0xFFFF};
+}
+
+void find_gun_posts(FlightWorld& w) {
+    // $102DE8 / $103236: every drawn `pila` column (scenery index $F).
+    w.gun_posts.clear();
+    for (std::size_t c = 0; c < w.map->words.size(); ++c) {
+        const auto v = w.map->words[c];
+        if ((v & 0x8000) != 0 && (v >> 2 & 0x1FF) == 0xF) w.gun_posts.push_back({int(c) * 2, true});
+    }
 }
 
 void new_plane(PlayerFlight& p, FlightWorld& w, const FlightTables& t, int random_load) {

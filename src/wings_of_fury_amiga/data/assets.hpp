@@ -94,7 +94,8 @@ struct Assets {
     std::vector<SceneryEntry> scenery;
     std::array<int, 4> us_flag_steps{}; // `wings` $114BA1: the tower flag's frames per step
     std::vector<std::string> hellcat_names; // `wings` $113C88: hellcat.shp in the game's order
-    std::array<int, 4> propeller_steps{};   // `wings` $114B5C
+    std::vector<std::string> weapon_names;  // `wings` $1142F4: torpedo.shp in the game's order (-$40EE)
+    std::array<int, 4> gun_flash_steps{};   // `wings` $114B5C
     std::vector<Sample> samples;
     std::vector<std::string> rank_names;  // `wings` $115864: seven pointers
     std::vector<std::string> story;       // the scrolling story, line by line
@@ -113,6 +114,9 @@ const Shape* eighth_scale_shape(const Assets&, int index);
 
 // The Hellcat library entry with this index in the game's list, or nullptr.
 const Shape* hellcat_shape(const Assets&, int index);
+// The weapons' pictures (torpedo.shp) by the game's index: bombs $40.., rockets
+// $4C.. (burning) and $74.. (not yet lit), torpedoes $88/$89.
+const Shape* weapon_shape(const Assets&, int index);
 
 // Reads every decoded file of the content folder; throws std::runtime_error
 // when one is missing or does not decode.

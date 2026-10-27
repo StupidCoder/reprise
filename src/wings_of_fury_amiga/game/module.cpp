@@ -1,6 +1,8 @@
 #include "wings_of_fury_amiga/game/module.hpp"
+#include "amiga/paula.hpp"
 #include "wings_of_fury_amiga/data/assets.hpp"
 #include "wings_of_fury_amiga/data/preview.hpp"
+#include "wings_of_fury_amiga/game/dashboard.hpp"
 #include "wings_of_fury_amiga/game/effects.hpp"
 #include "wings_of_fury_amiga/game/flight.hpp"
 #include "wings_of_fury_amiga/game/player_view.hpp"
@@ -21,7 +23,7 @@ class WingsOfFury final : public app::GameModule {
 public:
     explicit WingsOfFury(const std::filesystem::path& content)
         : assets_(data::load_assets(content)), tables_(read_flight_tables(assets_.program)),
-          crew_tables_(read_crew_tables(assets_.program)),
+          crew_tables_(read_crew_tables(assets_.program)), dash_tables_(read_dashboard_tables(assets_.program)),
           map_(&assets_.maps.front()), day_(data::find_palette(assets_, "wingspalette")),
           sea_(data::find_palette(assets_, "ocean.palette")) {
         for (const auto& picture : assets_.pictures) {
@@ -56,12 +58,24 @@ public:
         // the elevator steps on every tick.
         ++world_.draw_counter;
         world_.random_load = 6 + int(random_() % 4); // (the original reads the beam position)
+        // The frame start's copies ($100F88) the tick reads; the frame after
+        // the last tick was drawn.
+        world_.frame_camera = plane_.x;
+        world_.frame_altitude = plane_.altitude;
+        world_.frame_eighth = plane_.eighth_scale;
+        world_.frame_drawn = true;
+        frame_facing_ = plane_.facing;
         world_.effects.frame_start();
         flight_tick(plane_, world_, tables_, command);
         // What drawing the frame steps: the effects, the tower flag, the
         // deck crew and the islands' flags.
         world_.effects.advance();
         animate_specials();
+        world_.gauges.step(dashboard_input(), world_.beam.next());
+        play_sounds();
+        // $10063A: the muzzle flash steps while the guns fire, upright, in
+        // the normal view.
+        if (world_.guns && plane_.turn == 0 && !plane_.eighth_scale) flash_counter_ = (flash_counter_ + 1) & 3;
         if (world_.blackout > 0) {
             blackout_ = world_.blackout;
             world_.blackout = 0;
@@ -71,6 +85,12 @@ public:
         if (gear_offset_ != plane_.gear) gear_offset_ += gear_offset_ > plane_.gear ? -1 : 1;
     }
 
+    void audio(std::span<float> stereo, int sample_rate) override {
+        // (The host hands in the last frame's buffer: Paula adds to it.)
+        std::fill(stereo.begin(), stereo.end(), 0.0f);
+        paula_.render(stereo, sample_rate, [](int, int) {});
+    }
+
     std::string stopped() const override {
         return world_.game_over ? "No planes left: the mission is over (the debriefing is not rebuilt yet)." : "";
     }
@@ -78,7 +98,7 @@ public:
     platform::Image picture() const override {
         if (blackout_ > 0) {
             IndexedCanvas black(view_width, view_height);
-            return compose(black);
+            return compose(black, draw_dashboard(assets_, dash_tables_, world_.gauges, dashboard_input()));
         }
         const auto backdrop = backdrop_state();
         auto canvas = draw_sky_and_scenery(assets_, *map_, backdrop);
@@ -121,6 +141,8 @@ public:
             player.gear_shown = player.gear != nullptr && (plane_.mode == 0 || plane_.mode == 7 || plane_.lift);
             player.gear_offset = gear_offset_;
             player.upset = plane_.turn != 0;
+            player.gun_flash = gun_flash_shape(assets_, world_.guns, player.upset, flash_counter_, plane_.attitude,
+                                               frame_facing_ < 0);
         }
         if (plane_.mode == 7 && !backdrop.eighth_scale) {
             // -$42C4: the caught wire's x, on the screen relative to the camera.
@@ -138,10 +160,62 @@ public:
         if (world_.elevator != 0) effects.smoke_clip_bottom = smoke_clip_line + backdrop.vertical_scroll + deck.bob;
         draw_effects(canvas, assets_, world_.effects, effects);
         if (world_.menu) draw_weapon_menu(canvas, assets_, world_.weapon);
-        return compose(canvas);
+        return compose(canvas, draw_dashboard(assets_, dash_tables_, world_.gauges, dashboard_input()));
     }
 
 private:
+    // The sound driver's commands to the hardware ($10EA28 start, $10EB4C
+    // period and volume - a negative one is not set -, $10EAC0 stop).
+    void play_sounds() {
+        using Kind = SoundBoard::Command::Kind;
+        for (const auto& c : world_.sound.commands) {
+            auto& state = channels_[std::size_t(c.channel)];
+            if (c.kind == Kind::start) {
+                const auto* file = sample_file(assets_, c.request.sample);
+                if (file == nullptr) continue;
+                amiga::Paula::Write write;
+                write.samples = file->data;
+                write.length = std::uint32_t(c.request.length & ~1); // (whole words)
+                write.period = std::uint16_t(c.request.period);
+                write.volume = std::uint16_t(c.request.volume);
+                write.cycles = c.request.repeat == 0xFFFF ? 0 : c.request.repeat;
+                write.set_period_volume = true;
+                state = {write.period, write.volume};
+                paula_.flush(c.channel);
+                paula_.write(c.channel, write);
+            } else if (c.kind == Kind::retune) {
+                if (std::int16_t(c.request.period) >= 0) state.period = std::uint16_t(c.request.period);
+                if (std::int16_t(c.request.volume) >= 0) state.volume = std::uint16_t(c.request.volume);
+                paula_.set_period_volume(c.channel, state.period, state.volume);
+            } else {
+                paula_.flush(c.channel);
+            }
+        }
+        world_.sound.commands.clear();
+    }
+
+    DashboardInput dashboard_input() const {
+        DashboardInput in;
+        in.mode = plane_.mode;
+        in.oil = plane_.oil;
+        in.fuel = plane_.fuel;
+        in.engine = plane_.engine_loud;
+        in.weapon = world_.weapon;
+        in.load = world_.weapon_load;
+        in.spare_planes = world_.spare_planes;
+        in.score = world_.score;
+        in.kills = world_.kills;
+        in.camera = plane_.x;
+        in.altitude = plane_.altitude;
+        in.facing = plane_.facing;
+        in.eighth_scale = plane_.eighth_scale;
+        in.map = map_;
+        for (const auto& ship : world_.ships) {
+            if (&ship == &world_.ships.back() || ship.afloat) in.ships.push_back({ship.first, ship.last, 0, 0});
+        }
+        return in;
+    }
+
     BackdropState backdrop_state() const {
         BackdropState backdrop;
         backdrop.camera = plane_.x;
@@ -198,6 +272,8 @@ private:
     // offsets (rcar column x 2) - $A0 .. + $20, afloat, deck height $21.
     void set_up_carrier() {
         world_.map = map_;
+        set_up_sounds(world_, sample_lengths(assets_));
+        find_gun_posts(world_);
         world_.carrier_x = map_->carrier_x();
         auto& carrier = world_.ships[4];
         for (std::size_t c = 0; c < map_->words.size(); ++c) {
@@ -224,12 +300,13 @@ private:
         plane_.turn_delay = 2;
         plane_.attitude = 4;
         new_plane(plane_, world_, tables_, 6 + int(random_() % 4));
+        world_.gauges.set_spares(world_.spare_planes); // ($103562: the mission begins)
         gear_offset_ = plane_.gear;
     }
 
     // The view (lowres, doubled) above the dashboard (hires).
-    platform::Image compose(const IndexedCanvas& canvas) const {
-        const int dash_height = dashboard_ ? dashboard_->height : 0;
+    platform::Image compose(const IndexedCanvas& canvas, const IndexedCanvas& dash) const {
+        const int dash_height = dashboard_ ? dash.height : 0;
         platform::Image image(640, canvas.height + dash_height);
         for (int y = 0; y < canvas.height; ++y) {
             const auto& palette = y < 151 ? day_ : sea_;
@@ -241,10 +318,10 @@ private:
             }
         }
         if (dashboard_) {
-            for (int y = 0; y < dashboard_->height; ++y) {
-                for (int x = 0; x < dashboard_->width && x < 640; ++x) {
-                    const auto index = dashboard_->pixels[std::size_t(y * dashboard_->width + x)];
-                    image.put(x, canvas.height + y, data::to_color(dashboard_->palette[index]));
+            for (int y = 0; y < dash.height; ++y) {
+                for (int x = 0; x < dash.width; ++x) {
+                    const auto index = dash.at(x, y);
+                    image.put(x, canvas.height + y, data::to_color(dashboard_->palette[index % dashboard_->palette.size()]));
                 }
             }
         }
@@ -254,6 +331,7 @@ private:
     data::Assets assets_;
     FlightTables tables_;
     CrewTables crew_tables_;
+    DashboardTables dash_tables_;
     const data::MissionMap* map_;
     data::Palette day_, sea_;
     const amiga::IlbmPicture* dashboard_{};
@@ -266,6 +344,13 @@ private:
     bool fire_down_ = false, tapped_ = false, held_ = false;
     int gear_offset_ = 5;
     int us_flag_step_ = 0;
+    int flash_counter_ = 0;   // -$5C76
+    amiga::Paula paula_;
+    struct ChannelState {
+        std::uint16_t period{}, volume{};
+    };
+    std::array<ChannelState, 4> channels_{};
+    int frame_facing_ = -1;   // -$4084: the facing at the frame start
     int enemy_flag_counter_ = 0;
     int enemy_flags_drawn_ = 0;
 };
