@@ -22,7 +22,8 @@ public:
     Request update(const platform::Controls& controls, double now);
 
     // Imports an image (picked or dropped) and reports the outcome on screen.
-    void import(const std::filesystem::path& image, double now);
+    // Imports dropped or chosen images in order (several for a multi-disk game).
+    void import(const std::vector<std::filesystem::path>& images, double now);
     void show_error(std::string message, double now);
     void show_message(std::string message, bool ok, double now);
     // The selected game (the one to play after Request::play).

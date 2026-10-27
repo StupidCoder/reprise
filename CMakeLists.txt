@@ -205,6 +205,18 @@ target_include_directories(wings_of_fury_amiga PUBLIC ${SOURCE_ROOT})
 target_link_libraries(wings_of_fury_amiga PUBLIC amiga platform ui)
 target_compile_options(wings_of_fury_amiga PRIVATE ${PROJECT_WARNINGS})
 
+# --- cannon_fodder_amiga: Cannon Fodder (Amiga) ---------------------------------
+add_library(cannon_fodder_amiga
+    src/cannon_fodder_amiga/entry.cpp
+    src/cannon_fodder_amiga/data/assets.cpp
+    src/cannon_fodder_amiga/data/preview.cpp
+    src/cannon_fodder_amiga/import/disk_import.cpp
+    src/cannon_fodder_amiga/import/rnc.cpp
+    src/cannon_fodder_amiga/import/sensi_disk.cpp)
+target_include_directories(cannon_fodder_amiga PUBLIC ${SOURCE_ROOT})
+target_link_libraries(cannon_fodder_amiga PUBLIC amiga platform ui)
+target_compile_options(cannon_fodder_amiga PRIVATE ${PROJECT_WARNINGS})
+
 # --- joyport: the launcher application -----------------------------------------
 add_executable(joyport
     src/app/main.cpp
@@ -216,7 +228,7 @@ add_executable(joyport
     src/app/launcher.cpp
     src/app/pause_menu.cpp
     src/app/saved_options.cpp)
-target_link_libraries(joyport PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga ui)
+target_link_libraries(joyport PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga ui)
 target_compile_options(joyport PRIVATE ${PROJECT_WARNINGS})
 
 # --- tools ---------------------------------------------------------------------
@@ -247,6 +259,10 @@ target_compile_options(fort_apocalypse_replay PRIVATE ${PROJECT_WARNINGS})
 add_executable(amiga_disk tools/amiga_disk.cpp)
 target_link_libraries(amiga_disk PRIVATE amiga)
 target_compile_options(amiga_disk PRIVATE ${PROJECT_WARNINGS})
+
+add_executable(cannon_fodder_assets tools/cannon_fodder_assets.cpp)
+target_link_libraries(cannon_fodder_assets PRIVATE cannon_fodder_amiga)
+target_compile_options(cannon_fodder_assets PRIVATE ${PROJECT_WARNINGS})
 
 add_executable(marble_madness_assets tools/marble_madness_assets.cpp)
 target_link_libraries(marble_madness_assets PRIVATE marble_madness_amiga)
@@ -282,7 +298,7 @@ if(BUILD_TESTING)
     src/bruce_lee_c64/game/room_chapter.cpp
     src/bruce_lee_c64/game/background_article.cpp
     src/app/launcher.cpp src/app/pause_menu.cpp)
-    target_link_libraries(shell_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga ui)
+    target_link_libraries(shell_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga ui)
     target_compile_options(shell_checks PRIVATE ${PROJECT_WARNINGS})
     add_dependencies(shell_checks joyport_resources)
     add_test(NAME shell_navigation COMMAND shell_checks)

@@ -31,8 +31,13 @@ struct NotThisGame : std::runtime_error {
 };
 
 struct ImportResult {
-    std::vector<ImportedFile> files;
+    std::vector<ImportedFile> files; // names may contain '/' for subfolders
     std::string release; // which release was recognised, for the user
+    // Games on several disks: this image is disk `part` (1-based) of `parts`.
+    // The library keeps each disk until all of them are imported, then
+    // installs them together (same release; file names must not collide).
+    int part{1};
+    int parts{1};
 };
 
 // A picture of decoded game data, for the launcher's viewer.

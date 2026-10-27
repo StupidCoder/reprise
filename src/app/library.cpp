@@ -1,6 +1,7 @@
 #include "app/library.hpp"
 #include "platform/files.hpp"
 #include "platform/sha256.hpp"
+#include <algorithm>
 #include <sstream>
 #include <stdexcept>
 
@@ -44,9 +45,15 @@ std::vector<std::pair<std::string, std::uintmax_t>> Library::installed_files(
 }
 
 std::optional<Library::Install> Library::check_install(const GameEntry& game) const {
-    const auto folder = root_ / "games" / game.id;
+    if (!game.import) {
+        return std::nullopt;
+    }
+    return check_folder(root_ / "games" / game.id);
+}
+
+std::optional<Library::Install> Library::check_folder(const fs::path& folder) const {
     std::error_code error;
-    if (!game.import || !fs::exists(folder / "release.txt", error)) {
+    if (!fs::exists(folder / "release.txt", error)) {
         return std::nullopt;
     }
     try {
@@ -77,11 +84,21 @@ std::optional<Library::Install> Library::check_install(const GameEntry& game) co
 }
 
 void Library::install(const GameEntry& game, const ImportResult& result, const fs::path& source) {
-    const auto staging = root_ / "staging" / game.id;
-    const auto target = root_ / "games" / game.id;
+    write_verified(root_ / "games" / game.id, result, source);
+}
+
+fs::path Library::parts_directory(const GameEntry& game) const {
+    return root_ / "parts" / game.id;
+}
+
+void Library::write_verified(const fs::path& target, const ImportResult& result, const fs::path& source) {
+    auto key = fs::relative(target, root_).generic_string(); // "games/<id>" or "parts/<id>/<n>"
+    std::replace(key.begin(), key.end(), '/', '-');
+    const auto staging = root_ / "staging" / key;
     fs::remove_all(staging);
     fs::create_directories(staging);
     for (const auto& file : result.files) {
+        fs::create_directories((staging / file.name).parent_path());
         platform::write_file(staging / file.name, file.bytes);
     }
     platform::write_text(staging / "release.txt", manifest(result, source));
@@ -138,6 +155,13 @@ Library::Outcome Library::import(const fs::path& image, std::optional<std::size_
             }
             continue;
         }
+        if (result.parts > 1) {
+            try {
+                return import_part(index, result, image);
+            } catch (const std::exception& e) {
+                return {false, index, std::string("Import failed: ") + e.what()};
+            }
+        }
         try {
             install(game, result, image);
         } catch (const std::exception& e) {
@@ -157,7 +181,67 @@ Library::Outcome Library::import(const fs::path& image, std::optional<std::size_
                 (other_game.empty() ? std::string(".") : " (" + other_game + ")")};
 }
 
+std::string Library::imported_parts(std::size_t game) const {
+    const auto folder = parts_directory(games_[game]);
+    std::error_code error;
+    if (installs_[game] || !fs::is_directory(folder, error)) {
+        return {};
+    }
+    std::string parts;
+    int count = 0;
+    for (int part = 1; part <= 9; ++part) {
+        if (fs::exists(folder / std::to_string(part) / "release.txt", error)) {
+            parts += (count++ ? ", " : "") + std::to_string(part);
+        }
+    }
+    return count == 0 ? std::string() : (count == 1 ? "disk " : "disks ") + parts;
+}
+
+Library::Outcome Library::import_part(std::size_t index, const ImportResult& result, const fs::path& source) {
+    const auto& game = games_[index];
+    const auto parts = parts_directory(game);
+    write_verified(parts / std::to_string(result.part), result, source);
+
+    // Every disk present, all of the same release?
+    std::vector<int> missing;
+    for (int part = 1; part <= result.parts; ++part) {
+        const auto kept = check_folder(parts / std::to_string(part));
+        if (!kept || kept->release != result.release) {
+            missing.push_back(part);
+        }
+    }
+    const auto label = game.title + " disk " + std::to_string(result.part) + " of " + std::to_string(result.parts);
+    if (!missing.empty()) {
+        std::string list;
+        for (std::size_t i = 0; i < missing.size(); ++i) {
+            list += (i == 0 ? "" : i + 1 == missing.size() ? " and " : ", ") + std::to_string(missing[i]);
+        }
+        return {true, index, label + " imported. Now import disk" + (missing.size() > 1 ? "s " : " ") + list + ".",
+                true};
+    }
+    ImportResult combined;
+    combined.release = result.release;
+    for (int part = 1; part <= result.parts; ++part) {
+        const auto folder = parts / std::to_string(part);
+        const auto kept = check_folder(folder);
+        for (const auto& [name, size] : kept->files) {
+            combined.files.push_back({name, platform::read_file(folder / name)});
+        }
+    }
+    install(game, combined, source);
+    installs_[index] = check_install(game);
+    if (!installs_[index]) {
+        return {false, index, "The imported files could not be verified."};
+    }
+    fs::remove_all(parts);
+    std::error_code ignored;
+    fs::remove(root_ / "parts", ignored); // only if no other game waits for disks
+    return {true, index, game.title + " imported (" + result.release + ", all " + std::to_string(result.parts) +
+                             " disks)."};
+}
+
 void Library::remove(std::size_t game) {
+    fs::remove_all(parts_directory(games_[game]));
     fs::remove_all(content_directory(game));
     installs_[game].reset();
 }

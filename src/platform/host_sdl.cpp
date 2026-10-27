@@ -132,7 +132,7 @@ Controls Host::poll() {
             i.connect();
         }
         if (event.type == SDL_EVENT_DROP_FILE && event.drop.data) {
-            input.dropped_file = utf8_path(event.drop.data);
+            input.dropped_files.push_back(utf8_path(event.drop.data));
         }
         if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button == SDL_BUTTON_LEFT) {
             SDL_ConvertEventToRenderCoordinates(i.renderer, &event);
@@ -403,14 +403,16 @@ void Host::choose_image() {
             if (!paths) {
                 choice.error = "Could not open the file picker. You can drag an image onto the "
                                "window instead.";
-            } else if (paths[0]) {
-                choice.file = utf8_path(paths[0]);
+            } else {
+                for (auto* path = paths; *path; ++path) {
+                    choice.files.push_back(utf8_path(*path));
+                }
             }
             std::lock_guard guard((*handle)->mutex);
             (*handle)->pending = false;
             (*handle)->result = std::move(choice);
         },
-        context, impl_->window, filters, 2, nullptr, false);
+        context, impl_->window, filters, 2, nullptr, true);
 }
 
 std::optional<Host::FileChoice> Host::take_file_choice() {

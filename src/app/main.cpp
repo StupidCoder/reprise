@@ -67,7 +67,7 @@ int run(const Options& options) {
     if (options.import_image) {
         const auto outcome = library.import(*options.import_image, std::nullopt);
         std::printf("%s\n", outcome.message.c_str());
-        if (outcome.ok) {
+        if (outcome.ok && !outcome.waiting) {
             std::printf("Installed in %s\n",
                         library.content_directory(*outcome.game).string().c_str());
         }
@@ -255,12 +255,12 @@ int run(const Options& options) {
             }
             continue;
         }
-        if (controls.dropped_file) {
-            launcher.import(*controls.dropped_file, now);
+        if (!controls.dropped_files.empty()) {
+            launcher.import(controls.dropped_files, now);
         }
         if (auto choice = host.take_file_choice()) {
-            if (choice->file) {
-                launcher.import(*choice->file, now);
+            if (!choice->files.empty()) {
+                launcher.import(choice->files, now);
             } else if (!choice->error.empty()) {
                 launcher.show_error(choice->error, now);
             }

@@ -112,7 +112,10 @@ void Launcher::move(int columns, int rows) {
 std::string Launcher::status(std::size_t index) const {
     const auto& game = library_.games()[index];
     if (!game.import) return "Planned";
-    if (!library_.installed(index)) return "Import your copy";
+    if (!library_.installed(index)) {
+        const auto parts = library_.imported_parts(index);
+        return parts.empty() ? "Import your copy" : "Imported " + parts;
+    }
     return game.start ? "Ready to play" : "Data viewer";
 }
 void Launcher::open_details(std::size_t page) {
@@ -275,11 +278,14 @@ void Launcher::draw_confirm(Image& im) const {
 void Launcher::show_message(std::string message, bool ok, double now) {
     message_ = std::move(message); message_ok_ = ok; message_time_ = now;
 }
-void Launcher::import(const std::filesystem::path& image, double now) {
+void Launcher::import(const std::vector<std::filesystem::path>& images, double now) {
     const auto& games = library_.games();
-    const auto outcome = library_.import(image, games[selected_].import ? std::optional(selected_) : std::nullopt);
-    if (outcome.game) { close_details(); select(*outcome.game); }
-    show_message(outcome.message, outcome.ok, now);
+    for (const auto& image : images) {
+        const auto outcome = library_.import(image, games[selected_].import ? std::optional(selected_) : std::nullopt);
+        if (outcome.game) { close_details(); select(*outcome.game); }
+        show_message(outcome.message, outcome.ok, now);
+        if (!outcome.ok) break;
+    }
 }
 void Launcher::show_error(std::string message, double now) { show_message(std::move(message), false, now); }
 
@@ -359,7 +365,9 @@ void Launcher::draw_details(Image& im) const {
     if (pages > 1) { s::button(im, "<", 794, 112, 54, 34); s::button(im, ">", 858, 112, 54, 34); }
     if (page_ == 0) {
         if (!installed) {
-            s::wrap(im, game.import ? "Drop your own " + game.media + " onto this window, or choose Import your copy." :
+            const auto parts = library_.imported_parts(selected_);
+            s::wrap(im, game.import ? "Drop your own " + game.media + " onto this window, or choose Import your copy." +
+                    (parts.empty() ? std::string() : " Imported so far: " + parts + ".") :
                 "This title is on the roadmap. Import and play will become available in a future release.",
                 312, 190, 592, 5, 18);
 

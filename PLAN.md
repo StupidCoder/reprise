@@ -46,7 +46,7 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
 | Mindwalker | Amiga | `Mind Walker (1986)(Commodore).adf` (SHA-256 `2e83a67a…a8969c`) | disk import and decoded assets with launcher viewer; title, world menu and new game playable (mouse), matching the original frame for frame and pen for pen; world generator's base layer verified against the original; the landscape and later stages not rebuilt yet |
 | Marble Madness | Amiga | `Marble_Madness.adf` (MD5 `735dc697d64b3eeaa000778eb0b1153a`) | disk import (both encrypted programs decrypted, checked against the original's memory); asset previews; all six courses complete in play (physics, covers, creatures, special regions, music and effects; each compared with the original update for update from start to goal); front end for one player (options, introductions, bonus, game over, the end) |
 | Wizball | C64 | `Wizball.g64` (MD5 `73e1a136da4b6972d39f00817b86983e`) | disk import, asset decoding with launcher previews; play rebuilt and checked in lockstep (places, enemies, catellite, tunnels, lives, bonus wave, Wizlab, level flight, round end, sound and music); front end, high scores and keys rebuilt |
-| Cannon Fodder | Amiga | — | planned |
+| Cannon Fodder | Amiga | three ADFs, `Cannon Fodder (1993)(Virgin)(Disk N of 3)[cr CSL].adf` (SHA-256 `2b01cbc9…`, `9089815b…`, `87ea9c1d…`; a cracked copy) | import of all three disks (Sensible disk format, RNC unpacking) and decoded screens, sprite sheets, tile sets, colours and the 72 mission maps with launcher viewer; nothing playable yet |
 | Rock 'n Roll | Amiga | — | planned |
 | Wings of Fury | Amiga | `Wings_of_Fury_v1.0_1990_Broderbund_cr_Hysteria.adf` (SHA-256 `638d9a9d…4620044`, a cracked copy) | disk import and decoded assets with launcher viewer (pictures, all 12 shape libraries, palettes, sounds, texts); nothing playable yet |
 | Tower of Babel | Amiga | — | planned; original interpretive shell cover added, importer and gameplay not implemented |
@@ -715,6 +715,45 @@ a, d and k not compared; stick direction codes;
 offset/sheet fields (hypotheses); eighth rank-menu option (`$108B96`);
 where the retail game called the manual check; a second (retail) release
 entry for the importer; video standard (PAL assumed).
+
+## Cannon Fodder (Amiga) milestones
+
+Notes: `.analysis/cannon_fodder_amiga/` (`disk.md` disks, boot, loader,
+program, file system; `formats.md` data formats). No outside material on
+this game was used (RetroReverse has none); disk.md discloses the model's
+general knowledge of the game.
+
+The game comes on three disks without AmigaDOS: Sensible's own directory on
+track 3 and sector chains, read by the game's OS-less loader `fload`; most
+files RNC-packed. The image set is a cracked copy (CSL intro loaded by disk
+1's boot block); the game files look untouched. Disk 2 has one zeroed sector
+(in `DESBASE.INS`, also on disk 3).
+
+1. **Done 2026-10-27: import and assets.** Shell: games on several disks
+   (`ImportResult::part/parts`, the library keeps each disk in
+   `parts/<id>/<n>/` until all are in, then installs them together; drops
+   and the file dialog accept several files; launcher shows "Imported disk
+   1"). `src/cannon_fodder_amiga` (namespace `fodder`): Sensible disk
+   reader, RNC method-1 unpacker (both CRCs), importer (each disk by its
+   marker file, every file by the SHA-256 of its unpacked bytes, installed
+   as `diskN/<name>`), decoders for RAW screens, ILBMs, `.pal`/`.pl8`, tile
+   sets, maps, placements (raw); launcher previews; `cannon_fodder_assets
+   import|export`. Checked: C++ import equals the Python research
+   extraction (300 files); all pictures and 72 maps rendered and looked at;
+   import in any disk order through `joyport --import`.
+2. Next: reference machine (FS-UAE, 1 MB chip so `FODDERC` runs at
+   $80000; GDB stub harness as for Wings of Fury), then the program's
+   structure in Ghidra (`work/F.bin`, 616 functions so far): main loop,
+   file loads, RNC unpacker, map/tile drawing and scrolling, sprite sheet
+   cutting and palettes, `.spt` placements, tile attributes (`.hit`,
+   `.bht`, `.swp`), the RJP1 music player, recruits and front end.
+
+Open: the meaning of the map cell flags (bits 13-15) and of tile 399 (map
+31); `.spt` fields; `.hit`/`.bht`/`.swp`; sprite-sheet palettes; `*play.lbm`
+and the `.pl8` colours; `disk2.ra`, `dir`, `abgnd32.lbm` (named, not on any
+disk); the directory header byte $1A; recruit record bytes 6-8; the
+crack's TRAP #1 hook ("pstu"/"rank"); the retail boot; a second release
+entry for the importer.
 
 ## Launcher visual exploration (2026-10-26)
 

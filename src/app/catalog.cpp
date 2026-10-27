@@ -1,5 +1,6 @@
 #include "app/catalog.hpp"
 #include "bruce_lee_c64/entry.hpp"
+#include "cannon_fodder_amiga/entry.hpp"
 #include "fort_apocalypse_c64/entry.hpp"
 #include "marble_madness_amiga/entry.hpp"
 #include "mindwalker_amiga/entry.hpp"
@@ -17,8 +18,7 @@ std::vector<GameEntry> catalog() {
         wizball::entry(),
         mindwalker::entry(),
         marble_madness::entry(),
-        {.id = "cannon_fodder_amiga", .title = "Cannon Fodder", .machine = Machine::amiga,
-         .media = "the disk images (ADF)"},
+        fodder::entry(),
         {.id = "rock_n_roll_amiga", .title = "Rock 'n Roll", .machine = Machine::amiga,
          .media = "the disk image (ADF)"},
         {.id = "tower_of_babel_amiga", .title = "Tower of Babel", .machine = Machine::amiga,

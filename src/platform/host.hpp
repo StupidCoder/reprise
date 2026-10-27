@@ -54,8 +54,8 @@ struct Controls {
     bool quit{}, toggle_mute{}, quick_save{}, quick_load{};
     // Mouse position of a click, in the UI design space.
     int mouse_x{}, mouse_y{};
-    // A file dropped onto the window.
-    std::optional<std::filesystem::path> dropped_file;
+    // Files dropped onto the window this frame (several for a multi-disk game).
+    std::vector<std::filesystem::path> dropped_files;
     // The mouse over the last game frame shown (present_game), in the frame's
     // pixels; unset outside it and on UI screens. The left button, held.
     std::optional<std::array<int, 2>> game_pointer;
@@ -95,9 +95,10 @@ public:
     // take_file_choice() for the result.
     void choose_image();
 
-    // A completed dialog: a selected file, a cancellation, or an error.
+    // A completed dialog: the selected files (several allowed, for games on
+    // more than one disk), a cancellation (none), or an error.
     struct FileChoice {
-        std::optional<std::filesystem::path> file;
+        std::vector<std::filesystem::path> files;
         std::string error;
     };
 
