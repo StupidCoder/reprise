@@ -647,7 +647,11 @@ seeds and a clock seed), not stored.
    2 seconds: owner's decision). A's top bar (pause box, slider, lives,
    compass, emblem, Intuition's close gadget) equals the original's pens;
    the view's trees, grass, patterns, landmark stars and ramp poles are
-   drawn (0.9% of pens differ). Next: walking (notes "Walking"), the walker
+   drawn (0.9% of pens differ). Walking is rebuilt (fall, steps, speed,
+   frames, view shifts, height, visited map and points, beacons, compass
+   turning; the walker sprite) and equals the original for 574 frames of a
+   walking recording, up to the first flying creature. Next: the flying
+   creatures, zapping, view creatures and finds, the walker's mask, the
    sprite, the status bar, movement; then B, C, P, sound, saves, high
    scores.
 
@@ -685,15 +689,19 @@ and songs `wofsongs` (both with their symbols), IFF pictures, "Rpck"-packed
    through the game's own recorder (argument → record, `wofdemo` → playback).
 3. **Done 2026-10-27: map scenery.** Column words (draw bit, drop, scenery
    index, surface), the scenery table from `wings`' name lists, carrier
-   position; map previews in the launcher and export. Seen in the machine;
-   no pixel comparison yet.
-4. Next: pixel-compare the scenery against `screen.py` grabs (a safe way to
-   move the view without crashing), the island sand strip and waves, then
-   the front end (story scroller, pictures, rank selection, high scores),
+   position; map previews in the launcher and export.
+4. **Done 2026-10-27: scenery pixel check.** Native `scenery_view` equals the
+   original's play view at 19 camera positions of map a (camera pinned at
+   the frame start, `harness/viewref.py`, `tools/viewcheck.sh`), apart from
+   what other drawers put on top (plane, flags, deck animation); ship columns
+   follow the ship's bob + vertical scroll. formats.md has the details.
+5. Next: the sand/wave strip, the scenery specials (US flag $103D10, enemy
+   flags $103B52, deck $103BCE, $104E18), other maps; then the front end (story scroller, pictures, rank selection, high scores),
    music (`songplay` rewrite), then flight, objects and missions.
 
-Open: map specials (index 5, $22, $9F, $113; the `$114/$115` pairs), how the
-island ground is drawn; stick direction codes;
+Open: map specials partly read (index 5 and $9F handlers, D6 in the flag
+placement, the `$114/$115` pairs); how the island sand strip and waves are
+drawn; scenery on maps other than a and at night; stick direction codes;
 `newarmyfont` and how the two fonts are used; sample periods; the shape
 offset/sheet fields (hypotheses); eighth rank-menu option (`$108B96`);
 where the retail game called the manual check; a second (retail) release

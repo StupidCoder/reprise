@@ -3,8 +3,8 @@
 #include "mindwalker_amiga/screen/canvas.hpp"
 #include "mindwalker_amiga/title/title_stage.hpp"
 #include "mindwalker_amiga/world/world.hpp"
-#include "mindwalker_amiga/landscape/view_scene.hpp"
-#include "mindwalker_amiga/landscape/landscape_bar.hpp"
+#include "mindwalker_amiga/landscape/landscape_stage.hpp"
+#include "mindwalker_amiga/data/assets.hpp"
 #include <optional>
 #include "platform/files.hpp"
 #include <array>
@@ -60,7 +60,7 @@ class MindWalker final : public app::GameModule {
 public:
     explicit MindWalker(const std::filesystem::path& content)
         : files_(content), picture_(platform::read_file(content / "MindB")),
-          pointer_(platform::read_file(content / "system-configuration")),
+          pointer_(platform::read_file(content / "system-configuration")), assets_(data::load_assets(content)),
           title_(files_, picture_, clock_value()) {}
 
     // The stages wait for each vertical blank (PAL, 50 Hz, like the reference
@@ -74,9 +74,17 @@ public:
             mouse_y_ = input.pointer_y;
         }
         if (landscape_) {
-            // Walking is not rebuilt yet: a click or fire ends the visit.
-            if ((input.mouse_button && !button_was_down_) || input.fire) leave_ = true;
+            const bool press = input.mouse_button && !button_was_down_;
             button_was_down_ = input.mouse_button;
+            int gadget = press ? landscape_->gadget_at(mouse_x_, mouse_y_) : -1;
+            if (gadget == -2) {
+                leave_ = true; // Intuition's close gadget: CLOSEWINDOW quits the stage
+                return;
+            }
+            landscape::LandscapeInput in{input.up, input.down, input.left, input.right, input.fire,
+                                         input.mouse_button, mouse_x_, mouse_y_};
+            landscape_->frame([&](landscape::InputRead) { return in; }, gadget);
+            if (landscape_->finished()) leave_ = true;
             return;
         }
         title_.frame({mouse_x_, mouse_y_, input.mouse_button});
@@ -84,48 +92,27 @@ public:
         if (title_.phase() == title::TitleStage::Phase::loading && ++loading_frames_ == 100) open_landscape();
     }
 
-    // The landscape's opening view (A's set-up: the view for the cell left of
-    // the start, built twice; facing north; drawn from row 10).
+    // The landscape stage (A) with the new game's world.
     void open_landscape() {
         const auto& game = *title_.new_game();
-        const auto& a = files_.program(data::Stage::landscape);
-        world_.emplace(game.seed, a);
-        landscape::ViewInputs in;
-        in.stage = game.stage;
-        in.home_x = world_->start_x();
-        in.home_y = world_->start_y();
-        in.colour17 = 0xF60; // hypothesis: as found at the start in the reference runs
-        in.colour18 = 0xF00;
-        const auto x = std::uint16_t((world_->start_x() - 1) & 0xFFF), y = world_->start_y();
-        const auto first = landscape::build_view(*world_, a, x, y, in, landscape::stored_colours(a));
-        in.previous_x = x;
-        in.previous_y = y;
-        const auto view = landscape::build_view(*world_, a, x, y, in, first.colours);
-        landscape_.emplace();
-        landscape::LandscapeBar bar(files_);
-        bar.set(game.lives, 0, game.stage);
-        bar.draw(*landscape_);
-        landscape::ViewPainter(a).paint(*landscape_, view, 0, world_->floor_level(), world_->ceiling_level(), 10);
-        for (const auto c : view.colours) landscape_colours_.push_back(c & 0xFFF);
+        landscape_.emplace(files_, assets_, landscape::LandscapeStage::Start{game.seed, game.stage, game.lives, game.score});
     }
 
     platform::Image picture() const override {
-        auto image = landscape_ ? landscape_->picture(landscape_colours_) : title_.picture();
+        auto image = landscape_ ? landscape_->picture() : title_.picture();
         pointer_.draw(image, mouse_x_, mouse_y_);
         return image;
     }
 
     std::string stopped() const override {
         if (title_.phase() == title::TitleStage::Phase::quit) return "Mind Walker: QUIT.";
-        // The landscape is shown until a click; then explain.
         if (leave_) {
-            const auto& game = *title_.new_game();
-            const world::World world(game.seed, files_.program(data::Stage::landscape));
             char text[200];
             std::snprintf(text, sizeof text,
-                          "World %08X (start %03X, %03X): the landscape's view is rebuilt; walking in it is not yet.",
-                          game.seed,
-                          world.start_x(), world.start_y());
+                          landscape_->finished()
+                              ? "The way on from the landscape is found (score %u). The tunnel is not rebuilt yet."
+                              : "Left the landscape (score %u). Creatures, finds and zapping are not rebuilt yet.",
+                          landscape_->score());
             return text;
         }
         return {};
@@ -135,13 +122,12 @@ private:
     data::GameFiles files_;
     std::vector<std::uint8_t> picture_;
     MousePointer pointer_;
+    data::Assets assets_;
     title::TitleStage title_;
     int mouse_x_{160}, mouse_y_{100};
     int loading_frames_{};
     bool button_was_down_{}, leave_{};
-    std::optional<world::World> world_;
-    std::optional<screen::Canvas> landscape_;
-    std::vector<screen::Rgb4> landscape_colours_;
+    std::optional<landscape::LandscapeStage> landscape_;
 };
 
 } // namespace

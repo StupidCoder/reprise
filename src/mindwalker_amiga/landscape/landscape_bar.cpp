@@ -43,6 +43,16 @@ void LandscapeBar::set(int lives, int direction, int stage) {
     bar_.find(slider_gadget)->horizontal_pot = std::uint16_t(stage * 0x618);
 }
 
+int LandscapeBar::gadget_at(int x, int y) const {
+    if (y < 0 || y >= 10) return -1;
+    if (x >= 0 && x < amiga::WindowCloseGadget::width) return -2;
+    for (const auto& gadget : bar_.gadgets()) {
+        if (x >= gadget.x() && x < gadget.x() + gadget.width && y >= gadget.top && y < gadget.top + gadget.height)
+            return gadget.id;
+    }
+    return -1;
+}
+
 void LandscapeBar::draw(screen::Canvas& canvas) const {
     bar_.draw(canvas, 18);
     const auto& close = amiga::window_close_gadget();

@@ -14,6 +14,8 @@
 #include "mindwalker_amiga/title/title_stage.hpp"
 #include "mindwalker_amiga/landscape/view_scene.hpp"
 #include "mindwalker_amiga/landscape/landscape_bar.hpp"
+#include "mindwalker_amiga/landscape/landscape_stage.hpp"
+#include "mindwalker_amiga/data/assets.hpp"
 #include "mindwalker_amiga/world/world.hpp"
 #include "platform/files.hpp"
 #include "platform/host.hpp"
@@ -211,6 +213,112 @@ int view(const std::filesystem::path& content, std::uint32_t seed, const std::fi
     return 0;
 }
 
+// The landscape stage on a recording's A reads (mwrec.py's log): each of the
+// stage's input reads takes the next logged read (their kinds must agree) and
+// gets the script's input for that read's index; at every frame's first read
+// the walker's record is compared with the logged one.
+int walk(const std::filesystem::path& content, std::uint32_t seed, const std::filesystem::path& script_path,
+         const std::filesystem::path& log_path, int frame_limit) {
+    using namespace mindwalker;
+    const data::GameFiles files(content);
+    const auto assets = data::load_assets(content);
+    // Script events by module and read index; the held state carries over
+    // from T (its events up to its last logged read).
+    std::map<std::pair<char, int>, std::vector<std::vector<std::string>>> events;
+    {
+        std::ifstream in(script_path);
+        std::string line;
+        while (std::getline(in, line)) {
+            line = line.substr(0, line.find('#'));
+            std::istringstream f(line);
+            std::vector<std::string> w;
+            for (std::string x; f >> x;) w.push_back(x);
+            if (w.size() >= 3 && (w[0] == "T" || w[0] == "A")) events[{w[0][0], std::stoi(w[1])}].push_back({w.begin() + 2, w.end()});
+        }
+    }
+    struct Read {
+        int index;
+        std::string address;
+        std::map<std::string, std::string> fields;
+    };
+    std::vector<Read> reads;
+    int t_reads = 0;
+    {
+        std::ifstream in(log_path);
+        std::string line;
+        while (std::getline(in, line)) {
+            if (line.starts_with("T ")) ++t_reads;
+            if (!line.starts_with("A ")) continue;
+            std::istringstream f(line);
+            std::string m, addr;
+            int index;
+            f >> m >> index >> addr;
+            reads.push_back({index, addr, fields(line)});
+        }
+    }
+    landscape::LandscapeInput held;
+    const auto apply = [&](char module, int index) {
+        if (!events.count({module, index})) return;
+        for (const auto& ev : events.at({module, index})) {
+            if (ev[0] == "button") held.button = ev[1] == "1";
+            if (ev[0] == "fire") held.fire = ev[1] == "1";
+            if (ev[0] == "joy") {
+                held.up = ev[1].find('U') != std::string::npos;
+                held.down = ev[1].find('D') != std::string::npos;
+                held.left = ev[1].find('L') != std::string::npos;
+                held.right = ev[1].find('R') != std::string::npos;
+            }
+        }
+    };
+    for (int i = 0; i < t_reads; ++i) apply('T', i);
+
+    landscape::LandscapeStage stage(files, assets, {seed, 0, 3, 0});
+    std::size_t next = 0;
+    int frames = 0, differences = 0;
+    bool out_of_step = false;
+    const auto word = [](const std::string& hexs, int offset, int bytes) {
+        return std::stol(hexs.substr(std::size_t(offset * 2), std::size_t(bytes * 2)), nullptr, 16);
+    };
+    const auto compare = [&](const Read& r) {
+        const auto& w = r.fields.at("walker");
+        const auto signed32 = [&](int o) { return std::int32_t(std::uint32_t(word(w, o, 4))); };
+        const auto& me = stage.walker();
+        struct Field { const char* name; long ours, theirs; };
+        const Field list[] = {
+            {"x", me.x, signed32(4)}, {"z", me.z, signed32(0xC)}, {"level", me.level, signed32(8)},
+            {"cell x", me.cell_x, signed32(0x10)}, {"cell y", me.cell_y, signed32(0x14)},
+            {"screen x", me.screen_x, signed32(0x18)}, {"screen y", me.screen_y, signed32(0x1C)},
+            {"terrain", me.terrain, signed32(0x30) & 0xFFFF}, {"frame", me.frame, signed32(0x76)},
+            {"speed", me.speed, signed32(0x82)}, {"view x", stage.view_x(), word(r.fields.at("view"), 0, 2)},
+            {"view y", stage.view_y(), word(r.fields.at("view"), 2, 2)},
+            {"direction", stage.direction(), word(r.fields.at("direction"), 0, 4)}};
+        for (const auto& f : list) {
+            if (f.ours != f.theirs && ++differences <= 15)
+                std::printf("A read %d (frame %d) %s: ours %ld, original %ld\n", r.index, frames, f.name, f.ours, f.theirs);
+        }
+    };
+    const landscape::InputReader reader = [&](landscape::InputRead kind) {
+        const char* expected = kind == landscape::InputRead::button ? "203f70" : kind == landscape::InputRead::stick ? "208562" : "2085ae";
+        if (next >= reads.size()) return held;
+        const auto& r = reads[next];
+        if (r.address != expected && !out_of_step) {
+            out_of_step = true;
+            ++differences;
+            std::printf("A read %d: the original read %s, the stage %s\n", r.index, r.address.c_str(), expected);
+        }
+        if (kind == landscape::InputRead::button) compare(r);
+        apply('A', r.index);
+        ++next;
+        return held;
+    };
+    while (next < reads.size() && !out_of_step && frames < frame_limit) {
+        stage.frame(reader);
+        ++frames;
+    }
+    std::printf("%d frames, %zu reads compared, %d differences; score %u\n", frames, next, differences, stage.score());
+    return differences == 0 ? 0 : 1;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -220,12 +328,17 @@ int main(int argc, char** argv) {
             return title(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]), platform::utf8_path(argv[4]),
                          argc == 6 ? platform::utf8_path(argv[5]) : std::filesystem::path());
         }
+        if (command == "walk" && (argc == 6 || argc == 7)) {
+            return walk(platform::utf8_path(argv[2]), std::uint32_t(std::stoul(argv[3], nullptr, 16)),
+                        platform::utf8_path(argv[4]), platform::utf8_path(argv[5]), argc == 7 ? std::stoi(argv[6]) : 1 << 30);
+        }
         if (command == "view" && argc == 6) {
             return view(platform::utf8_path(argv[2]), std::uint32_t(std::stoul(argv[3], nullptr, 16)),
                         platform::utf8_path(argv[4]), platform::utf8_path(argv[5]));
         }
         std::fprintf(stderr, "usage: mindwalker_replay title <content> <script> <run.log> [dump dir]\n"
-                             "       mindwalker_replay view <content> <seed> <dump .idx> <out.png>\n");
+                             "       mindwalker_replay view <content> <seed> <dump .idx> <out.png>\n"
+                             "       mindwalker_replay walk <content> <seed> <script> <run.log> [frames]\n");
         return 2;
     } catch (const std::exception& error) {
         std::fprintf(stderr, "mindwalker_replay: %s\n", error.what());
