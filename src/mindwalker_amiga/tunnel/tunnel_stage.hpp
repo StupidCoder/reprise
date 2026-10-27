@@ -68,6 +68,7 @@ public:
     const std::array<Rect, 4>& rects() const { return rects_; }
     const std::array<world::Mixer, 12>& rect_random() const { return rect_random_; }
     int frozen() const { return frozen_; }
+    bool paused() const { return paused_; }
 
 private:
     void draw_tunnel();                        // h8 / $300EDE

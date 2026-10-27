@@ -31,6 +31,7 @@ GadgetBar::GadgetBar(const amiga::LoadedImage& program, std::uint32_t new_window
         gadget.id = program.u16(g + 38);
         if (gadget.proportional) {
             gadget.horizontal_pot = program.u16(program.u32(g + 34) + 2); // PropInfo +2 HorizPot
+            gadget.free_horizontal = (program.u16(program.u32(g + 34)) & 0x0002) != 0; // +0 Flags: FREEHORIZ
         }
         for (std::uint32_t i = program.u32(g + 18); i != 0; i = program.u32(i + 16)) {
             gadget.images.push_back({program.s16(i), program.s16(i + 2), program.s16(i + 4), program.s16(i + 6),
@@ -82,11 +83,13 @@ void GadgetBar::draw(Canvas& canvas, int background) const {
         const int x = gadget.x(), y = gadget.top;
         if (gadget.proportional) {
             canvas.fill(x + 2, y + 1, x + gadget.width - 3, y + gadget.height - 2, 0);
-            // Knob travel: only HorizPot 0 has been checked against the
-            // original so far (hypothesis for other values).
+            // Knob travel: without FREEHORIZ the knob stays at the left
+            // whatever HorizPot holds (P at progress 7: dump psy0); the
+            // travel for a free knob is a hypothesis.
             for (const auto& knob : gadget.images) {
                 const int travel = gadget.width - 8 - knob.width;
-                draw_image(canvas, knob, x + 4 + travel * gadget.horizontal_pot / 0xFFFF + knob.left, y + 2 + knob.top);
+                const int offset = gadget.free_horizontal ? travel * gadget.horizontal_pot / 0xFFFF : 0;
+                draw_image(canvas, knob, x + 4 + offset + knob.left, y + 2 + knob.top);
             }
         } else {
             for (const auto& image : gadget.images) draw_image(canvas, image, x + image.left, y + image.top);

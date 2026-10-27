@@ -17,6 +17,7 @@
 #include "mindwalker_amiga/landscape/landscape_stage.hpp"
 #include "mindwalker_amiga/tunnel/tunnel_stage.hpp"
 #include "mindwalker_amiga/arena/arena_stage.hpp"
+#include "mindwalker_amiga/psyche/psyche_stage.hpp"
 #include "mindwalker_amiga/data/assets.hpp"
 #include "mindwalker_amiga/world/world.hpp"
 #include "platform/files.hpp"
@@ -1062,6 +1063,157 @@ int arena(const std::filesystem::path& content, const std::filesystem::path& scr
 
 } // namespace
 
+// The psyche screen (P) of a recording: the scripted pointer and button
+// (`P n mouse X Y`, `P n button 1|0`), and at every read (P reads the
+// button before each tile it draws) everything logged compared: the
+// tiles' places, the slots and the grid, the held tile, the hint lines,
+// the kaleidoscope's points, speeds, pen and generators, the colours, the
+// hand, score and bonus.
+int psyche(const std::filesystem::path& content, const std::filesystem::path& script_path,
+           const std::filesystem::path& log_path, int frame_limit, const std::filesystem::path& png) {
+    using namespace mindwalker;
+    const data::GameFiles files(content);
+    const auto assets = data::load_assets(content);
+    std::map<int, std::vector<std::vector<std::string>>> events;
+    {
+        std::ifstream in(script_path);
+        std::string line;
+        while (std::getline(in, line)) {
+            line = line.substr(0, line.find('#'));
+            std::istringstream f(line);
+            std::vector<std::string> w;
+            for (std::string x; f >> x;) w.push_back(x);
+            if (w.size() >= 3 && w[0] == "P") events[std::stoi(w[1])].push_back({w.begin() + 2, w.end()});
+        }
+    }
+    struct Read {
+        int index;
+        std::map<std::string, std::string> fields;
+    };
+    std::vector<Read> reads;
+    std::map<int, int> duplicates;
+    {
+        std::ifstream in(log_path);
+        std::string line;
+        bool started = false;
+        while (std::getline(in, line)) {
+            if (line.starts_with("# module P")) started = true;
+            if (started && line.starts_with("# module") && !line.starts_with("# module P")) break;
+            if (!started || !line.starts_with("P ")) continue;
+            std::istringstream f(line);
+            std::string m, addr;
+            int index;
+            f >> m >> index >> addr;
+            auto fs = fields(line);
+            auto key = fs;
+            key.erase("vbl");
+            if (!reads.empty()) {
+                auto last = reads.back().fields;
+                last.erase("vbl");
+                if (last == key) { // (a stop reported twice)
+                    duplicates[index] = reads.back().index;
+                    continue;
+                }
+            }
+            reads.push_back({index, std::move(fs)});
+        }
+    }
+    if (reads.empty()) throw std::runtime_error("no P reads in the log");
+    for (const auto& [dup, before] : duplicates)
+        if (events.count(dup)) {
+            auto moved = events.at(dup);
+            events.erase(dup);
+            for (auto& ev : moved) events[before].push_back(std::move(ev));
+        }
+    const auto word = [](const std::string& hexs, int offset, int bytes) {
+        return std::stol(hexs.substr(std::size_t(offset * 2), std::size_t(bytes * 2)), nullptr, 16);
+    };
+    const auto& first = reads.front().fields;
+    const auto at = [&](int offset) { return std::uint32_t(word(first.at("shared"), offset - 0x10, 4)); };
+    psyche::PsycheStage::Start start{at(0x10), int(at(0x5C)), int(at(0x6E)), at(0x66), 42000, at(0x62)};
+    if (const char* b = std::getenv("MW_BONUS")) start.bonus = std::uint32_t(std::stoul(b));
+    psyche::PsycheStage stage(files, assets, start);
+    std::printf("P: seed %08x stage %d lives %d score %u time %u\n", start.world_seed, start.stage, start.lives, start.score,
+                start.time);
+    psyche::PsycheInput held;
+    const auto apply = [&](const std::vector<std::string>& ev) {
+        if (ev[0] == "button") held.button = ev[1] == "1";
+        if (ev[0] == "mouse") {
+            held.x = std::stoi(ev[1]);
+            held.y = std::stoi(ev[2]);
+        }
+    };
+    std::size_t next = 0;
+    int frames = 0, differences = 0;
+    struct Place {
+        std::string field;
+        int offset, bytes;
+    };
+    static const std::map<std::string, Place> places = [] {
+        std::map<std::string, Place> m = {{"target", {"tiles", 0x9C, 4}},    {"held", {"hold", 0, 1}},
+                                          {"bar wait", {"hold", 0x28, 4}},   {"pace", {"hold", 0x2C, 4}},
+                                          {"pen", {"kaleido", 0x40, 4}},     {"kaleido count", {"kaleido", 0x44, 4}},
+                                          {"whole", {"kaleido", 0x48, 2}},   {"blits", {"kaleido", 0x4A, 4}},
+                                          {"wobble", {"krand", 0, 4}},       {"steer", {"krand", 4, 4}},
+                                          {"flip", {"krand", 8, 4}},         {"shuffle", {"prand", 0, 4}},
+                                          {"shuffle extra", {"prand", 4, 4}}, {"cursor x", {"cursor", 0, 4}},
+                                          {"cursor y", {"cursor", 4, 4}},    {"score", {"shared", 0x66 - 0x10, 4}}};
+        for (int t = 0; t < 42; ++t) m["place " + std::to_string(t)] = {"tiles", t, 1};
+        for (int i = 0; i < 7; ++i) m["slot " + std::to_string(i)] = {"tiles", 0x54 + i, 1};
+        for (int c = 0; c < 7; ++c)
+            for (int r = 0; r < 6; ++r) m["grid " + std::to_string(c) + "," + std::to_string(r)] = {"tiles", 0x5C + c * 8 + r, 1};
+        for (int i = 0; i < 7; ++i) m["hint " + std::to_string(i)] = {"hold", 0xC + 4 * i, 4};
+        for (int i = 0; i < 4; ++i) {
+            const auto n = std::to_string(i);
+            m["x " + n] = {"kaleido", 4 * i, 4};
+            m["y " + n] = {"kaleido", 0x10 + 4 * i, 4};
+            m["vx " + n] = {"kaleido", 0x20 + 4 * i, 4};
+            m["vy " + n] = {"kaleido", 0x30 + 4 * i, 4};
+        }
+        for (int c = 0; c < 32; ++c) m["colour " + std::to_string(c)] = {"colours", 2 * c, 2};
+        return m;
+    }();
+    const auto compare = [&](const Read& r) {
+        stage.describe([&](const std::string& name, long ours) {
+            if (name == "bonus") return; // (+$308 is not logged)
+            const auto& place = places.at(name);
+            const unsigned long raw = std::uint32_t(word(r.fields.at(place.field), place.offset, place.bytes));
+            long theirs = place.bytes == 4 ? long(std::int32_t(raw)) : long(raw);
+            if (name == "wobble" || name == "steer" || name == "flip" || name.starts_with("shuffle")) {
+                ours = long(std::uint32_t(ours));
+                theirs = long(raw);
+            }
+            if (ours != theirs && ++differences <= print_limit)
+                std::printf("P read %d (frame %d) %s: ours %ld, original %ld\n", r.index, frames, name.c_str(), ours, theirs);
+        });
+    };
+    const auto reader = [&]() {
+        if (next >= reads.size()) return held;
+        const auto& r = reads[next];
+        compare(r);
+        if (const char* list = std::getenv("MW_SHOTS")) { // research: read:file.png,...
+            std::istringstream in(list);
+            for (std::string item; std::getline(in, item, ',');)
+                if (std::stoi(item.substr(0, item.find(':'))) == r.index)
+                    platform::save_png(stage.picture(!std::getenv("MW_NO_SPRITES")), item.substr(item.find(':') + 1));
+        }
+        if (events.count(r.index))
+            for (const auto& ev : events.at(r.index)) apply(ev);
+        ++next;
+        return held;
+    };
+    for (const auto& ev : events[0]) apply(ev); // (the pointer before the first read)
+    while (next < reads.size() && frames < frame_limit && !stage.over()) {
+        stage.frame(reader);
+        ++frames;
+    }
+    const char* outcome[] = {"playing", "done", "quit"};
+    std::printf("%d frames, %zu of %zu reads compared, %d differences; outcome %s, score %u\n", frames, next, reads.size(),
+                differences, outcome[int(stage.outcome())], stage.score());
+    if (!png.empty()) platform::save_png(stage.picture(), png);
+    return differences == 0 ? 0 : 1;
+}
+
 int main(int argc, char** argv) {
     const std::string command = argc > 1 ? argv[1] : "";
     try {
@@ -1081,6 +1233,10 @@ int main(int argc, char** argv) {
         if (command == "arena" && argc >= 5 && argc <= 7) {
             return arena(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]), platform::utf8_path(argv[4]),
                          argc >= 6 ? std::stoi(argv[5]) : 1 << 30, argc == 7 ? platform::utf8_path(argv[6]) : std::filesystem::path());
+        }
+        if (command == "psyche" && argc >= 5 && argc <= 7) {
+            return psyche(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]), platform::utf8_path(argv[4]),
+                          argc >= 6 ? std::stoi(argv[5]) : 1 << 30, argc == 7 ? platform::utf8_path(argv[6]) : std::filesystem::path());
         }
         if (command == "sim" && argc >= 6 && argc <= 8) {
             return sim(platform::utf8_path(argv[2]), std::uint32_t(std::stoul(argv[3], nullptr, 16)), std::stoi(argv[4]),

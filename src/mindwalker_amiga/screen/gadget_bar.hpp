@@ -40,6 +40,7 @@ struct Gadget {
     std::vector<GadgetText> texts;
     bool enabled{true};
     std::uint16_t horizontal_pot{};     // sliders: 0-$FFFF
+    bool free_horizontal{};             // PropInfo FREEHORIZ: the knob follows HorizPot (else it stays left)
 
     // GRELRIGHT counts from the window's last column (Width - 1).
     int x() const { return relative_right ? Canvas::width - 1 + left : left; }

@@ -43,7 +43,7 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
 | --- | --- | --- | --- |
 | Fort Apocalypse | C64 | `Fort_Apocalypse.tap` (MD5 `bec7409816865f3ad160af9984f127cd`) | playable from title to debrief, compared with the original in scripted runs; pause menu with the enemy-pilot option |
 | Bruce Lee | C64 | `Bruce_Lee_(Original).g64` (MD5 `8cbfd1595cdc18a8e68fe4d43eec6aa8`) | playable from the title to the end and the next round, with sound, the demo and both two-player modes; compared with the original pass by pass (actors, rooms, screen, SID); smooth motion, particle and VHS options |
-| Mindwalker | Amiga | `Mind Walker (1986)(Commodore).adf` (SHA-256 `2e83a67a…a8969c`) | disk import and decoded assets with launcher viewer; title, world menu and new game playable (mouse), matching the original frame for frame and pen for pen; world generator verified against the original; the landscape, the tunnel and the arena playable and checked read for read against the original; the psyche screen not rebuilt yet |
+| Mindwalker | Amiga | `Mind Walker (1986)(Commodore).adf` (SHA-256 `2e83a67a…a8969c`) | disk import and decoded assets with launcher viewer; title, world menu and new game playable (mouse), matching the original frame for frame and pen for pen; world generator verified against the original; the landscape, the tunnel, the arena and the psyche screen playable and checked read for read against the original; T's end screens, high scores and saves not rebuilt yet |
 | Marble Madness | Amiga | `Marble_Madness.adf` (MD5 `735dc697d64b3eeaa000778eb0b1153a`) | disk import (both encrypted programs decrypted, checked against the original's memory); asset previews; all six courses complete in play (physics, covers, creatures, special regions, music and effects; each compared with the original update for update from start to goal); front end for one player (options, introductions, bonus, game over, the end) |
 | Wizball | C64 | `Wizball.g64` (MD5 `73e1a136da4b6972d39f00817b86983e`) | disk import, asset decoding with launcher previews; play rebuilt and checked in lockstep (places, enemies, catellite, tunnels, lives, bonus wave, Wizlab, level flight, round end, sound and music); front end, high scores and keys rebuilt |
 | Cannon Fodder | Amiga | three ADFs, `Cannon Fodder (1993)(Virgin)(Disk N of 3)[cr CSL].adf` (SHA-256 `2b01cbc9…`, `9089815b…`, `87ea9c1d…`; a cracked copy) | import of all three disks (Sensible disk format, RNC unpacking) and decoded screens, sprite sheets, tile sets, colours and the 72 mission maps with launcher viewer; map view, camera, tile drawer, mission set-up, object drawing, panel, squad walking, shooting, deaths and enemy soldiers rebuilt and checked against the original; not yet playable in the shell |
@@ -696,13 +696,24 @@ seeds and a clock seed), not stored.
    draining strength, dying), the wall pulse and its deaths, the
    temperature gauge and the drone, the target, the walled-in exit, the
    win, the pause. Won: progress +7, the way on closed again, then the
-   psyche screen (not rebuilt: the game stops there); left or a death:
+   psyche screen; left or a death:
    back to the landscape (a death costs a life; the last one ends the
    game). Three recordings (left, won, a wall death) equal the original
    read for read in everything logged: the maze, every generator, the
    player, the creatures, the wind, the pulse, strength, score and sound;
-   screen dumps within 8 pixels. Next: the psyche
-   screen (P), then saves, high scores and T's end screens.
+   screen dumps within 8 pixels.
+8. **Psyche screen (P)** — playable (2026-10-27; `psyche/`). The
+   kaleidoscope cut into 42 tiles, seven to carry home with the mouse,
+   the climbing hint lines and the turning colour bar, the flying tile,
+   the music, the scores; done, the progress' portrait, then the
+   landscape (the loop landscape - tunnel - arena - psyche closes). The
+   last picture (progress 42) with its bonuses and finale. Two
+   recordings (left alone; played to the end with a wrong move and a
+   hint) equal the original read for read in everything logged; dumps
+   differ only in the kaleidoscope's thin-edge texture. The stages'
+   loading pictures now follow the progress; sliders without FREEHORIZ
+   keep their knob left. Next: T's end screens (game over, the finished
+   game), high scores, the command screen and saves.
 
 Open: what each shared image set and icon is used for and its colours;
 sample playback periods and triggers; A's world model beyond the generator;

@@ -66,6 +66,8 @@ public:
     const screen::Canvas& canvas() const { return canvas_; }
     // S's one-plane screen, where T draws the loading picture (shared +8).
     const screen::Canvas& loading_canvas() const { return loading_; }
+    // The loading picture for a progress (+$5C).
+    screen::Canvas loading_picture(int stage) const;
     int frames_in_phase() const { return phase_frames_; }
 
 private:

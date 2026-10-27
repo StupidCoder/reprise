@@ -79,6 +79,7 @@ public:
     int wind_strength() const { return wind_strength_[0]; }
     int pulse() const { return pulse_; }
     int frozen() const { return frozen_; }
+    bool paused() const { return paused_; }
     int sound_period() const { return period_history_[3]; }
     void set_pulse(int counter) { pulse_ = counter; } // (a poke in a recording)
     // For replays: the state the recorder logs, by name (`report(name, value)`).

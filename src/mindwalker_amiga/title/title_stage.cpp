@@ -325,10 +325,13 @@ void TitleStage::start_game() {
 // past 41) in pen 1, "Loading..." in pen 1 on pen 0, then ShowTitle: the
 // screen's title bar in its BlockPen (1) with Intuition's two depth gadgets
 // (plane 0 only: S's screen has one plane).
-void TitleStage::draw_loading_screen() {
-    auto& canvas_ = loading_;
+void TitleStage::draw_loading_screen() { loading_ = loading_picture(new_game_->stage); }
+
+// (Every stage program draws the same picture on leaving, with the progress
+// of the moment: B's, C's $4069F0, P's $506CA0.)
+screen::Canvas TitleStage::loading_picture(int stage) const {
+    screen::Canvas canvas_;
     canvas_.clear(0);
-    const int stage = new_game_->stage;
     const int from = stage < 42 ? stage : 0;
     const int to = stage < 42 ? std::min(stage + 7, 42) : 42;
     for (int i = from; i < to; ++i) {
@@ -345,6 +348,7 @@ void TitleStage::draw_loading_screen() {
         for (int y = 0; y < gadget.height; ++y)
             for (int x = 0; x < gadget.width; ++x) canvas_.plot(x0 + x, y, gadget.planes[0][std::size_t(y)] >> (31 - x) & 1);
     }
+    return canvas_;
 }
 
 platform::Image TitleStage::picture() const {

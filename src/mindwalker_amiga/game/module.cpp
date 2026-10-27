@@ -6,6 +6,7 @@
 #include "mindwalker_amiga/landscape/landscape_stage.hpp"
 #include "mindwalker_amiga/tunnel/tunnel_stage.hpp"
 #include "mindwalker_amiga/arena/arena_stage.hpp"
+#include "mindwalker_amiga/psyche/psyche_stage.hpp"
 #include "mindwalker_amiga/data/assets.hpp"
 #include <optional>
 #include "platform/files.hpp"
@@ -60,7 +61,7 @@ std::uint32_t clock_value() {
 }
 
 class MindWalker final : public app::GameModule {
-    enum class Phase { title, loading, landscape, tunnel, arena, stopped };
+    enum class Phase { title, loading, landscape, tunnel, arena, psyche, stopped };
 
 public:
     explicit MindWalker(const std::filesystem::path& content)
@@ -85,16 +86,18 @@ public:
             title_.frame({mouse_x_, mouse_y_, input.mouse_button});
             if (title_.phase() == title::TitleStage::Phase::loading) {
                 const auto& game = *title_.new_game();
-                state_ = {game.seed, game.stage, game.lives, game.score, std::nullopt, 0};
+                state_ = {game.seed, game.stage, game.lives, game.score, std::nullopt, 0, game.progress, game.bonus};
                 load_next(Phase::landscape);
             }
             break;
         case Phase::loading:
             // The loading picture on S's screen, held a fixed 2 seconds
-            // (owner's decision) while the loader brings the next program.
+            // (owner's decision) while the loader brings the next program
+            // (after the psyche screen its portrait first, 50 frames more).
             if (++loading_frames_ >= 100) open(next_);
             break;
         case Phase::landscape: {
+            count_time(landscape_->paused());
             int gadget = press ? landscape_->gadget_at(mouse_x_, mouse_y_) : -1;
             if (gadget == -2) { // Intuition's close gadget: CLOSEWINDOW quits the stage
                 stop("Left the landscape (score %u).", landscape_->score());
@@ -117,6 +120,7 @@ public:
             break;
         }
         case Phase::tunnel: {
+            count_time(tunnel_->paused());
             int gadget = press ? tunnel_->gadget_at(mouse_x_, mouse_y_) : -1;
             tunnel::TunnelInput in{input.up, input.down, input.left, input.right, input.fire, input.mouse_button};
             tunnel_->frame([&](tunnel::TunnelRead) { return in; }, gadget);
@@ -130,6 +134,7 @@ public:
             break;
         }
         case Phase::arena: {
+            count_time(arena_->paused());
             const int gadget = press ? arena_->gadget_at(mouse_x_, mouse_y_) : -1;
             arena::ArenaInput in{input.up, input.down, input.left, input.right, input.fire, input.mouse_button};
             arena_->frame([&](arena::ArenaRead) { return in; }, gadget);
@@ -142,7 +147,7 @@ public:
                 // closed again), mode 3: the psyche screen.
                 state_.stage = std::min(state_.stage + 7, 42);
                 if (state_.resume) state_.resume->ramp_closed = true;
-                stop("The arena is won (score %u). The psyche screen is not rebuilt yet.", state_.score);
+                load_next(Phase::psyche);
                 break;
             case arena::ArenaStage::Outcome::left: load_next(Phase::landscape); break; // mode 1
             case arena::ArenaStage::Outcome::died:
@@ -153,8 +158,48 @@ public:
             }
             break;
         }
+        case Phase::psyche: {
+            const int gadget = press ? psyche_->gadget_at(mouse_x_, mouse_y_) : -1;
+            psyche::PsycheInput in{mouse_x_, mouse_y_, input.mouse_button};
+            psyche_->frame([&] { return in; }, gadget);
+            if (!psyche_->over()) break;
+            state_.score = psyche_->score();
+            state_.bonus = psyche_->bonus();
+            if (psyche_->outcome() == psyche::PsycheStage::Outcome::done) {
+                // h32: its portrait on S's screen over the loading picture
+                // (50 frames, then the loading), then the landscape (mode 1).
+                show_portrait(psyche_->portrait(), psyche_->portrait_colour());
+                load_next(Phase::landscape);
+                loading_frames_ = -50;
+            } else if (psyche_->whole()) {
+                stop("The last picture is whole: the game is done (score %u). The end screens are not rebuilt yet.",
+                     state_.score);
+            } else {
+                stop("Left the psyche screen (score %u).", state_.score);
+            }
+            break;
+        }
         case Phase::stopped: break;
         }
+    }
+
+    // A, B and C add the seconds they ran (not paused) to +$62 (CurrentTime
+    // at start and end, $206718 / $303298 / $4048A2).
+    void count_time(bool paused) {
+        if (!paused && ++state_.time_frames >= 50) {
+            state_.time_frames = 0;
+            ++state_.time;
+        }
+    }
+
+    // P's h32: MindF1-6 (rows 0-187) from row 12 on, colour 1 its own.
+    void show_portrait(int index, screen::Rgb4 colour) {
+        loading_picture_ = title_.loading_picture(state_.stage);
+        const auto& portrait = assets_.portraits[std::size_t(index)];
+        for (int y = 0; y < 188 && y < portrait.height; ++y)
+            for (int x = 0; x < 320; ++x) loading_picture_.plot(x, y + 12, portrait.at(x, y));
+        loading_colour_ = colour;
+        keep_picture_ = true;
     }
 
     void load_next(Phase next) {
@@ -164,6 +209,12 @@ public:
         landscape_.reset();
         tunnel_.reset();
         arena_.reset();
+        psyche_.reset();
+        if (!keep_picture_) {
+            loading_picture_ = title_.loading_picture(state_.stage);
+            loading_colour_ = 0x0F0;
+        }
+        keep_picture_ = false;
     }
 
     void open(Phase next) {
@@ -175,6 +226,10 @@ public:
         } else if (next == Phase::tunnel) {
             tunnel_.emplace(files_, assets_,
                             tunnel::TunnelStage::Start{state_.tunnel_seed, state_.stage, state_.lives, state_.score});
+        } else if (next == Phase::psyche) {
+            psyche_.emplace(files_, assets_,
+                            psyche::PsycheStage::Start{state_.seed, state_.stage, state_.lives, state_.score, state_.bonus,
+                                                       state_.time});
         } else {
             arena_.emplace(files_, assets_,
                            arena::ArenaStage::Start{state_.tunnel_seed, state_.stage, state_.lives, state_.score,
@@ -194,13 +249,15 @@ public:
         if (phase_ == Phase::landscape) landscape_->render_audio(stereo, sample_rate);
         if (phase_ == Phase::tunnel) tunnel_->render_audio(stereo, sample_rate);
         if (phase_ == Phase::arena) arena_->render_audio(stereo, sample_rate);
+        if (phase_ == Phase::psyche) psyche_->render_audio(stereo, sample_rate);
     }
 
     platform::Image picture() const override {
         platform::Image image = phase_ == Phase::landscape ? landscape_->picture()
                                 : phase_ == Phase::tunnel  ? tunnel_->picture()
                                 : phase_ == Phase::arena   ? arena_->picture()
-                                : phase_ == Phase::loading ? title_.loading_canvas().picture({0x000, 0x0F0})
+                                : phase_ == Phase::psyche  ? psyche_->picture()
+                                : phase_ == Phase::loading ? loading_picture_.picture({0x000, loading_colour_})
                                                            : title_.picture();
         pointer_.draw(image, mouse_x_, mouse_y_);
         return image;
@@ -228,11 +285,18 @@ private:
         std::uint32_t score{};
         std::optional<landscape::LandscapeStage::Resume> resume; // +$18-$60
         std::uint32_t tunnel_seed{};   // +$4C
+        std::uint32_t time{};          // +$62: seconds played
+        std::uint32_t bonus{42000};    // +$308: the self-development bonus
+        int time_frames{};
     } state_;
+    screen::Canvas loading_picture_;
+    screen::Rgb4 loading_colour_{0x0F0};
+    bool keep_picture_{};
     std::string message_;
     std::optional<landscape::LandscapeStage> landscape_;
     std::optional<tunnel::TunnelStage> tunnel_;
     std::optional<arena::ArenaStage> arena_;
+    std::optional<psyche::PsycheStage> psyche_;
 };
 
 } // namespace
