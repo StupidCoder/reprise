@@ -1,5 +1,6 @@
 #include "mindwalker_amiga/landscape/landscape_stage.hpp"
 #include <algorithm>
+#include <cstdlib>
 
 namespace mindwalker::landscape {
 namespace {
@@ -9,6 +10,9 @@ constexpr std::uint32_t form_heights = 0x206B1C;   // sprite rows by form (4 lon
 constexpr std::uint32_t form_colour17 = 0x206B30;  // colour 17 by form (4 words)
 constexpr std::uint32_t form_colour18 = 0x206B38;  // colour 18 by form
 constexpr std::uint32_t form_kinds = 0x206B50;     // the surface kind of each form (4 words)
+constexpr std::uint32_t form_heads = 0x206B40;     // the head: rows above the feet, by form (4 longs)
+constexpr std::uint32_t catch_damage = 0x203E2C;   // damage per catch by stage / 7 (6 longs)
+constexpr int damage_per_life = 1600;              // h14: damage / 100 reaching 16 costs a life
 constexpr std::uint32_t neighbour_dx = 0x205CEC, neighbour_dy = 0x205D0C; // 8 longs each
 constexpr std::uint32_t fidget_seed = 0x20B2B0;    // A's shift register h51, as stored
 constexpr int speed_limit_base = 4;                // $206B6C (plus $2083AE, 0 at the start)
@@ -25,10 +29,14 @@ constexpr int form_figure_set[4] = {0, 3, 1, 2};
 
 LandscapeStage::LandscapeStage(const data::GameFiles& files, const data::Assets& assets, const Start& start)
     : a_(files.program(data::Stage::landscape)), assets_(assets), world_(start.seed, a_),
-      stage_(start.stage), lives_(start.lives), score_(start.score), bar_(files), painter_(a_) {
+      stage_(start.stage), lives_(start.lives), score_(start.score), bar_(files), painter_(a_),
+      creatures_(a_, assets) {
     home_x_ = world_.start_x();
     home_y_ = world_.start_y();
     fidget_.state = a_.u32(fidget_seed);
+    // $20ADF6 draws two at the start (arguments for h47 with $20648E).
+    fidget_.next();
+    fidget_.next();
     // $20AEE4 (new game): facing north, x 120 (column 1), z 40 (row 0),
     // level 0, the view's first column left of the start cell.
     direction_ = 0;
@@ -81,6 +89,17 @@ void LandscapeStage::repaint() {
     view_canvas_.clear(0);
     bar_.draw(view_canvas_);
     painter_.paint(view_canvas_, cells_, direction_, world_.floor_level(), world_.ceiling_level(), view_top);
+    masks_ = painter_.depth_masks(cells_, direction_, world_.floor_level(), world_.ceiling_level());
+}
+
+Creatures::Scene LandscapeStage::creature_scene() const {
+    Creatures::Scene scene;
+    scene.walker_x = walker_.screen_x;
+    scene.walker_y = walker_.screen_y;
+    scene.head = a_.s32(form_heads + std::uint32_t(walker_.form * 4));
+    scene.stage = stage_;
+    scene.masks = &masks_;
+    return scene;
 }
 
 // $205A36 / $205ACA: the window is c - 32 .. c + 31 each way (wrapping) and
@@ -136,6 +155,46 @@ void LandscapeStage::frame(const InputReader& read, int gadget) {
         return;
     }
     follow_height(read);
+    creatures_tick();
+}
+
+// $2003C0 (each frame the walker moves): colour 13 flashes while the view
+// holds something of note, tethers are cleared and redrawn now and then, and
+// the creatures move.
+void LandscapeStage::creatures_tick() {
+    if (cells_.landmarks != 0 || cells_.beacon || cells_.creature_places != 0 || cells_.find) {
+        ++flash_;
+        const std::uint16_t grey = (flash_ & 4) ? 8 : (flash_ & 8) ? 0xF : 0;
+        colours_[13] = std::uint16_t(grey << 8 | grey << 4 | grey);
+    }
+    creatures_.tick_tethers();
+    if (creatures_.update(creature_scene())) caught_ = true;
+}
+
+// $209D8A's other branch, the frame after a catch: every sprite hidden, the
+// views forgotten, the damage counted (h14, whose picture is not rebuilt);
+// 1600 costs a life and empties the view of creatures, otherwise they return.
+void LandscapeStage::caught() {
+    auto scene = creature_scene();
+    creatures_.hide_all(scene);
+    creatures_.forget_views();
+    damage_ += a_.s32(catch_damage + std::uint32_t(std::min(stage_ / 7, 5) * 4));
+    creatures_.clear_tethers();
+    const bool lost = damage_ / 100 >= damage_per_life / 100;
+    if (lost) {
+        damage_ = 0;
+        if (--lives_ == 0) out_of_lives_ = true;
+        bar_.set(lives_, direction_, stage_);
+    }
+    repaint();
+    if (lost) {
+        creatures_.reset();
+        creatures_.clear_presence(scene);
+        creatures_.record_view();
+    } else {
+        creatures_.show_present(scene);
+    }
+    caught_ = false;
 }
 
 void LandscapeStage::face(int direction) {
@@ -154,7 +213,10 @@ void LandscapeStage::follow_height(const InputReader& read) {
     const int target = walker_.next_terrain & 0xFF;
     const bool water = (walker_.next_terrain & 0xC000) == 0xC000 && (walker_.next_terrain & 0x100) == 0;
     if (!water && walker_.form == 1 && walker_.frame > 0x1B) walker_.frame = 0x18;
-    if (walker_.level == target) {
+    if (caught_) {
+        walker_.in_water = water;
+        caught();
+    } else if (walker_.level == target) {
         walker_.in_water = water;
         step(read);
     } else {
@@ -208,7 +270,7 @@ void LandscapeStage::step(const InputReader& read) {
     }
     if (fire) return; // aiming and zapping: not rebuilt yet
 
-    const int limit = speed_limit_base;
+    const int limit = speed_limit_base + creatures_.attached(); // attached creatures speed the walker up
     if (dx == 0 && dz == 0) {
         if (walker_.frame < 0x18 || (++walker_.frame_counter & 0x1F) == 0)
             walker_.frame = walker_.frame == 0x18 ? (fidget_.next() & 3) + 0x18 : 0x18;
@@ -297,7 +359,18 @@ void LandscapeStage::step(const InputReader& read) {
     walker_.next_objects = cells_.objects[std::size_t(walker_.next_column)][std::size_t(walker_.next_row)];
     walker_.next_mix = cells_.mix[std::size_t(walker_.next_column)][std::size_t(walker_.next_row)];
     if (walker_.level <= (walker_.next_terrain & 0xFF) || new_view) take_cell();
-    if (new_view) repaint();
+    if (new_view) {
+        // $206544 / $2070A8: the last view's creature bonus, then the new
+        // view's creatures, from the platform block at the view's middle.
+        score_ += std::uint32_t(creatures_.score_bonus());
+        const auto mx = std::uint16_t((view_x_ + 2) & 0xFFF), my = std::uint16_t((view_y_ + 2) & 0xFFF);
+        const auto block = world_.platform(mx, my);
+        // $2093B0: how far the middle is from its block's centre (u, v each 40 in 64).
+        const int distance = std::abs(((mx + my) & 0x3F) - 0x28) + std::abs(((mx - my) & 0x3F) - 0x28);
+        creatures_.enter_view(view_x_, view_y_, cells_.creature_places, block.height, distance, block.marked,
+                              creature_scene());
+        repaint();
+    }
 }
 
 // $20B18A: the view moved so that the walker's cell is in its front row,
@@ -396,6 +469,28 @@ platform::Image LandscapeStage::picture() const {
     std::vector<screen::Rgb4> colours;
     for (const auto c : colours_) colours.push_back(c & 0xFFF);
     auto image = view_canvas_.picture(colours);
+    // The tether layer: display plane 4 over the view (pens + 16).
+    const auto& tethers = creatures_.tethers();
+    for (int y = view_top; y < 200; ++y)
+        for (int x = 0; x < 320; ++x)
+            if (tethers[std::size_t(y * 320 + x)])
+                image.put(x, y, screen::to_color(colours[16u | view_canvas_.pen(x, y)]));
+    // The creatures: attached sprite pairs in colours 16-31, masked by the
+    // rows they fly behind.
+    for (const auto& c : creatures_.all()) {
+        if (c.kind < 0 || c.shown_x <= -16 || c.shown_x >= 320) continue;
+        const auto& a = creatures_.image_a(c.kind);
+        const auto& b = creatures_.image_b(c.kind);
+        for (int y = 0; y < a.height; ++y) {
+            const int sy = c.shown_y + view_top + y;
+            if (sy < view_top || sy >= 200) continue;
+            for (int x = 0; x < 16; ++x) {
+                const int pen = b.at(x, y) << 2 | a.at(x, y);
+                if (pen == 0 || !(c.visible[std::size_t(y)] >> (15 - x) & 1)) continue;
+                image.put(c.shown_x + x, sy, screen::to_color(colours[16u + unsigned(pen)]));
+            }
+        }
+    }
     // The walker: a hardware sprite in colours 17-19, its feet on its screen
     // point (drawn over everything: the occlusion mask is not rebuilt yet).
     const auto& set = assets_.figures[std::size_t(form_figure_set[walker_.form])];

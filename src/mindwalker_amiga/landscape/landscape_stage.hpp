@@ -1,6 +1,7 @@
 #pragma once
 #include "mindwalker_amiga/data/assets.hpp"
 #include "mindwalker_amiga/data/game_files.hpp"
+#include "mindwalker_amiga/landscape/creatures.hpp"
 #include "mindwalker_amiga/landscape/landscape_bar.hpp"
 #include "mindwalker_amiga/landscape/view_cells.hpp"
 #include "mindwalker_amiga/landscape/view_scene.hpp"
@@ -17,7 +18,9 @@
 // following, view shifts), turning with the compass, the map of visited cells
 // and its points. Rebuilt from A's main loop ($200262), the step $209D8A /
 // $20A45C and the routines they call.
-// Not rebuilt yet: aiming and zapping (fire), creatures, finds, beacons,
+// The flying creatures (their own module, creatures.hpp) fly, attach and
+// catch the walker; a catch costs damage and, at 1600, a life.
+// Not rebuilt yet: aiming and zapping (fire), the view's own creatures, finds,
 // landmarks' map re-centring, the marked block's ramp (the way on), pyramids
 // ($1000 cells), the pause box, the reveal animation and the walker's
 // occlusion mask (the walker is drawn over everything).
@@ -87,11 +90,19 @@ public:
     int frozen() const { return frozen_; }
     // The walker stepped onto the marked block's ramp: the stage ends ($209F34).
     bool finished() const { return finished_; }
+    // The last life was lost to a catch ($204D6C).
+    bool out_of_lives() const { return out_of_lives_; }
+    int lives() const { return lives_; }
+    int damage() const { return damage_; }
+    const Creatures& creatures() const { return creatures_; }
 
 private:
     void rebuild_view();
     void repaint();
     void follow_height(const InputReader&); // $209D8A
+    void caught();          // $209D8A's branch after a catch
+    void creatures_tick();  // $2003C0
+    Creatures::Scene creature_scene() const;
     void step(const InputReader&); // $20A45C without fire
     void take_cell();       // $20AB4E
     void cell_events();     // $209F34 (the visited map so far)
@@ -124,10 +135,16 @@ private:
     int frozen_{};                        // $204DFC: frames the stage waits after a click
     bool button_was_down_{};              // $204DFA
     bool finished_{};                     // $204D72
+    bool out_of_lives_{};                 // $204D6C
+    bool caught_{};                       // $20B356
+    int damage_{};                        // $20052E
+    int flash_{};                         // $200518: colour 13's counter
     bool beacon_taken_{};                 // $2099B6 (the marked block's state)
     screen::Canvas view_canvas_;
     LandscapeBar bar_;
     ViewPainter painter_;
+    std::array<ViewPainter::DepthMask, 3> masks_;
+    Creatures creatures_;
 };
 
 } // namespace mindwalker::landscape

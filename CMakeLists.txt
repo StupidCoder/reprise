@@ -184,6 +184,7 @@ add_library(mindwalker_amiga
     src/mindwalker_amiga/landscape/view_cells.cpp
     src/mindwalker_amiga/landscape/view_scene.cpp
     src/mindwalker_amiga/landscape/landscape_bar.cpp
+    src/mindwalker_amiga/landscape/creatures.cpp
     src/mindwalker_amiga/landscape/landscape_stage.cpp
     src/mindwalker_amiga/import/disk_import.cpp)
 target_include_directories(mindwalker_amiga PUBLIC ${SOURCE_ROOT})
@@ -197,6 +198,7 @@ add_library(wings_of_fury_amiga
     src/wings_of_fury_amiga/data/packed.cpp
     src/wings_of_fury_amiga/data/preview.cpp
     src/wings_of_fury_amiga/data/shapes.cpp
+    src/wings_of_fury_amiga/game/player_view.cpp
     src/wings_of_fury_amiga/game/scenery.cpp
     src/wings_of_fury_amiga/import/disk_import.cpp)
 target_include_directories(wings_of_fury_amiga PUBLIC ${SOURCE_ROOT})

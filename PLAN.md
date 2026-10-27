@@ -649,11 +649,12 @@ seeds and a clock seed), not stored.
    the view's trees, grass, patterns, landmark stars and ramp poles are
    drawn (0.9% of pens differ). Walking is rebuilt (fall, steps, speed,
    frames, view shifts, height, visited map and points, beacons, compass
-   turning; the walker sprite) and equals the original for 574 frames of a
-   walking recording, up to the first flying creature. Next: the flying
-   creatures, zapping, view creatures and finds, the walker's mask, the
-   sprite, the status bar, movement; then B, C, P, sound, saves, high
-   scores.
+   turning; the walker sprite). The flying creatures are rebuilt
+   (`landscape/creatures`: bands per view, appearing, flight, masking
+   behind the scenery, tethers, catches, damage and lives); the walking
+   recording now equals the original for all its 808 frames. Next:
+   zapping, view creatures and finds, the walker's mask, the catch
+   picture, the status bar; then B, C, P, sound, saves, high scores.
 
 Open: what each shared image set and icon is used for and its colours;
 sample playback periods and triggers; A's world model beyond the generator;
@@ -701,12 +702,19 @@ and songs `wofsongs` (both with their symbols), IFF pictures, "Rpck"-packed
    over the whole view on maps a, d and k except for objects (plane, parked
    planes, elevator, splashes) and the weapon-menu box. Harness reads the
    finished buffer of the double-buffered view.
-6. Next: the objects drawn over the backdrop (player plane, parked planes and
-   elevator, enemy planes, flags), index-5 special, night view and the
-   copper palette split; then the front end (story scroller, pictures, rank selection, high scores),
+6. **Done 2026-10-27: player and carrier deck pictures.** `game/player_view`
+   (plane, parts, propeller XOR, mirrored shapes, clip at the deck; parked
+   planes, elevator); exact against grabs on the elevator, on deck, taxiing,
+   in flight (poked states), with the ground line moved. game.md has the
+   frame order, player picture and input.
+7. Next: take-off/engine control (open), the 1/8-scale view, enemy planes
+   and other objects, index-5 special, night, copper palette split; then the
+   front end (story scroller, pictures, rank selection, high scores),
    music (`songplay` rewrite), then flight, objects and missions.
 
-Open: index-5 special ($104E18), the `$114/$115` pairs, the deck phase
+Open: taking off in the reference machine (the engine start path, game.md);
+the player's -$5BE0/-$5BE4 parts, upset and facing right not yet seen; the
+debug key mode; index-5 special ($104E18), the `$114/$115` pairs, the deck phase
 tables behind the crew poses; ship bob other than 0 not compared; night maps,
 the 1/8-scale view and the copper palette split (rows 151+); maps other than
 a, d and k not compared; stick direction codes;

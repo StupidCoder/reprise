@@ -137,8 +137,30 @@ void ViewPainter::paint_grid(screen::Canvas& canvas, int top) const {
 void ViewPainter::paint(screen::Canvas& canvas, const ViewCells& view, int direction, int floor_level,
                         int ceiling_level, int top) const {
     paint_grid(canvas, top);
+    paint_cells(canvas, view, direction, floor_level, ceiling_level, top, -1);
+}
+
+std::array<ViewPainter::DepthMask, 3> ViewPainter::depth_masks(const ViewCells& view, int direction, int floor_level,
+                                                               int ceiling_level) const {
+    std::array<DepthMask, 3> masks;
+    for (int row = 0; row < 3; ++row) {
+        screen::Canvas canvas;
+        canvas.clear(255); // anything drawn changes it
+        paint_cells(canvas, view, direction, floor_level, ceiling_level, 0, row);
+        masks[std::size_t(row)].resize(std::size_t(screen::Canvas::width * screen::Canvas::height));
+        for (int y = 0; y < screen::Canvas::height; ++y)
+            for (int x = 0; x < screen::Canvas::width; ++x)
+                masks[std::size_t(row)][std::size_t(y * screen::Canvas::width + x)] = canvas.pen(x, y) != 255;
+    }
+    return masks;
+}
+
+void ViewPainter::paint_cells(screen::Canvas& canvas, const ViewCells& view, int direction, int floor_level,
+                              int ceiling_level, int top, int only_row) const {
+    const bool colour_pass = only_row < 0;
     const auto cells = turn(view, direction);
     for (int row = 3; row >= 0; --row) {
+        if (!colour_pass && row != only_row) continue;
         const int row_top_y = a_.s16(row_top + std::uint32_t(row * 2));
         const int base_y = a_.s16(row_base + std::uint32_t(row * 2));
         const int next_base_y = a_.s16(row_base + 2 + std::uint32_t(row * 2));
@@ -198,7 +220,7 @@ void ViewPainter::paint(screen::Canvas& canvas, const ViewCells& view, int direc
             if ((t & 0x400) || (cell.objects & 0x40)) {
                 // Landmarks and empty cells: a pattern in pen 0; landmarks
                 // also a star ($2026D6, pen 13) twelve levels up.
-                pattern(canvas, face, cell.shape, 0, top);
+                if (colour_pass) pattern(canvas, face, cell.shape, 0, top);
                 if (t & 0x400) {
                     const auto star = camera_.project(x, level - 12, z);
                     const auto line = [&](int x0, int y0, int x1, int y1) {
@@ -210,7 +232,7 @@ void ViewPainter::paint(screen::Canvas& canvas, const ViewCells& view, int direc
                     line(-3, 3, 3, -3);
                 }
             }
-            if (cell.objects & 1) {
+            if (colour_pass && (cell.objects & 1)) {
                 // A visited cell's marker ($205158): a smaller square in pen 0.
                 const auto small = [&](int dx, int dz) {
                     const auto p = camera_.project(x + dx, level, z + dz);

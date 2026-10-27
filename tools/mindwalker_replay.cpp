@@ -218,7 +218,7 @@ int view(const std::filesystem::path& content, std::uint32_t seed, const std::fi
 // gets the script's input for that read's index; at every frame's first read
 // the walker's record is compared with the logged one.
 int walk(const std::filesystem::path& content, std::uint32_t seed, const std::filesystem::path& script_path,
-         const std::filesystem::path& log_path, int frame_limit) {
+         const std::filesystem::path& log_path, int frame_limit, const std::filesystem::path& png) {
     using namespace mindwalker;
     const data::GameFiles files(content);
     const auto assets = data::load_assets(content);
@@ -296,6 +296,32 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
             if (f.ours != f.theirs && ++differences <= 15)
                 std::printf("A read %d (frame %d) %s: ours %ld, original %ld\n", r.index, frames, f.name, f.ours, f.theirs);
         }
+        // The flying creatures ($208128 on), the damage and the lives, in
+        // recordings that have them.
+        if (!r.fields.count("creatures")) return;
+        const auto& c = r.fields.at("creatures");
+        const auto long_at = [&](int o) { return long(std::int32_t(std::uint32_t(word(c, o, 4)))); };
+        const auto word_at = [&](int o) { return long(std::int16_t(std::uint16_t(word(c, o, 2)))); };
+        std::vector<Field> more = {
+            {"attached", stage.creatures().attached(), long_at(0x286)},
+            {"creature bonus", stage.creatures().score_bonus(), long_at(0x0A)},
+            {"damage", stage.damage(), long(std::int32_t(std::uint32_t(word(r.fields.at("damage"), 0, 4))))},
+            {"lives", stage.lives(), long(std::int32_t(std::uint32_t(word(r.fields.at("shared"), 0x5E, 4))))}};
+        static const char* names[] = {"present", "kind", "x", "y", "depth", "tether x", "tether y"};
+        for (int i = 0; i < 12; ++i) {
+            const auto& me = stage.creatures().all()[std::size_t(i)];
+            const long ours[] = {me.present, me.kind, me.x, me.y, me.depth, me.tether_x, me.tether_y};
+            const long theirs[] = {word_at(0x252 + 2 * i), long_at(0x0E + 4 * i), long_at(0x102 + 4 * i),
+                                   long_at(0xD2 + 4 * i), long_at(0xA2 + 4 * i), long_at(0x222 + 4 * i),
+                                   long_at(0x1F2 + 4 * i)};
+            for (int k = 0; k < 7; ++k)
+                if (ours[k] != theirs[k] && ++differences <= 15)
+                    std::printf("A read %d (frame %d) creature %d %s: ours %ld, original %ld\n", r.index, frames, i,
+                                names[k], ours[k], theirs[k]);
+        }
+        for (const auto& f : more)
+            if (f.ours != f.theirs && ++differences <= 15)
+                std::printf("A read %d (frame %d) %s: ours %ld, original %ld\n", r.index, frames, f.name, f.ours, f.theirs);
     };
     const landscape::InputReader reader = [&](landscape::InputRead kind) {
         const char* expected = kind == landscape::InputRead::button ? "203f70" : kind == landscape::InputRead::stick ? "208562" : "2085ae";
@@ -316,6 +342,7 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
         ++frames;
     }
     std::printf("%d frames, %zu reads compared, %d differences; score %u\n", frames, next, differences, stage.score());
+    if (!png.empty()) platform::save_png(stage.picture(), png);
     return differences == 0 ? 0 : 1;
 }
 
@@ -328,9 +355,10 @@ int main(int argc, char** argv) {
             return title(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]), platform::utf8_path(argv[4]),
                          argc == 6 ? platform::utf8_path(argv[5]) : std::filesystem::path());
         }
-        if (command == "walk" && (argc == 6 || argc == 7)) {
+        if (command == "walk" && argc >= 6 && argc <= 8) {
             return walk(platform::utf8_path(argv[2]), std::uint32_t(std::stoul(argv[3], nullptr, 16)),
-                        platform::utf8_path(argv[4]), platform::utf8_path(argv[5]), argc == 7 ? std::stoi(argv[6]) : 1 << 30);
+                        platform::utf8_path(argv[4]), platform::utf8_path(argv[5]), argc >= 7 ? std::stoi(argv[6]) : 1 << 30,
+                        argc == 8 ? platform::utf8_path(argv[7]) : std::filesystem::path());
         }
         if (command == "view" && argc == 6) {
             return view(platform::utf8_path(argv[2]), std::uint32_t(std::stoul(argv[3], nullptr, 16)),
@@ -338,7 +366,7 @@ int main(int argc, char** argv) {
         }
         std::fprintf(stderr, "usage: mindwalker_replay title <content> <script> <run.log> [dump dir]\n"
                              "       mindwalker_replay view <content> <seed> <dump .idx> <out.png>\n"
-                             "       mindwalker_replay walk <content> <seed> <script> <run.log> [frames]\n");
+                             "       mindwalker_replay walk <content> <seed> <script> <run.log> [frames [last picture.png]]\n");
         return 2;
     } catch (const std::exception& error) {
         std::fprintf(stderr, "mindwalker_replay: %s\n", error.what());
