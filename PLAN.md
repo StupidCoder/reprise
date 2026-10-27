@@ -48,7 +48,7 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
 | Wizball | C64 | `Wizball.g64` (MD5 `73e1a136da4b6972d39f00817b86983e`) | disk import, asset decoding with launcher previews; play rebuilt and checked in lockstep (places, enemies, catellite, tunnels, lives, bonus wave, Wizlab, level flight, round end, sound and music); front end, high scores and keys rebuilt |
 | Cannon Fodder | Amiga | — | planned |
 | Rock 'n Roll | Amiga | — | planned |
-| Wings of Fury | Amiga | — | planned |
+| Wings of Fury | Amiga | `Wings_of_Fury_v1.0_1990_Broderbund_cr_Hysteria.adf` (SHA-256 `638d9a9d…4620044`, a cracked copy) | disk import and decoded assets with launcher viewer (pictures, all 12 shape libraries, palettes, sounds, texts); nothing playable yet |
 | Tower of Babel | Amiga | — | planned; original interpretive shell cover added, importer and gameplay not implemented |
 
 ## Fort Apocalypse (C64) milestones
@@ -281,7 +281,7 @@ Notes: `.analysis/bruce_lee_c64/` (`disk.md` loader and protection,
   only been exercised from the command line (`joyport --import`) so far.
 - Only one dump of Fort Apocalypse has been tried; other dumps of the same
   release should work (recognised by content), other releases are rejected.
-- Images for Cannon Fodder, Rock 'n Roll and Wings of Fury are not in the project folder yet.
+- Images for Cannon Fodder and Rock 'n Roll are not in the project folder yet.
 - Bruce Lee: not compared with the original yet: the two-player modes
   (needs a harness run with both joysticks), the idle pause (11 minutes),
   the pause key. Not rebuilt: the idle pause's colour cycling ($1675,
@@ -654,6 +654,40 @@ P's rules; T's high scores, command screen (save/load), pause box and end
 screens; the slider drag (modelled, not compared); the release's video
 standard (50 Hz assumed); the shared fields
 marked as hypotheses in `game.md`.
+
+## Wings of Fury (Amiga) milestones
+
+Notes: `.analysis/wings_of_fury_amiga/` (`disk.md` disk, crack, program
+structure, research layout; `formats.md` data formats). No outside material
+on this game was used (RetroReverse has none).
+
+The image is a cracked copy: the cracker's banner in the startup sequence,
+and `wings` no longer calls the manual-word check (the routine and its
+33-entry table are still there, `$10F41A`). Everything else is the game's
+own data, loaded by name with dos.library: `wings` (compiled C front end +
+hand-written 68000 game, A4-relative globals), the music player `songplay`
+and songs `wofsongs` (both with their symbols), IFF pictures, "Rpck"-packed
+"PPkc" shape libraries, fifteen maps and eight samples.
+
+1. **Done 2026-10-27: import and assets.** `src/wings_of_fury_amiga`
+   (namespace `wings`): import (release by `wings` SHA-256, every data file by
+   SHA-256), Rpck unpacker, PPkc shape decoder (blitter rules of `$110B0C`:
+   clear/set plane masks, stored planes with target masks, OR mask), pictures,
+   palettes, maps (raw words), samples, rank names, story text, high scores;
+   launcher previews; `wings_of_fury_assets import|export`. Checked: all
+   files decode; shape sheets and pictures look right in the day palette.
+2. **Next: reference machine.** FS-UAE harness as for Mind Walker (own GDB
+   port), recording through the game's own input recorder (argument →
+   record, `wofdemo` → playback) — a natural way to drive lockstep runs.
+3. Map format and the world drawer (tie map words to `world.shp`), then the
+   front end (story scroller, pictures, rank selection, high scores), music
+   (`songplay` sequencer rewrite), then flight, objects and missions.
+
+Open: map word fields (bit 15, bits 11-14, the `$114/$115` markers);
+`newarmyfont` and how the two fonts are used; sample periods; the shape
+offset/sheet fields (hypotheses); eighth rank-menu option (`$108B96`);
+where the retail game called the manual check; a second (retail) release
+entry for the importer; video standard (PAL assumed).
 
 ## Launcher visual exploration (2026-10-26)
 

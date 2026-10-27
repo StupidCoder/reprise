@@ -231,12 +231,14 @@ int main(int argc, char** argv) {
         shell.update(down, 1); check(shell.selected() == 3, "Down must select Mindwalker in chronological order");
         shell.update(down, 1); shell.update(down, 1); check(shell.selected() == 8, "Later releases must be reachable");
         shell.draw(1); // includes the last row's covers, with selection scrolled into view
-        check(shell.update(enter, 1) == Request::none, "Planned game must not start or import");
+        check(shell.update(enter, 1) == Request::choose_image, "Wings of Fury (importable) must request import");
         shell.draw(1); shell.update(back, 1);
         shell.select(0); shell.update(left, 1); shell.update(down, 1); shell.update(down, 1);
         shell.update(right, 1); check(shell.selected() == 4, "Keyboard filter must select first Amiga entry");
         shell.update(left, 1); shell.update(down, 1); shell.update(right, 1);
         check(shell.selected() == 6, "Planned filter must select Rock 'n Roll (the first planned game)");
+        check(shell.update(enter, 1) == Request::none, "Planned game must not start or import");
+        shell.draw(1); shell.update(back, 1);
         shell.update(click(40, 125), 1); // All games
         shell.select(0); shell.update(click(915, 80), 1);
         check(shell.selected() == 2, "Pointer paging must follow chronological order");

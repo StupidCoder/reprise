@@ -3,6 +3,7 @@
 #include "fort_apocalypse_c64/entry.hpp"
 #include "marble_madness_amiga/entry.hpp"
 #include "mindwalker_amiga/entry.hpp"
+#include "wings_of_fury_amiga/entry.hpp"
 #include "wizball_c64/entry.hpp"
 
 namespace app {
@@ -22,8 +23,7 @@ std::vector<GameEntry> catalog() {
          .media = "the disk image (ADF)"},
         {.id = "tower_of_babel_amiga", .title = "Tower of Babel", .machine = Machine::amiga,
          .media = "the disk image (ADF)"},
-        {.id = "wings_of_fury_amiga", .title = "Wings of Fury", .machine = Machine::amiga,
-         .media = "the disk image (ADF)"},
+        wings::entry(),
     };
     // Platform-specific release dates, not franchise debuts or reissue dates.
     // This editorial material is sourced separately in docs/catalog-history.md.
