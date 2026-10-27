@@ -216,6 +216,8 @@ add_library(cannon_fodder_amiga
     src/cannon_fodder_amiga/entry.cpp
     src/cannon_fodder_amiga/data/assets.cpp
     src/cannon_fodder_amiga/data/preview.cpp
+    src/cannon_fodder_amiga/game/camera.cpp
+    src/cannon_fodder_amiga/game/map_view.cpp
     src/cannon_fodder_amiga/import/disk_import.cpp
     src/cannon_fodder_amiga/import/rnc.cpp
     src/cannon_fodder_amiga/import/sensi_disk.cpp)
