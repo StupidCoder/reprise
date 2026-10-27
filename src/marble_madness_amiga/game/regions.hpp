@@ -1,8 +1,12 @@
 #pragma once
 #include "marble_madness_amiga/data/game_files.hpp"
+#include "marble_madness_amiga/game/probe.hpp"
+#include "marble_madness_amiga/game/random.hpp"
 #include "marble_madness_amiga/game/terrain.hpp"
 #include <array>
 #include <cstdint>
+#include <deque>
+#include <utility>
 #include <vector>
 
 // Course regions: the scripted parts of a course (moving ground, rails, the
@@ -48,10 +52,10 @@ public:
     // $10FC02: the view moved from band `from` to band `to` (16 lines each,
     // counted from the course's view offset): start the listed regions whose
     // band range is entered, stop running ones whose range is left.
-    void bands_changed(int from, int to);
+    void bands_changed(int from, int to, Random& random);
     // $1100A2: one world update of every region (pictured frames patch the
     // terrain's animated heights).
-    void update(Terrain&);
+    void update(Terrain&, Probe&);
 
     std::array<Region, slots>& all() { return regions_; }
     const std::array<Region, slots>& all() const { return regions_; }
@@ -72,6 +76,13 @@ public:
     struct Blit {
         std::uint32_t item{};
         std::int16_t x{}, y{};
+        // Intermediate's wave reaching the ramp's end: 0-15 for the special
+        // drawing ($112464), else -1.
+        std::int8_t wave_end{-1};
+        // Aerial's vacuums and bumpers: the course cell their picture is
+        // drawn over (outside its mask) instead of the playfield ($110A46
+        // links it into the picture's cell record), else -1.
+        std::int16_t background{-1};
     };
     std::vector<Blit> take_blits() { return std::move(blits_); }
     // (view - the descriptor's first view), set by the race whenever the
@@ -80,29 +91,105 @@ public:
     std::int32_t view{};          // $1009D2, for the regions' screen positions
 
     // Continues a region's script where it stopped ($110198).
-    void resume(Region& r, Terrain& terrain) {
+    void resume(Region& r, Terrain& terrain, Probe& probe) {
         terrain_ = &terrain;
+        probe_ = &probe;
         interpret(r);
     }
+    // $10FD82 with 1, for course rules.
+    void stop_region(Region& r) { stop(r); }
+    // Sounds the scripts asked for since the last call (entry, side).
+    struct Sound {
+        int id{};
+        bool right{};
+    };
+    std::vector<Sound> take_sounds() { return std::exchange(sounds_, {}); }
+    // The regions registered for Aerial's course occlusions ($110338):
+    // code 10 ($110174), codes 11 and 13 ($11015C, six), code 12 ($110178,
+    // four); -1 for none.
+    int code10() const { return code10_; }
+    const std::array<int, 6>& codes11_13() const { return codes11_13_; }
+    const std::array<int, 4>& codes12() const { return codes12_; }
+    // Display objects the regions added or removed since the last call
+    // (the race keeps the display list).
+    struct DisplayEvent {
+        bool add{};
+        std::uint8_t type{}, index{};
+    };
+    std::vector<DisplayEvent> take_display_events() { return std::exchange(display_events_, {}); }
+
+    // Ultimate's moving goal area (code $19, $11E5EA-$11E992): its region
+    // lists four pictures of the course's last 30 map rows (stored as
+    // further map rows: the frame's first row) with a patch of the heights
+    // each. A task renders the next picture into a spare buffer; once it is
+    // done the region's step patches the heights and picks the frame's set
+    // of cover bit-maps ($1006A4), and the next display shows the picture
+    // and asks for the following one, round and round. The rendering takes
+    // 18-25 updates in the original, as busy as the program is (measured
+    // on Ultimate's recordings); the port takes the usual 21, and replays
+    // of the original the times it logged.
+    static constexpr int picture_render_time = 21;
+    std::deque<int> forced_render_times;
+    // The display step ($1076B6 with $11E98D set, $11E588): show a finished
+    // picture and ask for the next.
+    void show_rendered_picture();
+    // The map rows the moving area shows: the first row it replaces and
+    // the first row shown there (-1 while it shows its own rows).
+    int picture_home_row() const { return picture_.home_row; }
+    int picture_shown_row() const { return picture_.shown_row; }
+    // Which frame's cover bit-maps the marbles use ($1006A4 / $90).
+    int cover_set() const { return picture_.cover_set; }
+    // Research (route search): updates until the next picture is due.
+    int picture_due_in() const { return picture_.rendering ? picture_.render_left : picture_render_time + 1; }
+
+    // The drawbridge region (code 3, Beginner), or nullptr ($110158).
+    const Region* drawbridge() const { return drawbridge_ < 0 ? nullptr : &regions_[std::size_t(drawbridge_)]; }
+
     // Track region-block entry n (header +$14), a script or frame list address.
     std::uint32_t block_entry(int n) const;
 
 private:
     void interpret(Region&);         // $110198
     void show_frame(Region&);        // $110830
+    void apply_patch(std::uint32_t patch);
+    void poll_picture(Region&);      // $11E848
     bool next_frame(Region&);        // $10FB90
     void step(Region&);              // $10FECA
     void stop(Region&);              // $10FD82 with 1
     void start(Region&, std::uint32_t script); // $10FD82 with 0
     bool running(std::uint32_t list_entry) const; // $10FB36
     Region* free_slot();
+    void reset_wave_heights();       // Intermediate, block entry 3 ($110C80)
+    void draw_wave(int round);       // Intermediate, block entry 4 ($110C96)
 
     const amiga::LoadedImage* track_{};
+    const amiga::LoadedImage* program_{};
     std::uint32_t block_{};       // Track header +$14
     data::Course course_{};
     Terrain* terrain_{}; // set by each call that may patch it
+    Probe* probe_{};     // likewise: $106A00 leaves the regions' points in it
     std::array<Region, slots> regions_{};
+    int drawbridge_{-1};
+    int code10_{-1};
+    std::array<int, 6> codes11_13_{-1, -1, -1, -1, -1, -1};
+    std::array<int, 4> codes12_{-1, -1, -1, -1};
+    std::vector<Sound> sounds_;
+    void sound(int id, bool right) { sounds_.push_back({id, right}); }
+    void sound(int id) { sound(id, probe_ != nullptr && probe_->x() < probe_->y()); } // $1224D8
+    bool wave_ready_{true};       // $1007A5
+    int waves_{};                 // $1007A4: code-6 regions running
+    std::vector<DisplayEvent> display_events_;
     std::vector<Blit> blits_;
+    struct Picture {
+        bool wanted{};            // $11E98E
+        bool rendering{};         // $11E98F
+        bool swap_due{};          // $11E98D
+        int render_left{};
+        int rendering_row{-1};
+        int shown_row{-1};
+        int home_row{-1};
+        int cover_set{};
+    } picture_;
 };
 
 } // namespace marble_madness::game

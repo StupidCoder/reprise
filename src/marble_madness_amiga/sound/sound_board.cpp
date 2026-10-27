@@ -13,7 +13,7 @@ constexpr double tick_seconds = 1.0 / 50.0;
 } // namespace
 
 SoundBoard::SoundBoard(const data::GameFiles& files, data::Course course)
-    : memory_(std::make_unique<Memory>(files.program(), files.sounds(course))),
+    : memory_(std::make_shared<const Memory>(files.program(), files.sounds(course))),
       effects_(std::make_unique<Effects>(*memory_)),
       music_(std::make_unique<Music>(*memory_, *effects_)) {
     const auto& bank = files.sounds(course);
@@ -23,6 +23,16 @@ SoundBoard::SoundBoard(const data::GameFiles& files, data::Course course)
         const std::uint32_t at = table + 2 + std::uint32_t(i) * 8;
         entries_.push_back({bank.u16(at), bank.s16(at + 2), bank.u32(at + 4), 0, {}});
     }
+}
+
+SoundBoard::SoundBoard(const SoundBoard& other)
+    : memory_(other.memory_),
+      effects_(std::make_unique<Effects>(*other.effects_)),
+      music_(std::make_unique<Music>(*other.music_)),
+      entries_(other.entries_),
+      until_tick_(other.until_tick_),
+      pending_(other.pending_) {
+    music_->use(*effects_);
 }
 
 void SoundBoard::play(int id, bool right) {

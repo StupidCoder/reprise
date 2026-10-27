@@ -1,7 +1,9 @@
 #pragma once
 #include "marble_madness_amiga/data/game_files.hpp"
+#include "marble_madness_amiga/game/display_list.hpp"
 #include "marble_madness_amiga/game/marble.hpp"
 #include "marble_madness_amiga/game/probe.hpp"
+#include "marble_madness_amiga/game/random.hpp"
 #include "marble_madness_amiga/game/regions.hpp"
 #include "marble_madness_amiga/game/terrain.hpp"
 #include <array>
@@ -32,7 +34,11 @@ struct SoundEvent {
 class Race {
 public:
     // A race from its start ($1030B4); difficulty 0-7 sets the time.
-    Race(const data::GameFiles&, data::Course, int players = 1, int difficulty = 0);
+    // `random` replaces the generator's start (replays of the original).
+    Race(const data::GameFiles&, data::Course, int players = 1, int difficulty = 0,
+         const Random* random = nullptr);
+    // The generator as the program file starts it.
+    static Random program_random(const data::GameFiles&);
     // Races copy as independent races (quick saves, look-ahead).
 
     // $10B1EE: one world update with the players' pushes. The game reads the
@@ -41,6 +47,18 @@ public:
     void update(const std::array<Push, 2>& pushes);
 
     std::array<Marble, 2> marbles{};
+    std::array<Steelie, 2> steelies{};      // $100BD6 (Beginner, Intermediate, Ultimate)
+    std::array<Slinky, 4> slinkies{};       // $101548
+    std::array<Acid, 5> acids{};            // $1016F0 (Intermediate, Ultimate)
+    std::array<Piston, 36> pistons{};           // $1018BE (Aerial)
+    std::array<PistonGroup, 3> piston_groups{}; // Track region block +$23C (Aerial)
+    std::array<Critter, 9> critters{};      // $101AFE (Silly)
+    std::array<Bird, 10> birds{};           // $101C66 (Silly)
+    bool pistons_on() const { return pistons_on_; }
+    // Pictures the pistons put into the playfield since the last call (as the
+    // regions' blits: item, x, screen line).
+    std::vector<Regions::Blit> take_piston_blits() { return std::exchange(piston_blits_, {}); }
+    Random random;                          // $109136
     int players() const { return players_; }
     data::Course course() const { return course_; }
     const Terrain& terrain() const { return terrain_; }
@@ -55,12 +73,16 @@ public:
         std::int8_t kind{-1};
     };
     const std::array<DropMark, 2>& drop_marks() const { return drop_marks_; }
+
+    // The drawing order of the moving things (nearest last).
+    const DisplayList& display() const { return display_; }
     Regions& regions() { return regions_; }
     // The sounds asked for since the last call (the course start's music
     // first).
     std::vector<SoundEvent> take_sounds() { return std::exchange(sounds_, {}); }
 
-    // $1005EA: 0 a race, 1 the attract demo, other values between races.
+    // $1005EA: 0 a race, 1 the attract demo (a stub in this release), 3
+    // the race is over (all finished), 4 out of time; others between races.
     int game_mode{};
 
     // Not the original game (pause menu cheats).
@@ -73,26 +95,93 @@ public:
     // Colour values the game has written into the Track's copper lists
     // (instruction address -> colour), over the stored ones.
     const std::map<std::uint32_t, std::uint16_t>& copper_colours() const { return copper_colours_; }
+    // Ultimate's colour cycling ($1006A7: a count, -1 off; $1006A6: the
+    // phase), for checks against recordings.
+    int colour_count() const { return colour_count_; }
+    int colour_phase() const { return colour_phase_; }
 
     // The view (for the picture): the screen's offset in course space and
     // the scroll in lines from the top.
     std::int32_t view() const { return view_; }
     std::int16_t scroll_lines() const { return scroll_; }
     int frame() const { return frame_; }
+    // $100248 counts world updates from the game's start, not the race's:
+    // a race continues the count (the scroll looks every eighth update).
+    void set_frame(int frame) { frame_ = frame; }
 
 private:
     void scroll();                                 // $10D618
     bool scroll_down(int lines);                   // $10D278
     bool scroll_up(int lines);                     // $10D384
     int band(std::int32_t view) const;             // $10D9BC
-    void count_down();                             // $10B7E6
+    void count_down();
+    void dizzy_surprise();                         // $10AAD0                             // $10B7E6
 
     // Marble rules (marble_rules.cpp).
     void update_marble(Marble&);                   // $114402
+    void bands_changed(int from, int to);          // $10D9BC
+    DisplayList::Box box_of(std::uint8_t type, std::uint8_t index) const; // $110CD4
+    void show(std::uint8_t type, std::uint8_t index);   // $112004
+    void hide(std::uint8_t type, std::uint8_t index);   // $1120F4
+    void take_region_display_events();
+    // The steelies (steelies.cpp).
+    void spawn_steelies(int from, int to);         // $119E5A
+    void update_steelie(Steelie&);                 // $119C7C
+    void steer(Steelie&);                          // $11365A
+    void think(Steelie&);                          // $11A378
+    void choose_mode(Steelie&, bool at_waypoint);  // $11A49A
+    void nearest_waypoint(Steelie&);               // $11A250
+    void return_to_path(Steelie&);                 // $11A7AE
+    void remove(Steelie&, bool bonus, bool gone);  // $11A09C
+    Steelie* steelie_of(Marble&);
+    // The slinkies (slinkies.cpp).
+    void spawn_slinkies(int from, int to);         // $11ABF8
+    void update_slinky(Slinky&);                   // $11A81E
+    void slinky_step(Slinky&);                     // $11B904
+    void slinky_animation(Slinky&);                // $11B2E0
+    void slinky_lookout(Slinky&);                  // $11B5F6
+    void slinky_nearest_waypoint(Slinky&);         // $11AE1E
+    void slinky_place(Slinky&);                    // $11B248
+    bool touch_slinkies(Marble&);                  // $11AF24
+    // The acid (acid.cpp).
+    void spawn_acid(int from, int to);             // $11BE98
+    void start_acid(Acid&, std::uint32_t path, std::uint32_t entry); // $11BE98's set-up
+    void update_acid(Acid&);                       // $11BD58
+    void acid_next(Acid&);                         // $11C54C
+    void acid_heading(Acid&);                      // $11C5BA
+    void acid_place(Acid&);                        // $11C48E
+    bool touch_acid(Marble&);                      // $11C1C0
+    void pull_into_acid(Marble&);                  // $11C34C
+    // Aerial's pistons (pistons.cpp).
+    void switch_pistons();                           // $11DFDE
+    void update_pistons();                           // $11DB4C
+    bool touch_pistons(Marble&);                     // $11E1E0
+    void take_region_sounds();
+    // Silly's critters and birds (silly.cpp).
+    std::uint32_t silly_list(std::uint32_t entry) const;
+    void silly_bands(int from, int to);            // $10DAAC
+    void spawn_critters();                         // $11C78C
+    bool critter_blocked(const Critter&) const;    // $11CBCA
+    void update_critters();                        // $11C8DA
+    void critter_choose(Critter&);                 // $11CD5E
+    void critter_animation(Critter&);              // $11CDFC
+    void critter_wander(Critter&);                 // $11D002
+    void critter_walk(Critter&);                   // $11CF30
+    void critter_flee(Critter&);                   // $11D182
+    void critter_dodge(Critter&);                  // $11D08E
+    void critter_step(Critter&);                   // $11D3D2
+    void critter_place(Critter&);                  // $11D42E
+    void touch_critters(Marble&);                  // $11CA44
+    void spawn_birds();                            // $11D506
+    void update_birds();                           // $11D6B0
+    void bird_place(Bird&);                        // $11D9CC
+    void touch_birds(Marble&);                     // $11D8EA
+    bool collide(Marble&);                         // $1169C4
     void roll(Marble&);                            // $115470
     void push(Marble&);                            // $1134C4
     void cap_speed(Marble&);                       // $1153E6
     void friction(Marble&, int kind);              // $115088
+    void friction(std::int32_t& vx, std::int32_t& vy, int kind);
     void slope_force(Marble&);                     // $114FF0
     void keep_on_ground(Marble&, std::int32_t ground); // $118BF4
     void push_off_walls(Marble&);                  // $119328
@@ -102,16 +191,19 @@ private:
     void respawn(Marble&);                         // $1149F6
     void choose_respawn_point(Marble&);            // $112CA4
     bool appear(Marble&);                          // $1138D4
+    bool into_vacuum(Marble&);                     // $113C2C
     int occupied(const Marble*, int x, int y, int radius) const; // $116578
     void track_zones(Marble&);                     // $1130BE
     void save_grounded(Marble&);                   // $1141A0
     void animate(Marble&);                         // $1141E0
     void project(Marble&, bool reload);            // $10EADC
     void touch_regions(Marble&);                   // $116EE0
+    bool funnel_walls(Marble&, const Region&, int part); // $1186A4
     void zone_changed(Marble&);                    // $112F20
     void reach_goal(Marble&, std::int8_t zone_before);
     void award(Marble&, int bonus);                // $10A82A
     void colour_goal(int player);                  // $108710
+    void cycle_colours();                          // $108664
     void drop_bonus(Marble&);                      // $11573A
     void project_drop_marks();                     // $11DAAC
     void project(DropMark&);                       // $106A00
@@ -119,6 +211,13 @@ private:
     void rotate_shine(Marble&);                    // $115DFA
     void check_visible(Marble&);                   // $11F486
     void build_covers(Marble&);                    // $11EC42
+    struct CoverArea {
+        std::int32_t x, y, z;          // the point (16.16)
+        std::int16_t left, top, bottom; // the sprite on the screen
+        int centre_shift;              // added to the sprite's centre column
+        bool lists;                    // use the Track's hand-placed covers
+    };
+    unsigned find_covers(const CoverArea&, int& columns, std::array<Marble::Cover, 5>& out);
     bool is_player(const Marble& m) const { return &m == &marbles[0] || &m == &marbles[1]; }
 
     std::int32_t ground_at(std::int32_t x, std::int32_t y);
@@ -157,12 +256,27 @@ private:
     std::int32_t view_{};
     std::int16_t first_view_{};    // descriptor +$10
     std::int16_t scroll_{}, scroll_limit_{};
+    // The start offsets the vacuum and bumper tests leave on the stack
+    // ($116EE0 locals; code 13 reads code 11's or 12's last ones).
+    std::int16_t vacuum_start_dx_{}, vacuum_start_dy_{};
+    bool birds_on_{};              // $1007A7
+    bool pistons_on_{};              // $1007A6
+    std::uint32_t piston_pattern_{}; // $1007A8
+    std::vector<Regions::Blit> piston_blits_;
+    std::int16_t zone_sound_timer_{-1}; // $1007AC: updates to sound 6
+    std::uint8_t zone_sounds_{};   // $1007AE: bits of the once-a-race zone sounds
+    bool surprise_armed_{};        // $1007AF
+    std::uint8_t surprise_roll_{}; // $10068E
     std::int8_t first_home_{-1};   // $1005FC: the player who reached the goal first
     std::uint8_t score_changed_{}; // $1005F4: bit per player
     std::map<std::uint32_t, std::uint16_t> copper_colours_;
+    std::int8_t colour_count_{-1};
+    std::int8_t colour_phase_{};
     std::array<DropMark, 2> drop_marks_{};
+    DisplayList display_;
     std::uint8_t drop_bonus_taken_{}; // $10060E: bit per player (player + 1), once a game
-    int frame_{1};                 // $100248: world updates so far
+    int frame_{};                  // $100248: world updates so far
+    bool first_update_{true};      // the count goes 0, 2, 3, ... (measured)
     bool scrolling_{};             // $100242
     std::int8_t scroll_direction_{}; // $100240: 1 down the course, -1 up
     std::int8_t scroll_speed_{};   // $100243

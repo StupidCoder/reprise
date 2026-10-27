@@ -51,7 +51,8 @@ add_library(amiga
     src/amiga/hunk.cpp
     src/amiga/byte_run1.cpp
     src/amiga/iff.cpp
-    src/amiga/paula.cpp)
+    src/amiga/paula.cpp
+    src/amiga/rom_font.cpp)
 target_include_directories(amiga PUBLIC ${SOURCE_ROOT})
 target_compile_options(amiga PRIVATE ${PROJECT_WARNINGS})
 
@@ -147,6 +148,13 @@ add_library(marble_madness_amiga
     src/marble_madness_amiga/game/race.cpp
     src/marble_madness_amiga/game/marble_rules.cpp
     src/marble_madness_amiga/game/marble_covers.cpp
+    src/marble_madness_amiga/game/display_list.cpp
+    src/marble_madness_amiga/game/steelies.cpp
+    src/marble_madness_amiga/game/slinkies.cpp
+    src/marble_madness_amiga/game/acid.cpp
+    src/marble_madness_amiga/game/pistons.cpp
+    src/marble_madness_amiga/game/silly.cpp
+    src/marble_madness_amiga/game/front_end.cpp
     src/marble_madness_amiga/sound/effects.cpp
     src/marble_madness_amiga/sound/music.cpp
     src/marble_madness_amiga/sound/sound_board.cpp

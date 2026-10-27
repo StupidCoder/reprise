@@ -44,7 +44,7 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
 | Fort Apocalypse | C64 | `Fort_Apocalypse.tap` (MD5 `bec7409816865f3ad160af9984f127cd`) | playable from title to debrief, compared with the original in scripted runs; pause menu with the enemy-pilot option |
 | Bruce Lee | C64 | `Bruce_Lee_(Original).g64` (MD5 `8cbfd1595cdc18a8e68fe4d43eec6aa8`) | playable from the title to the end and the next round, with sound, the demo and both two-player modes; compared with the original pass by pass (actors, rooms, screen, SID); smooth motion, particle and VHS options |
 | Mindwalker | Amiga | — | planned |
-| Marble Madness | Amiga | `Marble_Madness.adf` (MD5 `735dc697d64b3eeaa000778eb0b1153a`) | disk import (both encrypted programs decrypted, checked against the original's memory); asset previews; Practice complete in play with the original's physics, wall covers, drop bonus, music and effects (compared with the original update for update and request for request); other courses run without their creatures and special regions |
+| Marble Madness | Amiga | `Marble_Madness.adf` (MD5 `735dc697d64b3eeaa000778eb0b1153a`) | disk import (both encrypted programs decrypted, checked against the original's memory); asset previews; all six courses complete in play (physics, covers, creatures, special regions, music and effects; each compared with the original update for update from start to goal); front end for one player (options, introductions, bonus, game over, the end) |
 | Wizball | C64 | `Wizball.g64` (MD5 `73e1a136da4b6972d39f00817b86983e`) | disk import, asset decoding with launcher previews; play rebuilt and checked in lockstep (places, enemies, catellite, tunnels, lives, bonus wave, Wizlab, level flight, round end, sound and music); front end, high scores and keys rebuilt |
 | Cannon Fodder | Amiga | — | planned |
 | Rock 'n Roll | Amiga | — | planned |
@@ -543,8 +543,44 @@ same disk is used as a guide; claims are checked against the image's code.
    The audio.device requests equal the original's in recorded runs (all of
    them; one-blank shifts where the original's world update reaches a sound
    call before or after a vertical blank).
-   Next: the other courses' regions and creatures, the between-race screens
-   and front end, the score bar's font (Kickstart topaz: to be decided).
+6. **Beginner** — done (2026-10-26): steelies, slinkies, the marble
+   collisions, the drawbridge (and the marble behind it), the funnels, the
+   ice, the shatter's broom. A recording from start to goal (both funnels,
+   the ice, steelies and slinkies) equals the original update for update,
+   creatures and regions included. The display list (drawing order of
+   marbles, creatures and markers by depth) and the bridge's own masks
+   are rebuilt and checked against captures.
+7. **Intermediate** — done (2026-10-26): the acid puddles, the funnel,
+   the wave down the long ramp (two routines the Track stores as 68000
+   code, rebuilt), the dizzy surprise, the random-number generator. A
+   recording from start to goal equals the original update for update,
+   creatures, regions and covers included; the dissolve in the acid too.
+8. **Aerial** — done (2026-10-26): the chutes, vacuums (with the capture),
+   launcher, pistons, random region groups, zone sounds and the course's
+   occlusions. Recordings from start to goal, of a capture and through the
+   pistons equal the original update for update.
+9. **Silly** — done (2026-10-26): the funnel up, the critters, the birds
+   (eating the marble), the course's bands and playfield line. A recording
+   from start to goal equals the original update for update.
+10. **Ultimate** — done (2026-10-26): the run-up over the gap into the
+   funnel, the moving goal area (four versions of the last 30 map rows
+   rendered in turn, with height patches and cover sets), the colour
+   cycling, the goal flags' draw order. Recordings from start to goal and
+   of a fall in the goal area equal the original update for update,
+   creatures, regions and covers included; the pictures at the goal are
+   pixel-identical.
+11. **Front end, one player** — done (2026-10-26): the options screen
+   (pointer, difficulty, input device), each course's introduction
+   counting its time in, the finish bonus, out of time and game over, the
+   end after Ultimate (tally and bouncing marbles), the bar's clock flash.
+   Checked against captures of the original's screens.
+12. **The original's font** — done (2026-10-27): topaz 9 read at import
+   from a Kickstart ROM the user adds (an optional second file per game in
+   the launcher; `amiga/rom_font.cpp`); texts and score bar pixel-checked
+   against captures.
+13. **Quick save and load** — done (2026-10-27): a copy of the whole game
+   flow; checked to play on identically from saves at every stage.
+   Next: two players, mouse input.
 
 ## Launcher visual exploration (2026-10-26)
 

@@ -30,7 +30,7 @@ enum Op : std::int16_t {
 } // namespace
 
 Regions::Regions(const data::GameFiles& files, data::Course course)
-    : track_(&files.track(course)), course_(course) {
+    : track_(&files.track(course)), program_(&files.program()), course_(course) {
     block_ = track_->u32(files.track_header(course) + 0x14);
 }
 
@@ -66,11 +66,37 @@ void Regions::start(Region& r, std::uint32_t script) {
 void Regions::stop(Region& r) {
     r.active = false;
     r.state = 0;
-    // Not yet rebuilt: the display-object removal for unpictured regions
-    // ($1120F4) and the course-specific bookkeeping of codes 6 and 10-13.
+    if (r.kind != 1) {
+        display_events_.push_back({false, std::uint8_t(r.code), std::uint8_t(&r - regions_.data())}); // $1120F4
+    }
+    if (drawbridge_ == int(&r - regions_.data())) {
+        drawbridge_ = -1; // $11218E
+    }
+    if (r.code == 6) {
+        --waves_;
+    }
+    if (course_ == data::Course::aerial) {
+        const int self = int(&r - regions_.data());
+        if (r.code == 10 && code10_ == self) {
+            code10_ = -1;
+        }
+        for (auto& slot : codes11_13_) {
+            if ((r.code == 11 || r.code == 13) && slot == self) {
+                slot = -1;
+                break;
+            }
+        }
+        for (auto& slot : codes12_) {
+            if (r.code == 12 && slot == self) {
+                slot = -1;
+                break;
+            }
+        }
+    }
 }
 
-void Regions::bands_changed(int from, int to) {
+void Regions::bands_changed(int from, int to, Random& random) {
+    bool group_full = false;
     // The list (block +0): band range (two signed bytes) and a script; $FF ends it.
     for (std::uint32_t e = block_entry(0); track_->u8(e) != 0xFF; e += 6) {
         const int first = track_->s8(e), last = track_->s8(e + 1);
@@ -79,7 +105,25 @@ void Regions::bands_changed(int from, int to) {
         }
         const std::uint32_t script = track_->u32(e + 2);
         if (script == 0) {
-            // A random group of four (Aerial, Silly, Ultimate): not rebuilt yet.
+            // A group of four picked at random (block entries 3-6, 7-10,
+            // 11-14 or 15-18), only while no code-12 region is registered
+            // (the draw happens anyway).
+            const std::uint32_t k = random.next(4);
+            if (codes12_[0] < 0) {
+                for (std::uint32_t i = 0; i < 4; ++i) {
+                    Region* slot = free_slot();
+                    if (slot == nullptr) {
+                        group_full = true;
+                        break;
+                    }
+                    slot->band_from = std::int16_t(first);
+                    slot->band_to = std::int16_t(last);
+                    start(*slot, block_entry(int(k * 4 + 3 + i)));
+                }
+                if (group_full) {
+                    break;
+                }
+            }
             continue;
         }
         Region* slot = free_slot();
@@ -97,10 +141,81 @@ void Regions::bands_changed(int from, int to) {
     }
 }
 
-void Regions::update(Terrain& terrain) {
+void Regions::update(Terrain& terrain, Probe& probe) {
     terrain_ = &terrain;
+    probe_ = &probe;
+    // $1100A2: on Intermediate a wave (block entry 2) rolls down the long
+    // ramp whenever a racing player is in zone 9 or 10 and the last wave
+    // has gone far enough.
+    if (course_ == data::Course::intermediate && wave_ready_) {
+        for (int i = 0; i < racer_count; ++i) {
+            const auto& m = racers[std::size_t(i)];
+            if (m.racing && (m.feature == 10 || m.feature == 9)) {
+                if (Region* slot = free_slot()) {
+                    start(*slot, block_entry(2));
+                }
+                break;
+            }
+        }
+    }
+    // $110C80: while a wave runs, the course's routine (block entry 3)
+    // first lays the ramp's animated heights flat again.
+    if (waves_ != 0) {
+        reset_wave_heights();
+    }
     for (auto& r : regions_) {
         step(r);
+    }
+}
+
+// Intermediate's wave: two routines the Track carries as code (region block
+// entries 3 and 4, rebuilt here) over tables beside them.
+namespace {
+constexpr std::uint32_t flat_heights = 0x20;  // entry 3 +: $42 vertex codes
+constexpr int flat_count = 0x42;
+constexpr std::uint32_t group_kinds = 0x200;  // entry 4 +: a byte per group of three vertices (-1 ends)
+constexpr std::uint32_t phase_rows = 0x21E;   // entry 4 +: 4 bytes per phase, a row per group
+constexpr std::uint32_t first_codes = 0x296, second_codes = 0x24A; // words by row
+constexpr std::array<std::uint32_t, 4> third_codes = {0x2E2, 0x32E, 0x354, 0x37A}; // by group kind 0-3
+constexpr std::uint32_t last_first = 0x2BC, last_second = 0x270, last_third = 0x308; // the closing group
+} // namespace
+
+void Regions::reset_wave_heights() {
+    const std::uint32_t from = block_entry(3) + flat_heights;
+    for (int i = 0; i < flat_count && std::size_t(i) < terrain_->animated.size(); ++i) {
+        terrain_->animated[std::size_t(i)] = track_->u16(from + std::uint32_t(i) * 2);
+    }
+}
+
+// Entry 4 with the wave's round: the phase (rounds 0-6, then 7-10 over
+// again), a group of three animated vertices per four rounds onwards: up
+// to four groups get the phase's rows; a group of kind 4 or more closes
+// the wave (written, then no further groups).
+void Regions::draw_wave(int round) {
+    const std::uint32_t code = block_entry(4);
+    const int phase = round <= 6 ? round : ((round - 7) & 3) + 7;
+    std::uint32_t row = code + phase_rows + std::uint32_t(phase) * 4;
+    std::uint32_t kind = code + group_kinds + std::uint32_t(round >> 2);
+    std::size_t at = std::size_t(round >> 2) * 3;
+    for (int g = 0; g < 4; ++g, ++row, ++kind) {
+        const int k = track_->s8(kind);
+        if (k < 0) {
+            return;
+        }
+        const std::uint32_t r = std::uint32_t(track_->s8(row)) * 2;
+        const bool last = k > 3;
+        const std::array<std::uint16_t, 3> codes = {
+            track_->u16(code + (last ? last_first : first_codes) + r),
+            track_->u16(code + (last ? last_second : second_codes) + r),
+            track_->u16(code + (last ? last_third : third_codes[std::size_t(k)]) + r)};
+        for (std::size_t i = 0; i < 3; ++i, ++at) {
+            if (at < terrain_->animated.size()) {
+                terrain_->animated[at] = codes[i];
+            }
+        }
+        if (last) {
+            return;
+        }
     }
 }
 
@@ -118,7 +233,63 @@ bool Regions::next_frame(Region& r) {
     return false;
 }
 
+// A patch of the animated heights ($122100 into $1007B0): first index,
+// count, then the codes.
+void Regions::apply_patch(std::uint32_t patch) {
+    if (patch == 0) {
+        return;
+    }
+    const int first = track_->s16(patch), count = track_->s16(patch + 2);
+    for (int i = 0; i < count; ++i) {
+        const std::size_t at = std::size_t(first + i);
+        if (at < terrain_->animated.size()) {
+            terrain_->animated[at] = track_->u16(patch + 4 + std::uint32_t(i) * 2);
+        }
+    }
+}
+
+// $11E848, from the step of Ultimate's code-$19 region: a finished picture
+// patches the heights (the frame entry's second long), picks the cover set
+// of its frame and waits for the display; a wanted one is asked for
+// ($11E7B0: the entry's first long is its first map row; a -1 entry goes
+// back to the list's start).
+void Regions::poll_picture(Region& r) {
+    if (picture_.rendering && --picture_.render_left <= 0) {
+        picture_.rendering = false;
+        apply_patch(track_->u32(r.frame));
+        r.frame += 4;
+        picture_.cover_set = int(r.frame - 8 - r.anim_frames) >> 3;
+        picture_.swap_due = true;
+    }
+    if (picture_.wanted) {
+        std::uint32_t entry = r.frame;
+        if (track_->u32(entry) == 0xFFFFFFFF) {
+            entry = r.anim_frames;
+        }
+        picture_.rendering_row = int(track_->u32(entry));
+        r.frame = entry + 4;
+        picture_.rendering = true;
+        picture_.wanted = false;
+        picture_.render_left = picture_render_time;
+        if (!forced_render_times.empty()) {
+            picture_.render_left = forced_render_times.front();
+            forced_render_times.pop_front();
+        }
+    }
+}
+
+void Regions::show_rendered_picture() {
+    if (picture_.swap_due) {
+        picture_.swap_due = false;
+        picture_.shown_row = picture_.rendering_row;
+        picture_.wanted = true;
+    }
+}
+
 void Regions::show_frame(Region& r) {
+    if (r.code == 6) {
+        draw_wave(r.loop2);
+    }
     if (r.kind == 1 || r.kind == 2) {
         if (track_->u32(r.frame) == 0xFFFFFFFF) {
             return;
@@ -129,30 +300,37 @@ void Regions::show_frame(Region& r) {
             // the animated heights: first index, count, then the codes.
             if (r.active) {
                 if (r.kind == 1 && r.code != 0x19) {
-                    // Codes 6, 11, 12 and 13 pick other cells ($110A46);
-                    // not rebuilt yet.
+                    // ($110A46) Code 6 in rounds $44-$53 draws the wave
+                    // passing under the ramp's end. (Codes 11, 12 and 13
+                    // pick other cells; not rebuilt yet.)
                     const std::uint32_t item = track_->u32(r.frame);
-                    blits_.push_back({item, std::int16_t(r.screen_x + r.width * 8),
-                                      std::int16_t(r.height * 8 - r.screen_y - view_scroll)});
-                }
-                const std::uint32_t patch = track_->u32(r.frame + 4);
-                if (patch != 0) {
-                    const int first = track_->s16(patch), count = track_->s16(patch + 2);
-                    for (int i = 0; i < count; ++i) {
-                        const std::size_t at = std::size_t(first + i);
-                        if (at < terrain_->animated.size()) {
-                            terrain_->animated[at] = track_->u16(patch + 4 + std::uint32_t(i) * 2);
-                        }
+                    const bool wave_end = r.code == 6 && r.loop2 > 0x43 && r.loop2 < 0x54;
+                    // Codes 11 and 13 by their zone, code 12 by its row.
+                    constexpr std::uint32_t vacuum_floors = 0x110C48, bumper_floors = 0x110C60;
+                    std::int16_t background = -1;
+                    if (r.code == 11 || r.code == 13) {
+                        background = std::int16_t(program_->u32(vacuum_floors + std::uint32_t(r.feature - 0x1E) * 4));
+                    } else if (r.code == 12) {
+                        background = std::int16_t(
+                            program_->u32(bumper_floors + std::uint32_t((((r.y >> 19) - 0x66) >> 1) * 4)));
                     }
+                    blits_.push_back({item, std::int16_t(r.screen_x + r.width * 8),
+                                      std::int16_t(r.height * 8 - r.screen_y - view_scroll),
+                                      std::int8_t(wave_end ? r.loop2 - 0x44 : -1), background});
                 }
+                apply_patch(track_->u32(r.frame + 4));
             }
             if (r.kind != 2) {
                 return;
             }
         }
     }
-    // $106A00: the region's place on the screen.
+    // $106A00: the region's place on the screen (the point stays in the
+    // probe, which positioned sounds read).
     const auto x = std::int16_t(r.x >> 16), y = std::int16_t(r.y >> 16), z = std::int16_t(r.z >> 16);
+    if (probe_ != nullptr) {
+        probe_->set_point(x, y);
+    }
     r.screen_x = std::int16_t(y - x + 0x88);
     r.screen_y = std::int16_t(std::int16_t(view) + z + 0x6C - std::int16_t((x + y) >> 1));
     r.shown_frame = r.frame;
@@ -161,6 +339,9 @@ void Regions::show_frame(Region& r) {
 void Regions::step(Region& r) {
     if (!r.active) {
         return;
+    }
+    if (r.code == 0x19) {
+        poll_picture(r);
     }
     std::uint8_t entered = r.state;
     bool idle = false;
@@ -194,6 +375,9 @@ void Regions::step(Region& r) {
             }
             if (r.anim_tick == r.anim_period) {
                 r.anim_tick = 0;
+                if (r.code == 6 && ++r.loop2 == 0x1E) {
+                    wave_ready_ = true; // the next wave may start
+                }
                 show_frame(r);
                 if (next_frame(r)) {
                     interpret(r);
@@ -252,14 +436,48 @@ void Regions::interpret(Region& r) {
                 show_frame(r);
             } else {
                 r.frame = block_entry(1);
-                // Not yet rebuilt: the display object ($112004).
+                // $112004: a display object (type: the code).
+                display_events_.push_back({true, std::uint8_t(r.code), std::uint8_t(&r - regions_.data())});
             }
-            switch (r.code) {
-            case 0x19: case 10: case 12: case 13: case 11: case 3: case 6:
-                // Course-specific starts ($110350-$1103F6): not rebuilt yet.
-                return;
-            default:
-                break;
+            // $110338: some codes register the region for course rules,
+            // and the script goes on. Code 3, Beginner's drawbridge, is
+            // the one its occlusion rule cuts out of the marble ($110158).
+            // Code 6, Intermediate's wave, stays whatever the view does,
+            // holds back the next wave and counts its rounds in +$25.
+            // Code $19, Ultimate's moving goal area, asks for its first
+            // picture ($11E6E4).
+            if (r.code == 0x19) {
+                picture_.wanted = true;
+                picture_.home_row = r.height;
+            }
+            if (r.code == 3 && drawbridge_ < 0) {
+                drawbridge_ = int(&r - regions_.data());
+            }
+            // Codes 10-13 register for Aerial's occlusions (first free slot).
+            const int self = int(&r - regions_.data());
+            if (r.code == 10) {
+                code10_ = self;
+            }
+            auto enter = [self](auto& list) {
+                for (auto& slot : list) {
+                    if (slot < 0) {
+                        slot = self;
+                        return;
+                    }
+                }
+            };
+            if (r.code == 11 || r.code == 13) {
+                enter(codes11_13_);
+            }
+            if (r.code == 12) {
+                enter(codes12_);
+            }
+            if (r.code == 6) {
+                r.band_from = 0;
+                r.band_to = 0x500;
+                wave_ready_ = false;
+                ++waves_;
+                r.loop2 = 0;
             }
             break;
         }
@@ -271,6 +489,9 @@ void Regions::interpret(Region& r) {
             r.state = 1;
             return;
         case animate:
+            if (r.code == 10) {
+                sound(0x2F, true);
+            }
             r.count = word();
             r.anim_period = std::uint8_t(word());
             r.frame = r.anim_frames;
@@ -376,7 +597,9 @@ void Regions::interpret(Region& r) {
                 }
             }
             if (free) {
-                r.pc = t.u32(r.pc); // and a sound from $1020D4
+                r.pc = t.u32(r.pc);
+                constexpr std::uint32_t freed_sounds = 0x1020D4; // longs by zone - $1E
+                sound(int(program_->u32(freed_sounds + std::uint32_t(r.feature - 0x1E) * 4)));
             } else {
                 r.pc += 4;
             }

@@ -39,12 +39,13 @@ app::GameEntry entry() {
         .machine = app::Machine::amiga,
         .media = "the disk image (ADF)",
         .import = import::import_disk,
+        .extra_media = "a Kickstart ROM file for the original's topaz font",
+        .import_extra = import::import_kickstart,
         .previews = previews,
         .start = game::start,
-        .progress = "Early play: the courses in order with the original's marble physics, ground, edges, falls, "
-                    "zones, timer and Practice's rails (matching the original update for update). Not rebuilt yet: "
-                    "the title and score screens, sound, moving obstacles, creatures and most of the picture's "
-                    "details.",
+        .progress = "All six courses and the one-player game around them (options, course introductions, bonuses, "
+                    "the end), matching the original update for update. Not rebuilt yet: two players racing at "
+                    "once and mouse control.",
     };
 }
 

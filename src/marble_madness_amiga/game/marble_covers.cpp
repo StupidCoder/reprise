@@ -36,64 +36,28 @@ std::int16_t s16(std::int32_t v) { return std::int16_t(v); }
 
 } // namespace
 
-// $11F486: a marble is shown while its height on the screen is within
-// -$10..$FF and it is not covered completely.
-void Race::check_visible(Marble& m) {
-    m.sprite_flag = 0;
-    const std::int16_t screen_y = s16(m.screen[0]);
-    for (auto& c : m.covers) {
-        c.cell = -1;
-    }
-    if (screen_y > -0x10 && screen_y < 0x100) {
-        m.sprite_flag = 1;
-        build_covers(m);
-    }
-}
-
-// $11EC42 for a marble (the same routine serves the creatures with other
-// sizes; those are not rebuilt yet). Its global "no covers" switch
-// ($11F4F8) is never set in this version.
-void Race::build_covers(Marble& m) {
+// $11EC42's search, for a sprite at (left, top) (screen; heights count
+// upwards) over `columns` 8-pixel columns from the point (x, y, z): the
+// covers go to `out`; the result has a bit per column covered completely
+// (`columns` comes back clipped to the view).
+unsigned Race::find_covers(const CoverArea& area, int& columns, std::array<Marble::Cover, 5>& out) {
     const auto& program = files_->program();
     const auto& track = files_->track(course_);
-    const bool player = is_player(m);
+    for (auto& c : out) {
+        c.cell = -1;
+    }
     std::size_t count = 0;
     auto add = [&](int cell, int column, int y) {
-        if (count < m.covers.size()) {
-            m.covers[count++] = {0x50000 + cell, s16(column << 3), s16(y)};
+        if (count < out.size()) {
+            out[count++] = {0x50000 + cell, s16(column << 3), s16(y)};
         }
     };
-
-    if (player) {
-        // Taken, appearing or past the goal: no covers. Held by a region
-        // (other than code 10): hidden.
-        if (m.mode == Marble::respawning || m.mode == Marble::finishing || m.mode == Marble::captured) {
-            return;
-        }
-        if (m.region_code != 0 && m.region_timer != 0xFF && m.region_code != 10 && m.mode != Marble::appearing &&
-            m.mode != Marble::settling) {
-            m.sprite_flag = 0;
-            return;
-        }
-    }
-    // The sprite's columns and lines: 3 x 14, or 5 x 32 for the larger
-    // animation frames. Screen heights count upwards.
-    int columns = 3;
-    int height = 0xE;
-    if (player && (m.mode == Marble::landing || m.mode == Marble::breaking || m.mode == Marble::bumped ||
-                   m.mode == Marble::appearing)) {
-        columns = 5;
-        height = 0x20;
-    }
-    const std::int16_t screen_x = s16(m.screen[0] >> 16);
-    const std::int16_t top = s16(m.screen[0]);
-    const std::int16_t bottom = s16(top + height);
-
+    const std::int16_t top = area.top, bottom = area.bottom;
     // The marble's diagonal row, from its cell and from its exact position
     // (they differ in the half of a cell nearer the viewer).
-    const std::int16_t row = s16((m.x >> 19) + (m.y >> 19) - 0x15);
-    const std::int16_t exact_row = s16(((m.x + m.y) >> 19) - 0x15);
-    const std::int16_t centre = s16(screen_x >> 3);
+    const std::int16_t row = s16((area.x >> 19) + (area.y >> 19) - 0x15);
+    const std::int16_t exact_row = s16(((area.x + area.y) >> 19) - 0x15);
+    const std::int16_t centre = s16((area.left >> 3) + area.centre_shift);
     int first = centre - 2;
     std::uint32_t offsets = row_offsets;
     if (row != exact_row) {
@@ -117,9 +81,9 @@ void Race::build_covers(Marble& m) {
     // course's first view ($1009D2 - descriptor +$10).
     const std::int16_t view_shift = s16(view_ - first_view_);
     const std::uint32_t lists = track.u32(files_->track_header(course_) + 0xC);
-    // Ultimate switches between bit-map sets ($1006A4, set by its course
-    // code $11E848, not rebuilt yet); the other courses use the first.
-    const std::uint32_t bit_maps = descriptor_ + 0x2E;
+    // Ultimate switches between bit-map sets ($1006A4: one of $90 bytes per
+    // picture of its moving goal area); the other courses use the first.
+    const std::uint32_t bit_maps = descriptor_ + 0x2E + std::uint32_t(regions_.cover_set()) * 0x90;
     unsigned covered = 0; // bit per column: covered completely
 
     for (int column = first; column < first + columns; ++column) {
@@ -130,7 +94,7 @@ void Race::build_covers(Marble& m) {
         bool full = false;
         bool done = false;
         // The hand-placed covers of this column (entries in row order).
-        const std::uint32_t list = lists != 0 ? track.u32(lists + std::uint32_t(column) * 4) : 0;
+        const std::uint32_t list = lists != 0 && area.lists ? track.u32(lists + std::uint32_t(column) * 4) : 0;
         for (std::uint32_t at = list; at != 0; at += 10) {
             const std::int16_t last = track.s16(at);
             if (r <= last) {
@@ -152,7 +116,7 @@ void Race::build_covers(Marble& m) {
                         }
                     } else if (kind == -2) {
                         // A floor the marble is under.
-                        if (int(std::uint16_t(m.z >> 16)) < cell) {
+                        if (int(std::uint16_t(area.z >> 16)) < cell) {
                             full = true;
                         }
                     } else if (kind < 0) {
@@ -228,6 +192,55 @@ void Race::build_covers(Marble& m) {
             add(0, column, bottom - 0x2F);
         }
     }
+
+    return covered;
+}
+
+// $11F486: a marble is shown while its height on the screen is within
+// -$10..$FF and it is not covered completely.
+void Race::check_visible(Marble& m) {
+    m.sprite_flag = 0;
+    const std::int16_t screen_y = s16(m.screen[0]);
+    for (auto& c : m.covers) {
+        c.cell = -1;
+    }
+    if (screen_y > -0x10 && screen_y < 0x100) {
+        m.sprite_flag = 1;
+        build_covers(m);
+    }
+}
+
+// $11EC42 for a marble (the same routine serves the creatures with other
+// sizes; those are not rebuilt yet). Its global "no covers" switch
+// ($11F4F8) is never set in this version.
+void Race::build_covers(Marble& m) {
+    const bool player = is_player(m);
+    if (player) {
+        // Taken, dissolving or past the goal: no covers. Held by a region
+        // (other than code 10): hidden.
+        if (m.mode == Marble::respawning || m.mode == Marble::finishing || m.mode == Marble::captured) {
+            return;
+        }
+        if (m.region_code != 0 && m.region_timer != 0xFF && m.region_code != 10 && m.mode != Marble::dissolving &&
+            m.mode != Marble::eaten) {
+            m.sprite_flag = 0;
+            return;
+        }
+    }
+    // The sprite's columns and lines: 3 x 14, or 5 x 32 for the larger
+    // animation frames. Screen heights count upwards.
+    int columns = 3;
+    int height = 0xE;
+    if (player && (m.mode == Marble::landing || m.mode == Marble::breaking || m.mode == Marble::bumped ||
+                   m.mode == Marble::dissolving)) {
+        columns = 5;
+        height = 0x20;
+    }
+    const std::int16_t screen_x = s16(m.screen[0] >> 16);
+    const std::int16_t top = s16(m.screen[0]);
+    const std::int16_t bottom = s16(top + height);
+
+    const unsigned covered = find_covers({m.x, m.y, m.z, screen_x, top, bottom, 0, true}, columns, m.covers);
 
     // Hidden when every column is covered (or, for a large frame, the
     // middle three).

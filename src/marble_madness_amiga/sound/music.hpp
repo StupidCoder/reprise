@@ -22,6 +22,8 @@ namespace marble_madness::sound {
 class Music {
 public:
     Music(const Memory&, Effects&);
+    // The effects engine this one plays its notes on (after a copy).
+    void use(Effects& effects) { effects_ = &effects; }
 
     // $122526 + $11FE90: sets the instrument and tempo from a music entry
     // (score, instrument record, tempo word) and plays the score 99 times.

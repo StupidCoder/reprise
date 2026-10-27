@@ -298,7 +298,8 @@ void Launcher::draw_details(Image& im) const {
             }
             files_.draw_bar(im, 924, file_list_y, 4, file_rows_shown * file_row, s::paper, s::muted);
             s::text(im, std::to_string(files.size()) + " files", 308, 470, 13, s::muted);
-            s::wrap(im, details_error_.empty() ? (game.start ? "Original game data from your imported copy. Use the arrows to explore decoded graphics and levels." :
+            s::wrap(im, details_error_.empty() ? (game.import_extra && !library_.has_extra(selected_) ? "Optional: drop " + game.extra_media + " onto this window." :
+                game.start ? "Original game data from your imported copy. Use the arrows to explore decoded graphics and levels." :
                 "Native gameplay is still being rebuilt. Use the arrows to explore the data decoded so far.") : details_error_,
                 308, 496, 600, 2, 14, details_error_.empty() ? s::muted : s::red);
         }

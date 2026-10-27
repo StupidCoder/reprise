@@ -27,7 +27,7 @@ constexpr std::uint32_t anim_bounce = 0x00;
 constexpr std::uint32_t anim_roll_fast = 0x04;
 constexpr std::uint32_t anim_roll = 0x08;
 constexpr std::uint32_t anim_break = 0x0C;
-constexpr std::uint32_t anim_appear = 0x10;
+constexpr std::uint32_t anim_dissolve = 0x10;
 constexpr std::uint32_t anim_break_dust = 0x14;
 constexpr std::uint32_t anim_dizzy = 0x18;
 constexpr std::uint32_t bonus_points = 0x24;         // words
@@ -149,7 +149,11 @@ void Race::cap_speed(Marble& m) {
 // $115088: rolling friction. Kind 0 normal, 2 slippery-sticky (x4), 3
 // different along x and y, 4 a conveyor (speeds up).
 void Race::friction(Marble& m, int kind) {
-    const std::uint32_t ax = std::uint32_t(abs32(m.vx)), ay = std::uint32_t(abs32(m.vy));
+    friction(m.vx, m.vy, kind);
+}
+
+void Race::friction(std::int32_t& vx, std::int32_t& vy, int kind) {
+    const std::uint32_t ax = std::uint32_t(abs32(vx)), ay = std::uint32_t(abs32(vy));
     std::uint32_t speed = ax > ay ? ax + (ay >> 3) * 3 : ay + (ax >> 3) * 3;
     const auto& p = files_->program();
     const int index = int(speed >> 15) & 15;
@@ -177,8 +181,8 @@ void Race::friction(Marble& m, int kind) {
     const std::uint32_t divisor = (speed >> 8) & 0xFFFF;
     const auto scale_x = s16(std::int32_t((new_x << 6) / divisor));
     const auto scale_y = kind == 3 ? s16(std::int32_t((new_y << 6) / divisor)) : scale_x;
-    m.vx = (s16(m.vx >> 8) * scale_x) >> 6;
-    m.vy = (s16(m.vy >> 8) * scale_y) >> 6;
+    vx = (s16(vx >> 8) * scale_x) >> 6;
+    vy = (s16(vy >> 8) * scale_y) >> 6;
 }
 
 // $114FF0: the slope pulls the marble downhill (uphill on Silly). Steep
@@ -429,7 +433,18 @@ void Race::land(Marble& m, int impact) {
     }
     m.delay = std::int8_t(total);
     if (!player) {
-        return; // creatures (not rebuilt yet)
+        // A steelie: the impacts add up; a hard one, or too many, break it
+        // (the players get bonus 3).
+        const auto bounces = std::int8_t(m.bounce + impact);
+        m.bounce = std::uint8_t(bounces);
+        if (bounces > 0x50 || impact > 0x1F) {
+            if (auto* s = steelie_of(m)) {
+                remove(*s, true, false);
+            }
+            m.status = 2;
+            set_mode(m, Marble::breaking);
+        }
+        return;
     }
     const auto& md = files_->marble_data();
     const int bounce = std::int8_t(m.bounce);
@@ -483,11 +498,11 @@ void Race::set_mode(Marble& m, int mode) {
         m.animation = md.u32(marble_data_ + anim_break);
         m.bounce = 2;
         m.mode = Marble::breaking;
-    } else if (mode == Marble::appearing) {
+    } else if (mode == Marble::dissolving) {
         m.animation_tick = 0;
         m.animation_period = 4;
-        m.animation = md.u32(marble_data_ + anim_appear);
-        m.mode = Marble::appearing;
+        m.animation = md.u32(marble_data_ + anim_dissolve);
+        m.mode = Marble::dissolving;
     } else if (mode == Marble::respawning) {
         respawn(m);
         sound(m.delay == 0x65 ? 0x13 : 0x15, right);
@@ -577,6 +592,31 @@ int Race::occupied(const Marble* self, int x, int y, int radius) const {
             return 1;
         }
     }
+    // The steelies (any in play).
+    for (const auto& s : steelies) {
+        const Marble& o = s.body;
+        if (o.status == 0) {
+            continue;
+        }
+        const std::int16_t dx = s16(s16(o.x >> 16) - x);
+        const std::int16_t dy = s16(s16(o.y >> 16) - y);
+        if ((std::uint16_t(std::abs(dx)) >> 3) < 4 && (std::uint16_t(std::abs(dy)) >> 3) < 4 &&
+            octagonal(dx, dy) < std::uint32_t(radius)) {
+            return 2;
+        }
+    }
+    // The slinkies.
+    for (const auto& s : slinkies) {
+        if (s.status == 0) {
+            continue;
+        }
+        const std::int16_t dx = s16(s16(s.x >> 16) - x);
+        const std::int16_t dy = s16(s16(s.y >> 16) - y);
+        if ((std::uint16_t(std::abs(dx)) >> 3) < 4 && (std::uint16_t(std::abs(dy)) >> 3) < 4 &&
+            octagonal(dx, dy) < std::uint32_t(radius)) {
+            return 4;
+        }
+    }
     return 0;
 }
 
@@ -597,7 +637,7 @@ bool Race::appear(Marble& m) {
         m.edge_cell_x = 0;
     }
     int countdown = m.delay--;
-    if (m.mode == Marble::settling) {
+    if (m.mode == Marble::eaten) {
         countdown = 0x24 - countdown;
     }
     const int radius = countdown >> 1;
@@ -641,6 +681,58 @@ bool Race::appear(Marble& m) {
         }
     }
     m.sprite_flag = 1;
+    m.sparkles_shown = true;
+    return m.delay == 0;
+}
+
+// $113C2C: a marble taken into a vacuum: eight sparkles (marble cells
+// $44-$4B, two updates apart) fly from the marble's place on the screen to a
+// point beside the vacuum's mouth and on into the mouth, in quarters, with
+// the offsets of $1020C4; they show instead of the marble. True when the
+// count (+$61) has run out.
+bool Race::into_vacuum(Marble& m) {
+    constexpr std::uint32_t jitter = 0x1020C4; // byte pairs
+    const auto& p = files_->program();
+    const int count = m.delay;
+    const int elapsed = 0x20 - count;
+    --m.delay;
+    const Region& r = regions_.all()[std::size_t(std::uint8_t(m.region_code)) % Regions::slots];
+    int mouth_x = r.screen_x + r.width * 8;
+    int mouth_y = 0xC8 - (r.height * 8 - r.screen_y - regions_.view_scroll);
+    const int marble_x = s16(m.screen[0] >> 16), marble_y = int(std::uint32_t(m.screen[0]) & 0xFFFF);
+    int beside_x, beside_y;
+    if (r.code == 13) {
+        mouth_x -= 5;
+        mouth_y += 5;
+        beside_x = mouth_x - 0x1C;
+    } else {
+        mouth_x += 3;
+        mouth_y += 5;
+        beside_x = mouth_x + 0x1C;
+    }
+    beside_y = mouth_y - 0xE;
+    const int to_beside_x = beside_x - marble_x, to_beside_y = beside_y - marble_y;
+    const int to_mouth_x = mouth_x - beside_x, to_mouth_y = mouth_y - beside_y;
+    m.sparkle_count = 0;
+    for (int i = 0; i < 8; ++i) {
+        int step = elapsed - i * 2;
+        int x = marble_x, y = marble_y;
+        if (step >= 8) {
+            continue; // in the mouth already
+        }
+        if (step >= 4) {
+            step -= 4;
+            x = beside_x + ((to_mouth_x * step) >> 2);
+            y = beside_y + ((to_mouth_y * step) >> 2);
+        } else if (step >= 0) {
+            x = marble_x + ((to_beside_x * step) >> 2);
+            y = marble_y + ((to_beside_y * step) >> 2);
+        }
+        m.sparkles[m.sparkle_count++] = {s16(0x44 + i), s16(x + p.s8(jitter + std::uint32_t(i) * 2)),
+                                         s16(y + p.s8(jitter + std::uint32_t(i) * 2 + 1))};
+    }
+    m.sprite_flag = 1;
+    m.sparkles_shown = true;
     return m.delay == 0;
 }
 
@@ -686,6 +778,9 @@ void Race::animate(Marble& m) {
             m.dust_shown = 0;
             if (m.status == 2) {
                 m.status = 0; // and its display object goes ($1120F4)
+                if (auto* s = steelie_of(m)) {
+                    hide(2, std::uint8_t(s - steelies.data()));
+                }
             } else {
                 m.delay = 0x65;
                 set_mode(m, Marble::respawning);
@@ -725,6 +820,25 @@ void Race::track_zones(Marble& m) {
                 m.feature = t.s8(e + (first_side ? 3 : 4));
                 if (m.feature == -1) {
                     reach_goal(m, before);
+                } else if (m.feature == 4 && course_ == data::Course::aerial) {
+                    // Aerial's zone 4: the waiting regions stop, the vacuums
+                    // that suck close (block entry $13 or $14, the zone's
+                    // sound from $1020D4).
+                    constexpr std::uint32_t closing_sounds = 0x1020D4;
+                    for (auto& r : regions_.all()) {
+                        if (!r.active) {
+                            continue;
+                        }
+                        if (r.state == 4) {
+                            regions_.stop_region(r);
+                        } else if (r.state == 2 && (r.code == 11 || r.code == 13)) {
+                            r.pc = regions_.block_entry(r.code == 11 ? 0x13 : 0x14);
+                            sound(int(files_->program().u32(closing_sounds + std::uint32_t(r.feature - 0x1E) * 4)));
+                            regions_.resume(r, terrain_, probe_);
+                            take_region_sounds();
+                        }
+                    }
+                    take_region_display_events();
                 }
                 if (before != m.feature) {
                     zone_changed(m);
@@ -764,6 +878,32 @@ void Race::reach_goal(Marble& m, std::int8_t zone_before) {
 // $112F20: what entering a zone starts: regions waiting for this zone go
 // on with their scripts (and, on Aerial and Silly, sounds).
 void Race::zone_changed(Marble& m) {
+    // Silly: two sounds, once a race each.
+    if (course_ == data::Course::silly) {
+        if (m.feature == 5 && (zone_sounds_ & 1) == 0) {
+            sound(0x20);
+            zone_sounds_ |= 1;
+        } else if (m.feature == 6 && (zone_sounds_ & 2) == 0) {
+            sound(0x21);
+            zone_sounds_ |= 2;
+        }
+    }
+    if (course_ != data::Course::aerial) {
+        return;
+    }
+    // Aerial: a sound on reaching zone $14, another (and sound 6 a second
+    // later) on reaching zone 6 or 7; the tiles; then the regions waiting
+    // for this zone go on, each with its sound ($1020EC by zone - $1E).
+    if (m.feature == 0x14 && (zone_sounds_ & 1) == 0) {
+        sound(0x21);
+        zone_sounds_ |= 1;
+    } else if ((m.feature == 7 || m.feature == 6) && (zone_sounds_ & 2) == 0) {
+        sound(0x20);
+        zone_sounds_ |= 2;
+        zone_sound_timer_ = 0x3C;
+    }
+    switch_pistons();
+    constexpr std::uint32_t woken_sounds = 0x1020EC; // longs by zone - $1E
     for (auto& r : regions_.all()) {
         if (r.active && r.state == 4 && std::uint8_t(m.feature) == r.feature) {
             if (r.code == 11) {
@@ -771,7 +911,9 @@ void Race::zone_changed(Marble& m) {
             } else if (r.code == 13) {
                 r.pc = regions_.block_entry(0x16);
             }
-            regions_.resume(r, terrain_);
+            sound(int(files_->program().u32(woken_sounds + std::uint32_t(r.feature - 0x1E) * 4)));
+            regions_.resume(r, terrain_, probe_);
+            take_region_sounds();
         }
     }
 }
@@ -787,6 +929,32 @@ void Race::colour_goal(int player) {
     const int count = t.u16(block + 0xA);
     for (int i = 0; i < count; ++i) {
         copper_colours_[instructions + std::uint32_t(i) * 6] = t.u16(list + std::uint32_t(i) * 2);
+    }
+}
+
+// $108664, after the regions: every fourth update the three colours of
+// two copper lists of the display block (+$18, +$1C: their first MOVE)
+// take the next of three colour triplets (+$20, +$24, +$28).
+void Race::cycle_colours() {
+    if (colour_count_ < 0) {
+        return;
+    }
+    colour_count_ = std::int8_t(colour_count_ + 2);
+    if (colour_count_ <= 6) {
+        return;
+    }
+    colour_count_ = 0;
+    if (++colour_phase_ > 2) {
+        colour_phase_ = 0;
+    }
+    const auto& t = files_->track(course_);
+    const std::uint32_t block = t.u32(files_->track_header(course_) + 0x10);
+    const std::uint32_t colours = t.u32(block + 0x20 + std::uint32_t(colour_phase_) * 4);
+    for (const std::uint32_t list : {0x18u, 0x1Cu}) {
+        const std::uint32_t instructions = t.u32(block + list);
+        for (std::uint32_t i = 0; i < 3; ++i) {
+            copper_colours_[instructions + i * 6] = t.u16(colours + i * 2);
+        }
     }
 }
 

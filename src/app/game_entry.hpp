@@ -21,6 +21,7 @@ enum class Machine { c64, amiga };
 struct ImportedFile {
     std::string name;
     std::vector<std::uint8_t> bytes;
+    bool extra{}; // from the game's optional second file (kept on re-import)
 };
 
 // Thrown by an importer when the image belongs to another game (or is not
@@ -51,6 +52,13 @@ struct GameEntry {
     // with a message for the user when the image cannot be used.
     // Empty for games that are planned but not importable yet.
     std::function<ImportResult(std::span<const std::uint8_t> image)> import;
+
+    // An optional second file the user may add once the game is imported
+    // (e.g. a Kickstart ROM for the original's font): what to ask for, and
+    // its importer, which throws NotThisGame for other files. Its files join
+    // the game's content and are kept when the game is imported again.
+    std::string extra_media;
+    std::function<ImportResult(std::span<const std::uint8_t> file)> import_extra;
 
     // Pictures of the data decoded from an installed content folder; empty
     // when the game has no decoders yet. Throws std::runtime_error when the

@@ -1,6 +1,7 @@
 #include "marble_madness_amiga/import/disk_import.hpp"
 #include "amiga/adf.hpp"
 #include "amiga/hunk.hpp"
+#include "amiga/rom_font.hpp"
 #include "marble_madness_amiga/import/loader_cipher.hpp"
 #include "platform/sha256.hpp"
 #include <array>
@@ -68,6 +69,18 @@ app::ImportResult import_disk(std::span<const std::uint8_t> image) {
         result.files.push_back({name, volume.read(name)});
     }
     result.files.push_back({"splash.iff", volume.read("c/splash")});
+    return result;
+}
+
+app::ImportResult import_kickstart(std::span<const std::uint8_t> rom) {
+    const bool encrypted = rom.size() >= 11 && std::string_view(reinterpret_cast<const char*>(rom.data()), 11) == "AMIROMTYPE1";
+    if (!encrypted && !amiga::is_kickstart(rom)) {
+        throw app::NotThisGame("This is not a Kickstart ROM.");
+    }
+    const auto font = amiga::find_rom_font(rom, "topaz.font", 9);
+    app::ImportResult result;
+    result.release = "the Kickstart's topaz 9 font";
+    result.files.push_back({"topaz9.font", amiga::save_font(font), true});
     return result;
 }
 

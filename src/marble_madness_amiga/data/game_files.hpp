@@ -1,8 +1,10 @@
 #pragma once
 #include "amiga/hunk.hpp"
+#include "amiga/rom_font.hpp"
 #include "marble_madness_amiga/data/assets.hpp"
 #include <filesystem>
 #include <memory>
+#include <optional>
 
 // The game program's data and the courses' Track files, read from the
 // installed content folder.
@@ -36,6 +38,9 @@ public:
     const amiga::LoadedImage& sounds(Course course) const { return sounds_[std::size_t(course)]; }
     // Rows of a course's tile map the scroll can reach (.mlb header word).
     int map_rows(Course course) const { return map_rows_[std::size_t(course)]; }
+    // The Kickstart's topaz 9, which the program opens for its texts
+    // ($109C20), when the user added a Kickstart ROM (topaz9.font).
+    const amiga::RomFont* font() const { return font_ ? &*font_ : nullptr; }
 
 private:
     amiga::LoadedImage program_;
@@ -43,6 +48,7 @@ private:
     std::array<amiga::LoadedImage, course_count> tracks_;
     std::array<amiga::LoadedImage, course_count> sounds_;
     std::array<int, course_count> map_rows_{};
+    std::optional<amiga::RomFont> font_;
 };
 
 } // namespace marble_madness::data

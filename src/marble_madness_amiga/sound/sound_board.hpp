@@ -21,6 +21,10 @@ namespace marble_madness::sound {
 class SoundBoard {
 public:
     SoundBoard(const data::GameFiles&, data::Course);
+    // A copy plays on from the same point (quick save); it shares the
+    // read-only sample memory.
+    SoundBoard(const SoundBoard&);
+    SoundBoard& operator=(const SoundBoard&) = delete;
 
     // $1222E4: plays table entry `id` on the right or left channels.
     void play(int id, bool right);
@@ -43,7 +47,7 @@ private:
         Handle kept;          // kind 3: the last of them
     };
 
-    std::unique_ptr<Memory> memory_;
+    std::shared_ptr<const Memory> memory_;
     std::unique_ptr<Effects> effects_;
     std::unique_ptr<Music> music_;
     std::vector<Entry> entries_;

@@ -27,6 +27,12 @@ public:
         x_ = x;
         y_ = y;
     }
+    // $10EDD0 with 1: reload the corners where the point is, then the
+    // height (creatures placed with place()).
+    std::int32_t ground_height_here(const Terrain& t) {
+        reload(t);
+        return ground_height();
+    }
     // Forces the next locate() to reload the corners ($1006E2 = $1006E4 = -1).
     void invalidate() { cell_x_ = cell_y_ = -1; }
 

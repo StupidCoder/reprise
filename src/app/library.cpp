@@ -1,6 +1,7 @@
 #include "app/library.hpp"
 #include "platform/files.hpp"
 #include "platform/sha256.hpp"
+#include <algorithm>
 #include <sstream>
 #include <stdexcept>
 
@@ -11,12 +12,13 @@ namespace {
 constexpr std::uintmax_t largest_image = 64u << 20; // larger than any C64/Amiga image
 
 // The manifest: "release <name>", "source <file name>", then one
-// "file <sha256> <name>" line per installed file.
-std::string manifest(const ImportResult& result, const fs::path& source) {
+// "file <sha256> <name>" line per installed file ("extra" instead of "file"
+// for the files of the game's optional second file).
+std::string manifest(const ImportResult& result, const std::string& source) {
     std::ostringstream out;
-    out << "release " << result.release << '\n' << "source " << source.filename().string() << '\n';
+    out << "release " << result.release << '\n' << "source " << source << '\n';
     for (const auto& file : result.files) {
-        out << "file " << platform::sha256(file.bytes) << ' ' << file.name << '\n';
+        out << (file.extra ? "extra " : "file ") << platform::sha256(file.bytes) << ' ' << file.name << '\n';
     }
     return out.str();
 }
@@ -57,9 +59,15 @@ std::optional<Library::Install> Library::check_install(const GameEntry& game) co
         while (std::getline(in, line)) {
             if (line.starts_with("release ")) {
                 install.release = line.substr(8);
-            } else if (line.starts_with("file ")) {
-                const auto hash = line.substr(5, 64);
-                const auto name = line.substr(70);
+            } else if (line.starts_with("source ")) {
+                install.source = line.substr(7);
+            } else if (line.starts_with("file ") || line.starts_with("extra ")) {
+                const std::size_t at = line.find(' ') + 1;
+                const auto hash = line.substr(at, 64);
+                const auto name = line.substr(at + 65);
+                if (line.starts_with("extra ")) {
+                    install.extras.push_back(name);
+                }
                 const auto bytes = platform::read_file(folder / name);
                 if (platform::sha256(bytes) != hash) {
                     return std::nullopt;
@@ -76,7 +84,7 @@ std::optional<Library::Install> Library::check_install(const GameEntry& game) co
     }
 }
 
-void Library::install(const GameEntry& game, const ImportResult& result, const fs::path& source) {
+void Library::install(const GameEntry& game, const ImportResult& result, const std::string& source) {
     const auto staging = root_ / "staging" / game.id;
     const auto target = root_ / "games" / game.id;
     fs::remove_all(staging);
@@ -128,6 +136,17 @@ Library::Outcome Library::import(const fs::path& image, std::optional<std::size_
         try {
             result = game.import(bytes);
         } catch (const NotThisGame& e) {
+            if (game.import_extra) {
+                try {
+                    return install_extra(index, game.import_extra(bytes));
+                } catch (const NotThisGame&) {
+                } catch (const std::exception& extra_error) {
+                    if (this_game.empty()) {
+                        this_game = extra_error.what();
+                    }
+                    continue;
+                }
+            }
             if (other_game.empty()) {
                 other_game = e.what();
             }
@@ -139,7 +158,13 @@ Library::Outcome Library::import(const fs::path& image, std::optional<std::size_
             continue;
         }
         try {
-            install(game, result, image);
+            // Keep what the optional second file added.
+            if (installs_[index]) {
+                for (const auto& name : installs_[index]->extras) {
+                    result.files.push_back({name, platform::read_file(content_directory(index) / name), true});
+                }
+            }
+            install(game, result, image.filename().string());
         } catch (const std::exception& e) {
             return {false, index, std::string("Import failed: ") + e.what()};
         }
@@ -155,6 +180,38 @@ Library::Outcome Library::import(const fs::path& image, std::optional<std::size_
     return {false, std::nullopt,
             "This image is not one of the supported games" +
                 (other_game.empty() ? std::string(".") : " (" + other_game + ")")};
+}
+
+Library::Outcome Library::install_extra(std::size_t index, const ImportResult& extra) {
+    const auto& game = games_[index];
+    if (!installs_[index]) {
+        return {false, index, "Import " + game.media + " first, then add " + game.extra_media + "."};
+    }
+    // The installed files, with the second file's replaced.
+    ImportResult combined;
+    combined.release = installs_[index]->release;
+    const auto& extras = installs_[index]->extras;
+    for (const auto& [name, size] : installs_[index]->files) {
+        const bool replaced = std::ranges::any_of(extra.files, [&](const auto& f) { return f.name == name; });
+        if (!replaced) {
+            const bool is_extra = std::ranges::find(extras, name) != extras.end();
+            combined.files.push_back({name, platform::read_file(content_directory(index) / name), is_extra});
+        }
+    }
+    for (auto file : extra.files) {
+        file.extra = true;
+        combined.files.push_back(std::move(file));
+    }
+    try {
+        install(game, combined, installs_[index]->source);
+    } catch (const std::exception& e) {
+        return {false, index, std::string("Import failed: ") + e.what()};
+    }
+    installs_[index] = check_install(game);
+    if (!installs_[index]) {
+        return {false, index, "The imported files could not be verified."};
+    }
+    return {true, index, game.title + ": " + extra.release + " added."};
 }
 
 void Library::remove(std::size_t game) {

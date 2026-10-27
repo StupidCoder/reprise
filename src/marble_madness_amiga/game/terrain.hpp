@@ -43,6 +43,11 @@ public:
     Terrain(const data::GameFiles&, data::Course);
 
     Vertex vertex(int vx, int vy) const;
+    // The vertex's stored code (research: $800-$FFF are animated), or 0.
+    std::uint16_t stored_code(int vx, int vy) const {
+        const int row = vx + vy - 0x15, column = (row >> 1) + 0x15 - vx;
+        return row < 0 || row >= rows_ || column < 0 || column >= columns ? 0 : code_at(row, column);
+    }
 
     // $10E0A8: the higher of two of a vertex's corners, addressed by its
     // diagonal row and column (0: no ground, or past the course's last
