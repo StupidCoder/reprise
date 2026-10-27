@@ -4,6 +4,7 @@
 #include "mindwalker_amiga/landscape/creatures.hpp"
 #include "mindwalker_amiga/landscape/interlude.hpp"
 #include "mindwalker_amiga/landscape/map_view.hpp"
+#include "mindwalker_amiga/landscape/sound.hpp"
 #include "mindwalker_amiga/landscape/landscape_bar.hpp"
 #include "mindwalker_amiga/landscape/view_cells.hpp"
 #include "mindwalker_amiga/landscape/view_scene.hpp"
@@ -125,6 +126,10 @@ public:
     int clock() const { return clock_frames_; }
     const Creatures& creatures() const { return creatures_; }
     const ZapBolt& bolt() const { return bolt_; }
+    // The sound, for the host's audio.
+    void render_audio(std::span<float> stereo, int rate) { sound_.render(stereo, rate); }
+    const LandscapeSound& sound() const { return sound_; }
+    LandscapeSound& sound() { return sound_; }
     // The walker's sprite rows as shown (plane A << 16 | plane B), masked.
     std::vector<std::uint32_t> walker_sprite() const;
 
@@ -140,6 +145,7 @@ private:
     void caught();          // $209D8A's branch after a catch
     void creatures_tick();  // $2003C0
     void toggle_map();      // $2042A0
+    void sound_tick();
     Creatures::Scene creature_scene() const;
     Display current_display() const;
     void draw_walker(platform::Image&, const std::vector<screen::Rgb4>& colours) const;
@@ -200,6 +206,8 @@ private:
     std::array<ViewPainter::DepthMask, 3> masks_;
     Creatures creatures_;
     Interlude interlude_;
+    LandscapeSound sound_;
+    bool stick_held_{}, catch_lost_{}, was_catching_{};
     MapView map_view_{a_};
     int map_frames_left_{};
     int queued_gadget_{-1};               // a gadget message not yet read

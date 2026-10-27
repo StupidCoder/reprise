@@ -95,7 +95,9 @@ public:
     // of (x, y) around its middle is zapped: gone, untethered if attached;
     // the view's bonus grows by 3 (free) or 5 (attached) times the follow
     // speed.
-    void zap(int x, int y, const Scene&);
+    bool zap(int x, int y, const Scene&);
+    // The attached creatures' places at the last catch.
+    const std::vector<std::pair<int, int>>& catchers() const { return catchers_; }
     // $200E62: the tether layer cleared (a catch's picture; drawn again on
     // the next tick).
     void clear_tethers();
@@ -138,6 +140,7 @@ private:
     std::vector<std::uint8_t> tethers_;
     int tether_clock_{}, tether_round_{};  // $200520 / $200524
     bool tethers_drawn_{};                 // $200528
+    std::vector<std::pair<int, int>> catchers_;
 };
 
 } // namespace mindwalker::landscape

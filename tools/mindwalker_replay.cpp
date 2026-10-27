@@ -314,11 +314,14 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
         start.score = std::uint32_t(at(0x66));
     }
     landscape::LandscapeStage stage(files, assets, start);
+    std::vector<std::array<int, 6>> music_ours;
+    stage.sound().trace = &music_ours;
     std::size_t next = 0;
     int frames = 0, differences = 0;
     // The walker's mask is close, not exact (our polygon fill): its pixel
     // differences are counted apart from the state's.
     int sprite_pixels = 0, sprite_rows_differing = 0, hidden_differing = 0, clock_phase = 0;
+    std::vector<std::array<int, 6>> music_theirs;
     bool out_of_step = false;
     const auto word = [](const std::string& hexs, int offset, int bytes) {
         return std::stol(hexs.substr(std::size_t(offset * 2), std::size_t(bytes * 2)), nullptr, 16);
@@ -377,6 +380,17 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
             if (stage.walker().hidden_frames != hidden && ++hidden_differing <= print_limit)
                 std::printf("A read %d (frame %d) hidden frames: ours %d, original %ld\n", r.index, frames,
                             stage.walker().hidden_frames, hidden);
+        }
+        // The sound's states in order (its timer runs on its own clock, so
+        // only the sequence of changes is compared, at the end).
+        if (r.fields.count("music")) {
+            const auto& m = r.fields.at("music");
+            const auto b = [&](int o) { return int(word(m, o, 1)); };
+            const int at = int(word(m, 0x56, 4)) & 0xF;
+            const std::array<int, 6> theirs{b(0x0C), int(word(m, 0x0E, 4)), at, int(word(m, 0x26 + 2 * at, 2)),
+                                            int(std::int8_t(b(0x46 + at))), b(0x5E)};
+            if (music_theirs.empty() || music_theirs.back() != theirs) music_theirs.push_back(theirs);
+
         }
         // The bolt's mixer ($20648E), in recordings that have it (its every
         // draw, so the branches' timing too).
@@ -476,6 +490,42 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
     if (sprite_pixels) std::printf("; walker mask: %d pixels in %d rows differ", sprite_pixels, sprite_rows_differing);
     if (hidden_differing) std::printf(", hidden count in %d reads", hidden_differing);
     if (clock_phase) std::printf("; beacon bonus a second's phase apart in %d reads", clock_phase);
+    if (!music_theirs.empty()) {
+        // The longest common run of sequencer states, in order.
+        // (The original's music starts before its first logged read: ours is
+        // aligned on the original's first state.)
+        std::size_t i = 0, j = 0, matched = 0;
+        while (i < music_ours.size() && music_ours[i] != music_theirs[0]) ++i;
+        if (i == music_ours.size()) i = 0;
+        const std::size_t start = i;
+        // The original's states (sampled at its reads) as a subsequence of
+        // ours (every tick).
+        while (i < music_ours.size() && j < music_theirs.size()) {
+            if (music_ours[i] == music_theirs[j]) {
+                ++matched;
+                ++j;
+            }
+            ++i;
+        }
+        std::printf("; sound: %zu of %zu sequencer states in order", matched, music_theirs.size());
+        if (const char* dump = std::getenv("MW_SOUND_DUMP")) { // research: both lists
+            for (const auto& [list, name] : {std::pair{&music_ours, ".ours"}, std::pair{&music_theirs, ".theirs"}}) {
+                std::ofstream f(std::string(dump) + name);
+                for (const auto& v : *list) f << v[0] << ' ' << v[1] << ' ' << v[2] << ' ' << v[3] << ' ' << v[4] << ' ' << v[5] << '\n';
+            }
+        }
+        if (std::getenv("MW_SOUND"))
+            for (std::size_t k = 0; k < std::min<std::size_t>(400, std::max(music_ours.size(), music_theirs.size())); ++k) {
+                const auto show = [](const std::vector<std::array<int, 6>>& v, std::size_t k) {
+                    if (k >= v.size()) return std::string("-");
+                    char t[80];
+                    std::snprintf(t, sizeof t, "song %2d step %2d ring %2d period %4d vol %3d key %d", v[k][0], v[k][1],
+                                  v[k][2], v[k][3], v[k][4], v[k][5]);
+                    return std::string(t);
+                };
+                std::printf("\n  %-52s | %s", show(music_ours, start + k).c_str(), show(music_theirs, k).c_str());
+            }
+    }
     std::printf("\n");
     if (!png.empty()) platform::save_png(stage.picture(), png);
     return differences == 0 ? 0 : 1;
@@ -586,11 +636,35 @@ int sim(const std::filesystem::path& content, std::uint32_t seed, int stage_numb
         return held;
     };
     int frames = 0;
+    std::vector<float> wav; // MW_WAV=file: the sound, 44.1 kHz stereo
     while (!stop && reads <= last && !stage.over() && frames < 200000) {
         const int g = pending_gadget;
         pending_gadget = -1;
         stage.frame(reader, g);
         ++frames;
+        if (std::getenv("MW_WAV")) {
+            std::vector<float> block(882 * 2, 0.0f);
+            stage.render_audio(block, 44100);
+            wav.insert(wav.end(), block.begin(), block.end());
+        }
+    }
+    if (const char* path = std::getenv("MW_WAV")) {
+        std::ofstream f(path, std::ios::binary);
+        const auto put32 = [&](std::uint32_t v) { f.write(reinterpret_cast<const char*>(&v), 4); };
+        const auto put16 = [&](std::uint16_t v) { f.write(reinterpret_cast<const char*>(&v), 2); };
+        f.write("RIFF", 4);
+        put32(std::uint32_t(36 + wav.size() * 2));
+        f.write("WAVEfmt ", 8);
+        put32(16);
+        put16(1);
+        put16(2);
+        put32(44100);
+        put32(44100 * 4);
+        put16(4);
+        put16(16);
+        f.write("data", 4);
+        put32(std::uint32_t(wav.size() * 2));
+        for (const float v : wav) put16(std::uint16_t(std::int16_t(std::clamp(v, -1.0f, 1.0f) * 32000)));
     }
     const auto& w = stage.walker();
     std::printf("end: %d frames, %d reads, cell %03x %03x, score %u, lives %d%s, next seed %08x\n", frames, reads, w.cell_x,

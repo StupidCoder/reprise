@@ -52,6 +52,7 @@ add_library(amiga
     src/amiga/byte_run1.cpp
     src/amiga/iff.cpp
     src/amiga/paula.cpp
+    src/amiga/paula_voices.cpp
     src/amiga/topaz.cpp
     src/amiga/intuition_imagery.cpp)
 target_include_directories(amiga PUBLIC ${SOURCE_ROOT})
@@ -188,6 +189,7 @@ add_library(mindwalker_amiga
     src/mindwalker_amiga/landscape/interlude.cpp
     src/mindwalker_amiga/landscape/zap_bolt.cpp
     src/mindwalker_amiga/landscape/map_view.cpp
+    src/mindwalker_amiga/landscape/sound.cpp
     src/mindwalker_amiga/landscape/landscape_stage.cpp
     src/mindwalker_amiga/import/disk_import.cpp)
 target_include_directories(mindwalker_amiga PUBLIC ${SOURCE_ROOT})

@@ -16,7 +16,9 @@ class ZapBolt {
 public:
     void seed(std::uint16_t high, std::uint16_t low) { random_ = world::Mixer::seeded(high, low); }
     // One frame's bolt from (x0, y0) to the cursor (x1, y1), display rows.
-    void draw(std::vector<std::uint8_t>& layer, int x0, int y0, int x1, int y1);
+    // Returns how far the branches went (their halvings, $20648A, for the
+    // sound), or -1 without branches.
+    int draw(std::vector<std::uint8_t>& layer, int x0, int y0, int x1, int y1);
     const world::Mixer& random() const { return random_; }
     std::uint16_t frames() const { return frames_; }
 
@@ -26,6 +28,7 @@ private:
 
     world::Mixer random_;
     std::uint16_t frames_{}; // $206496
+    int halvings_{};
 };
 
 } // namespace mindwalker::landscape

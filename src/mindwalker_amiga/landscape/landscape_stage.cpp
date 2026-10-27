@@ -22,6 +22,7 @@ constexpr int speed_period = 5;                    // $206B70
 constexpr int water_speed = 4;                     // $206B74
 constexpr int click_wait = 300;                    // $203F58
 constexpr int view_top = 10;                       // the view is shown from display row 10
+constexpr std::uint32_t form_sounds = 0x206B18;    // h36: the effect each form starts with
 constexpr int map_gadget = 4;                      // the emblem (GRELRIGHT, 32 wide, a toggle)
 constexpr int pause_gadget = 0x10;                 // the P box (a toggle)
 constexpr std::uint32_t screen_title = 0x204ADA;   // A's screen's DefaultTitle
@@ -37,7 +38,8 @@ constexpr int form_figure_set[4] = {0, 3, 1, 2};
 LandscapeStage::LandscapeStage(const data::GameFiles& files, const data::Assets& assets, const Start& start)
     : a_(files.program(data::Stage::landscape)), assets_(assets), world_(start.seed, a_),
       stage_(start.stage), lives_(start.lives), score_(start.score), bar_(files), painter_(a_),
-      creatures_(a_, assets), interlude_(a_) {
+      creatures_(a_, assets), interlude_(a_),
+      sound_(a_, files.program(data::Stage::setup), assets.figures[3].sequence.front()) {
     home_x_ = world_.start_x();
     home_y_ = world_.start_y();
     fidget_.state = a_.u32(fidget_seed);
@@ -141,6 +143,7 @@ void LandscapeStage::repaint_from(const Display& before, Interlude::Repaint kind
 // screen, which stays behind.)
 void LandscapeStage::pause() {
     paused_ = true;
+    sound_.stop(); // $20BB8A
     bar_.enable(map_gadget, false);
     repaint(false); // (the bar drawn with the emblem ghosted)
     creatures_.wipe_layer();
@@ -158,6 +161,7 @@ void LandscapeStage::resume() {
 // ...then the view drawn again from the cleared screen and the creatures
 // shown ($201492(0), $207E5A), or the map drawn again ($20071C(0)).
 void LandscapeStage::after_pause() {
+    sound_.start(); // $20BED6
     if (map_view_.open()) {
         map_view_.redraw();
         return;
@@ -235,6 +239,7 @@ void LandscapeStage::frame(const InputReader& read, int clicked) {
         if (--resume_wait_ == 0) after_pause();
         return;
     }
+    sound_tick();
     if (interlude_.active()) {
         interlude_.advance();
         return;
@@ -329,6 +334,28 @@ void LandscapeStage::toggle_map() {
     place_sprite();
 }
 
+// The sound's share of a frame: the catch's rumble and calls during the
+// catch picture (h14 asks for its effect, $203DAA, and then 7), then the
+// timer's requests ($20BEE0).
+void LandscapeStage::sound_tick() {
+    if (const int k = interlude_.grab_step(); k >= 0) {
+        sound_.rumble(k);
+    } else if (sound_.rumbling()) {
+        sound_.rumble(24);
+        sound_.request(6);
+    }
+    const bool catching = interlude_.catching();
+    if (catching) {
+        const int song = sound_.song();
+        if (catch_lost_ ? song != 0x1D && song != 0x1E : song != 0x19 && song != 0x1A) sound_.request(catch_lost_ ? 0xC : 6);
+    } else if (was_catching_) {
+        sound_.request(7);
+    }
+    was_catching_ = catching;
+    if (out_of_lives_ || finished_) return;
+    sound_.frame(stage_, slow_creatures_, stick_held_, walker_.cursor_x);
+}
+
 // $2003C0 (each frame the walker moves): colour 13 flashes while the view
 // holds something of note, tethers are cleared and redrawn now and then, and
 // the creatures move.
@@ -339,7 +366,23 @@ void LandscapeStage::creatures_tick() {
         colours_[13] = std::uint16_t(grey << 8 | grey << 4 | grey);
     }
     creatures_.tick_tethers();
-    if (creatures_.update(creature_scene())) caught_ = true;
+    if (creatures_.update(creature_scene())) {
+        // $205EC4 at once: the catchers' tethers reach the walker's head.
+        caught_ = true;
+        std::vector<std::uint8_t> layer(320 * 200);
+        const int hx = std::clamp(walker_.screen_x + 8, 0, 319);
+        const int hy = std::clamp(std::clamp(walker_.screen_y - a_.s32(form_heads + std::uint32_t(walker_.form * 4)), 0, 199) + view_top, view_top, 199);
+        for (const auto& [cx, cy] : creatures_.catchers()) {
+            const int ax = std::clamp(cx + 7, 0, 319), ay = std::clamp(std::clamp(cy + 7, 0, 199) + view_top, view_top, 199);
+            for (int y = std::min(ay, hy); y <= std::max(ay, hy); ++y) {
+                const int lx = ay == hy ? hx - 8 : ax + (std::clamp(hx - 8, 0, 319) - ax) * (y - ay) / (hy - ay);
+                const int rx = ay == hy ? hx + 8 : ax + (std::clamp(hx + 8, 0, 319) - ax) * (y - ay) / (hy - ay);
+                for (int x = std::max(std::min(lx, rx), 0); x <= std::min(std::max(lx, rx), 319); ++x)
+                    layer[std::size_t(y * 320 + x)] = 1;
+            }
+        }
+        interlude_.start_grab(current_display(), layer);
+    }
 }
 
 // $209D8A's other branch, the frame after a catch: every sprite hidden, the
@@ -363,6 +406,8 @@ void LandscapeStage::caught() {
     Display next = current_display();
     std::fill(next.plane4.begin(), next.plane4.end(), 0);
     interlude_.start_catch(before, damage, lost, next);
+    sound_.aim(0); // h14: $20BBE0 = 0
+    catch_lost_ = lost;
     if (lost) {
         creatures_.reset();
         creatures_.clear_presence(scene);
@@ -434,11 +479,13 @@ void LandscapeStage::step(const InputReader& read) {
     // walker into the next form (the count carries over between pyramids).
     if ((walker_.terrain & 0x1000) && ++pyramid_steps_ > 30) {
         set_form((walker_.form + 1) & 3);
+        sound_.request(a_.u8(form_sounds + std::uint32_t(walker_.form)));
         colours_[17] = inputs_.colour17; // $2004CE/$2004D0, loaded at once
         colours_[18] = inputs_.colour18;
     }
     if (walker_.column != walker_.last_column || walker_.row != walker_.last_row) cell_events();
     const auto stick = read(InputRead::stick);
+    stick_held_ = stick.up || stick.down || stick.left || stick.right;
     const bool fire = read(InputRead::fire).fire;
     int sx = 0, sz = stick.up ? 1 : 0;
     if (stick.down) sz = -1;
@@ -455,7 +502,10 @@ void LandscapeStage::step(const InputReader& read) {
         aim(sx, sz);
         return;
     }
-    if (walker_.aiming) aim_colours_ = false; // LoadRGB4 of $2004AC: colours 19-31 back
+    if (walker_.aiming) {
+        aim_colours_ = false; // LoadRGB4 of $2004AC: colours 19-31 back
+        sound_.aim(8);
+    }
     walker_.aiming = false;
 
     const int limit = speed_limit_base + creatures_.attached(); // attached creatures speed the walker up
@@ -543,7 +593,7 @@ void LandscapeStage::step(const InputReader& read) {
             walker_.edge_push = -1;
         } else {
             creatures_.reset_tether_clock();
-            ++walker_.edge_push;
+            if ((++walker_.edge_push & 7) == 0) sound_.request(4);
         }
     }
     walker_.next_x = x;
@@ -577,6 +627,7 @@ void LandscapeStage::aim(int sx, int sz) {
     if (!walker_.aiming) {
         walker_.aiming = true;
         aim_colours_ = true;
+        sound_.stop_rest(); // $20BDFE
         walker_.cursor_x = walker_.screen_x;
         walker_.cursor_y = walker_.screen_y;
     }
@@ -598,10 +649,12 @@ void LandscapeStage::aim(int sx, int sz) {
     }
     const auto point = FixedCamera().project(across, walker_.level, depth + 0x18);
     creatures_.hasten();
-    bolt_.draw(creatures_.layer(), point.x, std::max(point.y - 10, 0), walker_.cursor_x, walker_.cursor_y);
+    sound_.aim(0x10);
+    const int branches = bolt_.draw(creatures_.layer(), point.x, std::max(point.y - 10, 0), walker_.cursor_x, walker_.cursor_y);
+    if (branches >= 0) sound_.bolt(branches);
     walker_.screen_x = std::clamp(point.x - 8, 0, 0x12F);
     walker_.screen_y = point.y;
-    creatures_.zap(walker_.cursor_x, walker_.cursor_y, creature_scene());
+    if (creatures_.zap(walker_.cursor_x, walker_.cursor_y, creature_scene())) sound_.hit();
 }
 
 // $20B18A: the view moved so that the walker's cell is in its front row,
@@ -634,6 +687,7 @@ void LandscapeStage::cell_events() {
     if ((t & 0x400) && (walker_.cell_x != map_centre_x_ || walker_.cell_y != map_centre_y_)) {
         centre_map(walker_.cell_x, walker_.cell_y);
         rebuild_view_keeping();
+        sound_.request(2);
         repaint_shown(Interlude::Repaint::flash); // $201602(0)
     }
     if ((walker_.objects & 2) && !(t & 0x100) && may_mark()) {
@@ -660,6 +714,7 @@ void LandscapeStage::cell_events() {
         for (auto& column : cells_.terrain)
             for (auto& cell : column) cell |= 0x100;
         walker_.terrain |= 0x100;
+        sound_.request(11);
         repaint_shown(Interlude::Repaint::star, 4); // $20A204 0: $201602(1) four times
     }
     const int form_kind = a_.u16(form_kinds + std::uint32_t(walker_.form * 2));
@@ -669,7 +724,7 @@ void LandscapeStage::cell_events() {
         const unsigned col = (walker_.cell_x - map_x0_) & 63, row = (walker_.cell_y - map_y0_) & 63;
         map_[row * 8 + col / 8] |= std::uint8_t(0x80 >> (col % 8));
         ++score_;
-        fidget_.next(); // $209F34 draws a random sound length ($20C89C)
+        sound_.blip((fidget_.next() & 0xFF) + 200); // $20C898 = 7, $20C89C
         switch (direction_) {
         case 0: walker_.view_row = walker_.row; walker_.view_column = walker_.column; break;
         case 1: walker_.view_row = walker_.column; walker_.view_column = 3 - walker_.row; break;
@@ -687,6 +742,7 @@ void LandscapeStage::cell_events() {
         auto& objects = cells_.objects[std::size_t(walker_.column)][std::size_t(walker_.row)];
         objects |= 8;
         walker_.objects |= 8;
+        sound_.request(3);
         repaint_shown(Interlude::Repaint::star); // $201602(1)
         --cells_.creature_places;
     }
@@ -712,6 +768,7 @@ void LandscapeStage::take_find() {
     inputs_.found[std::size_t(which)] = true;
     if (inputs_.found[0] && inputs_.found[1]) slow_creatures_ = 0x200;
     rebuild_view_keeping();
+    sound_.request(1);
     repaint_shown(Interlude::Repaint::flash); // $201602(0)
 }
 

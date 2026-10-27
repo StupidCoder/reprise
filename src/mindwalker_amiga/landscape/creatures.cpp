@@ -285,7 +285,7 @@ void Creatures::hasten() {
     tether_clock_ = std::max(tether_clock_, 6);
 }
 
-void Creatures::zap(int x, int y, const Scene& scene) {
+bool Creatures::zap(int x, int y, const Scene& scene) {
     const int speed = a_.s32(follow_speeds + std::uint32_t(scene.stage / 7 * 4)); // $2083B2
     for (int i = 0; i < 12; ++i) {
         auto& c = creatures_[std::size_t(i)];
@@ -299,8 +299,9 @@ void Creatures::zap(int x, int y, const Scene& scene) {
             score_bonus_ += speed * 5;
         }
         place(i, off_screen, c.top, scene);
-        return;
+        return true;
     }
+    return false;
 }
 
 // $207810: the tether's end creeps towards the walker's head.
@@ -311,6 +312,10 @@ bool Creatures::follow(int i, const Scene& scene, int head_y) {
     c.tether_y = std::clamp(c.tether_y + (head_y <= c.tether_y ? -s : s), 0, 199);
     draw_tether(i);
     if (!near(scene.walker_x, head_y, c.tether_x, c.tether_y, 9)) return false;
+    // $205EC4 shows the attached ones' tethers reaching the walker first.
+    catchers_.clear();
+    for (const auto& other : creatures_)
+        if (other.present && other.tether_x != -1) catchers_.push_back({other.x, other.y});
     attached_ = 0;
     for (auto& other : creatures_) other.tether_x = -1;
     return true;

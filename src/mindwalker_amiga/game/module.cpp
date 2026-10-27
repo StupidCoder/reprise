@@ -98,6 +98,12 @@ public:
         landscape_.emplace(files_, assets_, landscape::LandscapeStage::Start{game.seed, game.stage, game.lives, game.score});
     }
 
+    // The landscape's sound (the title and the other stages: not rebuilt yet).
+    void audio(std::span<float> stereo, int sample_rate) override {
+        std::fill(stereo.begin(), stereo.end(), 0.0f);
+        if (landscape_) landscape_->render_audio(stereo, sample_rate);
+    }
+
     platform::Image picture() const override {
         auto image = landscape_ ? landscape_->picture() : title_.picture();
         pointer_.draw(image, mouse_x_, mouse_y_);

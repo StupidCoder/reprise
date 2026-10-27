@@ -217,7 +217,42 @@ void Interlude::repaint_frame() {
             if (t == mask_rows[k]) display_.colours[0] = a_.u16(flash_colours + std::uint32_t((2 - k) * 2));
 }
 
+void Interlude::start_grab(const Display& now, const std::vector<std::uint8_t>& tethers) {
+    display_ = now;
+    display_.plane4 = tethers;
+    grab_colours_ = now.colours;
+    phase_ = Phase::grab;
+    step_ = 0;
+    frame_ = 0;
+    grab_frame();
+}
+
+void Interlude::grab_frame() {
+    const int k = step_;
+    if (frame_ == 0) {
+        display_.colours[0] = std::uint16_t(((k & 3) << 2) << 4);
+        for (int c = 0x13; c < 0x20; ++c) {
+            const int v = ((k << (k >> 3 & 0x3F)) + (0x22 - c)) & 0xF;
+            display_.colours[std::size_t(c)] = std::uint16_t(0xF00 | v << 4 | v);
+        }
+    } else {
+        display_.colours[17] = std::uint16_t((k & 2) ? 0x0FF : 0x00F);
+    }
+}
+
 void Interlude::advance() {
+    if (phase_ == Phase::grab) {
+        if (++frame_ > 1) {
+            frame_ = 0;
+            if (++step_ >= 24) {
+                display_.colours = grab_colours_;
+                phase_ = Phase::idle;
+                return;
+            }
+        }
+        grab_frame();
+        return;
+    }
     if (phase_ == Phase::repaint) {
         ++frame_;
         const int total = repaint_ == Repaint::plain ? plain_frames : repaint_frames;
@@ -286,6 +321,8 @@ void Interlude::advance() {
         phase_ = Phase::idle;
         break;
     case Phase::idle:
+    case Phase::repaint: // (handled above)
+    case Phase::grab:
         break;
     }
 }

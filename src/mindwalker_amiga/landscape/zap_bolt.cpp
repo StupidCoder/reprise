@@ -52,22 +52,31 @@ void ZapBolt::segment(std::vector<std::uint8_t>& layer, int x0, int y0, int x1, 
 // twice more halfway on, by chance.
 int ZapBolt::toward(int corner, int target) {
     int v = (target + ((target + corner) >> 1)) >> 1;
-    if (random_.step() & 0x30) v = (target + v) >> 1;
-    if (random_.step() & 3) v = (target + v) >> 1;
+    ++halvings_;
+    if (random_.step() & 0x30) {
+        v = (target + v) >> 1;
+        ++halvings_;
+    }
+    if (random_.step() & 3) {
+        v = (target + v) >> 1;
+        ++halvings_;
+    }
     return v;
 }
 
-void ZapBolt::draw(std::vector<std::uint8_t>& layer, int x0, int y0, int x1, int y1) {
+int ZapBolt::draw(std::vector<std::uint8_t>& layer, int x0, int y0, int x1, int y1) {
     y0 = clamp_row(view_top + y0);
     y1 = clamp_row(view_top + y1);
     segment(layer, x0, y0, x1, y1, 0x1F);
     // Branches every 16th frame, or when the mixer says so.
-    if ((++frames_ & 0xF) != 0 && (random_.step() & 0x142) != 0) return;
+    if ((++frames_ & 0xF) != 0 && (random_.step() & 0x142) != 0) return -1;
+    halvings_ = 0; // $20648A
     for (int k = 0; k < 4; ++k) {
         const int bx = toward(corner_x[k], x1);
         const int by = toward(corner_y[k], y1);
         segment(layer, x1, y1, bx, by, 0xF);
     }
+    return halvings_;
 }
 
 } // namespace mindwalker::landscape
