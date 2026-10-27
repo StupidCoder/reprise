@@ -197,6 +197,7 @@ add_library(wings_of_fury_amiga
     src/wings_of_fury_amiga/data/packed.cpp
     src/wings_of_fury_amiga/data/preview.cpp
     src/wings_of_fury_amiga/data/shapes.cpp
+    src/wings_of_fury_amiga/game/scenery.cpp
     src/wings_of_fury_amiga/import/disk_import.cpp)
 target_include_directories(wings_of_fury_amiga PUBLIC ${SOURCE_ROOT})
 target_link_libraries(wings_of_fury_amiga PUBLIC amiga platform ui)

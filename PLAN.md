@@ -695,13 +695,21 @@ and songs `wofsongs` (both with their symbols), IFF pictures, "Rpck"-packed
    the frame start, `harness/viewref.py`, `tools/viewcheck.sh`), apart from
    what other drawers put on top (plane, flags, deck animation); ship columns
    follow the ship's bob + vertical scroll. formats.md has the details.
-5. Next: the sand/wave strip, the scenery specials (US flag $103D10, enemy
-   flags $103B52, deck $103BCE, $104E18), other maps; then the front end (story scroller, pictures, rank selection, high scores),
+5. **Done 2026-10-27: backdrop.** `game/scenery` draws sky, scenery columns
+   with the map specials (US flag, deck crew, enemy flags), ships' bob, waves
+   and island sand from game state; equal to the original as colour indices
+   over the whole view on maps a, d and k except for objects (plane, parked
+   planes, elevator, splashes) and the weapon-menu box. Harness reads the
+   finished buffer of the double-buffered view.
+6. Next: the objects drawn over the backdrop (player plane, parked planes and
+   elevator, enemy planes, flags), index-5 special, night view and the
+   copper palette split; then the front end (story scroller, pictures, rank selection, high scores),
    music (`songplay` rewrite), then flight, objects and missions.
 
-Open: map specials partly read (index 5 and $9F handlers, D6 in the flag
-placement, the `$114/$115` pairs); how the island sand strip and waves are
-drawn; scenery on maps other than a and at night; stick direction codes;
+Open: index-5 special ($104E18), the `$114/$115` pairs, the deck phase
+tables behind the crew poses; ship bob other than 0 not compared; night maps,
+the 1/8-scale view and the copper palette split (rows 151+); maps other than
+a, d and k not compared; stick direction codes;
 `newarmyfont` and how the two fonts are used; sample periods; the shape
 offset/sheet fields (hypotheses); eighth rank-menu option (`$108B96`);
 where the retail game called the manual check; a second (retail) release

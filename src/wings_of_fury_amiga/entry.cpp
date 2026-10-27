@@ -20,6 +20,9 @@ std::vector<app::Preview> previews(const std::filesystem::path& content) {
                               ", colours of " + std::string(palette_name) + ")",
                           library_sheet(library.library, find_palette(assets, palette_name))});
     }
+    for (const auto& map : assets.maps) {
+        result.push_back({"Map: " + map.name + " (scenery)", map_image(assets, map, find_palette(assets, "wingspalette"))});
+    }
     for (const auto& palette : assets.palettes) {
         result.push_back({"Palette: " + palette.name, palette_image(palette.colours)});
     }
@@ -39,7 +42,7 @@ app::GameEntry entry() {
         .media = "the disk image (ADF)",
         .import = import::import_disk,
         .previews = previews,
-        .progress = "Import and the decoded pictures, shapes, palettes and sounds. Nothing can be played yet.",
+        .progress = "Import and the decoded pictures, shapes, map scenery, palettes and sounds. Nothing can be played yet.",
     };
 }
 

@@ -32,6 +32,20 @@ constexpr std::uint32_t rank_name_pointers = 0x115864;
 constexpr int rank_count = 7;
 constexpr std::uint32_t story_pointer = 0x1158E0;
 constexpr int story_lines = 0x35;
+constexpr std::uint32_t us_flag_steps = 0x114BA1; // -$63B1(A4), read by $103D10
+
+// The scenery table's parts in order ($10535A copies 184, 24, 27, 13 and 25
+// entries; the loaders pair each library with its name list).
+struct SceneryPart {
+    const char* library;
+    std::uint32_t names;
+    int count;
+};
+constexpr std::array scenery_parts = {
+    SceneryPart{"world.shp", 0x113E38, 184},     SceneryPart{"cruiseship.shp", 0x113C24, 24},
+    SceneryPart{"destroyer.shp", 0x113BB4, 27},  SceneryPart{"japcarrier.shp", 0x113B7C, 13},
+    SceneryPart{"battleship.shp", 0x113B14, 25},
+};
 
 // highscore: ten 36-byte entries (u32 score, u16 rank, 30-byte name).
 constexpr std::size_t score_entry_size = 36;
@@ -77,6 +91,19 @@ std::string_view preview_palette_for(std::string_view library) {
     if (library == "dash.shp") return "iff-dash";
     if (library == "selectrank.shp") return "selectrank";
     return "wingspalette";
+}
+
+const Shape* scenery_shape(const Assets& assets, int index) {
+    if (index < 0 || std::size_t(index) >= assets.scenery.size()) {
+        return nullptr;
+    }
+    const auto& entry = assets.scenery[std::size_t(index)];
+    for (const auto& library : assets.libraries) {
+        if (library.name == entry.library) {
+            return library.library.find(entry.shape);
+        }
+    }
+    return nullptr;
 }
 
 Assets load_assets(const std::filesystem::path& content) {
@@ -125,6 +152,18 @@ Assets load_assets(const std::filesystem::path& content) {
         const amiga::LoadedImage wings(amiga::read_load_file(read(content, "wings")), wings_base);
         for (int r = 0; r < rank_count; ++r) {
             assets.rank_names.push_back(string_at(wings, wings.u32(rank_name_pointers + std::uint32_t(r * 4))));
+        }
+        for (const auto& part : scenery_parts) {
+            for (int i = 0; i < part.count; ++i) {
+                std::string shape;
+                for (std::uint32_t c = 0; c < 4; ++c) {
+                    shape += char(wings.u8(part.names + std::uint32_t(i * 4) + c));
+                }
+                assets.scenery.push_back({part.library, std::move(shape)});
+            }
+        }
+        for (std::size_t i = 0; i < assets.us_flag_steps.size(); ++i) {
+            assets.us_flag_steps[i] = wings.u8(us_flag_steps + std::uint32_t(i));
         }
         std::uint32_t line = wings.u32(story_pointer);
         for (int i = 0; i < story_lines; ++i) {

@@ -3,6 +3,7 @@
 //
 //   wings_of_fury_assets import <image.adf> <content folder>
 //   wings_of_fury_assets export <content folder> <output folder>
+//   wings_of_fury_assets view <content folder> <map> <state file> <out.png>
 //
 // The export writes PNG pictures, the samples as 8-bit WAV files (at 8,000 Hz:
 // the playback periods are not read yet), each library's shape headers as a
@@ -12,9 +13,11 @@
 #include "platform/host.hpp"
 #include "wings_of_fury_amiga/data/assets.hpp"
 #include "wings_of_fury_amiga/data/preview.hpp"
+#include "wings_of_fury_amiga/game/scenery.hpp"
 #include "wings_of_fury_amiga/import/disk_import.hpp"
 #include <cstdio>
 #include <exception>
+#include <sstream>
 #include <string>
 
 namespace {
@@ -105,8 +108,10 @@ int main(int argc, char** argv) {
                 platform::save_png(sample_image(sample), out / (sample.name + ".png"));
                 std::printf("sample %-14s %5zu bytes\n", sample.name.c_str(), sample.data.size());
             }
+            const auto& day = find_palette(assets, "wingspalette");
             for (const auto& map : assets.maps) {
-                std::printf("map %s length %u, %zu words\n", map.name.c_str(), map.length, map.words.size());
+                platform::save_png(map_image(assets, map, day), out / (map.name + ".png"));
+                std::printf("map %s carrier x %d, %zu columns\n", map.name.c_str(), map.carrier_x(), map.words.size());
             }
             std::printf("ranks:");
             for (const auto& rank : assets.rank_names) std::printf(" [%s]", rank.c_str());
@@ -117,7 +122,58 @@ int main(int argc, char** argv) {
             std::printf("\n");
             return 0;
         }
-        std::fprintf(stderr, "usage: wings_of_fury_assets import <adf> <content> | export <content> <out>\n");
+        if (command == "view" && argc == 6) {
+            // view <content> <map> <state file> <out.png>: the play view's
+            // backdrop (game/scenery) as out.idx (320 x 162 colour indices)
+            // and out.png (day colours above row 151, the ocean palette
+            // below). The state file (harness/viewref.py) holds "key values"
+            // lines: camera, wave, vscroll, us_flag, crew a b, enemy_flag
+            // (before the frame), ship first last bob (in search order),
+            // island_flags 1 0 ...
+            const auto assets = load_assets(platform::utf8_path(argv[2]));
+            wings::game::BackdropState state;
+            const auto text = platform::read_file(platform::utf8_path(argv[4]));
+            std::istringstream lines(std::string(text.begin(), text.end()));
+            for (std::string line; std::getline(lines, line);) {
+                std::istringstream in(line);
+                std::string key;
+                in >> key;
+                if (key == "camera") in >> state.camera;
+                else if (key == "wave") in >> state.wave_frame;
+                else if (key == "vscroll") in >> state.vertical_scroll;
+                else if (key == "us_flag") in >> state.us_flag_step;
+                else if (key == "crew") in >> state.crew_pose_a >> state.crew_pose_b;
+                else if (key == "enemy_flag") in >> state.enemy_flag_counter;
+                else if (key == "ship") {
+                    wings::game::BackdropState::Ship ship;
+                    in >> ship.first >> ship.last >> ship.bob;
+                    state.ships.push_back(ship);
+                } else if (key == "island_flags") {
+                    for (int up; in >> up;) state.island_flag_up.push_back(up != 0);
+                }
+            }
+            for (const auto& map : assets.maps) {
+                if (map.name != argv[3]) continue;
+                const auto canvas = wings::game::draw_backdrop(assets, map, state);
+                const auto out = platform::utf8_path(argv[5]);
+                auto idx = out;
+                platform::write_file(idx.replace_extension(".idx"), canvas.pixels);
+                const auto& day = find_palette(assets, "wingspalette");
+                const auto& sea = find_palette(assets, "ocean.palette");
+                platform::Image image(canvas.width, canvas.height);
+                for (int y = 0; y < canvas.height; ++y) {
+                    for (int x = 0; x < canvas.width; ++x) {
+                        image.put(x, y, to_color((y < 151 ? day : sea)[canvas.at(x, y)]));
+                    }
+                }
+                platform::save_png(image, out);
+                return 0;
+            }
+            std::fprintf(stderr, "wings_of_fury_assets: no map %s\n", argv[3]);
+            return 1;
+        }
+        std::fprintf(stderr, "usage: wings_of_fury_assets import <adf> <content> | export <content> <out> | "
+                             "view <content> <map> <state file> <out.png>\n");
         return 2;
     } catch (const std::exception& error) {
         std::fprintf(stderr, "wings_of_fury_assets: %s\n", error.what());

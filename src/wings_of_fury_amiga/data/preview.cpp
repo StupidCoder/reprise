@@ -82,6 +82,34 @@ platform::Image library_sheet(const ShapeLibrary& library, const Palette& palett
     return image;
 }
 
+platform::Image map_image(const Assets& assets, const MissionMap& map, const Palette& palette, int width) {
+    constexpr int scenery_line = 0x97, strip_top = 40, strip_height = 200 - strip_top, margin = 32;
+    const int length = int(map.words.size()) * 8 + margin;
+    const int rows = (length + width - 1) / width;
+    platform::Image image(width, rows * strip_height);
+    fill(image, colour_of(palette, 1));
+    const auto put = [&](int x, int y, platform::Color colour) {
+        if (x < 0 || x >= length || y < strip_top || y >= 200) return;
+        image.put(x % width, (x / width) * strip_height + y - strip_top, colour);
+    };
+    for (std::size_t i = 0; i < map.words.size(); ++i) {
+        const auto column = map.column(i);
+        const Shape* shape = column.draw ? scenery_shape(assets, column.index) : nullptr;
+        if (shape == nullptr) continue;
+        const int x0 = margin + int(i) * 8 - 8 - shape->offset_x;
+        const int y0 = scenery_line + column.drop - shape->offset_y;
+        for (int y = 0; y < shape->height; ++y) {
+            for (int x = 0; x < shape->width(); ++x) {
+                if (shape->covers(x, y)) put(x0 + x, y0 + y, colour_of(palette, shape->colour(x, y)));
+            }
+        }
+    }
+    for (int y = scenery_line - 30; y < scenery_line + 10; ++y) {
+        put(margin + map.carrier_x() - 8, y, platform::Color{255, 40, 40, 255});
+    }
+    return image;
+}
+
 platform::Image sample_image(const Sample& sample) {
     constexpr int height = 129;
     const int per_column = std::max<int>(1, int(sample.data.size() + 319) / 320);

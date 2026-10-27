@@ -1,0 +1,156 @@
+#include "wings_of_fury_amiga/game/scenery.hpp"
+#include <algorithm>
+
+namespace wings::game {
+namespace {
+
+constexpr int sky_colour = 1;
+constexpr int sand_colour = 17;
+constexpr int sand_rows = 4;          // below the ground line ($1040E8: d3 = d1 + 4)
+constexpr int column_width = 8;
+constexpr int beach_left_index = 1;   // bchl
+constexpr int beach_right_index = 2;  // bchr
+constexpr int first_wave_index = 0x4E; // wava; + the wave frame
+constexpr int wave_copies = 5;
+constexpr int wave_spacing = 0x60;
+// Map specials: the column value is the word >> 2 without its draw bit, so
+// the drop bits must be 0 ($103B1C).
+constexpr int special_us_flag = 0x22;
+constexpr int special_deck_crew = 0x9F;
+constexpr int special_enemy_flag = 0x113;
+constexpr int us_flag_frames = 0xB4;  // flg3..flg6, frame = this + step table
+constexpr int crew_frames = 0x8F;     // fgy0.., the second figure 8 further
+constexpr int enemy_flag_frames = 0xB0; // flg0..flg2
+constexpr int bare_pole = 0xB3;        // POST
+
+// Screen x of a world x (the -$60CE origin: camera - 160).
+// $104A4E: how far a column on a ship is moved, if a ship carries it.
+int ship_drop(const BackdropState& state, int column) {
+    const int offset = (column + 1) * 2;
+    for (const auto& ship : state.ships) {
+        if (offset >= ship.first && offset <= ship.last) return ship.bob + state.vertical_scroll;
+    }
+    return 0;
+}
+
+int screen_x(int world_x, int camera) {
+    return world_x - (camera - 160);
+}
+
+// $105174: a table entry at a world position, skipped when its screen x
+// (before the handle) is outside -$80 .. $1C0.
+void draw_at_world(IndexedCanvas& canvas, const data::Shape* shape, int world_x, int camera, int y) {
+    const int x = screen_x(world_x, camera);
+    if (shape == nullptr || x < -0x80 || x > 0x1C0) return;
+    canvas.draw(*shape, x - shape->offset_x, y - shape->offset_y);
+}
+
+} // namespace
+
+void IndexedCanvas::fill(int x0, int y0, int x1, int y1, std::uint8_t colour) {
+    x0 = std::max(x0, 0);
+    y0 = std::max(y0, 0);
+    x1 = std::min(x1, width - 1);
+    y1 = std::min(y1, height - 1);
+    for (int y = y0; y <= y1; ++y) {
+        for (int x = x0; x <= x1; ++x) {
+            pixels[std::size_t(y * width + x)] = colour;
+        }
+    }
+}
+
+void IndexedCanvas::draw(const data::Shape& shape, int x0, int y0) {
+    for (int y = 0; y < shape.height; ++y) {
+        if (y0 + y < 0 || y0 + y >= height) continue;
+        for (int x = 0; x < shape.width(); ++x) {
+            if (x0 + x < 0 || x0 + x >= width || !shape.covers(x, y)) continue;
+            auto& pixel = pixels[std::size_t((y0 + y) * width + x0 + x)];
+            pixel = std::uint8_t(shape.colour(x, y, pixel));
+        }
+    }
+}
+
+std::vector<Island> islands(const data::MissionMap& map) {
+    std::vector<Island> result;
+    int left = -1;
+    for (std::size_t i = 0; i < map.words.size(); ++i) {
+        const auto column = map.column(i);
+        if (!column.draw) continue;
+        if (column.index == beach_left_index) {
+            left = int(i);
+        } else if (column.index == beach_right_index) {
+            result.push_back({left, int(i)});
+        }
+    }
+    return result;
+}
+
+IndexedCanvas draw_backdrop(const data::Assets& assets, const data::MissionMap& map, const BackdropState& state) {
+    IndexedCanvas canvas(view_width, view_height);
+    const int camera = state.camera;
+    int enemy_flag_counter = state.enemy_flag_counter;
+
+    // $103784: the sky down to the ground line + 1 (at most row $A1).
+    canvas.fill(0, 0, view_width - 1, std::min(ground_line + 1, 0xA1), sky_colour);
+
+    // $1037BC: the first column is (camera - $120) / 8 (arithmetic shift) at
+    // x = 8 - (camera & 7) - $80; columns run on while x < $1D0. A shape is
+    // drawn at x - 8, which puts column c at world x c x 8.
+    int x = column_width - (camera & 7) - 0x80;
+    for (int c = (camera - 0x120) >> 3; x < 0x1D0; ++c, x += column_width) {
+        if (c < 0 || std::size_t(c) >= map.words.size()) continue;
+        const auto column = map.column(std::size_t(c));
+        const data::Shape* shape = column.draw ? data::scenery_shape(assets, column.index) : nullptr;
+        if (shape != nullptr) {
+            const int y = ground_line + column.drop + (column.surface == 1 ? ship_drop(state, c) : 0);
+            canvas.draw(*shape, x - 8 - shape->offset_x, y - shape->offset_y);
+        }
+        const auto special = map.words[std::size_t(c)] >> 2 & 0x1FFF;
+        const auto put = [&](int entry, int y) {
+            if (const auto* s = data::scenery_shape(assets, entry)) canvas.draw(*s, x - 8 - s->offset_x, y - s->offset_y);
+        };
+        // The tower flag and the deck crew always ride the US carrier (the
+        // last ship): its bob (-$5B26 +$1A) + the vertical scroll.
+        const int carrier_drop = (state.ships.empty() ? 0 : state.ships.back().bob) + state.vertical_scroll;
+        if (special == special_us_flag) {
+            put(us_flag_frames + assets.us_flag_steps[std::size_t(state.us_flag_step & 3)], ground_line + carrier_drop);
+        } else if (special == special_deck_crew) {
+            put(crew_frames + state.crew_pose_a, ground_line + carrier_drop);
+            put(crew_frames + 8 + state.crew_pose_b, ground_line + carrier_drop);
+        } else if (special == special_enemy_flag) {
+            // The island is the one the camera is over: the count of islands
+            // whose right edge (in 4-pixel units) is at or left of camera / 4.
+            const auto all = islands(map);
+            std::size_t island = 0;
+            while (island < all.size() && all[island].right_column * 2 <= (camera >> 2)) ++island;
+            // Past the last island the lookup reads zeroed table words: a bare
+            // pole (hypothesis; a flag column is always on an island).
+            const bool up = island < all.size() &&
+                            (island >= state.island_flag_up.size() || state.island_flag_up[island]);
+            if (--enemy_flag_counter < 0) enemy_flag_counter = 2;
+            put(up ? enemy_flag_frames + enemy_flag_counter : bare_pole, ground_line);
+        }
+    }
+
+    // $103E6C: the waves, from x = $3F - (camera & $3F) - $50.
+    if (const auto* wave = data::scenery_shape(assets, first_wave_index + state.wave_frame)) {
+        int wave_x = 0x3F - (camera & 0x3F) - 0x50;
+        for (int i = 0; i < wave_copies; ++i, wave_x += wave_spacing) {
+            canvas.draw(*wave, wave_x - wave->offset_x, ground_line + 0xA - wave->offset_y);
+        }
+    }
+
+    // $1040E8: each island's beach ends, then its sand over them.
+    const auto* left_end = data::scenery_shape(assets, beach_left_index);
+    const auto* right_end = data::scenery_shape(assets, beach_right_index);
+    for (const auto& island : islands(map)) {
+        const int left = island.left_column * column_width, right = island.right_column * column_width;
+        draw_at_world(canvas, left_end, left, camera, ground_line);
+        draw_at_world(canvas, right_end, right, camera, ground_line);
+        canvas.fill(screen_x(left, camera), ground_line, screen_x(right, camera), ground_line + sand_rows,
+                    sand_colour);
+    }
+    return canvas;
+}
+
+} // namespace wings::game

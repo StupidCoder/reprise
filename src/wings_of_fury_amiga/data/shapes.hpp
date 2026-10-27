@@ -14,8 +14,8 @@
 // Shape (read by the blitter routine $110B0C and its mask maker $110CE2):
 //   +0  u16  bytes per row (a whole number of 16-pixel words)
 //   +2  u16  rows
-//   +4  s16  offset x  } where the shape sits relative to the position it is
-//   +6  s16  offset y  } drawn at (hypothesis: applied by the callers)
+//   +4  s16  offset x  } the shape's handle: callers draw it at position
+//   +6  s16  offset y  } minus these (scenery drawer $1038A0)
 //   +8  u16  x  } where the shape was cut from the artist's sheet
 //   +10 u16  y  } (hypothesis: not read by the game)
 //   +12 u8   planes cleared under the mask

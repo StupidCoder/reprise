@@ -16,6 +16,10 @@ platform::Image palette_image(const Palette&);
 // Every shape of a library over a dark backdrop, in rows at most `width`
 // pixels wide, drawn as the blitter leaves them over colour 0.
 platform::Image library_sheet(const ShapeLibrary&, const Palette&, int width = 640);
+// A map's scenery as the drawer lays it out (shapes at x - 8 - offset_x,
+// $97 + drop - offset_y per column), over the sky colour, folded into rows
+// `width` pixels wide; the carrier position is marked with a red tick.
+platform::Image map_image(const Assets&, const MissionMap&, const Palette&, int width = 1280);
 // A sample as a waveform.
 platform::Image sample_image(const Sample&);
 
