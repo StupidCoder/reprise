@@ -37,6 +37,18 @@ MapPicture::MapPicture(const data::MissionMap& map, const std::vector<data::Tile
     }
 }
 
+void MapPicture::set_tile(int tx, int ty, int tile, const std::vector<data::Tile>& base_tiles,
+                          const std::vector<data::Tile>& sub_tiles) {
+    const auto index = std::size_t(tile & 0x1ff);
+    const data::Tile* t = index < base_tiles.size()                       ? &base_tiles[index]
+                          : index - base_tiles.size() < sub_tiles.size() ? &sub_tiles[index - base_tiles.size()]
+                                                                         : nullptr;
+    if (t == nullptr || tx < 0 || ty < 0 || (tx + 1) * 16 > width_ || (ty + 1) * 16 > height_) return;
+    for (int y = 0; y < 16; ++y) {
+        std::copy_n(t->pixels.begin() + y * 16, 16, pixels_.begin() + std::ptrdiff_t((ty * 16 + y) * width_ + tx * 16));
+    }
+}
+
 std::uint8_t MapPicture::at(int x, int y) const {
     if (x < 0 || y < 0 || x >= width_ || y >= height_) {
         return 0;

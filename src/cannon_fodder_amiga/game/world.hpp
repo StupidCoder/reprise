@@ -67,6 +67,7 @@ struct Squad {
     std::vector<int> members;              // slots in order ($85B12[n])
     int mode{2};                           // $85BF8[n]: 0 slow, 1 normal, 2 fast
     int merged_into{-1};                   // $85C3E[n]
+    int route_end{};                       // $81DD8[n]: where the next click's waypoint goes
     int weapon{};                          // $821CC[n]: what the leader's both-button fire uses (1 grenade, 3 rocket)
     int grenades{}, rockets{};             // $81F4C[n], $81F52[n]
     bool ammunition_changed{};             // $821C0[n] / $821C6[n]: the panel redraws the counts
@@ -170,7 +171,8 @@ struct World {
     Camera snapshot;                   // $81506/$8150A: the camera as last drawn
     int drawn_objects{};               // $82736: objects in the last draw list (effects stop at 20)
     bool jitter_next_effect{};         // $827DA: the next smoke or splash is placed at random
-    std::array<bool, 3> marker_hidden{}; // $81DDE[n]: no rank marker over the squad's leader (meaning open)
+    std::array<int, 3> route_window{}; // $81DDE[n]: ticks in which a click adds to the route (the marker hides)
+    std::array<int, 2> last_click{};   // $826EE/$826F0: the last walk order's target (x 0: none)
     int jolt{};                        // $817C0 = 9 after an explosion on screen (shake: $817C6-$817CE, open)
     // The mission
     enum class Outcome { playing, won, lost };

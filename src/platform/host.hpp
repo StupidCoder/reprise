@@ -60,6 +60,7 @@ struct Controls {
     // pixels; unset outside it and on UI screens. The left button, held.
     std::optional<std::array<int, 2>> game_pointer;
     bool mouse_held{};
+    bool mouse_right_held{}; // the right button (games played with both)
 };
 
 class Host {

@@ -12,6 +12,7 @@
 //   cannon_fodder_assets panel <content folder> <out.png> [sprites.bin]
 //   cannon_fodder_assets replay <content folder> <map> <trace>
 //   cannon_fodder_assets music <content folder> <disk:song.sng> <disk:song.ins> <song|eN> <seconds> <out.wav>
+//   cannon_fodder_assets play <content folder> <frames> <out.png> [F0-F1:X,Y,l|r|b ...]
 //   cannon_fodder_assets sndreplay <content folder> <song.sng> <song.ins> <trace> <sng address> <ins address>
 //
 // music renders a song (or with eN, effect pattern N on channel 2) through
@@ -58,6 +59,7 @@
 #include "cannon_fodder_amiga/game/combat.hpp"
 #include "cannon_fodder_amiga/game/explosives.hpp"
 #include "cannon_fodder_amiga/game/mission.hpp"
+#include "cannon_fodder_amiga/game/module.hpp"
 #include "cannon_fodder_amiga/game/scenery.hpp"
 #include "cannon_fodder_amiga/sound/board.hpp"
 #include "cannon_fodder_amiga/sound/rjp1.hpp"
@@ -152,7 +154,7 @@ int run(int argc, char** argv) {
                               content.read(base + ".bht", disk), content.read(sub + ".bht", disk), program);
         terrain.set_swaps(content.read(base + ".swp", disk), content.read(sub + ".swp", disk));
         sound::Rjp1 music(content.read(base + ".sng", disk), content.read(base + ".ins", disk), program);
-        int sound_requests = 0, bird_cries = 0;
+        int sound_requests = 0, bird_cries = 0, walk_orders = 0;
         const game::ProgramTables tables(program);
         const auto trace = platform::read_file(argv[4]);
         struct Range { std::uint32_t address, size, offset; };
@@ -264,7 +266,7 @@ int run(int argc, char** argv) {
                 world.squads[n].rockets = W(before, 0x81f52 + n * 2);
             }
             world.landscape = W(before, 0x8278c);
-            for (std::uint32_t n = 0; n < 3; ++n) world.marker_hidden[n] = W(before, 0x81dde + n * 2) != 0;
+            for (std::uint32_t n = 0; n < 3; ++n) world.route_window[n] = W(before, 0x81dde + n * 2);
             const auto load_mission = [&](std::span<const std::uint8_t> b, game::World& m) {
                 m.skill_min = W(b, 0x8062a); m.skill_max = W(b, 0x8062c); m.skill_next = W(b, 0x8062e); m.skill_step = W(b, 0x80630);
                 m.spawns = W(b, 0x80650);
@@ -307,6 +309,7 @@ int run(int argc, char** argv) {
             // so that later slots in the pass see what the original's did.
             std::array<int, game::object_slots> handled{}; // 1 soldier, 2 bullet, 3 new bullet
             std::array<bool, game::object_slots> was_used{};
+            const int world_enemies_before = world.objects.enemies;
             const auto walkers_before = world.walkers;
             for (int i = 0; i < game::object_slots; ++i) // (a negative x counts as free)
                 was_used[std::size_t(i)] = world.objects.slots[std::size_t(i)].used && world.objects.slots[std::size_t(i)].x >= 0;
@@ -419,7 +422,7 @@ int run(int argc, char** argv) {
                         ++random_skips;
                         continue;
                     }
-                    if (std::int8_t(was.idle) == 0) {
+                    if (std::int8_t(was.idle) == 0 && world_enemies_before < 10) {
                         const int base = std::max(20 - world.skill_max, 0) * 8;
                         if (e.state_timer < base - 1 || e.state_timer > base + 14) report(i, "original door time outside the rule", e.state_timer, base);
                         if (n.state_timer < base - 1 || n.state_timer > base + 14) report(i, "door time range", n.state_timer, base);
@@ -618,6 +621,54 @@ int run(int argc, char** argv) {
                     report(-4, "won", m.outcome == game::World::Outcome::won, W(next_before, 0x81dcc) != 0);
                     report(-4, "lost", m.outcome == game::World::Outcome::lost, W(next_before, 0x81dca) != 0);
                 }
+                // A walk order between the ticks ($9EB36): the click's window
+                // restarted; its target is at $815EA/$815EC.
+                const int sel = W(after, 0x81556);
+                // (The next tick has run the window down once: 7.)
+                if (sel >= 0 && sel < 3 && W(next_before, 0x81dde + std::uint32_t(sel) * 2) == 7 &&
+                    W(after, 0x81dde + std::uint32_t(sel) * 2) != 8) {
+                    game::World o = world;
+                    for (int i = 0; i < game::object_slots; ++i) load_slot(after, i, o.objects.slots[std::size_t(i)], o.walkers[std::size_t(i)]);
+                    for (int n = 0; n < 3; ++n) {
+                        auto& q = o.squads[std::size_t(n)];
+                        q.route.clear();
+                        for (auto p = std::uint32_t(L(after, 0x85c16 + std::uint32_t(n) * 4)); p && W(after, p) >= 0 && locate(p) >= 0; p += 4)
+                            q.route.push_back({W(after, p), W(after, p + 2)});
+                        q.members.clear();
+                        for (auto p = std::uint32_t(L(after, 0x85b12 + std::uint32_t(n) * 4)); p && L(after, p) >= 0 && locate(p) >= 0; p += 4)
+                            q.members.push_back(int((std::uint32_t(L(after, p)) - 0xfdb2c) / 0x76));
+                        q.route_end = W(after, 0x81dd8 + std::uint32_t(n) * 2) / 4;
+                        o.route_window[std::size_t(n)] = W(after, 0x81dde + std::uint32_t(n) * 2);
+                    }
+                    o.selected_squad = sel;
+                    o.leader_slot = W(after, 0x81554) >= 0 ? W(after, 0x81554) / 0x76 : -1;
+                    o.last_click = {W(after, 0x826ee), W(after, 0x826f0)};
+                    std::vector<std::array<int, 2>> expect;
+                    for (auto p = std::uint32_t(L(next_before, 0x85c16 + std::uint32_t(sel) * 4)); p && W(next_before, p) >= 0 && locate(p) >= 0; p += 4)
+                        expect.push_back({W(next_before, p), W(next_before, p + 2)});
+                    // The target: the route's last waypoint; it should be the
+                    // pointer's place (camera + pointer - (22, 3)), give or take
+                    // the camera's motion in those frames.
+                    const auto target = expect.empty() ? std::array<int, 2>{0, 0} : expect.back();
+                    const int px = W(next_before, 0x814ae) + W(next_before, 0x8caba) - 22, py = W(next_before, 0x814b2) + W(next_before, 0x8cabc) - 3;
+                    if (std::abs(px - target[0]) > 4 || std::abs(py - target[1]) > 4) report(-6, "target from the pointer", px * 1000 + py, target[0] * 1000 + target[1]);
+                    game::order_walk(o, target[0], target[1]);
+                    ++walk_orders;
+                    auto& q = o.squads[std::size_t(sel)];
+                    report(-6, "route length", long(q.route.size()), long(expect.size()));
+                    for (std::size_t k = 0; k < std::min(q.route.size(), expect.size()); ++k) {
+                        report(-6, "route x", q.route[k][0], expect[k][0]);
+                        report(-6, "route y", q.route[k][1], expect[k][1]);
+                    }
+                    report(-6, "route end", q.route_end, W(next_before, 0x81dd8 + std::uint32_t(sel) * 2) / 4);
+                    for (const int m : q.members) {
+                        game::GameObject unused; game::Walker e;
+                        load_slot(next_before, m, unused, e);
+                        report(m, "order waypoint x", o.walkers[std::size_t(m)].waypoint_x, e.waypoint_x);
+                        report(m, "order waypoint y", o.walkers[std::size_t(m)].waypoint_y, e.waypoint_y);
+                        report(m, "order route index", o.walkers[std::size_t(m)].route_index, e.route_index);
+                    }
+                }
                 // The tile drawer's map damage ($AAFCE), once a tick.
                 {
                     game::World damage = between;
@@ -653,7 +704,45 @@ int run(int argc, char** argv) {
         std::printf("%d ticks, %d updates not handled (%d enemy), %d bullets fired, %d falls started, %d enemy updates skipped "
                     "after random choices, %d effects created, %d map tiles changed, %d sounds (%d ticks with a bird cry), %d fields differ\n",
                     ticks, unhandled, unhandled_enemies, created, falls, random_skips, created_effects, map_changes, sound_requests, bird_cries, bad);
+        std::printf("%d walk orders checked\n", walk_orders);
         return bad == 0 ? 0 : 1;
+    }
+    if (command == "play" && argc >= 5) {
+        // The launcher's game module, headless: frames with scripted mouse
+        // input (picture pixels; l, r or b buttons), the last picture saved.
+        auto game = fodder::game::start_game(argv[2]);
+        struct Hold { int from, to, x, y; bool left, right; };
+        std::vector<Hold> holds;
+        for (int a = 5; a < argc; ++a) {
+            int f0 = 0, f1 = 0, x = 0, y = 0;
+            char b = 'l';
+            if (std::sscanf(argv[a], "%d-%d:%d,%d,%c", &f0, &f1, &x, &y, &b) >= 4) holds.push_back({f0, f1, x, y, b == 'l' || b == 'b', b == 'r' || b == 'b'});
+        }
+        const int frames = std::stoi(argv[3]);
+        std::vector<float> audio(2 * 882);
+        double peak = 0;
+        app::GameInput input;
+        input.pointer = true;
+        input.pointer_x = 200;
+        input.pointer_y = 100;
+        for (int f = 0; f < frames && game->stopped().empty(); ++f) {
+            input.mouse_button = input.mouse_right = false;
+            for (const auto& h : holds) {
+                if (f < h.from || f > h.to) continue;
+                input.pointer_x = h.x;
+                input.pointer_y = h.y;
+                input.mouse_button = h.left;
+                input.mouse_right = h.right;
+            }
+            game->tick(input);
+            game->audio(audio, 44100);
+            for (const float v : audio) peak = std::max(peak, double(std::abs(v)));
+        }
+        platform::save_png(game->picture(), argv[4]);
+        std::printf("%s\n", fodder::game::describe(*game).c_str());
+        std::printf("%d frames, audio peak %.3f%s%s\n", frames, peak, game->stopped().empty() ? "" : ", stopped: ",
+                    game->stopped().c_str());
+        return 0;
     }
     if (command == "music" && argc == 8) {
         using namespace fodder;

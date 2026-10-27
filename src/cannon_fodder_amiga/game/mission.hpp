@@ -23,6 +23,18 @@ void rebuild_squads(World& world);
 // home).
 void check_objectives(World& world);
 
+// $9EB36 + $A1136: a left click on the map orders the selected squad there.
+// The route ends at the target; each soldier heads for the place of the one
+// ahead of him (a snake behind the leader). Clicks within 8 ticks of the last
+// add waypoints to the route instead.
+void order_walk(World& world, int x, int y);
+// $A1248, once a tick: the clicks' windows run down.
+void tick_route_windows(World& world);
+
+// $9F9C6: the selected squad's new leader, the first member on his feet
+// (one in a vehicle only when no other follows); none: no squad selected.
+void choose_leader(World& world);
+
 // $949F0: an enemy soldier comes out of `from` (a hut); false when ten
 // are out already, the mission is won, or no slot is free.
 bool spawn_enemy(World& world, int from);

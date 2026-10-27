@@ -243,6 +243,8 @@ add_library(cannon_fodder_amiga
     src/cannon_fodder_amiga/game/explosives.cpp
     src/cannon_fodder_amiga/game/mission.cpp
     src/cannon_fodder_amiga/game/scenery.cpp
+    src/cannon_fodder_amiga/game/dispatch.cpp
+    src/cannon_fodder_amiga/game/module.cpp
     src/cannon_fodder_amiga/sound/rjp1.cpp
     src/cannon_fodder_amiga/sound/board.cpp
     src/cannon_fodder_amiga/import/disk_import.cpp

@@ -227,6 +227,7 @@ int run(const Options& options) {
                     input.pointer_y = (*controls.game_pointer)[1];
                 }
                 input.mouse_button = controls.mouse_held;
+                input.mouse_right = controls.mouse_right_held;
                 const auto canvas = host.canvas_size();
                 game->set_canvas(canvas[0], canvas[1]);
                 game_clock = std::max(game_clock, now - 4 * game->step_seconds());

@@ -259,6 +259,7 @@ Controls Host::poll() {
     float mx = 0, my = 0;
     const auto buttons = SDL_GetMouseState(&mx, &my);
     input.mouse_held = (buttons & SDL_BUTTON_LMASK) != 0;
+    input.mouse_right_held = (buttons & SDL_BUTTON_RMASK) != 0;
     float rx = 0, ry = 0;
     if (!i.ui_shown && i.game_box.w > 0 && SDL_RenderCoordinatesFromWindow(i.renderer, mx, my, &rx, &ry)) {
         const float fx = (rx - i.game_box.x) * float(i.game_width) / i.game_box.w;

@@ -44,6 +44,9 @@ public:
     // Colour index at a map pixel; 0 outside the map (what the original's
     // ring holds there is not known yet).
     std::uint8_t at(int x, int y) const;
+    // A cell's new tile (map damage): its 16 x 16 pixels drawn again.
+    void set_tile(int tile_x, int tile_y, int tile, const std::vector<data::Tile>& base_tiles,
+                  const std::vector<data::Tile>& sub_tiles);
 
 private:
     int width_{}, height_{};

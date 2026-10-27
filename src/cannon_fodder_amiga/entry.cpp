@@ -1,5 +1,6 @@
 #include "cannon_fodder_amiga/entry.hpp"
 #include "cannon_fodder_amiga/data/preview.hpp"
+#include "cannon_fodder_amiga/game/module.hpp"
 #include "cannon_fodder_amiga/import/disk_import.hpp"
 
 namespace fodder {
@@ -12,8 +13,10 @@ app::GameEntry entry() {
         .media = "three disk images (ADF), one after another or together",
         .import = import::import_disk,
         .previews = [](const std::filesystem::path& content) { return data::previews(content); },
-        .progress = "Import of all three disks and the decoded screens, sprite sheets, tile sets, colours and the 72 "
-                    "mission maps. Nothing can be played yet.",
+        .start = [](const std::filesystem::path& content) { return game::start_game(content); },
+        .progress = "The missions' phases play from the first map on with the mouse (left button walks, right fires, "
+                    "both throw a grenade or fire a rocket), with the original's music and sound effects. "
+                    "No front end, briefing, recruits or vehicles yet.",
     };
 }
 

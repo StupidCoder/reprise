@@ -16,8 +16,8 @@ void update_bush(World& world, const Terrain& terrain, const ProgramTables& tabl
 void update_bush_shadow(World& world, int slot);                                                  // $23
 void update_animal(World& world, const Terrain& terrain, const ProgramTables& tables, int slot);   // $1B
 void update_bird(World& world, int slot);                                                         // $42, $43
-// The rank marker over the selected squad's leader; false when the leader
-// has to be chosen anew ($9F9C6, not rebuilt yet).
+// The rank marker over the selected squad's leader; a fallen leader is
+// replaced ($9F9C6).
 bool update_leader_marker(World& world, int slot);                                                // $15
 
 } // namespace fodder::game

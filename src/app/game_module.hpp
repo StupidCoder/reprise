@@ -27,6 +27,7 @@ struct GameInput {
     bool pointer{};
     int pointer_x{}, pointer_y{};
     bool mouse_button{};
+    bool mouse_right{}; // the right button
 };
 
 // A setting the player can change in the pause menu (a fix or an

@@ -295,10 +295,13 @@ bool update_leader_marker(World& world, int slot) { // $954F6
     };
     if (world.selected_squad < 0 || world.leader_slot < 0) return hide();
     // (The original skips this test while $81DCE is set; open.)
-    if (world.marker_hidden[std::size_t(std::clamp(world.selected_squad, 0, 2))]) return hide();
+    if (world.route_window[std::size_t(std::clamp(world.selected_squad, 0, 2))] != 0) return hide();
     const auto& l = world.objects.slots[std::size_t(world.leader_slot)];
     const auto& lw = world.walkers[std::size_t(world.leader_slot)];
-    if (l.kind != 0 || lw.entering != 0 || (lw.state != 0 && lw.state < 0x32)) return false; // a new leader ($9F9C6)
+    if (l.kind != 0 || lw.entering != 0 || (lw.state != 0 && lw.state < 0x32)) { // a new leader
+        choose_leader(world);
+        return hide();
+    }
     if (whole(l.x) < 0 || whole(l.y) < 0) return hide();
     set_whole(o.x, whole(l.x) + 3);
     set_whole(o.y, whole(l.y));
