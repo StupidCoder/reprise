@@ -637,8 +637,10 @@ seeds and a clock seed), not stored.
 5. **Landscape (A)** — started (2026-10-27). The view builder
    (`landscape/view_cells`: the 4 × 4 cells in front of the walker, their
    terrain and object words and the view's 32 colours) equals the
-   original's routine in 1,396 oracle calls across stages 0-35. Next: the
-   3D drawing of the view (checked against A's screen dumps), the walker
+   original's routine in 1,396 oracle calls across stages 0-35. The view's
+   drawing is read (projection, cell order, kinds; notes "Drawing the
+   view"). Next: an exact model of graphics.library's area fill, then the
+   drawing checked against A's screen dumps, the walker
    sprite, the status bar, movement; then B, C, P, sound, saves, high
    scores.
 
