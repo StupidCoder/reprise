@@ -22,6 +22,9 @@ namespace mindwalker::landscape {
 struct ViewCells {
     std::array<std::array<std::uint16_t, 4>, 4> terrain{}; // [x][y], x = column of the view
     std::array<std::array<std::uint16_t, 4>, 4> objects{};
+    // A cell's mix word ($202F90; the builder stores it for the drawing,
+    // which seeds trees, tufts and decoration patterns from it).
+    std::array<std::array<std::uint16_t, 4>, 4> mix{};
     std::array<std::uint16_t, 32> colours{};               // 16-bit as stored; LoadRGB4 uses the low 12
     bool water{};          // $2099A4: a cell of kind $C000
     bool marker_2000{};    // $2099A6

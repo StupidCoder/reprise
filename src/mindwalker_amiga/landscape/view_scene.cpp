@@ -1,4 +1,5 @@
 #include "mindwalker_amiga/landscape/view_scene.hpp"
+#include "mindwalker_amiga/world/random.hpp"
 #include <algorithm>
 #include <vector>
 
@@ -12,6 +13,7 @@ constexpr int grid_horizon = 31;
 constexpr std::uint32_t column_order = 0x202E88;                      // 4 longs
 constexpr std::uint32_t row_top = 0x202E9C, row_base = 0x202EA4;      // words by row (base: +2 = next row's)
 constexpr int grid_pen = 14;
+constexpr std::uint32_t trunk_heights = 0x205918; // by row (4 words)
 constexpr int half_cell = 40;
 
 struct Point {
@@ -49,6 +51,45 @@ void fill(screen::Canvas& canvas, const std::vector<Point>& points, int pen, int
     }
 }
 
+// $2053D2: a branch of a tree, and up to three smaller ones from its end.
+void branch(screen::Canvas& canvas, world::ShiftRegister& random, int x, int y, bool left, int size, int depth,
+            int pen, int top) {
+    int dx = size & random.next();
+    if (left) dx = -dx;
+    const int nx = x + dx;
+    const int ny = y - (size & random.next());
+    if (nx < 0 || nx >= 320 || ny < 0) return;
+    canvas.line(x, top + y, nx, top + ny, pen);
+    if (depth < 2) {
+        for (int k = 1; k <= 3; ++k) {
+            const bool flip = random.next() & 1;
+            branch(canvas, random, nx, ny, flip, size >> 1, depth + k, pen, top);
+        }
+    }
+}
+
+// $2027F2: a cell's pattern of lines through its corners and edge middles.
+void pattern(screen::Canvas& canvas, const std::vector<Point>& corners, int shape, int pen, int top) {
+    std::vector<Point> middles(4);
+    for (int k = 0; k < 4; ++k) {
+        const auto a = corners[std::size_t(k)], b = corners[std::size_t((k + 1) & 3)];
+        middles[std::size_t(k)] = {(a.x + b.x) >> 1, (a.y + b.y) >> 1};
+    }
+    const auto line = [&](Point a, Point b) { canvas.line(a.x, top + a.y, b.x, top + b.y, pen); };
+    const auto cross = [&](const std::vector<Point>& p) { line(p[3], p[1]); line(p[0], p[2]); };     // $202970
+    const auto ring = [&](const std::vector<Point>& p) { for (int k = 0; k < 4; ++k) line(p[std::size_t(k)], p[std::size_t((k + 1) & 3)]); }; // $2029EC
+    switch (shape & 7) {
+    case 0: line(middles[0], middles[2]); break;
+    case 7: cross(middles); cross(corners); break;
+    case 6: cross(corners); break;
+    case 5: ring(middles); cross(middles); break;
+    case 4: cross(middles); break;
+    case 3: cross(corners); ring(middles); break;
+    case 2: ring(middles); break;
+    default: line(middles[3], middles[1]); break;
+    }
+}
+
 } // namespace
 
 ViewPainter::ViewPainter(const amiga::LoadedImage& landscape) : a_(landscape) {}
@@ -72,8 +113,8 @@ ViewPainter::Turned ViewPainter::turn(const ViewCells& view, int direction) cons
             if (view.marker_2000 && shade == 3) shade = 2;
             if (any_marked && shade == 4) shade = 5;
             turned[std::size_t(r)][std::size_t(c)] = {view.terrain[std::size_t(sx)][std::size_t(sy)],
-                                                     view.objects[std::size_t(sx)][std::size_t(sy)], 0, column, row,
-                                                     shade};
+                                                     view.objects[std::size_t(sx)][std::size_t(sy)],
+                                                     view.mix[std::size_t(sx)][std::size_t(sy)], column, row, shade};
         }
     }
     return turned;
@@ -154,6 +195,21 @@ void ViewPainter::paint(screen::Canvas& canvas, const ViewCells& view, int direc
             if ((t & 0x1000) && kind != 0xC000) face_pen = 9;
             const bool outlined = (t & 0x400) || kind == 0x4000 || marked;
             fill(canvas, face, face_pen, outlined ? (marked ? outline_pen : 0) : -1, top);
+            if ((t & 0x400) || (cell.objects & 0x40)) {
+                // Landmarks and empty cells: a pattern in pen 0; landmarks
+                // also a star ($2026D6, pen 13) twelve levels up.
+                pattern(canvas, face, cell.shape, 0, top);
+                if (t & 0x400) {
+                    const auto star = camera_.project(x, level - 12, z);
+                    const auto line = [&](int x0, int y0, int x1, int y1) {
+                        canvas.line(star.x + x0, top + star.y + y0, star.x + x1, top + star.y + y1, 13);
+                    };
+                    line(-6, 0, 6, 0);
+                    line(0, -6, 0, 6);
+                    line(-3, -3, 3, 3);
+                    line(-3, 3, 3, -3);
+                }
+            }
             if (cell.objects & 1) {
                 // A visited cell's marker ($205158): a smaller square in pen 0.
                 const auto small = [&](int dx, int dz) {
@@ -170,6 +226,43 @@ void ViewPainter::paint(screen::Canvas& canvas, const ViewCells& view, int direc
                 } else if (column == 0) {
                     fill(canvas, {face[2], face[1], {face[1].x, next_base_y}, {face[2].x, base_y}}, lattice_pen,
                          marked ? outline_pen : -1, top);
+                }
+            }
+            const auto far_middle = camera_.project(x, level, z + half_cell);
+            if (t & 0x2000) {
+                // A tree ($205538, pen 12): a trunk, then three branches, all
+                // from a shift register seeded with the cell's mix word.
+                std::uint32_t seed = cell.shape ^ std::uint32_t(cell.shape) << 4;
+                world::ShiftRegister random{seed | (seed ^ 0xF27E) << 16};
+                const int trunk = a_.s16(trunk_heights + std::uint32_t(row * 2));
+                const int crown = far_middle.y - (trunk & random.next());
+                canvas.line(far_middle.x, top + far_middle.y, far_middle.x, top + crown, 12);
+                for (int k = 0; k < 3; ++k) {
+                    const bool left = random.next() & 1;
+                    branch(canvas, random, far_middle.x, crown, left, trunk, 0, 12, top);
+                }
+            }
+            const bool ramp = (t & 0x800) != 0; // (the marked-block form is not drawn yet)
+            if (ramp) {
+                // A pole up out of the picture ($202A82): four bands, pens 5-8.
+                for (int k = 1; k < 5; ++k) {
+                    const int w = 11 - 2 * k;
+                    canvas.fill(centre.x - w, top, centre.x + w, top + centre.y + (k >> 1), k + 4);
+                }
+            } else if (level == floor_level) {
+                // Grass ($205652, pen 9): 1-8 tufts of three blades near the
+                // cell's far left corner.
+                world::ShiftRegister random{std::uint32_t(cell.shape) |
+                                            (std::uint32_t(cell.shape) ^ std::uint32_t(cell.shape) << 2) << 16};
+                const int tufts = (random.next() & 7) + 1;
+                for (int n = 0; n < tufts; ++n) {
+                    const int ty = (random.next() & 15) + face[0].y;
+                    const int tx = (random.next() >> 2 & 31) + face[0].x;
+                    for (int b = 0; b < 3; ++b) {
+                        const int tip = std::max(ty - ((random.next() >> 4 & 7) + 2), 0);
+                        const int bx = (random.next() & 7) + tx - 4;
+                        canvas.line(bx, top + tip, tx, top + ty, 9);
+                    }
                 }
             }
             if (t & 0x1000) {

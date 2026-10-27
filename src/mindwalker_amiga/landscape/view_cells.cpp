@@ -84,6 +84,7 @@ ViewCells build_view(const world::World& world, const amiga::LoadedImage& a, std
                 }
             }
             const std::uint16_t m = mix[i][j];
+            view.mix[std::size_t(i - 1)][std::size_t(j - 1)] = m;
             if ((m & 0x3080) == 0) surface = m & 0xC000;
             const int raw_level = int(level_word & 0xFF);
             int level = raw_level;
