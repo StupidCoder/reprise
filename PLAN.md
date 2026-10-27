@@ -43,7 +43,7 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
 | --- | --- | --- | --- |
 | Fort Apocalypse | C64 | `Fort_Apocalypse.tap` (MD5 `bec7409816865f3ad160af9984f127cd`) | playable from title to debrief, compared with the original in scripted runs; pause menu with the enemy-pilot option |
 | Bruce Lee | C64 | `Bruce_Lee_(Original).g64` (MD5 `8cbfd1595cdc18a8e68fe4d43eec6aa8`) | playable from the title to the end and the next round, with sound, the demo and both two-player modes; compared with the original pass by pass (actors, rooms, screen, SID); smooth motion, particle and VHS options |
-| Mindwalker | Amiga | `Mind Walker (1986)(Commodore).adf` (SHA-256 `2e83a67a…a8969c`) | disk import and decoded assets with launcher viewer; title, world menu and new game playable (mouse), matching the original frame for frame and pen for pen; world generator verified against the original; the landscape and the tunnel playable and checked read for read against the original; the arena and the psyche screen not rebuilt yet |
+| Mindwalker | Amiga | `Mind Walker (1986)(Commodore).adf` (SHA-256 `2e83a67a…a8969c`) | disk import and decoded assets with launcher viewer; title, world menu and new game playable (mouse), matching the original frame for frame and pen for pen; world generator verified against the original; the landscape, the tunnel and the arena playable and checked read for read against the original; the psyche screen not rebuilt yet |
 | Marble Madness | Amiga | `Marble_Madness.adf` (MD5 `735dc697d64b3eeaa000778eb0b1153a`) | disk import (both encrypted programs decrypted, checked against the original's memory); asset previews; all six courses complete in play (physics, covers, creatures, special regions, music and effects; each compared with the original update for update from start to goal); front end for one player (options, introductions, bonus, game over, the end) |
 | Wizball | C64 | `Wizball.g64` (MD5 `73e1a136da4b6972d39f00817b86983e`) | disk import, asset decoding with launcher previews; play rebuilt and checked in lockstep (places, enemies, catellite, tunnels, lives, bonus wave, Wizlab, level flight, round end, sound and music); front end, high scores and keys rebuilt |
 | Cannon Fodder | Amiga | three ADFs, `Cannon Fodder (1993)(Virgin)(Disk N of 3)[cr CSL].adf` (SHA-256 `2b01cbc9…`, `9089815b…`, `87ea9c1d…`; a cracked copy) | import of all three disks (Sensible disk format, RNC unpacking) and decoded screens, sprite sheets, tile sets, colours and the 72 mission maps with launcher viewer; map view, camera, tile drawer, mission set-up, object drawing, panel, squad walking, shooting, deaths and enemy soldiers rebuilt and checked against the original; not yet playable in the shell |
@@ -688,9 +688,21 @@ seeds and a clock seed), not stored.
    on, 1,604 tunnel frames, then the resumed landscape) equals the
    original read for read in all three runs; the bar's pens are exact
    and the rings within a pixel on shallow edges (about 400 of 57,600
-   view pixels). A catch stops with a message until the arena is
-   rebuilt. Next: the arena (C), the psyche screen (P), then saves, high
-   scores and T's end screens.
+   view pixels). A catch leads into the arena.
+7. **Arena (C)** — playable (2026-10-27; `arena/`). The maze of 8 x 8
+   rooms (generated from the world's seed by the original's rules through
+   a standard generator), the scroll from room to room, the player and
+   its aim, the beam bent by the wind, the creatures (coming in, chasing,
+   draining strength, dying), the wall pulse and its deaths, the
+   temperature gauge and the drone, the target, the walled-in exit, the
+   win, the pause. Won: progress +7, the way on closed again, then the
+   psyche screen (not rebuilt: the game stops there); left or a death:
+   back to the landscape (a death costs a life; the last one ends the
+   game). Three recordings (left, won, a wall death; the original's maze
+   injected) equal the original read for read in position, room, aim,
+   target, frames and the drone; screen dumps pixel-exact apart from the
+   random parts (wall tile picks, creatures, wind). Next: the psyche
+   screen (P), then saves, high scores and T's end screens.
 
 Open: what each shared image set and icon is used for and its colours;
 sample playback periods and triggers; A's world model beyond the generator;

@@ -5,9 +5,11 @@
 #include "mindwalker_amiga/world/world.hpp"
 #include "mindwalker_amiga/landscape/landscape_stage.hpp"
 #include "mindwalker_amiga/tunnel/tunnel_stage.hpp"
+#include "mindwalker_amiga/arena/arena_stage.hpp"
 #include "mindwalker_amiga/data/assets.hpp"
 #include <optional>
 #include "platform/files.hpp"
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdio>
@@ -58,7 +60,7 @@ std::uint32_t clock_value() {
 }
 
 class MindWalker final : public app::GameModule {
-    enum class Phase { title, loading, landscape, tunnel, stopped };
+    enum class Phase { title, loading, landscape, tunnel, arena, stopped };
 
 public:
     explicit MindWalker(const std::filesystem::path& content)
@@ -122,10 +124,32 @@ public:
             state_.score = tunnel_->score();
             switch (tunnel_->outcome()) {
             case tunnel::TunnelStage::Outcome::ran_out: load_next(Phase::landscape); break; // mode 1: the landscape again
-            case tunnel::TunnelStage::Outcome::caught:
-                stop("A rectangle caught in the tunnel (score %u). The arena is not rebuilt yet.", state_.score);
-                break;
+            case tunnel::TunnelStage::Outcome::caught: load_next(Phase::arena); break; // mode 2
             default: stop("Left the tunnel (score %u).", state_.score); break;
+            }
+            break;
+        }
+        case Phase::arena: {
+            const int gadget = press ? arena_->gadget_at(mouse_x_, mouse_y_) : -1;
+            arena::ArenaInput in{input.up, input.down, input.left, input.right, input.fire, input.mouse_button};
+            arena_->frame([&](arena::ArenaRead) { return in; }, gadget);
+            if (!arena_->over()) break;
+            state_.score = arena_->score();
+            state_.lives = arena_->lives();
+            switch (arena_->outcome()) {
+            case arena::ArenaStage::Outcome::won:
+                // C's exit: progress +7 (at most 42), +$60 set (the way on
+                // closed again), mode 3: the psyche screen.
+                state_.stage = std::min(state_.stage + 7, 42);
+                if (state_.resume) state_.resume->ramp_closed = true;
+                stop("The arena is won (score %u). The psyche screen is not rebuilt yet.", state_.score);
+                break;
+            case arena::ArenaStage::Outcome::left: load_next(Phase::landscape); break; // mode 1
+            case arena::ArenaStage::Outcome::died:
+                if (state_.lives < 1) stop("The arena took the last life (score %u). What follows is not rebuilt yet.", state_.score);
+                else load_next(Phase::landscape); // mode 1, a life less
+                break;
+            default: stop("Left the arena (score %u).", state_.score); break;
             }
             break;
         }
@@ -139,6 +163,7 @@ public:
         phase_ = Phase::loading;
         landscape_.reset();
         tunnel_.reset();
+        arena_.reset();
     }
 
     void open(Phase next) {
@@ -147,9 +172,13 @@ public:
             landscape_.emplace(files_, assets_,
                                landscape::LandscapeStage::Start{state_.seed, state_.stage, state_.lives, state_.score,
                                                                 state_.resume});
-        } else {
+        } else if (next == Phase::tunnel) {
             tunnel_.emplace(files_, assets_,
                             tunnel::TunnelStage::Start{state_.tunnel_seed, state_.stage, state_.lives, state_.score});
+        } else {
+            arena_.emplace(files_, assets_,
+                           arena::ArenaStage::Start{state_.tunnel_seed, state_.stage, state_.lives, state_.score,
+                                                    state_.resume ? state_.resume->form : 0, std::nullopt});
         }
     }
 
@@ -164,11 +193,13 @@ public:
         std::fill(stereo.begin(), stereo.end(), 0.0f);
         if (phase_ == Phase::landscape) landscape_->render_audio(stereo, sample_rate);
         if (phase_ == Phase::tunnel) tunnel_->render_audio(stereo, sample_rate);
+        if (phase_ == Phase::arena) arena_->render_audio(stereo, sample_rate);
     }
 
     platform::Image picture() const override {
         platform::Image image = phase_ == Phase::landscape ? landscape_->picture()
                                 : phase_ == Phase::tunnel  ? tunnel_->picture()
+                                : phase_ == Phase::arena   ? arena_->picture()
                                 : phase_ == Phase::loading ? title_.loading_canvas().picture({0x000, 0x0F0})
                                                            : title_.picture();
         pointer_.draw(image, mouse_x_, mouse_y_);
@@ -201,6 +232,7 @@ private:
     std::string message_;
     std::optional<landscape::LandscapeStage> landscape_;
     std::optional<tunnel::TunnelStage> tunnel_;
+    std::optional<arena::ArenaStage> arena_;
 };
 
 } // namespace

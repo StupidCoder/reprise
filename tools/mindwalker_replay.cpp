@@ -16,6 +16,7 @@
 #include "mindwalker_amiga/landscape/landscape_bar.hpp"
 #include "mindwalker_amiga/landscape/landscape_stage.hpp"
 #include "mindwalker_amiga/tunnel/tunnel_stage.hpp"
+#include "mindwalker_amiga/arena/arena_stage.hpp"
 #include "mindwalker_amiga/data/assets.hpp"
 #include "mindwalker_amiga/world/world.hpp"
 #include "platform/files.hpp"
@@ -840,6 +841,178 @@ int tunnel(const std::filesystem::path& content, const std::filesystem::path& sc
     return differences == 0 ? 0 : 1;
 }
 
+// The arena (C) of a recording: the original's maze taken from its first
+// read (ours draws mazes from a standard generator), the scripted inputs
+// (T's, A's and B's before C carried, as the recorder holds them), and at
+// every read the deterministic state compared: read order, position,
+// room, aim, target taken, the figure's frame while walking or aiming;
+// pokes of the pulse's counter applied. Random parts (creatures, wind,
+// pulse rounds) differ by design and are left out.
+int arena(const std::filesystem::path& content, const std::filesystem::path& script_path,
+          const std::filesystem::path& log_path, int frame_limit, const std::filesystem::path& png) {
+    using namespace mindwalker;
+    const data::GameFiles files(content);
+    const auto assets = data::load_assets(content);
+    std::map<int, std::vector<std::vector<std::string>>> events;
+    std::vector<std::pair<std::string, std::vector<std::string>>> carried; // T's, A's, B's input events
+    std::vector<int> carried_index;
+    {
+        std::ifstream in(script_path);
+        std::string line;
+        while (std::getline(in, line)) {
+            line = line.substr(0, line.find('#'));
+            std::istringstream f(line);
+            std::vector<std::string> w;
+            for (std::string x; f >> x;) w.push_back(x);
+            if (w.size() >= 3 && w[0] == "C") events[std::stoi(w[1])].push_back({w.begin() + 2, w.end()});
+            if (w.size() >= 3 && (w[0] == "A" || w[0] == "T" || w[0] == "B") &&
+                (w[2] == "joy" || w[2] == "button" || w[2] == "fire")) {
+                carried.push_back({w[0], {w.begin() + 2, w.end()}});
+                carried_index.push_back(std::stoi(w[1]));
+            }
+        }
+    }
+    struct Read {
+        int index;
+        std::string address;
+        std::map<std::string, std::string> fields;
+    };
+    std::vector<Read> reads;
+    std::map<std::string, int> reads_before; // each module's reads before C's (first) run
+    std::map<int, int> duplicates;           // a read logged twice: its index -> the read it repeats
+    {
+        std::ifstream in(log_path);
+        std::string line;
+        bool started = false;
+        while (std::getline(in, line)) {
+            if (line.starts_with("# module C")) started = true;
+            if (!started && line.size() > 2 && line[1] == ' ' && line[0] != '#') ++reads_before[line.substr(0, 1)];
+            if (started && line.starts_with("# module") && !line.starts_with("# module C")) break;
+            if (!started || !line.starts_with("C ")) continue;
+            std::istringstream f(line);
+            std::string m, addr;
+            int index;
+            f >> m >> index >> addr;
+            auto fs = fields(line);
+            if (line.find("=gone") != std::string::npos) continue; // (a stop after C freed its memory)
+            // (A read logged twice with the same state: the stub reported
+            // one stop twice. Its events go with the read before.)
+            if (!reads.empty() && addr == reads.back().address && fs == reads.back().fields) {
+                duplicates[index] = reads.back().index;
+                continue;
+            }
+            reads.push_back({index, addr, std::move(fs)});
+        }
+    }
+    if (reads.empty()) throw std::runtime_error("no C reads in the log");
+    for (const auto& [dup, before] : duplicates)
+        if (events.count(dup)) {
+            auto moved = events.at(dup);
+            events.erase(dup);
+            for (auto& ev : moved) events[before].push_back(std::move(ev));
+        }
+    const auto word = [](const std::string& hexs, int offset, int bytes) {
+        return std::stol(hexs.substr(std::size_t(offset * 2), std::size_t(bytes * 2)), nullptr, 16);
+    };
+    const auto& first = reads.front().fields;
+    const auto& sh = first.at("shared");
+    const auto at = [&](int offset) { return std::uint32_t(word(sh, offset - 0x10, 4)); };
+    // The original's maze: the map's two planes, the rooms' creatures, the target, the difficulty.
+    arena::ArenaMap map;
+    for (int y = 0; y < arena::ArenaMap::height; ++y)
+        for (int x = 0; x < arena::ArenaMap::width; ++x) {
+            const int bit = 7 - x % 8, byte = y * 8 + x / 8;
+            const int v = int(word(first.at("map0"), byte, 1) >> bit & 1) | int(word(first.at("map1"), byte, 1) >> bit & 1) << 1;
+            map.set(x, y, arena::Cell(v));
+        }
+    for (int x = 0; x < 8; ++x)
+        for (int y = 0; y < 8; ++y) map.creatures[std::size_t(x)][std::size_t(y)] = int(word(first.at("counts"), (x * 8 + y) * 4, 4));
+    map.target_x = int(word(first.at("room"), 0x10, 4));
+    map.target_y = int(word(first.at("room"), 0x14, 4));
+    map.difficulty = int(word(first.at("room"), 0x18, 4));
+    arena::ArenaStage::Start start{at(0x4C), int(at(0x5C)), int(at(0x6E)), at(0x66), int(at(0x48)), map};
+    if (std::getenv("MW_OWN_MAZE")) start.map.reset(); // research: our generator's maze instead
+    arena::ArenaStage stage(files, assets, start);
+    std::printf("C: seed %08x stage %d lives %d score %u form %d; window top %ld (ours 10)\n", start.seed, start.stage,
+                start.lives, start.score, start.form, word(first.at("flags"), 0xA, 2));
+    arena::ArenaInput held;
+    const auto apply = [&](const std::vector<std::string>& ev) {
+        if (ev[0] == "button") held.button = ev[1] == "1";
+        if (ev[0] == "fire") held.fire = ev[1] == "1";
+        if (ev[0] == "joy") {
+            held.up = ev[1].find('U') != std::string::npos;
+            held.down = ev[1].find('D') != std::string::npos;
+            held.left = ev[1].find('L') != std::string::npos;
+            held.right = ev[1].find('R') != std::string::npos;
+        }
+        if (ev[0] == "poke" && ev[1] == "402EC4") stage.set_pulse(int(std::stoul(ev[2], nullptr, 16)));
+    };
+    for (std::size_t i = 0; i < carried.size(); ++i)
+        if (carried[i].first == "T" || carried_index[i] < reads_before[carried[i].first]) apply(carried[i].second);
+    std::size_t next = 0;
+    int frames = 0, differences = 0;
+    bool out_of_step = false;
+    const auto compare = [&](const Read& r) {
+        struct Field {
+            const char* name;
+            long ours, theirs;
+        };
+        const auto s32 = [&](const std::string& f, int o) { return long(std::int32_t(std::uint32_t(word(r.fields.at(f), o, 4)))); };
+        const auto& p = stage.player();
+        std::vector<Field> list = {{"x", p.x, s32("player", 0x3E)},          {"y", p.y, s32("player", 0x42)},
+                                   {"room x", p.room_x, s32("room", 0)},      {"room y", p.room_y, s32("room", 4)},
+                                   {"aim", p.aim, s32("aim", 0)},             {"target", p.has_target, word(r.fields.at("flags"), 8, 2)},
+                                   {"frozen", stage.frozen(), word(r.fields.at("wait"), 0, 2)},
+                                   {"drone", stage.sound_period(), word(r.fields.at("sound"), 0x16, 2)}};
+        if (p.frame < 0x18 || s32("player", 0x36) < 0x18) list.push_back({"frame", p.frame, s32("player", 0x36)});
+        for (const auto& f : list)
+            if (f.ours != f.theirs && ++differences <= print_limit)
+                std::printf("C read %d (frame %d) %s: ours %ld, original %ld\n", r.index, frames, f.name, f.ours, f.theirs);
+    };
+    const auto reader = [&](arena::ArenaRead kind) {
+        const char* expected = kind == arena::ArenaRead::button ? "4005c0" : kind == arena::ArenaRead::stick ? "402528" : "402574";
+        if (next >= reads.size()) {
+            out_of_step = true;
+            return held;
+        }
+        const auto& r = reads[next];
+        if (r.address != expected && !out_of_step) {
+            out_of_step = true;
+            ++differences;
+            std::printf("C read %d: the original read %s, the stage %s\n", r.index, r.address.c_str(), expected);
+        }
+        if (kind == arena::ArenaRead::button) compare(r);
+        if (const char* list = std::getenv("MW_SHOTS")) { // research: read:file.png,...
+            std::istringstream in(list);
+            for (std::string item; std::getline(in, item, ',');)
+                if (std::stoi(item.substr(0, item.find(':'))) == r.index)
+                    platform::save_png(stage.picture(), item.substr(item.find(':') + 1));
+        }
+        if (events.count(r.index))
+            for (const auto& ev : events.at(r.index)) apply(ev);
+        ++next;
+        return held;
+    };
+    while (next < reads.size() && !out_of_step && frames < frame_limit && !stage.over()) {
+        stage.frame(reader);
+        ++frames;
+    }
+    // Run out the closing sequence (no reads).
+    while (!stage.over() && (stage.outcome() != arena::ArenaStage::Outcome::playing || stage.in_sequence()) && frames < frame_limit) {
+        stage.frame(reader);
+        ++frames;
+    }
+    const char* outcome[] = {"playing", "won", "left", "died", "quit"};
+    const auto& last = reads.back().fields;
+    std::printf("%d frames, %zu of %zu reads compared, %d differences; outcome %s, score %u (original at its last read %ld), "
+                "strength %d (original %ld)\n",
+                frames, next, reads.size(), differences, outcome[int(stage.outcome())], stage.score(),
+                word(last.at("shared"), 0x66 - 0x10, 4), stage.player().strength,
+                long(std::int32_t(std::uint32_t(word(last.at("player"), 0x3A, 4)))));
+    if (!png.empty()) platform::save_png(stage.picture(), png);
+    return differences == 0 ? 0 : 1;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -857,6 +1030,10 @@ int main(int argc, char** argv) {
         if (command == "tunnel" && argc >= 5 && argc <= 7) {
             return tunnel(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]), platform::utf8_path(argv[4]),
                           argc >= 6 ? std::stoi(argv[5]) : 1 << 30, argc == 7 ? platform::utf8_path(argv[6]) : std::filesystem::path());
+        }
+        if (command == "arena" && argc >= 5 && argc <= 7) {
+            return arena(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]), platform::utf8_path(argv[4]),
+                         argc >= 6 ? std::stoi(argv[5]) : 1 << 30, argc == 7 ? platform::utf8_path(argv[6]) : std::filesystem::path());
         }
         if (command == "sim" && argc >= 6 && argc <= 8) {
             return sim(platform::utf8_path(argv[2]), std::uint32_t(std::stoul(argv[3], nullptr, 16)), std::stoi(argv[4]),

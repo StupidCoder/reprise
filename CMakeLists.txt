@@ -192,6 +192,8 @@ add_library(mindwalker_amiga
     src/mindwalker_amiga/landscape/map_view.cpp
     src/mindwalker_amiga/landscape/sound.cpp
     src/mindwalker_amiga/tunnel/tunnel_stage.cpp
+    src/mindwalker_amiga/arena/arena_map.cpp
+    src/mindwalker_amiga/arena/arena_stage.cpp
     src/mindwalker_amiga/landscape/landscape_stage.cpp
     src/mindwalker_amiga/import/disk_import.cpp)
 target_include_directories(mindwalker_amiga PUBLIC ${SOURCE_ROOT})
