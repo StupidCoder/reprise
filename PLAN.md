@@ -645,8 +645,9 @@ seeds and a clock seed), not stored.
    of pens differ in the opening view; owner's decision: close is fine), and
    the game shows the opening view after the loading picture (held a fixed
    2 seconds: owner's decision). A's top bar (pause box, slider, lives,
-   compass, emblem) equals the original's pens except Intuition's close
-   gadget. Next: the view's objects, the walker
+   compass, emblem, Intuition's close gadget) equals the original's pens;
+   the view's trees, grass, patterns, landmark stars and ramp poles are
+   drawn (0.9% of pens differ). Next: walking (notes "Walking"), the walker
    sprite, the status bar, movement; then B, C, P, sound, saves, high
    scores.
 
@@ -678,14 +679,21 @@ and songs `wofsongs` (both with their symbols), IFF pictures, "Rpck"-packed
    palettes, maps (raw words), samples, rank names, story text, high scores;
    launcher previews; `wings_of_fury_assets import|export`. Checked: all
    files decode; shape sheets and pictures look right in the day palette.
-2. **Next: reference machine.** FS-UAE harness as for Mind Walker (own GDB
-   port), recording through the game's own input recorder (argument →
-   record, `wofdemo` → playback) — a natural way to drive lockstep runs.
-3. Map format and the world drawer (tie map words to `world.shp`), then the
-   front end (story scroller, pictures, rank selection, high scores), music
-   (`songplay` sequencer rewrite), then flight, objects and missions.
+2. **Done 2026-10-27: reference machine.** FS-UAE harness on port 6862
+   (`harness/`: mkboot hold, attach, input injection at the game's reads,
+   play-view BitMap grab); disk.md "Reference machine". Later: drive runs
+   through the game's own recorder (argument → record, `wofdemo` → playback).
+3. **Done 2026-10-27: map scenery.** Column words (draw bit, drop, scenery
+   index, surface), the scenery table from `wings`' name lists, carrier
+   position; map previews in the launcher and export. Seen in the machine;
+   no pixel comparison yet.
+4. Next: pixel-compare the scenery against `screen.py` grabs (a safe way to
+   move the view without crashing), the island sand strip and waves, then
+   the front end (story scroller, pictures, rank selection, high scores),
+   music (`songplay` rewrite), then flight, objects and missions.
 
-Open: map word fields (bit 15, bits 11-14, the `$114/$115` markers);
+Open: map specials (index 5, $22, $9F, $113; the `$114/$115` pairs), how the
+island ground is drawn; stick direction codes;
 `newarmyfont` and how the two fonts are used; sample periods; the shape
 offset/sheet fields (hypotheses); eighth rank-menu option (`$108B96`);
 where the retail game called the manual check; a second (retail) release
