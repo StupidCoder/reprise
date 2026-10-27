@@ -982,7 +982,8 @@ void View::draw_steelie(platform::Image& image, const Race& race, const Marble& 
     const int screen_y = std::int16_t(m.screen[0]);
     auto colours_of = [&](std::uint32_t record) {
         const std::uint32_t colours = marble_data.u32(record + 12);
-        return ramp_at(marble_data.contains(colours, 6) ? marble_data : program, colours);
+        const auto& source = marble_data.contains(colours, 6) ? marble_data : program;
+        return source.contains(colours, 6) ? ramp_at(source, colours) : std::array<data::Rgb4, 3>{};
     };
     std::uint32_t record = 0;
     std::array<data::Rgb4, 3> ramp{};
@@ -1010,10 +1011,17 @@ void View::draw_steelie(platform::Image& image, const Race& race, const Marble& 
         cut_course_parts(sprite, race, m);
         draw_sprite(image, sprite, ramp);
     }
+    // The dust list runs on past its end while the shatter lasts; as for the
+    // player's marble, a record without colours in the game's data is not
+    // drawn (the original reads them from wherever the pointer leads).
     if (m.dust_shown != 0 && marble_data.contains(m.dust_animation, 4)) {
         const std::uint32_t dust = marble_data.u32(m.dust_animation);
         if (marble_data.contains(dust, 16)) {
-            draw_record(image, marble_data, dust, screen_x, screen_y, colours_of(dust), race.course());
+            const std::uint32_t colours = marble_data.u32(dust + 12);
+            const auto& source = marble_data.contains(colours, 6) ? marble_data : program;
+            if (source.contains(colours, 6)) {
+                draw_record(image, marble_data, dust, screen_x, screen_y, ramp_at(source, colours), race.course());
+            }
         }
     }
 }

@@ -220,15 +220,7 @@ DisplayList::Box Race::box_of(std::uint8_t type, std::uint8_t index) const {
     const Region& r = regions_.all()[index];
     const std::uint32_t record = t.contains(r.frame, 4) ? t.u32(r.frame) : 0xFFFFFFFF;
     const bool none = record == 0xFFFFFFFF || !t.contains(record, 8);
-    // A region without frames (record -1) reads its box from addresses 3-6
-    // (24-bit wrap): the first vector's low byte and ExecBase's pointer,
-    // $00C002xx on the 512K-expanded A500 the recordings run on (Ultimate's
-    // second goal flag; it decides the flags' drawing order).
-    constexpr std::array<std::int8_t, 4> low_memory = {0x00, 0x00, std::int8_t(0xC0), 0x02};
-    auto offset = [&](int k) {
-        if (record == 0xFFFFFFFF) return int(low_memory[std::size_t(k - 4)]);
-        return none ? 0 : int(t.s8(record + std::uint32_t(k)));
-    };
+    auto offset = [&](int k) { return frame_box_byte(r.frame, k); };
     int ox = 0, oy = 0, oz = 0, w = 0, d = 0, h = 0;
     switch (type) {
     case 3: ox = offset(4); oy = offset(5); w = offset(6); d = offset(7); oz = -0x10; h = 0x10; break;
@@ -245,6 +237,22 @@ DisplayList::Box Race::box_of(std::uint8_t type, std::uint8_t index) const {
         break;
     }
     return make(ox + hi(r.x), oy + hi(r.y), oz + hi(r.z), w, d, h);
+}
+
+// Byte k (4-7: x, y, width, depth) of the frame record a frame pointer
+// points to. A region at the end of its frame list (record -1) reads
+// addresses 3-6 instead (the sum wraps): the first vector's low byte and
+// ExecBase's pointer, $00C002xx on the 512K-expanded A500 the recordings run
+// on (Ultimate's second goal flag: the flags' drawing order; Aerial's
+// bumpers: a box that holds nothing).
+int Race::frame_box_byte(std::uint32_t frame, int k) const {
+    constexpr std::array<std::int8_t, 4> low_memory = {0x00, 0x00, std::int8_t(0xC0), 0x02};
+    const auto& t = files_->track(course_);
+    const std::uint32_t record = t.contains(frame, 4) ? t.u32(frame) : 0xFFFFFFFF;
+    if (record == 0xFFFFFFFF) {
+        return low_memory[std::size_t(k - 4) & 3];
+    }
+    return t.contains(record, 8) ? t.s8(record + std::uint32_t(k)) : 0;
 }
 
 int Race::band(std::int32_t view) const {
@@ -1169,15 +1177,16 @@ void Race::touch_regions(Marble& m) {
             }
             break;
         }
-        // Code 12 ($117236): a bumper that throws a marble out of its frame's
+        // Code 12 ($117E86): a bumper that throws a marble out of its frame's
         // box, from the box's middle, and sets it bouncing.
         case 0xC: {
             if (r.state == 0) {
                 break;
             }
             const auto& t = files_->track(course_);
-            const std::uint32_t record = t.u32(r.frame);
-            const int bx = t.s8(record + 4), by = t.s8(record + 5), bw = t.s8(record + 6), bh = t.s8(record + 7);
+            // (At the end of its frame list the box comes from low memory.)
+            const int bx = frame_box_byte(r.frame, 4), by = frame_box_byte(r.frame, 5);
+            const int bw = frame_box_byte(r.frame, 6), bh = frame_box_byte(r.frame, 7);
             const int x1 = 3 - bx, y1 = 3 - by, x0 = -(bx + bw + 3), y0 = -(by + bh + 3);
             if (!(x0 <= dx && dx < x1 && y0 <= dy && dy < y1)) {
                 break;

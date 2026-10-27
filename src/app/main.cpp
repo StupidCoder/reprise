@@ -161,83 +161,92 @@ int run(const Options& options) {
         const double now = host.seconds();
 
         if (game) {
-            const auto& entry = library.games()[playing];
-            if (menu.open()) {
-                switch (menu.update(controls, *game, now)) {
-                case app::PauseMenu::Action::resume:
-                    host.pause_audio(false);
-                    game_clock = now;
-                    break;
-                case app::PauseMenu::Action::restart:
-                    game = entry.start(library.content_directory(playing));
-                    restore_options(*game);
-                    host.pause_audio(false);
-                    game_clock = now;
-                    break;
-                case app::PauseMenu::Action::save:
-                    game->save();
-                    menu.set_message("Saved.", now);
-                    break;
-                case app::PauseMenu::Action::load:
-                    menu.set_message(game->load() ? "Loaded." : "No quick save yet.", now);
-                    break;
-                case app::PauseMenu::Action::quit:
-                    game.reset();
-                    host.pause_audio(false);
+            // A game that fails (an error in rebuilt code) goes back to the
+            // library with the reason instead of closing the app.
+            try {
+                const auto& entry = library.games()[playing];
+                if (menu.open()) {
+                    switch (menu.update(controls, *game, now)) {
+                    case app::PauseMenu::Action::resume:
+                        host.pause_audio(false);
+                        game_clock = now;
+                        break;
+                    case app::PauseMenu::Action::restart:
+                        game = entry.start(library.content_directory(playing));
+                        restore_options(*game);
+                        host.pause_audio(false);
+                        game_clock = now;
+                        break;
+                    case app::PauseMenu::Action::save:
+                        game->save();
+                        menu.set_message("Saved.", now);
+                        break;
+                    case app::PauseMenu::Action::load:
+                        menu.set_message(game->load() ? "Loaded." : "No quick save yet.", now);
+                        break;
+                    case app::PauseMenu::Action::quit:
+                        game.reset();
+                        host.pause_audio(false);
+                        continue;
+                    case app::PauseMenu::Action::none:
+                        break;
+                    }
+                    host.mute(menu.muted());
+                    if (game) {
+                        remember_options(*game);
+                        const auto overlay = menu.draw(*game, entry.title, now, entry.id);
+                        host.present_game(game->picture(), game->pixel_aspect(), &overlay, true);
+                    }
                     continue;
-                case app::PauseMenu::Action::none:
-                    break;
                 }
-                host.mute(menu.muted());
-                if (game) {
-                    remember_options(*game);
-                    const auto overlay = menu.draw(*game, entry.title, now, entry.id);
-                    host.present_game(game->picture(), game->pixel_aspect(), &overlay, true);
+                if (controls.menu) {
+                    menu.show(now);
+                    host.pause_audio(true);
+                    continue;
                 }
-                continue;
-            }
-            if (controls.menu) {
-                menu.show(now);
-                host.pause_audio(true);
-                continue;
-            }
-            if (controls.toggle_mute) {
-                menu.toggle_muted();
-                host.mute(menu.muted());
-            }
-            if (controls.quick_save) {
-                game->save();
-            }
-            if (controls.quick_load) {
-                game->load();
-                game_clock = now;
-            }
-            // Fixed steps at the original's frame rate; at most a few per
-            // displayed frame, so a stall does not fast-forward the game.
-            const app::GameInput input{controls.up,    controls.down,  controls.left,  controls.right,
-                                       controls.fire,  controls.f1,    controls.f3,    controls.f5,
-                                       controls.f7,    controls.c64_space, controls.up2, controls.down2,
-                                       controls.left2, controls.right2, controls.fire2, controls.c64_keys};
-            const auto canvas = host.canvas_size();
-            game->set_canvas(canvas[0], canvas[1]);
-            game_clock = std::max(game_clock, now - 4 * game->step_seconds());
-            while (game_clock + game->step_seconds() <= now && game->stopped().empty()) {
-                game->tick(input);
-                game_clock += game->step_seconds();
-                // The sound of this frame.
-                sample_credit += game->step_seconds() * platform::Host::audio_sample_rate;
-                const int samples = int(sample_credit);
-                sample_credit -= samples;
-                audio.resize(std::size_t(samples) * 2);
-                game->audio(audio, platform::Host::audio_sample_rate);
-                host.audio(audio);
-            }
-            if (!game->stopped().empty()) {
-                launcher.show_message(game->stopped(), true, now);
+                if (controls.toggle_mute) {
+                    menu.toggle_muted();
+                    host.mute(menu.muted());
+                }
+                if (controls.quick_save) {
+                    game->save();
+                }
+                if (controls.quick_load) {
+                    game->load();
+                    game_clock = now;
+                }
+                // Fixed steps at the original's frame rate; at most a few per
+                // displayed frame, so a stall does not fast-forward the game.
+                const app::GameInput input{controls.up,    controls.down,  controls.left,  controls.right,
+                                           controls.fire,  controls.f1,    controls.f3,    controls.f5,
+                                           controls.f7,    controls.c64_space, controls.up2, controls.down2,
+                                           controls.left2, controls.right2, controls.fire2, controls.c64_keys};
+                const auto canvas = host.canvas_size();
+                game->set_canvas(canvas[0], canvas[1]);
+                game_clock = std::max(game_clock, now - 4 * game->step_seconds());
+                while (game_clock + game->step_seconds() <= now && game->stopped().empty()) {
+                    game->tick(input);
+                    game_clock += game->step_seconds();
+                    // The sound of this frame.
+                    sample_credit += game->step_seconds() * platform::Host::audio_sample_rate;
+                    const int samples = int(sample_credit);
+                    sample_credit -= samples;
+                    audio.resize(std::size_t(samples) * 2);
+                    game->audio(audio, platform::Host::audio_sample_rate);
+                    host.audio(audio);
+                }
+                if (!game->stopped().empty()) {
+                    launcher.show_message(game->stopped(), true, now);
+                    game.reset();
+                    continue;
+                }
+                host.present_game(game->picture(), game->pixel_aspect());
+            } catch (const std::exception& e) {
                 game.reset();
-                continue;
+                menu.hide();
+                host.pause_audio(false);
+                launcher.show_error(std::string("The game stopped because of an error: ") + e.what(), now);
             }
-            host.present_game(game->picture(), game->pixel_aspect());
             continue;
         }
         if (controls.dropped_file) {

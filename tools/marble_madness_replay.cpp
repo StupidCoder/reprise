@@ -731,6 +731,56 @@ int pictures(int argc, char** argv) {
     return 0;
 }
 
+// Plays a course with random controls (after an optional prefix of a
+// recorded run's pushes) and reports any exception the race or the view
+// throws: fuzz <content> <course> <run.bin|-> <prefix> <seeds> <updates>.
+int fuzz(int argc, char** argv) {
+    const auto content = platform::utf8_path(argv[2]);
+    data::GameFiles files(content);
+    const auto assets = data::load_assets(content);
+    const auto course = data::Course(std::stoi(argv[3]));
+    std::vector<std::uint8_t> run;
+    if (std::string(argv[4]) != "-") run = platform::read_file(platform::utf8_path(argv[4]));
+    const std::size_t prefix = std::stoul(argv[5]);
+    const int seeds = std::stoi(argv[6]), updates = std::stoi(argv[7]);
+    const bool draw = std::getenv("MM_NO_DRAW") == nullptr;
+    for (int seed = 0; seed < seeds; ++seed) {
+        std::uint32_t rng = 0x9E3779B9u * std::uint32_t(seed + 1);
+        auto next = [&] { rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5; return rng; };
+        game::Race race(files, course);
+        race.cheats.stop_timer = true;
+        game::View view(files, assets, race);
+        view.update(race);
+        game::Push push{};
+        int hold = 0, k = 0;
+        try {
+            const std::size_t start = run.empty() ? 0 : race_start(run);
+            for (std::size_t r = start; r < run.size() / record_size && r - start < prefix; ++r, ++k) {
+                if (repeated(run, r + 1)) continue;
+                const auto* rec = run.data() + r * record_size;
+                race.update({game::Push{be16(rec + forces_at), be16(rec + forces_at + 4)}, game::Push{}});
+                view.update(race);
+            }
+            for (int i = 0; i < updates; ++i, ++k) {
+                if (hold-- <= 0) {
+                    hold = int(next() % 40);
+                    const int dir = int(next() % 9), fire = next() % 4 == 0 ? 2 : 1;
+                    static constexpr int dx[9] = {0, 1, 1, 0, -1, -1, -1, 0, 1}, dy[9] = {0, 0, 1, 1, 1, 0, -1, -1, -1};
+                    push = {std::int16_t(dy[dir] * 0x20 * fire), std::int16_t(-dx[dir] * 0x20 * fire)};
+                }
+                race.update({push, game::Push{}});
+                view.update(race);
+                if (draw) (void)view.draw(race);
+            }
+        } catch (const std::exception& e) {
+            const auto& m = race.marbles[0];
+            std::printf("seed %d update %d: %s (marble at %d,%d,%d mode %d)\n", seed, k, e.what(), m.x >> 16, m.y >> 16,
+                        m.z >> 16, int(m.mode));
+        }
+    }
+    return 0;
+}
+
 // Runs a recorder script on the rebuilt race and prints the marble's mode
 // changes (for finding out what a run does).
 int trace(int argc, char** argv) {
@@ -1505,6 +1555,9 @@ int main(int argc, char** argv) {
                 }
             }
             return 0;
+        }
+        if (command == "fuzz" && argc >= 8) {
+            return fuzz(argc, argv);
         }
         if (command == "trace" && argc >= 5) {
             return trace(argc, argv);

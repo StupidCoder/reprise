@@ -121,6 +121,7 @@ private:
     void update_marble(Marble&);                   // $114402
     void bands_changed(int from, int to);          // $10D9BC
     DisplayList::Box box_of(std::uint8_t type, std::uint8_t index) const; // $110CD4
+    int frame_box_byte(std::uint32_t frame, int k) const;
     void show(std::uint8_t type, std::uint8_t index);   // $112004
     void hide(std::uint8_t type, std::uint8_t index);   // $1120F4
     void take_region_display_events();
