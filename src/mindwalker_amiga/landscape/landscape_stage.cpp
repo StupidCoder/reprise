@@ -111,11 +111,27 @@ void LandscapeStage::repaint(bool full) {
         printed_score_ = score_;
         aim_colours_ = false;
     }
+    painter_.set_status({ramp_closed_, inputs_.found});
     view_canvas_.clear(0);
     bar_.draw(view_canvas_);
     if (lives_ > 0) // ($201492 draws no view once the last life is gone)
         painter_.paint(view_canvas_, cells_, direction_, world_.floor_level(), world_.ceiling_level(), view_top, printed_score_);
     if (lives_ > 0) masks_ = painter_.depth_masks(cells_, direction_, world_.floor_level(), world_.ceiling_level());
+}
+
+// A repaint as the player sees it: the old picture through the repaint's
+// sequence (interlude.hpp), its star (if any) around the walker's cell
+// twelve levels up ($20A204: $203074/$203078).
+void LandscapeStage::repaint_shown(Interlude::Repaint kind, int repeats) {
+    const Display before = current_display();
+    repaint();
+    Display after = current_display();
+    std::fill(after.plane4.begin() + view_top * 320, after.plane4.end(), 0);
+    if (kind != Interlude::Repaint::plain && kind != Interlude::Repaint::view_change) after.plane4 = before.plane4;
+    const auto star = FixedCamera().project(walker_.view_column * 80 - 120, (walker_.terrain & 0xFF) - 12,
+                                            walker_.view_row * 80 + 0x40);
+    interlude_.start_repaint(before, after, kind, repeats, star.x, view_top + star.y,
+                             [this](screen::Canvas& c) { painter_.draw_grid(c, view_top, printed_score_); });
 }
 
 Creatures::Scene LandscapeStage::creature_scene() const {
@@ -167,6 +183,7 @@ bool LandscapeStage::may_mark() const {
 }
 
 void LandscapeStage::frame(const InputReader& read, int clicked) {
+    ++clock_frames_; // CurrentTime's seconds as 50 frames each
     // Gadget messages wait in the window's port until the loop reads it.
     if (clicked >= 0) queued_gadget_ = clicked;
     if (interlude_.active()) {
@@ -212,7 +229,17 @@ void LandscapeStage::frame(const InputReader& read, int clicked) {
         return;
     }
     follow_height(read);
-    creatures_tick();
+    if (slow_creatures_ != 0) {
+        // $200370: with both finds held the creatures move only every
+        // (n / 64 + 1)th frame, n counting down; at 0 the finds are back.
+        if (++slow_count_ > slow_creatures_ >> 6) {
+            slow_count_ = 0;
+            if (--slow_creatures_ == 0) inputs_.found = {};
+            creatures_tick();
+        }
+    } else {
+        creatures_tick();
+    }
 }
 
 // The emblem ($2042A0): $20071C shows the map (the walker and creatures
@@ -296,7 +323,7 @@ void LandscapeStage::caught() {
 void LandscapeStage::face(int direction) {
     direction_ = direction & 3;
     bar_.set(lives_, direction_, stage_);
-    repaint();
+    repaint_shown(Interlude::Repaint::plain); // $204278: $201492(0)
     place_sprite();
 }
 
@@ -446,9 +473,18 @@ void LandscapeStage::step(const InputReader& read) {
         z = wrap(z, view_y_);
         if (new_view) rebuild_view();
     } else {
-        // With creatures in view the walker stays inside it ($20ACC4).
+        // With creatures' places in view the walker stays inside it
+        // ($20ACC4); pushing at the edge holds the tether clock at 0 and
+        // counts towards a sound every 8 frames (h26).
+        const bool pushed = x != std::clamp(x, 0, 319) || z != std::clamp(z, 0, 319);
         x = std::clamp(x, 0, 319);
         z = std::clamp(z, 0, 319);
+        if (!pushed) {
+            walker_.edge_push = -1;
+        } else {
+            creatures_.reset_tether_clock();
+            ++walker_.edge_push;
+        }
     }
     walker_.next_x = x;
     walker_.next_z = z;
@@ -470,7 +506,7 @@ void LandscapeStage::step(const InputReader& read) {
         const int distance = std::abs(((mx + my) & 0x3F) - 0x28) + std::abs(((mx - my) & 0x3F) - 0x28);
         creatures_.enter_view(view_x_, view_y_, cells_.creature_places, block.height, distance, block.marked,
                               creature_scene());
-        repaint();
+        repaint_shown(Interlude::Repaint::view_change); // $201492(1)
     }
 }
 
@@ -520,22 +556,33 @@ void LandscapeStage::anchor(int direction) {
     rebuild_view();
 }
 
-// $209F34: what entering a cell does. Rebuilt: the marked block's ramp ends
-// the stage, landmarks re-centre the map, beacons mark their block, and a
-// cell of the form's own surface joins the map (one point) when a neighbour
-// is on it. Not yet: finds, creatures.
+// $209F34: what entering a cell does: the marked block's open ramp ends the
+// stage (the way on), finds are taken, landmarks re-centre the map, beacons
+// mark their block, a cell of the form's own surface joins the map (one
+// point) when a neighbour is on it, creatures' places are ticked off.
 void LandscapeStage::cell_events() {
     walker_.last_column = walker_.column;
     walker_.last_row = walker_.row;
     const auto t = walker_.terrain;
-    if ((t & 0x100) && (t & 0x800) && !beacon_taken_) finished_ = true;
+    if ((t & 0x100) && (t & 0x800) && !ramp_closed_) {
+        // The way on: the next world's seed (shared +$4C) from this cell.
+        next_seed_ = std::uint32_t(walker_.cell_y ^ t) << 16 | std::uint16_t(walker_.cell_x ^ walker_.next_mix);
+        if (next_seed_ == 0) next_seed_ = 0x5AFE32CC;
+        finished_ = true;
+    }
+    if (walker_.objects & 0x30) take_find(); // $20A1B0
     if ((t & 0x400) && (walker_.cell_x != map_centre_x_ || walker_.cell_y != map_centre_y_)) {
         centre_map(walker_.cell_x, walker_.cell_y);
-        rebuild_view();
-        repaint();
+        rebuild_view_keeping();
+        repaint_shown(Interlude::Repaint::flash); // $201602(0)
     }
     if ((walker_.objects & 2) && !(t & 0x100) && may_mark()) {
-        // The beacon marks its block and becomes home ($209376, event 0).
+        // A beacon: the creatures leave and keep away, the tethers and the
+        // damage go, the beacon becomes home and marks its block, the time
+        // bonus is scored, and the block's ramp (the way on) opens; the view
+        // is drawn four times over with colour 13 flashing white ($20A204 0).
+        creatures_.calm(creature_scene());
+        creatures_.wipe_layer();
         home_x_ = walker_.cell_x;
         home_y_ = walker_.cell_y;
         inputs_.home_x = home_x_;
@@ -543,11 +590,17 @@ void LandscapeStage::cell_events() {
         const int u = (walker_.cell_x + walker_.cell_y) & 0xFFF, v = (walker_.cell_x - walker_.cell_y) & 0xFFF;
         world_.marked_u = std::uint16_t(u >> 6);
         world_.marked_v = std::uint16_t(v >> 6);
-        beacon_taken_ = false;
+        // $206508: 2000 less the seconds since the stage began or the last
+        // beacon (at most 1900); $2064BA / CurrentTime, the pause left out.
+        const int seconds = clock_frames_ / 50 - clock_mark_ / 50;
+        score_ += std::uint32_t(2000 - std::min(seconds, 1900));
+        clock_mark_ = clock_frames_;
+        damage_ = 0;
+        ramp_closed_ = false;
         for (auto& column : cells_.terrain)
             for (auto& cell : column) cell |= 0x100;
         walker_.terrain |= 0x100;
-        repaint();
+        repaint_shown(Interlude::Repaint::star, 4); // $20A204 0: $201602(1) four times
     }
     const int form_kind = a_.u16(form_kinds + std::uint32_t(walker_.form * 2));
     if (!(walker_.objects & 1) && !(walker_.terrain & 0x1D00) && (walker_.terrain & 0xC000) == form_kind &&
@@ -568,6 +621,40 @@ void LandscapeStage::cell_events() {
         walker_.objects = objects;
         repaint(false); // $204F48 draws only the cell's marker: no new score, no colours
     }
+    if (cells_.creature_places != 0 && (walker_.objects & 4) && !(walker_.objects & 8)) {
+        // A creature's place stepped on ($20A204 3): ticked off; the view
+        // holds the walker until none is left.
+        auto& objects = cells_.objects[std::size_t(walker_.column)][std::size_t(walker_.row)];
+        objects |= 8;
+        walker_.objects |= 8;
+        repaint_shown(Interlude::Repaint::star); // $201602(1)
+        --cells_.creature_places;
+    }
+}
+
+// $20A1B0: a find taken (E= for $10, mc2 for $20); with both held the
+// creatures slow down for a while ($20052A = $200); the view is built again
+// without it ($20A204 2).
+void LandscapeStage::take_find() {
+    const int which = (walker_.objects & 0x10) == 0 ? 1 : 0;
+    inputs_.found[std::size_t(which)] = true;
+    if (inputs_.found[0] && inputs_.found[1]) slow_creatures_ = 0x200;
+    rebuild_view_keeping();
+    repaint_shown(Interlude::Repaint::flash); // $201602(0)
+}
+
+// $20A204 2: the view built again, keeping the ticked-off creature places
+// (objects bit 8) and their count.
+void LandscapeStage::rebuild_view_keeping() {
+    std::array<std::array<std::uint16_t, 4>, 4> ticked{};
+    for (int x = 0; x < 4; ++x)
+        for (int y = 0; y < 4; ++y) ticked[std::size_t(x)][std::size_t(y)] = cells_.objects[std::size_t(x)][std::size_t(y)] & 8;
+    const int places = cells_.creature_places;
+    rebuild_view();
+    for (int x = 0; x < 4; ++x)
+        for (int y = 0; y < 4; ++y) cells_.objects[std::size_t(x)][std::size_t(y)] |= ticked[std::size_t(x)][std::size_t(y)];
+    cells_.creature_places = places;
+    walker_.objects = cells_.objects[std::size_t(walker_.column)][std::size_t(walker_.row)];
 }
 
 // $209B54 / $2057D0: the walker's place turned to the view, projected; feet
@@ -615,7 +702,7 @@ void LandscapeStage::place_sprite() {
     place.view_column = walker_.view_column;
     place.depth = walker_.depth;
     place.terrain = walker_.terrain;
-    place.beacon_taken = beacon_taken_;
+    place.ramp_closed = ramp_closed_;
     walker_.visible = painter_.walker_mask(cells_, direction_, world_.floor_level(), place, masks_);
     const auto& bitmap = walker_bitmap();
     bool any = false;
@@ -649,7 +736,8 @@ platform::Image LandscapeStage::picture() const {
         return planes.picture(colours);
     }
     if (interlude_.active()) {
-        // A sequence: its display and the walker (the creatures are hidden).
+        // A sequence: its display and the walker (and during a repaint the
+        // creatures; the catch hides them).
         const auto& d = interlude_.display();
         for (const auto c : d.colours) colours.push_back(c & 0xFFF);
         auto image = d.planes.picture(colours);
@@ -657,6 +745,7 @@ platform::Image LandscapeStage::picture() const {
             for (int x = 0; x < 320; ++x)
                 if (d.plane4[std::size_t(y * 320 + x)])
                     image.put(x, y, screen::to_color(colours[16u | d.planes.pen(x, y)]));
+        if (interlude_.shows_sprites()) draw_creatures(image, colours);
         draw_walker(image, colours);
         return image;
     }
@@ -670,8 +759,14 @@ platform::Image LandscapeStage::picture() const {
         for (int x = 0; x < 320; ++x)
             if (tethers[std::size_t(y * 320 + x)])
                 image.put(x, y, screen::to_color(colours[16u | view_canvas_.pen(x, y)]));
-    // The creatures: attached sprite pairs in colours 16-31, masked by the
-    // rows they fly behind.
+    draw_creatures(image, colours);
+    draw_walker(image, colours);
+    return image;
+}
+
+// The creatures: attached sprite pairs in colours 16-31, masked by the rows
+// they fly behind.
+void LandscapeStage::draw_creatures(platform::Image& image, const std::vector<screen::Rgb4>& colours) const {
     for (const auto& c : creatures_.all()) {
         if (c.kind < 0 || c.shown_x <= -16 || c.shown_x >= 320) continue;
         const auto& a = creatures_.image_a(c.kind);
@@ -686,8 +781,6 @@ platform::Image LandscapeStage::picture() const {
             }
         }
     }
-    draw_walker(image, colours);
-    return image;
 }
 
 void LandscapeStage::draw_walker(platform::Image& image, const std::vector<screen::Rgb4>& colours) const {

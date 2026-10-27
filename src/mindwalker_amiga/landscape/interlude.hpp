@@ -3,6 +3,7 @@
 #include "mindwalker_amiga/screen/canvas.hpp"
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <vector>
 
 // The landscape's picture sequences, played while A's loop stands still (no
@@ -10,7 +11,12 @@
 // sprite colours, turned to cyan, stamped frame after frame; after a lost
 // life the playfield colours fade to black) and the reveal that follows it
 // and opens every stage (h32, $206728, the paint's mode 2: the old picture
-// slides to the four corners while the new view grows from the middle).
+// slides to the four corners while the new view grows from the middle) —
+// and the other repaints of the view, which take the A500 about 40 frames
+// each: the view change (h8 clears the old picture a plane per row and
+// blacks out a colour), the plain one (the compass), and $201602's (the
+// background flashing through four colours per row; with a star growing
+// around the event's cell for beacons and creatures' places).
 namespace mindwalker::landscape {
 
 // The display as these sequences change it: display planes 0-3 (as pens 0-15,
@@ -32,12 +38,23 @@ public:
     void start_catch(const Display& now, int damage, bool lost, const Display& next);
     // The reveal of `next` over `now` ($201492 mode 2).
     void start_reveal(const Display& now, const Display& next);
+    // A repaint of the view from `now` to `next`, the old picture kept
+    // until the new one is copied. `grid` draws the grid and score onto
+    // the display (h8 does so after each plane it clears); `star_x/y` the
+    // star's middle (display rows).
+    enum class Repaint { plain, view_change, flash, star };
+    void start_repaint(const Display& now, const Display& next, Repaint, int repeats = 1, int star_x = 0, int star_y = 0,
+                       std::function<void(screen::Canvas&)> grid = {});
+    // (While a repaint plays, another one waits its turn.)
+    // Whether the sequence leaves the sprites on screen (repaints do).
+    bool shows_sprites() const { return phase_ == Phase::repaint; }
     // One display frame on.
     void advance();
     const Display& display() const { return display_; }
 
 private:
-    enum class Phase { idle, face, fade, fade_tail, paint, reveal, settle };
+    enum class Phase { idle, face, fade, fade_tail, paint, reveal, settle, repaint };
+    void repaint_frame();
     void start_paint();
     void face_step(int step);
     void fade_step();
@@ -50,6 +67,16 @@ private:
     int step_{}, frames_left_{}, level_{};
     bool lost_{};
     std::array<std::uint16_t, 16> fading_{}; // h10: colours 0-15 on their way to black
+    Repaint repaint_{};
+    int repeats_{}, frame_{}, star_x_{}, star_y_{};
+    std::array<std::uint16_t, 32> blackened_{}; // h8's h10
+    std::function<void(screen::Canvas&)> grid_;
+    struct Queued {
+        Display next;
+        Repaint kind;
+        int repeats, star_x, star_y;
+    };
+    std::vector<Queued> queued_; // repaints asked for while one plays (one cell's events)
 };
 
 } // namespace mindwalker::landscape

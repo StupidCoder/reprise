@@ -267,7 +267,7 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
         }
     }
     landscape::LandscapeInput held;
-    int pending_gadget = -1, frame_first_read = -1;
+    int pending_gadget = -1, frame_first_read = -1, vbl_start = -1, clock_start = 0;
     // MW_SHOTS="read:file.png,...": our picture when the replay reaches a read
     // (the state the recorder's dump at that read shows).
     std::map<int, std::string> shots;
@@ -313,7 +313,7 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
     int frames = 0, differences = 0;
     // The walker's mask is close, not exact (our polygon fill): its pixel
     // differences are counted apart from the state's.
-    int sprite_pixels = 0, sprite_rows_differing = 0;
+    int sprite_pixels = 0, sprite_rows_differing = 0, hidden_differing = 0, clock_phase = 0;
     bool out_of_step = false;
     const auto word = [](const std::string& hexs, int offset, int bytes) {
         return std::stol(hexs.substr(std::size_t(offset * 2), std::size_t(bytes * 2)), nullptr, 16);
@@ -332,8 +332,23 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
             {"view y", stage.view_y(), word(r.fields.at("view"), 2, 2)},
             {"direction", stage.direction(), word(r.fields.at("direction"), 0, 4)},
             {"aiming", me.aiming, signed32(0x86)}, {"cursor x", me.cursor_x, signed32(0x8A)},
-            {"cursor y", me.cursor_y, signed32(0x8E)}};
+            {"cursor y", me.cursor_y, signed32(0x8E)}, {"edge push", me.edge_push, signed32(0x92)},
+            // $209984 on: creature places $2099AC, the way on closed $2099B6,
+            // the finds $2099BC/$2099BE; the score (shared +$66).
+            {"creature places", stage.creature_places(), word(r.fields.at("params"), 0x2A, 2)},
+            {"ramp closed", stage.ramp_closed(), word(r.fields.at("params"), 0x32, 2)},
+            {"find E=", stage.found()[0], word(r.fields.at("params"), 0x38, 2)},
+            {"find mc2", stage.found()[1], word(r.fields.at("params"), 0x3A, 2)},
+            {"score", long(stage.score()), word(r.fields.at("shared"), 0x56, 4)}};
         for (const auto& f : list) {
+            // A beacon's bonus counts whole seconds of a real-time clock whose
+            // second boundaries we cannot place: one point either way is
+            // that phase, counted apart.
+            if (std::string(f.name) == "score" && f.ours != f.theirs && std::abs(f.ours - f.theirs) == 1 &&
+                !stage.ramp_closed()) {
+                ++clock_phase;
+                continue;
+            }
             if (f.ours != f.theirs && ++differences <= print_limit)
                 std::printf("A read %d (frame %d) %s: ours %ld, original %ld\n", r.index, frames, f.name, f.ours, f.theirs);
         }
@@ -353,7 +368,8 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
                                 long(rows[y]), theirs);
             }
             const long hidden = word(r.fields.at("walker"), 0x96, 4);
-            if (stage.walker().hidden_frames != hidden && ++differences <= print_limit)
+            // (It follows the mask's pixels, so it is counted with them.)
+            if (stage.walker().hidden_frames != hidden && ++hidden_differing <= print_limit)
                 std::printf("A read %d (frame %d) hidden frames: ours %d, original %ld\n", r.index, frames,
                             stage.walker().hidden_frames, hidden);
         }
@@ -404,6 +420,16 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
             ++differences;
             std::printf("A read %d: the original read %s, the stage %s\n", r.index, r.address.c_str(), expected);
         }
+        // The beacon's time bonus counts the original's seconds: our clock
+        // follows its frame counter (vbl) from the first read on.
+        if (r.fields.count("vbl")) {
+            const int vbl = int(std::stoul(r.fields.at("vbl"), nullptr, 16));
+            if (vbl_start < 0) {
+                vbl_start = vbl;
+                clock_start = stage.clock();
+            }
+            stage.set_clock(clock_start + vbl - vbl_start);
+        }
         // The recorder pokes before it logs the read: the damage ($20052E).
         if (events.count({'A', r.index}))
             for (const auto& ev : events.at({'A', r.index}))
@@ -435,9 +461,129 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
     std::printf("%d frames, %zu reads compared, %d differences; score %u, lives %d%s", frames, next, differences,
                 stage.score(), stage.lives(), stage.out_of_lives() ? " (out of lives: the stage ends)" : "");
     if (sprite_pixels) std::printf("; walker mask: %d pixels in %d rows differ", sprite_pixels, sprite_rows_differing);
+    if (hidden_differing) std::printf(", hidden count in %d reads", hidden_differing);
+    if (clock_phase) std::printf("; beacon bonus a second's phase apart in %d reads", clock_phase);
     std::printf("\n");
     if (!png.empty()) platform::save_png(stage.picture(), png);
     return differences == 0 ? 0 : 1;
+}
+
+// Research: the landscape stage on a script alone (no recording), counting
+// its input reads as the recorder would, to plan routes before recording
+// them. Prints the walker every `every` reads and the events as they come.
+// A script line "A n route X,Y X,Y ..." (hex cells) steers the walker from
+// read n through those cells (one axis at a time, towards each cell's
+// middle); with MW_EMIT=file the joystick changes go to a recorder script.
+int sim(const std::filesystem::path& content, std::uint32_t seed, int stage_number, const std::filesystem::path& script_path,
+        int every, const std::filesystem::path& png) {
+    using namespace mindwalker;
+    const data::GameFiles files(content);
+    const auto assets = data::load_assets(content);
+    std::map<int, std::vector<std::vector<std::string>>> events;
+    int last = 0;
+    {
+        std::ifstream in(script_path);
+        std::string line;
+        while (std::getline(in, line)) {
+            line = line.substr(0, line.find('#'));
+            std::istringstream f(line);
+            std::vector<std::string> w;
+            for (std::string x; f >> x;) w.push_back(x);
+            if (w.size() >= 3 && w[0] == "A") {
+                events[std::stoi(w[1])].push_back({w.begin() + 2, w.end()});
+                last = std::max(last, std::stoi(w[1]));
+            }
+        }
+    }
+    landscape::LandscapeStage stage(files, assets, {seed, stage_number, 3, 0});
+    landscape::LandscapeInput held;
+    int reads = 0, pending_gadget = -1;
+    bool stop = false;
+    std::vector<std::pair<int, int>> route;
+    std::size_t route_next = 0;
+    std::string last_joy = "-";
+    std::FILE* emit = std::getenv("MW_EMIT") ? std::fopen(std::getenv("MW_EMIT"), "w") : nullptr;
+    const landscape::InputReader reader = [&](landscape::InputRead kind) {
+        if (route_next < route.size() && kind == landscape::InputRead::stick) {
+            const auto& w = stage.walker();
+            while (route_next < route.size() && w.cell_x == route[route_next].first && w.cell_y == route[route_next].second)
+                ++route_next;
+            std::string joy = "-";
+            if (route_next < route.size()) {
+                const int tx = route[route_next].first, ty = route[route_next].second;
+                const int dx = ((tx - w.cell_x + 0x800) & 0xFFF) - 0x800, dy = ((ty - w.cell_y + 0x800) & 0xFFF) - 0x800;
+                // Along x first; when x is right, keep to the cell's middle before turning.
+                const int in_cell_x = (w.x % 80), in_cell_z = (w.z % 80);
+                (void)in_cell_z;
+                if (dx != 0) joy = dx < 0 ? "L" : "R";
+                else if (dy != 0) {
+                    if (in_cell_x < 24) joy = "R";
+                    else if (in_cell_x > 56) joy = "L";
+                    else joy = dy < 0 ? "D" : "U";
+                }
+            }
+            if (std::getenv("MW_ROUTE_DEBUG"))
+                std::printf("  r%d cell %03x %03x x %d next %zu joy %s\n", reads, stage.walker().cell_x, stage.walker().cell_y,
+                            stage.walker().x, route_next, joy.c_str());
+            held.left = joy == "L";
+            held.right = joy == "R";
+            held.up = joy == "U";
+            held.down = joy == "D";
+            if (joy != last_joy && emit) std::fprintf(emit, "A %d joy %s\n", reads, joy.c_str());
+            last_joy = joy;
+        }
+        if (events.count(reads))
+            for (const auto& ev : events.at(reads)) {
+                if (ev[0] == "button") held.button = ev[1] == "1";
+                if (ev[0] == "fire") held.fire = ev[1] == "1";
+                if (ev[0] == "joy") {
+                    held.up = ev[1].find('U') != std::string::npos;
+                    held.down = ev[1].find('D') != std::string::npos;
+                    held.left = ev[1].find('L') != std::string::npos;
+                    held.right = ev[1].find('R') != std::string::npos;
+                }
+                if (ev[0] == "mouse") {
+                    held.pointer_x = std::stoi(ev[1]);
+                    held.pointer_y = std::stoi(ev[2]);
+                }
+                if (ev[0] == "gadget") pending_gadget = std::stoi(ev[1], nullptr, 16);
+                if (ev[0] == "stop") stop = true;
+                if (ev[0] == "route") {
+                    route.clear();
+                    route_next = 0;
+                    for (std::size_t k = 1; k < ev.size(); ++k)
+                        route.push_back({std::stoi(ev[k].substr(0, ev[k].find(',')), nullptr, 16),
+                                         std::stoi(ev[k].substr(ev[k].find(',') + 1), nullptr, 16)});
+                }
+                if (emit && ev[0] != "route" && (ev[0] != "joy" || route_next >= route.size())) {
+                    std::fprintf(emit, "A %d", reads);
+                    for (const auto& word : ev) std::fprintf(emit, " %s", word.c_str());
+                    std::fprintf(emit, "\n");
+                }
+            }
+        if (reads % every == 0) {
+            const auto& w = stage.walker();
+            std::printf("read %5d cell %03x %03x view %03x %03x level %3d x %3d z %3d score %u lives %d damage %d "
+                        "attached %d found %d%d places %d%s%s\n",
+                        reads, w.cell_x, w.cell_y, stage.view_x(), stage.view_y(), w.level, w.x, w.z, stage.score(),
+                        stage.lives(), stage.damage(), stage.creatures().attached(), stage.found()[0], stage.found()[1],
+                        stage.creature_places(), stage.ramp_closed() ? "" : " RAMP-OPEN", stage.finished() ? " FINISHED" : "");
+        }
+        ++reads;
+        return held;
+    };
+    int frames = 0;
+    while (!stop && reads <= last && !stage.over() && frames < 200000) {
+        const int g = pending_gadget;
+        pending_gadget = -1;
+        stage.frame(reader, g);
+        ++frames;
+    }
+    const auto& w = stage.walker();
+    std::printf("end: %d frames, %d reads, cell %03x %03x, score %u, lives %d%s, next seed %08x\n", frames, reads, w.cell_x,
+                w.cell_y, stage.score(), stage.lives(), stage.finished() ? ", finished" : "", stage.next_seed());
+    if (!png.empty()) platform::save_png(stage.picture(), png);
+    return 0;
 }
 
 } // namespace
@@ -453,6 +599,11 @@ int main(int argc, char** argv) {
             return walk(platform::utf8_path(argv[2]), std::uint32_t(std::stoul(argv[3], nullptr, 16)),
                         platform::utf8_path(argv[4]), platform::utf8_path(argv[5]), argc >= 7 ? std::stoi(argv[6]) : 1 << 30,
                         argc == 8 ? platform::utf8_path(argv[7]) : std::filesystem::path());
+        }
+        if (command == "sim" && argc >= 6 && argc <= 8) {
+            return sim(platform::utf8_path(argv[2]), std::uint32_t(std::stoul(argv[3], nullptr, 16)), std::stoi(argv[4]),
+                       platform::utf8_path(argv[5]), argc >= 7 ? std::stoi(argv[6]) : 100,
+                       argc == 8 ? platform::utf8_path(argv[7]) : std::filesystem::path());
         }
         if (command == "view" && argc == 6) {
             return view(platform::utf8_path(argv[2]), std::uint32_t(std::stoul(argv[3], nullptr, 16)),

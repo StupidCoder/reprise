@@ -51,6 +51,17 @@ void fill(screen::Canvas& canvas, const std::vector<Point>& points, int pen, int
     }
 }
 
+// A find's sign (topaz 8, JAM1) with its baseline at (x, y): "E=" or
+// "mc" and a "2" raised 4 rows, 16 to the right ($204E7E / $204EC6).
+void find_sign(screen::Canvas& canvas, int x, int y, int which, int pen) {
+    if (which == 0) {
+        canvas.text(x, y, "E=", pen);
+    } else {
+        canvas.text(x, y, "mc", pen);
+        canvas.text(x + 16, y - 4, "2", pen);
+    }
+}
+
 // $2053D2: a branch of a tree, and up to three smaller ones from its end.
 void branch(screen::Canvas& canvas, world::ShiftRegister& random, int x, int y, bool left, int size, int depth,
             int pen, int top) {
@@ -127,7 +138,7 @@ std::vector<std::uint16_t> ViewPainter::walker_mask(const ViewCells& view, int d
     screen::Canvas box;
     box.fill(w.x, w.top, w.x + 16, std::min(w.top + w.rows, 199), 1);
     const int level = w.terrain & 0xFF, z = w.view_row * 80;
-    if ((w.terrain & 0x800) && (w.beacon_taken || !(w.terrain & 0x100)) && z + 0x40 < w.depth) {
+    if ((w.terrain & 0x800) && (w.ramp_closed || !(w.terrain & 0x100)) && z + 0x40 < w.depth) {
         const auto pole = camera_.project(w.view_column * 80 - 120, level, z + 0x40);
         box.fill(pole.x - 9, 0, pole.x + 9, pole.y, 0);
     }
@@ -176,6 +187,10 @@ void ViewPainter::paint_grid(screen::Canvas& canvas, int top, std::uint32_t scor
     // $20655A: the IntuiText at $2066CE (pen 14 on 0, JAM2, topaz 8) at
     // (7, 11); its top edge there, so the baseline 6 rows lower.
     canvas.text(7, top + 11 + 6, score_text(score), 14, screen::TextFont::topaz8, screen::plain, true, 0);
+    // The finds held: "E=" ($204E7E) and "mc" with a raised "2" ($204EC6),
+    // pen 14, JAM1, baseline at row $1D.
+    if (status_.found[0]) find_sign(canvas, 0x112, top + 0x1D, 0, 14);
+    if (status_.found[1]) find_sign(canvas, 0x124, top + 0x1D, 1, 14);
     for (std::uint32_t i = 0; i < 18; ++i) {
         const int y = a_.s16(grid_rows + i * 2);
         canvas.line(0, top + y, 319, top + y, grid_pen);
@@ -270,7 +285,28 @@ void ViewPainter::paint_cells(screen::Canvas& canvas, const ViewCells& view, int
             int face_pen = pen;
             if ((t & 0x1000) && kind != 0xC000) face_pen = 9;
             const bool outlined = (t & 0x400) || kind == 0x4000 || marked;
-            fill(canvas, face, face_pen, outlined ? (marked ? outline_pen : 0) : -1, top);
+            // The marked block's ramp while the way on is open: the top as a
+            // slope down to one side (outlined in pen 0) and a short capped
+            // post ($202CD4); otherwise the tall pole below.
+            const bool open_ramp = (t & 0x800) && marked && !status_.ramp_closed;
+            if (open_ramp) {
+                const int side_pen = face_pen == 9 ? 10 : 9;
+                if (column < 2) {
+                    fill(canvas, {face[3], face[0], {face[0].x, face[3].y}}, side_pen, 0, top);
+                    fill(canvas, {face[0], face[1], face[2], {face[0].x, face[2].y}}, face_pen, 0, top);
+                } else {
+                    fill(canvas, {face[1], face[2], {face[1].x, face[2].y}}, side_pen, 0, top);
+                    fill(canvas, {face[0], face[1], {face[1].x, face[2].y}, face[3]}, face_pen, 0, top);
+                }
+                for (int k = 1; k < 5; ++k) {
+                    const int w = 11 - 2 * k;
+                    canvas.fill(centre.x - w, top + centre.y, centre.x + w, top + face[3].y - 1, k + 4);
+                }
+                fill(canvas, {{centre.x - 9, centre.y}, {centre.x - 6, centre.y - 2}, {centre.x, centre.y - 3},
+                              {centre.x + 6, centre.y - 2}, {centre.x + 9, centre.y}, {centre.x, centre.y + 1}}, 5, -1, top);
+            } else {
+                fill(canvas, face, face_pen, outlined ? (marked ? outline_pen : 0) : -1, top);
+            }
             if ((t & 0x400) || (cell.objects & 0x40)) {
                 // Landmarks and empty cells: a pattern in pen 0; landmarks
                 // also a star ($2026D6, pen 13) twelve levels up.
@@ -305,6 +341,20 @@ void ViewPainter::paint_cells(screen::Canvas& canvas, const ViewCells& view, int
                 }
             }
             const auto far_middle = camera_.project(x, level, z + half_cell);
+            if (cell.objects & 4) {
+                // A creature's place ($202B00): a kite on a line up out of
+                // the picture, and a column of triangles from its top up,
+                // black outlined in pen 13 (pen 1 once stepped on).
+                const int place_pen = (cell.objects & 8) ? 1 : 13;
+                const int kite_top = std::clamp(camera_.project(x, level - 10, z + half_cell).y, 0, 199);
+                const int mx = far_middle.x, my = far_middle.y;
+                const int w = std::max(my - kite_top, 2);
+                const Point kite[] = {{mx, my}, {mx, 0}, {mx + w, my >> 1}, {mx, my}, {mx - w, my >> 1}, {mx, 0}};
+                for (int i = 0; i + 1 < 6; ++i)
+                    canvas.line(kite[i].x, top + kite[i].y, kite[i + 1].x, top + kite[i + 1].y, place_pen);
+                for (int ty = kite_top; ty > 0; ty -= w + 3)
+                    fill(canvas, {{mx, ty}, {mx + (w >> 1), w + ty}, {mx - (w >> 1), w + ty}}, 0, place_pen, top);
+            }
             if (t & 0x2000) {
                 // A tree ($205538, pen 12): a trunk, then three branches, all
                 // from a shift register seeded with the cell's mix word.
@@ -318,8 +368,11 @@ void ViewPainter::paint_cells(screen::Canvas& canvas, const ViewCells& view, int
                     branch(canvas, random, far_middle.x, crown, left, trunk, 0, 12, top);
                 }
             }
-            const bool ramp = (t & 0x800) != 0; // (the marked-block form is not drawn yet)
-            if (ramp) {
+            // The finds: their signs in pen 13 at the cell's middle (h20).
+            if (cell.objects & 0x10) find_sign(canvas, far_middle.x - 8, top + far_middle.y, 0, 13);
+            if (cell.objects & 0x20) find_sign(canvas, far_middle.x - 12, top + far_middle.y, 1, 13);
+            const bool pole = (t & 0x800) && !open_ramp;
+            if (pole) {
                 // A pole up out of the picture ($202A82): four bands, pens 5-8.
                 for (int k = 1; k < 5; ++k) {
                     const int w = 11 - 2 * k;

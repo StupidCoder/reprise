@@ -158,6 +158,62 @@ int views(const std::filesystem::path& content, std::uint32_t seed, const std::f
 
 } // namespace
 
+// Research: the objects near the start of a world (stage `stage`): every
+// find, beacon and creature's place within `radius` cells, by distance.
+int scan(const std::filesystem::path& content, std::uint32_t seed, int stage, int radius) {
+    const mindwalker::data::GameFiles files(content);
+    const auto& a = files.program(mindwalker::data::Stage::landscape);
+    const World world(seed, a);
+    mindwalker::landscape::ViewInputs inputs;
+    inputs.stage = stage;
+    inputs.home_x = world.start_x();
+    inputs.home_y = world.start_y();
+    const auto colours = mindwalker::landscape::stored_colours(a);
+    std::printf("start %03x %03x\n", world.start_x(), world.start_y());
+    for (int dy = -radius; dy < radius; dy += 4)
+        for (int dx = -radius; dx < radius; dx += 4) {
+            const auto x = std::uint16_t((world.start_x() + dx) & 0xFFF), y = std::uint16_t((world.start_y() + dy) & 0xFFF);
+            inputs.previous_x = x;
+            inputs.previous_y = y;
+            const auto v = mindwalker::landscape::build_view(world, a, x, y, inputs, colours);
+            for (int cx = 0; cx < 4; ++cx)
+                for (int cy = 0; cy < 4; ++cy) {
+                    const auto o = v.objects[std::size_t(cx)][std::size_t(cy)];
+                    const auto t = v.terrain[std::size_t(cx)][std::size_t(cy)];
+                    const char* what = (o & 0x10) ? "find E=" : (o & 0x20) ? "find mc2" : (o & 2) ? "beacon" : (o & 4) ? "creature place" : (t & 0x800) ? "ramp" : (t & 0x1000) ? "pyramid" : nullptr;
+                    if (what)
+                        std::printf("%-15s cell %03x %03x  (dx %+d dy %+d)  level %d kind %x\n", what, (x + cx) & 0xFFF,
+                                    (y + cy) & 0xFFF, dx + cx, dy + cy, t & 0xFF, t >> 14);
+                }
+        }
+    return 0;
+}
+
+// Research: the terrain and object words of a region (w x h cells from
+// x0, y0; north up), one line per cell, for route planning.
+int grid(const std::filesystem::path& content, std::uint32_t seed, int stage, int x0, int y0, int w, int h) {
+    const mindwalker::data::GameFiles files(content);
+    const auto& a = files.program(mindwalker::data::Stage::landscape);
+    const World world(seed, a);
+    mindwalker::landscape::ViewInputs inputs;
+    inputs.stage = stage;
+    inputs.home_x = world.start_x();
+    inputs.home_y = world.start_y();
+    const auto colours = mindwalker::landscape::stored_colours(a);
+    for (int y = 0; y < h; y += 4)
+        for (int x = 0; x < w; x += 4) {
+            const auto vx = std::uint16_t((x0 + x) & 0xFFF), vy = std::uint16_t((y0 + y) & 0xFFF);
+            inputs.previous_x = vx;
+            inputs.previous_y = vy;
+            const auto v = mindwalker::landscape::build_view(world, a, vx, vy, inputs, colours);
+            for (int cx = 0; cx < 4; ++cx)
+                for (int cy = 0; cy < 4; ++cy)
+                    std::printf("%03x %03x %04x %04x\n", (vx + cx) & 0xFFF, (vy + cy) & 0xFFF,
+                                v.terrain[std::size_t(cx)][std::size_t(cy)], v.objects[std::size_t(cx)][std::size_t(cy)]);
+        }
+    return 0;
+}
+
 int main(int argc, char** argv) {
     const std::string command = argc > 1 ? argv[1] : "";
     try {
@@ -167,6 +223,14 @@ int main(int argc, char** argv) {
         if (command == "views" && argc == 5) {
             return views(platform::utf8_path(argv[2]), std::uint32_t(std::stoul(argv[3], nullptr, 16)),
                          platform::utf8_path(argv[4]));
+        }
+        if (command == "grid" && argc == 9) {
+            return grid(platform::utf8_path(argv[2]), std::uint32_t(std::stoul(argv[3], nullptr, 16)), std::stoi(argv[4]),
+                        std::stoi(argv[5], nullptr, 16), std::stoi(argv[6], nullptr, 16), std::stoi(argv[7]), std::stoi(argv[8]));
+        }
+        if (command == "scan" && argc == 6) {
+            return scan(platform::utf8_path(argv[2]), std::uint32_t(std::stoul(argv[3], nullptr, 16)), std::stoi(argv[4]),
+                        std::stoi(argv[5]));
         }
         if (command == "show" && argc == 4) {
             const mindwalker::data::GameFiles files(platform::utf8_path(argv[2]));

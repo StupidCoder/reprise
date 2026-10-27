@@ -22,6 +22,16 @@ class ViewPainter {
 public:
     explicit ViewPainter(const amiga::LoadedImage& landscape);
 
+    // Stage state the drawing shows: whether the way on (the marked block's
+    // ramp) is still closed ($2099B6: 1 in a new game, 0 once a beacon has
+    // marked the block) and which finds are held ($2099BC/$2099BE: their
+    // signs beside the score).
+    struct Status {
+        bool ramp_closed{true};
+        std::array<bool, 2> found{};
+    };
+    void set_status(const Status& status) { status_ = status; }
+
     // Draws the view facing `direction` (0-3, the compass) into the canvas,
     // whose row 0 is the drawing bitmap's (the screen shows it from row
     // `top` on). Floor, ceiling levels come from the world.
@@ -31,6 +41,8 @@ public:
     // The score as $20655A prints it: decimal without leading zeros, and
     // nothing at all for 0.
     static std::string score_text(std::uint32_t score);
+    // The grid and score alone ($205218), as h8 draws them on the display.
+    void draw_grid(screen::Canvas& canvas, int top, std::uint32_t score) const { paint_grid(canvas, top, score); }
 
     // The depth masks of the second pass ($201492: $201758(0, ...)): for
     // rows 0-2, which pixels of the drawing (row 0 = its top) that row's
@@ -50,7 +62,7 @@ public:
         int view_row{}, view_column{};   // $20B318 / $20B31C: its place facing the view
         int depth{};                     // $20B310: its depth + 24
         std::uint16_t terrain{};         // its cell's terrain word ($20B320)
-        bool beacon_taken{};             // $2099B6
+        bool ramp_closed{true};          // $2099B6: the way on still closed
     };
     std::vector<std::uint16_t> walker_mask(const ViewCells&, int direction, int floor_level, const WalkerPlace&,
                                            const std::array<DepthMask, 3>& masks) const;
@@ -70,6 +82,7 @@ private:
 
     const amiga::LoadedImage& a_;
     FixedCamera camera_;
+    Status status_;
 };
 
 } // namespace mindwalker::landscape

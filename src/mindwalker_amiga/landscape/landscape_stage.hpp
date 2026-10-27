@@ -69,6 +69,7 @@ struct Walker {
     int depth{};                // $20B310: its depth into the view + 24
     std::vector<std::uint16_t> visible; // the sprite's rows as h11 masks them (bit 15 = left)
     int hidden_frames{};        // $20B386: frames wholly hidden (from the 9th the marker shows)
+    int edge_push{};            // $20B382: frames pushed at a held view's edge
     bool aiming{};              // $20B376: fire held (the target cursor shown, colours 19-31 lit)
     int cursor_x{}, cursor_y{}; // $20B37A/$20B37E: the target (drawing rows)
 };
@@ -102,6 +103,12 @@ public:
     int frozen() const { return frozen_; }
     // The walker stepped onto the marked block's ramp: the stage ends ($209F34).
     bool finished() const { return finished_; }
+    // The next world's seed, once finished (shared +$4C).
+    std::uint32_t next_seed() const { return next_seed_; }
+    // The finds held ($2099BC/$2099BE) and the creature places left in view.
+    const std::array<bool, 2>& found() const { return inputs_.found; }
+    int creature_places() const { return cells_.creature_places; }
+    bool ramp_closed() const { return ramp_closed_; }
     // The last life was lost to a catch ($204D6C).
     bool out_of_lives() const { return out_of_lives_; }
     // The stage is over and its last picture sequence has played.
@@ -111,6 +118,10 @@ public:
     int damage() const { return damage_; }
     // For replays of recordings that poke the damage ($20052E).
     void set_damage(int damage) { damage_ = damage; }
+    // For replays: the stage clock from the original's own frames (its
+    // seconds pass at its pace, slowdown included).
+    void set_clock(int frames) { clock_frames_ = frames; }
+    int clock() const { return clock_frames_; }
     const Creatures& creatures() const { return creatures_; }
     const ZapBolt& bolt() const { return bolt_; }
     // The walker's sprite rows as shown (plane A << 16 | plane B), masked.
@@ -119,6 +130,7 @@ public:
 private:
     void rebuild_view();
     void repaint(bool full = true);
+    void repaint_shown(Interlude::Repaint, int repeats = 1);
     void follow_height(const InputReader&); // $209D8A
     void caught();          // $209D8A's branch after a catch
     void creatures_tick();  // $2003C0
@@ -127,10 +139,13 @@ private:
     Display current_display() const;
     void draw_walker(platform::Image&, const std::vector<screen::Rgb4>& colours) const;
     const data::Bitmap& walker_bitmap() const;
+    void draw_creatures(platform::Image&, const std::vector<screen::Rgb4>& colours) const;
     void step(const InputReader&); // $20A45C
     void aim(int sx, int sz);      // $20A45C with fire held
     void take_cell();       // $20AB4E
-    void cell_events();     // $209F34 (the visited map so far)
+    void cell_events();     // $209F34
+    void take_find();       // $20A1B0
+    void rebuild_view_keeping(); // $20A204 2
     void place_sprite();    // $209B54 / $2057D0
     void face(int direction);
     void anchor(int direction); // $20B18A
@@ -165,7 +180,11 @@ private:
     bool caught_{};                       // $20B356
     int damage_{};                        // $20052E
     int flash_{};                         // $200518: colour 13's counter
-    bool beacon_taken_{};                 // $2099B6 (the marked block's state)
+    bool ramp_closed_{true};              // $2099B6: the way on closed (until a beacon marks its block)
+    std::uint32_t next_seed_{};           // shared +$4C: the next world's seed, set on the way on
+    int slow_creatures_{};                // $20052A: both finds held
+    int slow_count_{};                    // $20051C
+    int clock_frames_{}, clock_mark_{};   // the stage clock (shared +$6A as frames) and the last beacon
     std::uint32_t printed_score_{};       // the score as last printed ($20655A)
     bool aim_colours_{};                  // colours 19-31 lit by the aim's start
     screen::Canvas view_canvas_;

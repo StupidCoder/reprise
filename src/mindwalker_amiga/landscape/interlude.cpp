@@ -25,6 +25,17 @@ constexpr int paint_frames = 19;
 constexpr int reveal_total_frames = 59;
 constexpr int settle_frames = 11;
 
+// A repaint's events, in frames from its start (measured on a view change,
+// harness/viewtime.py: h8 at 4, 9, 15 and 22, the colours loaded and the
+// new drawing copied at 30-31, done at 41; a plain repaint (the map's close)
+// 31 in all; $201602 taken as the view change's).
+constexpr int row_frames[4] = {4, 9, 15, 22}; // rows 3, 2, 1, 0
+constexpr int copy_frame = 30, repaint_frames = 41, plain_copy = 22, plain_frames = 31;
+constexpr int mask_rows[3] = {33, 36, 39};    // the mask pass: rows 2, 1, 0
+constexpr std::uint32_t h8_colours = 0x202EB6;    // the colour each h8 row blacks out (by row)
+constexpr std::uint32_t flash_colours = 0x202EAE; // colour 0 in turn ($201258)
+constexpr std::uint32_t star_x = 0x202EBE, star_y = 0x202EE2; // 9 rays
+
 int reveal_frames(int step) {
     return (step + 1) * reveal_total_frames / reveal_steps - step * reveal_total_frames / reveal_steps;
 }
@@ -134,7 +145,97 @@ void Interlude::reveal_step(int step) {
         for (int x = 0; x < 320; ++x) copy(x, y);
 }
 
+void Interlude::start_repaint(const Display& now, const Display& next, Repaint kind, int repeats, int sx, int sy,
+                              std::function<void(screen::Canvas&)> grid) {
+    if (phase_ == Phase::repaint) {
+        queued_.push_back({next, kind, repeats, sx, sy});
+        return;
+    }
+    display_ = now;
+    next_ = next;
+    repaint_ = kind;
+    repeats_ = repeats;
+    star_x_ = sx;
+    star_y_ = sy;
+    grid_ = std::move(grid);
+    frame_ = 0;
+    phase_ = Phase::repaint;
+    // $201492 modes 0 and 1 clear the tether layer at once ($200E62).
+    if (kind == Repaint::plain || kind == Repaint::view_change)
+        std::fill(display_.plane4.begin() + view_top * 320, display_.plane4.end(), 0);
+    if (kind == Repaint::star) display_.colours[13] = 0xFFF; // $201602(1)
+    blackened_ = next_.colours;
+    repaint_frame();
+}
+
+void Interlude::repaint_frame() {
+    const int t = frame_;
+    if (repaint_ == Repaint::plain) {
+        if (t == plain_copy) display_ = next_;
+        return;
+    }
+    for (int k = 0; k < 4; ++k) {
+        if (t != row_frames[k]) continue;
+        const int row = 3 - k;
+        if (repaint_ == Repaint::view_change) {
+            // h8: the display's plane (8 >> row) cleared below the bar, a
+            // colour of the new palette blacked out, the grid drawn again.
+            blackened_[std::size_t(a_.s16(h8_colours + std::uint32_t(row * 2)) & 31)] = 0;
+            display_.colours = blackened_;
+            const int mask = 8 >> row;
+            for (int y = view_top; y < 200; ++y)
+                for (int x = 0; x < 320; ++x) display_.planes.plot(x, y, display_.planes.pen(x, y) & ~mask);
+            if (grid_) grid_(display_.planes);
+        } else {
+            // $201244 / $201122: colour 0 in turn; the star at 8 x (4 - row).
+            display_.colours[0] = a_.u16(flash_colours + std::uint32_t((3 - row) * 2));
+            if (repaint_ == Repaint::star) {
+                const int scale = (4 - row) * 8;
+                const auto ray = [&](int i) {
+                    return std::pair{std::clamp(scale * a_.s32(star_x + std::uint32_t(i * 4)) + star_x_, 0, 319),
+                                     std::clamp(scale * a_.s32(star_y + std::uint32_t(i * 4)) + star_y_, view_top, 199)};
+                };
+                for (int i = 0; i < 9; ++i) {
+                    const auto [px, py] = ray(i);
+                    if (i > 0) {
+                        const auto [qx, qy] = ray(i - 1);
+                        display_.planes.line(qx, qy, px, py, 13);
+                    }
+                    display_.planes.line(px, py, star_x_, star_y_, 13);
+                }
+            }
+        }
+    }
+    if (t == copy_frame) {
+        const auto colours = display_.colours;
+        display_.planes = next_.planes;
+        display_.plane4 = next_.plane4;
+        display_.colours = repaint_ == Repaint::view_change ? next_.colours : colours;
+    }
+    if (repaint_ != Repaint::view_change)
+        for (int k = 0; k < 3; ++k)
+            if (t == mask_rows[k]) display_.colours[0] = a_.u16(flash_colours + std::uint32_t((2 - k) * 2));
+}
+
 void Interlude::advance() {
+    if (phase_ == Phase::repaint) {
+        ++frame_;
+        const int total = repaint_ == Repaint::plain ? plain_frames : repaint_frames;
+        if (frame_ >= total) {
+            display_ = next_;
+            phase_ = Phase::idle;
+            if (--repeats_ > 0) {
+                start_repaint(display_, next_, repaint_, repeats_, star_x_, star_y_, grid_);
+            } else if (!queued_.empty()) {
+                const auto q = queued_.front();
+                queued_.erase(queued_.begin());
+                start_repaint(display_, q.next, q.kind, q.repeats, q.star_x, q.star_y, grid_);
+            }
+            return;
+        }
+        repaint_frame();
+        return;
+    }
     if (phase_ == Phase::idle || --frames_left_ > 0) return;
     ++step_;
     switch (phase_) {

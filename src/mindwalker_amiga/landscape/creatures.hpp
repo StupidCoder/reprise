@@ -64,6 +64,12 @@ public:
     void hide_all(const Scene&);
     // $207E5A: the present creatures' sprites back in place.
     void show_present(const Scene&);
+    // A beacon taken: nobody present, all hidden, and none appear until the
+    // view changes ($2099B4 / $208130 set, $207EAC).
+    void calm(const Scene& scene) {
+        quiet_ = true;
+        clear_presence(scene);
+    }
     // $207EAC: nobody present, all hidden.
     void clear_presence(const Scene&);
     bool quiet() const { return quiet_; }
@@ -84,6 +90,7 @@ public:
     // While zapping: the creatures' next move and the layer's clearing come
     // sooner ($20A45C: timer at least 3, tether clock at least 6).
     void hasten();
+    void reset_tether_clock() { tether_clock_ = 0; } // $200520 = 0
     // $206F40: the first present creature (not of kind 4) within 20 pixels
     // of (x, y) around its middle is zapped: gone, untethered if attached;
     // the view's bonus grows by 3 (free) or 5 (attached) times the follow
