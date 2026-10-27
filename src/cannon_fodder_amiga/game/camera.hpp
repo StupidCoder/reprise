@@ -26,6 +26,8 @@ public:
     // $A1062: |dx| and |dy| halved together until both are below 32, the
     // table entry shifted back; 1000 when either is 320 or more.
     int distance(int dx, int dy) const;
+    // The same with another limit ($A10AA: 640, giving 640 beyond).
+    int distance(int dx, int dy, int limit, int beyond) const;
 
     // $9E28C / $A0B8E: direction of (dx, dy) in sine-table bytes (0-$1FE,
     // $200 per turn; x = sine(a), y = sine(a + $80)). Nothing for (0, 0).

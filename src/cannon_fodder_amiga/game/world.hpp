@@ -67,7 +67,9 @@ struct Squad {
     std::vector<int> members;              // slots in order ($85B12[n])
     int mode{2};                           // $85BF8[n]: 0 slow, 1 normal, 2 fast
     int merged_into{-1};                   // $85C3E[n]
-    int weapon{};                          // $821CC[n]: what the leader's both-button fire uses
+    int weapon{};                          // $821CC[n]: what the leader's both-button fire uses (1 grenade, 3 rocket)
+    int grenades{}, rockets{};             // $81F4C[n], $81F52[n]
+    bool ammunition_changed{};             // $821C0[n] / $821C6[n]: the panel redraws the counts
 };
 
 // The three walk-frame counters ($94B54, once per tick before the objects):
@@ -123,6 +125,12 @@ struct SquadFire {
     int lifetime_bonus{}, speed_bonus{}; // $82150, $82152: a lone veteran's bullets
 };
 
+// A sound the rules ask for ($A3A30: an effect pattern of the landscape's
+// song and a priority); the sound board plays it (sound/board.hpp).
+struct SoundRequest {
+    int effect{}, priority{}, slot{};
+};
+
 struct World {
     MissionObjects objects;
     std::array<Walker, object_slots> walkers{};
@@ -152,12 +160,37 @@ struct World {
     // 30 by the enemies; -1 elsewhere).
     std::array<int, 30> recruit_lists{};
     std::vector<std::array<int, 2>> fallen; // $80CE8 / $80A0E: each dead recruit's name and rank
+    // Explosives
+    std::array<int, 2> grenades_in_air{}, rockets_in_air{}; // $81DF0, $81DF4 by side
+    std::array<std::array<int, 2>, 128> blast_points{}; // $82498: ring of points for map damage
+    int blast_write{}, blast_read{};   // $826A8, $826AC
+    int blast_count{};                 // (entries waiting; the original ends the ring with -1)
+    bool map_damage_drawing{};         // $82494: an on-screen tile change is being drawn
+    int landscape{};                   // $8278C: 0-4, which tiles only big blasts change
+    Camera snapshot;                   // $81506/$8150A: the camera as last drawn
+    int drawn_objects{};               // $82736: objects in the last draw list (effects stop at 20)
+    bool jitter_next_effect{};         // $827DA: the next smoke or splash is placed at random
+    std::array<bool, 3> marker_hidden{}; // $81DDE[n]: no rank marker over the squad's leader (meaning open)
+    int jolt{};                        // $817C0 = 9 after an explosion on screen (shake: $817C6-$817CE, open)
+    // The mission
+    enum class Outcome { playing, won, lost };
+    Outcome outcome{Outcome::playing}; // $81DCC won, $81DCA lost
+    std::array<bool, 8> objectives{};  // $82A08…$82A16: the phase's objectives 1-8 (program $A4D8E)
+    bool civilian_home{};              // $82A1C (objective 8)
+    int buildings_left{};              // $81DD0
+    int skill_min{}, skill_max{}, skill_next{}, skill_step{1}; // $8062A, $8062C, $8062E, $80630
+    int spawns{};                      // $80650: every 16th raises skill_max (to 30)
     int saved_frame{};            // $817B8
     bool keep_frame{};            // $81DE4
     bool other_squad{};           // $81FCE: the update is not the selected squad's (enemies: no target)
     bool walked{};                // $8213E: the enemy stepped this tick
     int last_mode{2};             // $81F64: the last soldier's squad mode, which enemies read too
+    std::vector<SoundRequest> sounds; // this tick's, in order
     std::mt19937 random{0x43464f44};
 };
+
+inline void request_sound(World& world, int effect, int priority, int slot) {
+    world.sounds.push_back({effect, priority, slot});
+}
 
 } // namespace fodder::game

@@ -53,6 +53,7 @@ add_library(amiga
     src/amiga/iff.cpp
     src/amiga/paula.cpp
     src/amiga/paula_voices.cpp
+    src/amiga/paula_channels.cpp
     src/amiga/topaz.cpp
     src/amiga/intuition_imagery.cpp)
 target_include_directories(amiga PUBLIC ${SOURCE_ROOT})
@@ -239,6 +240,11 @@ add_library(cannon_fodder_amiga
     src/cannon_fodder_amiga/game/walking.cpp
     src/cannon_fodder_amiga/game/combat.cpp
     src/cannon_fodder_amiga/game/tables.cpp
+    src/cannon_fodder_amiga/game/explosives.cpp
+    src/cannon_fodder_amiga/game/mission.cpp
+    src/cannon_fodder_amiga/game/scenery.cpp
+    src/cannon_fodder_amiga/sound/rjp1.cpp
+    src/cannon_fodder_amiga/sound/board.cpp
     src/cannon_fodder_amiga/import/disk_import.cpp
     src/cannon_fodder_amiga/import/rnc.cpp
     src/cannon_fodder_amiga/import/sensi_disk.cpp)

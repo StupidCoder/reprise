@@ -34,11 +34,13 @@ GeometryTables::GeometryTables(std::span<const std::uint8_t> program) {
     }
 }
 
-int GeometryTables::distance(int dx, int dy) const {
+int GeometryTables::distance(int dx, int dy) const { return distance(dx, dy, 320, 1000); }
+
+int GeometryTables::distance(int dx, int dy, int limit, int beyond) const {
     dx = std::abs(dx);
     dy = std::abs(dy);
-    if (dx >= 320 || dy >= 320) {
-        return 1000;
+    if (dx >= limit || dy >= limit) {
+        return beyond;
     }
     int shift = 0;
     while (dx > 31 || dy > 31) {

@@ -42,8 +42,19 @@ public:
     bool sight_blocked(int x0, int y0, int x1, int y1) const;
     int width() const { return width_; }
     int height() const { return height_; }
+    int width_tiles() const { return map_width_tiles_; }
+
+    // The map can change: blasts swap tiles for their damaged forms (the
+    // tile sets' .swp files, a word per tile, $FFFF none).
+    void set_swaps(std::span<const std::uint8_t> base_swp, std::span<const std::uint8_t> sub_swp);
+    int swap(int tile) const;
+    int cell(int index) const { return index >= 0 && std::size_t(index) < cells_.size() ? cells_[std::size_t(index)] : 0; }
+    void set_cell(int index, int value) {
+        if (index >= 0 && std::size_t(index) < cells_.size()) cells_[std::size_t(index)] = std::uint16_t(value);
+    }
 
 private:
+    std::vector<std::int16_t> swaps_;
     int width_{}, height_{}, map_width_tiles_{};
     std::vector<std::uint16_t> cells_;
     std::vector<std::uint16_t> attributes_; // per tile, base then sub

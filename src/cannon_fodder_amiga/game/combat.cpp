@@ -109,7 +109,7 @@ private:
         for (int i = 0; i < object_slots; ++i) {
             auto& t = w_.objects.slots[std::size_t(i)];
             const int flag = h_.hittable(t.kind);
-            if (flag == 0 || !t.used) continue;
+            if (flag == 0 || !t.used || whole(t.x) < 0) continue;
             const int tx = whole(t.x), ty = whole(t.y);
             if (right < tx || left > std::int16_t(tx + h_.width(t.kind))) continue;
             if (bottom < std::int16_t(ty - h_.above(t.kind)) || top > std::int16_t(ty + h_.below(t.kind))) continue;
@@ -209,7 +209,9 @@ private:
 
 int allocate_slot(World& world) {
     for (int i = 42; i >= 0; --i) {
-        if (world.objects.slots[std::size_t(i)].used) continue;
+        // (An object with a negative x counts as free, as in the original.)
+        const auto& o = world.objects.slots[std::size_t(i)];
+        if (o.used && whole(o.x) >= 0) continue;
         world.objects.slots[std::size_t(i)] = GameObject{};
         world.objects.slots[std::size_t(i)].used = true;
         world.walkers[std::size_t(i)] = Walker{};
@@ -424,7 +426,7 @@ bool fire_bullet(World& world, const FireTables& tables, int shooter) {
         b.spread = int(r) & mask;
         if (r & 0x80) b.spread = -b.spread;
     }
-    // (The original also plays shot sound $10 or $11 at random here.)
+    request_sound(world, (world.random() & 1) == 0 ? 0x11 : 0x10, 0, shooter);
     return true;
 }
 

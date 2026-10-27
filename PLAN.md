@@ -936,6 +936,26 @@ files RNC-packed. The image set is a cracked copy (CSL intro loaded by disk
    other squads, winning and losing) to make mission 1 playable in the
    shell; later grenades and rockets, vehicles, buildings, file loads,
    the RJP1 music player, sounds, recruits and front end.
+9. Explosives, scenery and the mission's end rebuilt (2026-10-27):
+   `game/explosives` (grenades, rockets, explosions, debris, smoke,
+   splashes, map damage from the tile sets' `.swp`), `game/scenery` (enemy
+   huts that send soldiers out, crates, bushes thrown by blasts, animals,
+   birds, the leader's rank marker), `game/mission` (objectives per phase,
+   squads' lists, won and lost, enemy spawns and skill). Checked against
+   eleven recordings (grenades and rockets on map 2, huts on map 3): 0
+   differing fields apart from the first fire-control frame of a
+   both-button press (one frame later in some presses).
+10. Sound and music rebuilt (2026-10-27): `sound/rjp1` (the game's RJP1
+   player: songs, sequences, patterns, instruments with envelope, volume
+   and period tables, effects over the music), `amiga/paula_channels`
+   (register-level channels with the hardware's latching), `sound/board`
+   (the game's effect requests: channels 2/3, priorities, busy time,
+   distance volume) fed by requests from the rules. Checked: 2,500 player
+   frames of three recordings field for field; the board on all eleven
+   tick recordings. `cannon_fodder_assets music` renders songs and
+   effects to WAV. Next: vehicles, then the game module (with the music
+   control: landscape song, fades, mission-end songs) to play the first
+   mission in the shell.
 
 Open: the panel's ammunition counts, lit-box condition, vehicle icons and
 mini-map; object drawing with hidden lines, negative/positive layers and y
@@ -952,6 +972,15 @@ squeeze and entering, the hall of fame `$96DF6`, the bleed marker
 (`$81DCA`, `+$40` = $9876) and the mission-end rewrite of `+$26`, the
 leftover register in the enemy aim (`$9DA04`, hypothesis: the enemy
 itself), flagged map cells in the sight line, enemy kinds other than 5.
+Explosives and scenery: homing rockets ($2D/$61, `+$75` bit 0), the screen
+shake (`$817C6`-`$817CE`), a recorded map-tile change (the queue agrees,
+no recording blew up a damageable tile yet), crate pickup and a blasted
+bush not yet recorded, the both-button first frame, the empty-squad and
+selection part of `$9DC18`, objective 4 (protect civilians) and 6/7 as
+separate kinds, `$9F9C6` (new leader), the hall of fame. Sound: release and
+slide not met in a recording, speed modes other than 1, the engine sound
+(`$A3B60`), other kinds' sounds, the music control (see sound.md), the
+channel model against FS-UAE's audio.
 
 ## Launcher visual exploration (2026-10-26)
 

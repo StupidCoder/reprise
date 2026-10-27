@@ -11,6 +11,15 @@
 //   cannon_fodder_assets objects <content folder> <map> <grab prefix> [diff.png]
 //   cannon_fodder_assets panel <content folder> <out.png> [sprites.bin]
 //   cannon_fodder_assets replay <content folder> <map> <trace>
+//   cannon_fodder_assets music <content folder> <disk:song.sng> <disk:song.ins> <song|eN> <seconds> <out.wav>
+//   cannon_fodder_assets sndreplay <content folder> <song.sng> <song.ins> <trace> <sng address> <ins address>
+//
+// music renders a song (or with eN, effect pattern N on channel 2) through
+// the native player at 50 frames a second to a 44.1 kHz stereo WAV file.
+//
+// sndreplay checks the RJP1 player frame by frame against a recording of the
+// original's player (harness/sndtrace.py): each frame starts from the
+// original's player state; every field is compared after the native frame.
 //
 // replay checks the soldiers and bullets tick by tick against a recording of
 // the original (harness/ticktrace2.py): each tick starts from the original's
@@ -47,6 +56,11 @@
 #include "cannon_fodder_amiga/data/preview.hpp"
 #include "cannon_fodder_amiga/game/camera.hpp"
 #include "cannon_fodder_amiga/game/combat.hpp"
+#include "cannon_fodder_amiga/game/explosives.hpp"
+#include "cannon_fodder_amiga/game/mission.hpp"
+#include "cannon_fodder_amiga/game/scenery.hpp"
+#include "cannon_fodder_amiga/sound/board.hpp"
+#include "cannon_fodder_amiga/sound/rjp1.hpp"
 #include "cannon_fodder_amiga/game/map_view.hpp"
 #include "cannon_fodder_amiga/game/object_view.hpp"
 #include "cannon_fodder_amiga/game/objects.hpp"
@@ -134,8 +148,11 @@ int run(int argc, char** argv) {
         const auto map = data::read_map(content.read("mapm" + std::to_string(number) + ".map", disk));
         const auto base = map.base_set.substr(0, map.base_set.size() - 4), sub = map.sub_set.substr(0, map.sub_set.size() - 4);
         const auto program = content.read("fodderc", 1);
-        const game::Terrain terrain(map, content.read(base + ".hit", disk), content.read(sub + ".hit", disk),
-                                    content.read(base + ".bht", disk), content.read(sub + ".bht", disk), program);
+        game::Terrain terrain(map, content.read(base + ".hit", disk), content.read(sub + ".hit", disk),
+                              content.read(base + ".bht", disk), content.read(sub + ".bht", disk), program);
+        terrain.set_swaps(content.read(base + ".swp", disk), content.read(sub + ".swp", disk));
+        sound::Rjp1 music(content.read(base + ".sng", disk), content.read(base + ".ins", disk), program);
+        int sound_requests = 0, bird_cries = 0;
         const game::ProgramTables tables(program);
         const auto trace = platform::read_file(argv[4]);
         struct Range { std::uint32_t address, size, offset; };
@@ -147,7 +164,8 @@ int run(int argc, char** argv) {
         std::size_t at = 0;
         while (trace[at] != '\n') ++at;
         at += 1 + 0x1000 + 0x320 + 0x60 + 0x10;
-        int ticks = 0, bad = 0, unhandled = 0, created = 0, falls = 0, unhandled_enemies = 0, random_skips = 0;
+        int ticks = 0, bad = 0, unhandled = 0, created = 0, falls = 0, unhandled_enemies = 0, random_skips = 0, created_effects = 0,
+            map_changes = 0;
         while (at + 6 <= trace.size()) {
             const int tick = amiga::read_be16(trace, at + 2), randoms = amiga::read_be16(trace, at + 4);
             const auto before = std::span<const std::uint8_t>(trace).subspan(at + 6, blob_size);
@@ -208,7 +226,8 @@ int run(int argc, char** argv) {
             for (int i = 0; i < game::object_slots; ++i) {
                 load_slot(before, i, world.objects.slots[std::size_t(i)], world.walkers[std::size_t(i)]);
                 load_bullet(before, i, world.bullets[std::size_t(i)]);
-                const auto link = std::uint32_t(L(before, 0xfdb2c + std::uint32_t(i) * 0x76 + 0x1a));
+                const int kind_here = W(before, 0xfdb2c + std::uint32_t(i) * 0x76 + 0x18);
+                const auto link = std::uint32_t(L(before, 0xfdb2c + std::uint32_t(i) * 0x76 + (kind_here == 2 || kind_here == 0x21 ? 0x46 : 0x1a)));
                 world.attachments[std::size_t(i)] = {link >= 0xfdb2c && link < 0xfdb2c + 44 * 0x76 ? int((link - 0xfdb2c) / 0x76) : -1,
                                                      W(before, 0xfdb2c + std::uint32_t(i) * 0x76 + 0x62)};
                 const auto& o = world.objects.slots[std::size_t(i)];
@@ -236,6 +255,38 @@ int run(int argc, char** argv) {
             world.saved_frame = W(before, 0x817b8);
             world.phase = W(before, 0x80626);
             world.objects.enemies = W(before, 0x81f5e);
+            for (std::uint32_t n = 0; n < 2; ++n) {
+                world.grenades_in_air[n] = B(before, 0x81df0 + n);
+                world.rockets_in_air[n] = B(before, 0x81df4 + n);
+            }
+            for (std::uint32_t n = 0; n < 3; ++n) {
+                world.squads[n].grenades = W(before, 0x81f4c + n * 2);
+                world.squads[n].rockets = W(before, 0x81f52 + n * 2);
+            }
+            world.landscape = W(before, 0x8278c);
+            for (std::uint32_t n = 0; n < 3; ++n) world.marker_hidden[n] = W(before, 0x81dde + n * 2) != 0;
+            const auto load_mission = [&](std::span<const std::uint8_t> b, game::World& m) {
+                m.skill_min = W(b, 0x8062a); m.skill_max = W(b, 0x8062c); m.skill_next = W(b, 0x8062e); m.skill_step = W(b, 0x80630);
+                m.spawns = W(b, 0x80650);
+                for (std::uint32_t k = 0; k < 8; ++k) m.objectives[k] = W(b, 0x82a08 + k * 2) != 0;
+                m.civilian_home = W(b, 0x82a1c) != 0;
+                m.objects.kind_6a_48 = W(b, 0x81f60);
+                m.outcome = W(b, 0x81dcc) ? game::World::Outcome::won : W(b, 0x81dca) ? game::World::Outcome::lost : game::World::Outcome::playing;
+            };
+            load_mission(before, world);
+            world.snapshot = {W(before, 0x81506), W(before, 0x8150a)};
+            world.drawn_objects = W(before, 0x82736);
+            world.jitter_next_effect = W(before, 0x827da) != 0;
+            {
+                const auto read = std::uint32_t(L(before, 0x826ac)), write = std::uint32_t(L(before, 0x826a8));
+                world.blast_read = int((read - 0x82498) / 4);
+                world.blast_write = int((write - 0x82498) / 4);
+                world.blast_count = 0;
+                for (std::uint32_t k = 0; k < 128; ++k) {
+                    world.blast_points[k] = {W(before, 0x82498 + k * 4), W(before, 0x82498 + k * 4 + 2)};
+                }
+                world.blast_count = (world.blast_write - world.blast_read + 128) % 128;
+            }
             for (std::uint32_t n = 0; n < 8; ++n) world.kills[n] = n < 2 ? W(before, 0x8066e + n * 12) : 0; // (entries 0-1 recorded)
             world.last_mode = W(before, 0x81f64);
             world.other_squad = W(before, 0x81fce) != 0;
@@ -257,10 +308,11 @@ int run(int argc, char** argv) {
             std::array<int, game::object_slots> handled{}; // 1 soldier, 2 bullet, 3 new bullet
             std::array<bool, game::object_slots> was_used{};
             const auto walkers_before = world.walkers;
-            for (int i = 0; i < game::object_slots; ++i) was_used[std::size_t(i)] = world.objects.slots[std::size_t(i)].used;
+            for (int i = 0; i < game::object_slots; ++i) // (a negative x counts as free)
+                was_used[std::size_t(i)] = world.objects.slots[std::size_t(i)].used && world.objects.slots[std::size_t(i)].x >= 0;
             for (int i = 0; i < game::object_slots; ++i) {
                 const auto& o = world.objects.slots[std::size_t(i)];
-                if (!o.used || o.removed) continue;
+                if (!o.used || o.removed || std::int16_t(std::uint32_t(o.x) >> 16) < 0) continue; // (negative x: skipped, as free)
                 bool done = false;
                 if (o.kind == 0 || o.kind == 5) {
                     done = o.kind == 0 ? game::update_soldier(world, terrain, tables, i) : game::update_enemy(world, terrain, tables, i);
@@ -273,6 +325,29 @@ int run(int argc, char** argv) {
                     if (o.kind == 0x16) game::update_shadow(world, i); else game::update_blood(world, i);
                     done = true;
                     handled[std::size_t(i)] = 4;
+                } else {
+                    done = true;
+                    switch (o.kind) {
+                    case 2: done = game::update_grenade(world, terrain, tables, i); break;
+                    case 3: game::update_follower(world, i); break;
+                    case 0x21: done = game::update_rocket(world, terrain, tables, i); break;
+                    case 0xc: done = game::update_explosion(world, tables, i); break;
+                    case 0x27: done = game::update_tile_explosion(world, tables, i); break;
+                    case 0x2f: game::update_debris(world, tables, i); break;
+                    case 0x30: game::update_smoke(world, i); break;
+                    case 0x56: case 0x57: game::update_splash(world, i); break;
+                    case 0x14: game::update_hut(world, terrain, tables, i); break;
+                    case 0x25: case 0x26: game::update_crate(world, tables, i); break;
+                    case 0xd: case 0xe: case 0xf: case 0x10: case 0x11: game::update_bush(world, terrain, tables, i); break;
+                    case 0x23: game::update_bush_shadow(world, i); break;
+                    case 0x1b: game::update_animal(world, terrain, tables, i); break;
+                    case 0x42: case 0x43: game::update_bird(world, i); break;
+                    case 0x15: done = game::update_leader_marker(world, i); break;
+                    case 4: break; // freed ($953E0 does nothing)
+                    default: done = false; break;
+                    }
+                    if (done) handled[std::size_t(i)] = 6;
+                    else if (!done) done = false;
                 }
                 if (!done) {
                     if (o.kind == 0 || o.kind == 6) ++unhandled;
@@ -290,7 +365,16 @@ int run(int argc, char** argv) {
             for (int i = 0; i < game::object_slots; ++i) {
                 const auto& o = world.objects.slots[std::size_t(i)];
                 if (!was_used[std::size_t(i)] && o.used && o.kind == 6) handled[std::size_t(i)] = 3;
-                if (!was_used[std::size_t(i)] && o.used && (o.kind == 0x16 || o.kind == 0x17)) handled[std::size_t(i)] = 4;
+                if (!was_used[std::size_t(i)] && o.used && o.kind == 0x17) handled[std::size_t(i)] = 4;
+                else if (!was_used[std::size_t(i)] && o.used && o.kind == 0x16) handled[std::size_t(i)] = 7; // follows a body thrown by chance
+                else if (!was_used[std::size_t(i)] && o.used && o.kind != 6 && o.kind != 0x16 && o.kind != 0x17) {
+                    // New this tick: grenades and rockets (and their shadows)
+                    // are made without chance; the rest by kind only.
+                    const bool exact = o.kind == 2 || o.kind == 0x21 ||
+                                       (o.kind == 3 && i > 0 && (world.objects.slots[std::size_t(i - 1)].kind == 2 ||
+                                                                 world.objects.slots[std::size_t(i - 1)].kind == 0x21));
+                    handled[std::size_t(i)] = exact ? 6 : 7;
+                }
                 if (!handled[std::size_t(i)] && was_used[std::size_t(i)] != o.used) report(i, "used", o.used, !o.used);
             }
             for (int i = 0; i < game::object_slots; ++i) {
@@ -310,6 +394,38 @@ int run(int argc, char** argv) {
                     {"frame", {o.frame, expected.frame}}, {"heading", {n.heading, e.heading}},
                     {"state", {n.state, e.state}}, {"layer", {o.layer, expected.layer}}, {"kind", {o.kind, expected.kind}},
                     {"height", {o.height, expected.height}}, {"aim_x", {n.aim_x, e.aim_x}}, {"aim_y", {n.aim_y, e.aim_y}}};
+                if (handled[std::size_t(i)] == 7) { // new, partly by chance: the kind only (a splash's either way)
+                    const bool splashes = (o.kind == 0x56 || o.kind == 0x57) && (expected.kind == 0x56 || expected.kind == 0x57);
+                    if (!splashes) report(i, "kind", o.kind, expected.kind);
+                    ++created_effects;
+                    continue;
+                }
+                if (handled[std::size_t(i)] == 6 && (o.kind == 0x42 || o.kind == 0x43)) {
+                    // A bird comes in again at a random place, and starts with a
+                    // random wing position: checked by kind only then.
+                    const auto& was = walkers_before[std::size_t(i)];
+                    const bool was_on_screen = W(before, 0xfdb2c + std::uint32_t(i) * 0x76 + 0x5c) & 0xff00;
+                    if (was.state_timer == 0 || (!was_on_screen && was.animation_timer == 0)) {
+                        ++random_skips;
+                        continue;
+                    }
+                }
+                if (handled[std::size_t(i)] == 6 && o.kind == 0x14) {
+                    // A hut's open-door time and its throw are drawn by chance:
+                    // checked by their ranges.
+                    const auto& was = walkers_before[std::size_t(i)];
+                    if (was.state == 5 || was.state == 7) {
+                        if (n.state != 6 || e.state != 6) report(i, "hut thrown", n.state, e.state);
+                        ++random_skips;
+                        continue;
+                    }
+                    if (std::int8_t(was.idle) == 0) {
+                        const int base = std::max(20 - world.skill_max, 0) * 8;
+                        if (e.state_timer < base - 1 || e.state_timer > base + 14) report(i, "original door time outside the rule", e.state_timer, base);
+                        if (n.state_timer < base - 1 || n.state_timer > base + 14) report(i, "door time range", n.state_timer, base);
+                        n.state_timer = e.state_timer;
+                    }
+                }
                 const bool fall_start = (handled[std::size_t(i)] == 1 || handled[std::size_t(i)] == 5) &&
                                         walkers_before[std::size_t(i)].state != 0 && walkers_before[std::size_t(i)].hit_timer != 0;
                 // Enemies' random choices ($9D894, $9DAA6) differ from the
@@ -367,6 +483,14 @@ int run(int argc, char** argv) {
                     report(i, "timer", n.state_timer, e.state_timer);
                     continue;
                 }
+                if (handled[std::size_t(i)] == 6) {
+                    report(i, "timer", n.state_timer, e.state_timer);
+                    report(i, "speed", n.speed, e.speed);
+                    report(i, "hidden", o.hidden_lines, expected.hidden_lines);
+                    report(i, "vertical_speed", n.vertical_speed, e.vertical_speed);
+                    continue;
+                }
+
                 if (handled[std::size_t(i)] == 2) {
                     const auto& t = world.bullets[std::size_t(i)];
                     game::BulletState x;
@@ -422,6 +546,41 @@ int run(int argc, char** argv) {
             if (!foreign_shot) report(-1, "bullets alive", world.bullets_alive, W(after, 0x81df2));
             report(-1, "leader shots", world.fire.leader_shots, W(after, 0x82738));
             report(-1, "enemies left", world.objects.enemies, W(after, 0x81f5e));
+            {
+                // The sound board over this tick's requests ($A3A30).
+                sound::SoundBoard board;
+                board.last_channel = W(before, 0x81df6);
+                for (std::uint32_t k = 0; k < 4; ++k) {
+                    board.priority[k] = std::int8_t(B(before, 0x81df8 + k));
+                    board.busy[k] = B(before, 0x81dfc + k);
+                }
+                board.silenced = W(before, 0x81dce) != 0;
+                sound_requests += int(world.sounds.size());
+                board.play_all(world, tables.geometry, music);
+                // Birds cry at random (1 in 128 a tick each): a tick where
+                // only the number of requests differs then counts as chance.
+                bool birds = false;
+                for (const auto& o : world.objects.slots) birds = birds || (o.used && (o.kind == 0x42 || o.kind == 0x43));
+                if (birds && board.last_channel != W(after, 0x81df6)) {
+                    ++bird_cries;
+                } else {
+                    report(-5, "sound channel", board.last_channel, W(after, 0x81df6));
+                    for (std::uint32_t k = 2; k < 4; ++k) {
+                        report(-5, "sound priority", board.priority[k], std::int8_t(B(after, 0x81df8 + k)));
+                        report(-5, "sound busy", board.busy[k], B(after, 0x81dfc + k));
+                    }
+                    board.tick();
+                    if (!next_before.empty() && amiga::read_be16(trace, at + 2) == tick + 1)
+                        for (std::uint32_t k = 0; k < 4; ++k) report(-5, "sound busy next tick", board.busy[k], B(next_before, 0x81dfc + k));
+                }
+            }
+            report(-1, "skill next", world.skill_next, W(after, 0x8062e));
+            report(-1, "skill max", world.skill_max, W(after, 0x8062c));
+            report(-1, "grenades in the air", world.grenades_in_air[0], B(after, 0x81df0));
+            report(-1, "rockets in the air", world.rockets_in_air[0], B(after, 0x81df4));
+            report(-1, "squad grenades", world.squads[0].grenades, W(after, 0x81f4c));
+            report(-1, "squad rockets", world.squads[0].rockets, W(after, 0x81f52));
+            report(-1, "blast ring write", world.blast_write, int((std::uint32_t(L(after, 0x826a8)) - 0x82498) / 4));
             report(-1, "kills of recruit 0", world.kills[0], W(after, 0x8066e));
             // The frames up to the next tick: the hold timer, and the fire
             // control while the right button is held.
@@ -435,8 +594,45 @@ int run(int argc, char** argv) {
                 const bool held = W(next_before, 0x81478) != 0;
                 const bool pressed = held && W(after, 0x81478) == 0;
                 between.pointer_x = W(next_before, 0x8caba); between.pointer_y = W(next_before, 0x8cabc);
+                // (Both-button presses: the original's first fire-control frame
+                // is sometimes one later than modelled here; open, see game.md.)
                 if (held) for (int f = 0; f < 3; ++f) game::hold_fire(between, tables.fire, pressed && f == 0);
                 game::update_fire_control(between, tables.fire);
+                // The mission checks of the next tick ($9DC18, $9DD64), from the
+                // state the frames left.
+                {
+                    game::World m = between;
+                    load_mission(after, m);
+                    for (int i = 0; i < game::object_slots; ++i) {
+                        load_slot(next_before, i, m.objects.slots[std::size_t(i)], m.walkers[std::size_t(i)]);
+                    }
+                    m.roster_slots = world.roster_slots;
+                    game::rebuild_squads(m);
+                    for (std::uint32_t k = 0; k < 27; ++k) {
+                        const auto p = std::uint32_t(L(next_before, 0x85b26 + k * 4));
+                        const int expect = p >= 0xfdb2c && p < 0xfdb2c + 44 * 0x76 ? int((p - 0xfdb2c) / 0x76) : -1;
+                        if (k % 9 != 8) report(-4, "recruit list", m.recruit_lists[k], expect);
+                    }
+                    game::check_objectives(m);
+                    report(-4, "buildings left", m.buildings_left, W(next_before, 0x81dd0));
+                    report(-4, "won", m.outcome == game::World::Outcome::won, W(next_before, 0x81dcc) != 0);
+                    report(-4, "lost", m.outcome == game::World::Outcome::lost, W(next_before, 0x81dca) != 0);
+                }
+                // The tile drawer's map damage ($AAFCE), once a tick.
+                {
+                    game::World damage = between;
+                    damage.blast_read = int((std::uint32_t(L(after, 0x826ac)) - 0x82498) / 4);
+                    damage.blast_write = int((std::uint32_t(L(after, 0x826a8)) - 0x82498) / 4);
+                    damage.blast_count = (damage.blast_write - damage.blast_read + 128) % 128;
+                    for (std::uint32_t k = 0; k < 128; ++k) damage.blast_points[k] = {W(after, 0x82498 + k * 4), W(after, 0x82498 + k * 4 + 2)};
+                    damage.map_damage_drawing = W(after, 0x82494) != 0;
+                    damage.snapshot = {W(next_before, 0x81506), W(next_before, 0x8150a)};
+                    for (int i = 0; i < game::object_slots; ++i) load_slot(after, i, damage.objects.slots[std::size_t(i)], damage.walkers[std::size_t(i)]);
+                    const int changed = game::apply_map_damage(damage, terrain, tables.blasts);
+                    if (changed >= 0) ++map_changes;
+                    report(-3, "blast ring read", damage.blast_read, int((std::uint32_t(L(next_before, 0x826ac)) - 0x82498) / 4));
+                    report(-3, "map damage drawing", damage.map_damage_drawing, W(next_before, 0x82494) != 0);
+                }
                 game::SquadFire expect;
                 load_fire(next_before, expect);
                 report(-2, "hold timer", between.fire.hold_timer, expect.hold_timer);
@@ -455,7 +651,175 @@ int run(int argc, char** argv) {
             ++ticks;
         }
         std::printf("%d ticks, %d updates not handled (%d enemy), %d bullets fired, %d falls started, %d enemy updates skipped "
-                    "after random choices, %d fields differ\n", ticks, unhandled, unhandled_enemies, created, falls, random_skips, bad);
+                    "after random choices, %d effects created, %d map tiles changed, %d sounds (%d ticks with a bird cry), %d fields differ\n",
+                    ticks, unhandled, unhandled_enemies, created, falls, random_skips, created_effects, map_changes, sound_requests, bird_cries, bad);
+        return bad == 0 ? 0 : 1;
+    }
+    if (command == "music" && argc == 8) {
+        using namespace fodder;
+        const data::Content content(argv[2]);
+        const auto read = [&](std::string name) {
+            int disk = 1;
+            if (name.size() > 2 && name[1] == ':') {
+                disk = name[0] - '0';
+                name = name.substr(2);
+            }
+            return content.read(name, disk);
+        };
+        sound::Rjp1 player(read(argv[3]), read(argv[4]), content.read("fodderc", 1));
+        amiga::PaulaChannels paula;
+        paula.set_memory(player.samples());
+        const std::string which = argv[5];
+        if (!which.empty() && which[0] == 'e') player.start_effect(2, std::stoi(which.substr(1)));
+        else player.start_song(std::stoi(which));
+        constexpr int rate = 44100;
+        const int frames = int(std::stod(argv[6]) * 50);
+        std::vector<float> audio(std::size_t(frames) * (rate / 50) * 2);
+        for (int f = 0; f < frames; ++f) {
+            player.frame(paula);
+            paula.render(std::span<float>(audio).subspan(std::size_t(f) * (rate / 50) * 2, (rate / 50) * 2), rate);
+        }
+        // 16-bit stereo WAV.
+        std::vector<std::uint8_t> out;
+        const auto put = [&](std::uint32_t v, int bytes) { for (int b = 0; b < bytes; ++b) out.push_back(std::uint8_t(v >> (8 * b))); };
+        const auto data_bytes = std::uint32_t(audio.size() * 2);
+        for (char c : std::string("RIFF")) out.push_back(std::uint8_t(c));
+        put(36 + data_bytes, 4);
+        for (char c : std::string("WAVEfmt ")) out.push_back(std::uint8_t(c));
+        put(16, 4); put(1, 2); put(2, 2); put(rate, 4); put(rate * 4, 4); put(4, 2); put(16, 2);
+        for (char c : std::string("data")) out.push_back(std::uint8_t(c));
+        put(data_bytes, 4);
+        for (const float v : audio) put(std::uint32_t(std::uint16_t(std::int16_t(std::max(-1.0f, std::min(1.0f, v)) * 32000))), 2);
+        platform::write_file(argv[7], out);
+        std::printf("%d frames rendered\n", frames);
+        return 0;
+    }
+    if (command == "sndreplay" && argc == 8) {
+        using namespace fodder;
+        const data::Content content(argv[2]);
+        const auto program = content.read("fodderc", 1);
+        // Files as "disk:name" (disk 1 when no disk is given).
+        const auto read = [&](std::string name) {
+            int disk = 1;
+            if (name.size() > 2 && name[1] == ':') {
+                disk = name[0] - '0';
+                name = name.substr(2);
+            }
+            return content.read(name, disk);
+        };
+        const auto sng_file = read(argv[3]), ins_file = read(argv[4]);
+        const auto trace = platform::read_file(argv[5]);
+        const std::uint32_t sng_at = std::uint32_t(std::stoul(argv[6], nullptr, 16)), ins_at = std::uint32_t(std::stoul(argv[7], nullptr, 16)) + 4;
+        constexpr std::size_t blob = 0x30 + 4 * 0xb0 + 2;
+        std::size_t at = 0;
+        while (trace[at] != '\n') ++at;
+        ++at;
+        int frames = 0, bad = 0;
+        sound::Rjp1 reference(sng_file, ins_file, program);
+        const auto sec = reference.sections();
+        while (at + 2 + 2 * blob <= trace.size()) {
+            const auto before = std::span<const std::uint8_t>(trace).subspan(at + 2, blob);
+            const auto after = std::span<const std::uint8_t>(trace).subspan(at + 2 + blob, blob);
+            at += 2 + 2 * blob;
+            const auto B = [](std::span<const std::uint8_t> b, std::size_t o) { return int(b[o]); };
+            const auto W = [](std::span<const std::uint8_t> b, std::size_t o) { return int(std::int16_t((b[o] << 8) | b[o + 1])); };
+            const auto L = [](std::span<const std::uint8_t> b, std::size_t o) {
+                return std::uint32_t((std::uint32_t(b[o]) << 24) | (std::uint32_t(b[o + 1]) << 16) | (std::uint32_t(b[o + 2]) << 8) | b[o + 3]);
+            };
+            const auto load = [&](std::span<const std::uint8_t> b, sound::Rjp1& p) {
+                p.mode() = W(b, 0x22);
+                p.half_step() = B(b, 0x25) != 0;
+                p.music_on() = B(b, 0x26) != 0;
+                p.effects_on() = B(b, 0x27) != 0;
+                p.busy() = B(b, 0x2c);
+                p.on() = W(b, 0x30 + 4 * 0xb0) != 0;
+                for (int n = 0; n < 4; ++n) p.set_channel_volume_raw(n, B(b, 0x28 + std::size_t(n)));
+                for (int n = 0; n < 4; ++n) {
+                    const std::size_t r = 0x30 + std::size_t(n) * 0xb0;
+                    auto& c = p.channels()[std::size_t(n)];
+                    const auto pointer = [&](std::size_t o, std::uint32_t base) { const auto v = L(b, r + o); return v == 0 ? -1 : int(v - base); };
+                    const auto voice = [&](std::size_t d, sound::Rjp1::Voice& v) {
+                        v.sample = pointer(d + 0x04, ins_at);
+                        v.period_table = pointer(d + 0x08, ins_at);
+                        v.volume_table = pointer(d + 0x0c, ins_at);
+                        v.envelope = pointer(d + 0x10, sng_at + std::uint32_t(sec.envelopes));
+                        v.attack_length = W(b, r + d + 0x14);
+                        v.loop_start = W(b, r + d + 0x16) & 0xffff;
+                        v.loop_length = W(b, r + d + 0x18) & 0xffff;
+                        v.period_loop = W(b, r + d + 0x1a) & 0xffff;
+                        v.period_end = int(L(b, r + d + 0x1c));
+                        v.period_position = int(L(b, r + d + 0x20));
+                        v.volume_loop = W(b, r + d + 0x24) & 0xffff;
+                        v.volume_end = int(L(b, r + d + 0x26));
+                        v.volume_position = int(L(b, r + d + 0x2a));
+                        v.volume_scale = W(b, r + d + 0x30);
+                        v.volume = W(b, r + d + 0x32);
+                        v.base_period = W(b, r + d + 0x34);
+                        v.period = W(b, r + d + 0x36);
+                        v.key_on = B(b, r + d + 0x38) & 1;
+                        v.loop_next = B(b, r + d + 0x39) & 1;
+                        v.envelope_stage = std::int8_t(B(b, r + d + 0x3a));
+                        v.envelope_delta = std::int8_t(B(b, r + d + 0x3b));
+                        v.envelope_count = B(b, r + d + 0x3c);
+                        v.envelope_length = B(b, r + d + 0x3d);
+                        v.envelope_target = B(b, r + d + 0x3e);
+                        v.envelope_value = B(b, r + d + 0x3f);
+                        v.slide_count = B(b, r + d + 0x40);
+                        v.slide_step = std::int32_t(L(b, r + d + 0x42));
+                        v.slide = std::int32_t(L(b, r + d + 0x46));
+                        // (From $52 on the effect's fields lie $54 after the music's.)
+                        const std::size_t t = d ? 0x54 : 0;
+                        v.pattern = pointer(t + 0x52, sng_at);
+                        v.note_length = B(b, r + t + 0x56);
+                        v.note_count = B(b, r + t + 0x57);
+                        v.rows = B(b, r + t + 0x58);
+                        v.row_count = B(b, r + t + 0x59);
+                        v.instrument = B(b, r + t + 0x5a);
+                    };
+                    voice(0, c.music);
+                    voice(0x58, c.effect);
+                    c.effect.pattern = pointer(0xa6, sng_at);
+                    c.music.pattern = pointer(0x52, sng_at);
+                    c.sequence = pointer(0x4e, sng_at);
+                    c.active = B(b, r + 0x5b) != 0;
+                }
+            };
+            sound::Rjp1 player(sng_file, ins_file, program), expected(sng_file, ins_file, program);
+            load(before, player);
+            load(after, expected);
+            amiga::PaulaChannels paula;
+            player.frame(paula);
+            const auto report = [&](int n, const char* name, long a, long e) {
+                if (a != e && ++bad <= 40) std::printf("frame %d channel %d %s: native %ld original %ld\n", frames, n, name, a, e);
+            };
+            report(-1, "busy", player.busy(), expected.busy());
+            report(-1, "half step", player.half_step(), expected.half_step());
+            for (int n = 0; n < 4; ++n) {
+                const auto& c = player.channels()[std::size_t(n)];
+                const auto& x = expected.channels()[std::size_t(n)];
+                report(n, "sequence", c.sequence, x.sequence);
+                report(n, "active", c.active, x.active);
+                for (int part = 0; part < 2; ++part) {
+                    const auto& v = part ? c.effect : c.music;
+                    const auto& e = part ? x.effect : x.music;
+                    if (part == 0 && !x.active && !c.active && e.pattern < 0) continue;
+                    const std::pair<const char*, std::pair<long, long>> fields[] = {
+                        {"instrument", {v.instrument, e.instrument}}, {"sample", {v.sample, e.sample}},
+                        {"volume", {v.volume, e.volume}}, {"period", {v.period, e.period}}, {"base period", {v.base_period, e.base_period}},
+                        {"key", {v.key_on, e.key_on}}, {"loop", {v.loop_next, e.loop_next}}, {"stage", {v.envelope_stage, e.envelope_stage}},
+                        {"env delta", {v.envelope_delta, e.envelope_delta}}, {"env count", {v.envelope_count, e.envelope_count}},
+                        {"env target", {v.envelope_target, e.envelope_target}}, {"env value", {v.envelope_value, e.envelope_value}},
+                        {"slide", {v.slide, e.slide}}, {"slide count", {v.slide_count, e.slide_count}},
+                        {"pattern", {v.pattern, e.pattern}}, {"note length", {v.note_length, e.note_length}},
+                        {"note count", {v.note_count, e.note_count}}, {"rows", {v.rows, e.rows}}, {"row count", {v.row_count, e.row_count}},
+                        {"period pos", {v.period_position, e.period_position}}, {"volume pos", {v.volume_position, e.volume_position}},
+                        {"volume scale", {v.volume_scale, e.volume_scale}}};
+                    for (const auto& [name, val] : fields) report(n + part * 10, name, val.first, val.second);
+                }
+            }
+            ++frames;
+        }
+        std::printf("%d frames, %d fields differ\n", frames, bad);
         return bad == 0 ? 0 : 1;
     }
     if (command == "panel" && (argc == 4 || argc == 5)) {

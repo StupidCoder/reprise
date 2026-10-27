@@ -1,6 +1,7 @@
 #include "cannon_fodder_amiga/game/walking.hpp"
 #include "amiga/adf.hpp"
 #include "cannon_fodder_amiga/game/combat.hpp"
+#include "cannon_fodder_amiga/game/explosives.hpp"
 #include <algorithm>
 #include <cstdlib>
 #include <stdexcept>
@@ -31,7 +32,8 @@ struct Pass {
 class Soldier {
 public:
     Soldier(World& w, const Terrain& t, const ProgramTables& tables, int slot)
-        : w_(w), t_(t), g_(tables.geometry), tables_(tables.soldiers), fire_tables_(tables.fire), o_(w.objects.slots[std::size_t(slot)]),
+        : w_(w), t_(t), g_(tables.geometry), tables_(tables.soldiers), fire_tables_(tables.fire), tables_all_(tables),
+          o_(w.objects.slots[std::size_t(slot)]),
           s_(w.walkers[std::size_t(slot)]), slot_(slot),
           squad_(o_.squad >= 0 && o_.squad < 3 ? w.squads[std::size_t(o_.squad)] : no_squad_) {}
 
@@ -206,18 +208,40 @@ private:
     }
 
     // $96230 for enemies: the delay runs down to a shot (then -1: again at
-    // once if the shot failed). Wading enemies hold their fire; from phase 5
-    // on, one shot in 32 is a grenade (not rebuilt yet).
+    // once if the shot failed). From phase 5 on, one shot in 32 is a grenade.
     bool enemy_fire() {
         if (s_.fire_delay == 0) return true;
         if (s_.fire_delay > 0) {
             if (--s_.fire_delay != 0) return true;
             s_.fire_delay = -1;
         }
+        bool bullet = true, grenade = false;
+        if (o_.kind == 5 && w_.phase > 4 && (w_.random() & 0x1f) == 0) {
+            bullet = false;
+            grenade = true;
+        }
+        return use_weapons(bullet, grenade, false);
+    }
+
+    // $96262: the weapons' part of $96230. Wading soldiers hold their fire.
+    // After a bullet or grenade the soldier stands for a moment (not in a
+    // fast squad); a rocket pushes him back (pause and wait).
+    bool use_weapons(bool bullet, bool grenade, bool rocket) {
         if (s_.wading) return true;
-        if (o_.kind == 5 && w_.phase > 4 && (w_.random() & 0x1f) == 0) return false;
-        s_.fire_delay = fire_bullet(w_, fire_tables_, slot_) ? 0 : -1;
-        if (w_.last_mode != 2) s_.pause = 15;
+        if (o_.kind == 0x24) return false; // (other enemy kinds: not rebuilt yet)
+        if (bullet) {
+            s_.fire_delay = fire_bullet(w_, fire_tables_, slot_) ? 0 : -1;
+            if (w_.last_mode != 2) s_.pause = 15;
+        }
+        if (grenade) {
+            s_.fire_delay = throw_grenade(w_, tables_all_, slot_) ? 0 : -1;
+            if (w_.last_mode != 2) s_.pause = 12;
+        }
+        if (rocket) {
+            s_.fire_delay = launch_rocket(w_, tables_all_, slot_) ? 0 : -1;
+            if (s_.pause < 10) s_.pause += 5;
+            s_.wait = s_.pause;
+        }
         return true;
     }
 
@@ -244,7 +268,7 @@ private:
             s_.vertical_speed += std::int32_t(std::uniform_int_distribution<int>(2, 9)(w_.random)) << 16;
         }
         s_.state_timer = 2;
-        // (The original plays one of eight cries from $A399C here.)
+        request_sound(w_, tables_.cry(int(w_.random())), 0x14, slot_);
         if (s_.speed < 30) s_.speed += 15;
         s_.fall_heading = s_.heading;
         s_.spin = (w_.random() & 1) == 0 ? s_.heading : -1;
@@ -341,7 +365,7 @@ private:
         }
         if (--s_.fall_count >= 0) return true;
         s_.fall_count = std::uniform_int_distribution<int>(8, 15)(w_.random);
-        // (The original plays one of the cries here.)
+        request_sound(w_, tables_.cry(int(w_.random())), 0, slot_);
         return true;
     }
 
@@ -403,21 +427,21 @@ private:
     }
 
     // $968B2: the fire branch of the selected squad. Wading soldiers hold
-    // their fire; the leader's both-button fire throws a grenade or fires a
-    // rocket (by the squad's weapon state 3 or 1; not rebuilt yet); the
-    // others fire bullets.
+    // their fire; the leader's both-button fire throws a grenade (squad
+    // weapon 1) or fires a rocket (3) at once; the others fire bullets.
     bool fire() {
         if (s_.wading) return true;
+        bool bullet = true, grenade = false, rocket = false;
         if (slot_ == w_.leader_slot && w_.both_buttons && (squad_.weapon == 3 || squad_.weapon == 1)) {
-            return false;
+            bullet = false;
+            (squad_.weapon == 3 ? rocket : grenade) = true;
+            s_.fire_delay = 1;
         }
         // $96230: fire_delay 0 waits for the squad's turn, -1 fires now, a
         // count fires when it runs out.
         if (s_.fire_delay == 0) return true;
         if (s_.fire_delay > 0 && --s_.fire_delay != 0) return true;
-        s_.fire_delay = fire_bullet(w_, fire_tables_, slot_) ? 0 : -1;
-        if (w_.last_mode != 2) s_.pause = 15; // stands still after the shot
-        return true;
+        return use_weapons(bullet, grenade, rocket);
     }
 
     // $969B8: a fast squad walks on while firing, facing the pointer, slower
@@ -907,6 +931,7 @@ private:
     const GeometryTables& g_;
     const SoldierTables& tables_;
     const FireTables& fire_tables_;
+    const ProgramTables& tables_all_;
     GameObject& o_;
     Walker& s_;
     int slot_;
@@ -967,6 +992,16 @@ bool update_soldier(World& world, const Terrain& terrain, const ProgramTables& t
 
 bool update_enemy(World& world, const Terrain& terrain, const ProgramTables& tables, int slot) {
     return Soldier(world, terrain, tables, slot).update_enemy();
+}
+
+void Terrain::set_swaps(std::span<const std::uint8_t> base_swp, std::span<const std::uint8_t> sub_swp) {
+    swaps_.clear();
+    for (std::size_t i = 0; i + 1 < base_swp.size(); i += 2) swaps_.push_back(std::int16_t(amiga::read_be16(base_swp, i)));
+    for (std::size_t i = 0; i + 1 < sub_swp.size(); i += 2) swaps_.push_back(std::int16_t(amiga::read_be16(sub_swp, i)));
+}
+
+int Terrain::swap(int tile) const {
+    return tile >= 0 && std::size_t(tile) < swaps_.size() ? swaps_[std::size_t(tile)] : -1;
 }
 
 bool Terrain::sight_blocked(int x0, int y0, int x1, int y1) const { // $A1260 → $A0EC0, $A0F22

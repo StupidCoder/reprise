@@ -25,6 +25,8 @@ SoldierTables::SoldierTables(std::span<const std::uint8_t> program) : program_(p
     need(program, 0x955c0 + 16);
     for (std::size_t i = 0; i < 16; ++i) turn_[i] = std::int8_t(program[file_offset(0x955c0) + i]);
     for (std::size_t i = 0; i < 8; ++i) firing_speed_[i] = word(program, 0x9c4f8 + std::uint32_t(i) * 2);
+    need(program, 0xa399c + 8);
+    for (std::size_t i = 0; i < 8; ++i) cries_[i] = program[file_offset(0xa399c) + i];
 }
 
 int SoldierTables::picture(int side, int offset) const {
@@ -68,6 +70,47 @@ WeaponStats FireTables::weapons(int rank) const {
 
 const std::vector<int>& FireTables::firing_order(int members) const {
     return orders_[std::size_t(std::clamp(members, 1, 8) - 1)];
+}
+
+BlastTables::BlastTables(std::span<const std::uint8_t> program) {
+    need(program, 0xaaf48 + 128);
+    for (std::uint32_t i = 0; i < 14; ++i) steps_[i] = {word(program, 0x974ae + i * 4), word(program, 0x974ae + i * 4 + 2)};
+    for (std::uint32_t at = 0xaaf48; at < 0xaaf48 + 128 && (word(program, at) & 0xffff) != 0x8000; at += 4) {
+        points_.push_back({word(program, at), word(program, at + 2)});
+    }
+    for (std::uint32_t n = 0; n < 5; ++n) { // unrelocated pointers
+        std::uint32_t at = 0x80000 + amiga::read_be32(program, file_offset(0xa4b8c + n * 4));
+        for (int guard = 0; guard < 64; ++guard, at += 2) {
+            const int v = word(program, at);
+            if (v < 0) break;
+            immune_[n].push_back(v);
+        }
+    }
+}
+
+bool BlastTables::immune(int landscape, int tile) const {
+    if (landscape < 0 || landscape >= 5) return false;
+    const auto& list = immune_[std::size_t(landscape)];
+    return std::find(list.begin(), list.end(), tile) != list.end();
+}
+
+MissionTables::MissionTables(std::span<const std::uint8_t> program) : program_(program.begin(), program.end()) {
+    need(program, 0xa4f70 + phases * 4);
+    need(program, 0xa4d8e + phases * 4);
+}
+
+std::vector<int> MissionTables::objectives(int phase) const {
+    std::vector<int> list;
+    if (phase < 0 || phase >= phases) return list;
+    std::size_t at = file_offset(0x80000 + amiga::read_be32(program_, file_offset(0xa4d8e + std::uint32_t(phase) * 4)));
+    for (; at < program_.size() && program_[at] < 0x80 && list.size() < 16; ++at) list.push_back(program_[at]);
+    return list;
+}
+
+std::array<int, 2> MissionTables::skill_range(int phase) const {
+    if (phase < 0 || phase >= phases) return {0, 0};
+    const std::uint32_t at = 0xa4f70 + std::uint32_t(phase) * 4;
+    return {word(program_, at), word(program_, at + 2)};
 }
 
 } // namespace fodder::game
