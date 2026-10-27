@@ -4,6 +4,7 @@
 #include "mindwalker_amiga/title/title_stage.hpp"
 #include "mindwalker_amiga/world/world.hpp"
 #include "mindwalker_amiga/landscape/view_scene.hpp"
+#include "mindwalker_amiga/landscape/landscape_bar.hpp"
 #include <optional>
 #include "platform/files.hpp"
 #include <array>
@@ -101,6 +102,9 @@ public:
         in.previous_y = y;
         const auto view = landscape::build_view(*world_, a, x, y, in, first.colours);
         landscape_.emplace();
+        landscape::LandscapeBar bar(files_);
+        bar.set(game.lives, 0, game.stage);
+        bar.draw(*landscape_);
         landscape::ViewPainter(a).paint(*landscape_, view, 0, world_->floor_level(), world_->ceiling_level(), 10);
         for (const auto c : view.colours) landscape_colours_.push_back(c & 0xFFF);
     }

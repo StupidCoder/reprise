@@ -12,8 +12,8 @@
 //
 // Rules taken from the original's screen (T's planes read from the reference
 // machine, .analysis/mindwalker_amiga/game.md "Gadget bar"): rows 0-9 start
-// in pen 15 and rows 10-11 in pen 0; gadget images follow PlanePick and
-// PlaneOnOff; a proportional gadget's container is cleared to pen 0 inset by
+// in the bar's background pen (T 15, A 18) and rows 10-11 in pen 0; gadget
+// images follow PlanePick and PlaneOnOff; a proportional gadget's container is cleared to pen 0 inset by
 // 2 pixels left and right and 1 top and bottom, with its knob image 4 pixels
 // in; a disabled gadget is ghosted with pen 15 in Intuition's screen-aligned
 // pattern ($4444 on even rows, $1111 on odd ones).
@@ -55,7 +55,9 @@ public:
 
     Gadget* find(int id);
     const std::vector<Gadget>& gadgets() const { return gadgets_; }
-    void draw(Canvas&) const;
+    // Rows 0-9 start in `background` (T's screen bar: pen 15; A's window
+    // title bar: its BlockPen, 18), rows 10-11 in pen 0.
+    void draw(Canvas&, int background = 15) const;
 
 private:
     void draw_image(Canvas&, const GadgetImage&, int x, int y) const;

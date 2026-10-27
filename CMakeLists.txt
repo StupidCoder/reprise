@@ -183,6 +183,7 @@ add_library(mindwalker_amiga
     src/mindwalker_amiga/game/module.cpp
     src/mindwalker_amiga/landscape/view_cells.cpp
     src/mindwalker_amiga/landscape/view_scene.cpp
+    src/mindwalker_amiga/landscape/landscape_bar.cpp
     src/mindwalker_amiga/import/disk_import.cpp)
 target_include_directories(mindwalker_amiga PUBLIC ${SOURCE_ROOT})
 target_link_libraries(mindwalker_amiga PUBLIC amiga platform ui)

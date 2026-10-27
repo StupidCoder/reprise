@@ -643,8 +643,10 @@ seeds and a clock seed), not stored.
    projection as a replaceable camera for a later free camera) draws the
    grid and the cells' bodies, faces and markers close to the original (1.5%
    of pens differ in the opening view; owner's decision: close is fine), and
-   the game shows the opening view after the loading picture. Next: the
-   view's objects and A's gadget bar, the walker
+   the game shows the opening view after the loading picture (held a fixed
+   2 seconds: owner's decision). A's top bar (pause box, slider, lives,
+   compass, emblem) equals the original's pens except Intuition's close
+   gadget. Next: the view's objects, the walker
    sprite, the status bar, movement; then B, C, P, sound, saves, high
    scores.
 

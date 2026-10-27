@@ -75,8 +75,8 @@ void GadgetBar::draw_image(Canvas& canvas, const GadgetImage& image, int x0, int
     }
 }
 
-void GadgetBar::draw(Canvas& canvas) const {
-    canvas.fill(0, 0, Canvas::width - 1, 9, 15);
+void GadgetBar::draw(Canvas& canvas, int background) const {
+    canvas.fill(0, 0, Canvas::width - 1, 9, background);
     canvas.fill(0, 10, Canvas::width - 1, 11, 0);
     for (const auto& gadget : gadgets_) {
         const int x = gadget.x(), y = gadget.top;

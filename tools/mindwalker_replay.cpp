@@ -13,6 +13,7 @@
 #include "mindwalker_amiga/data/game_files.hpp"
 #include "mindwalker_amiga/title/title_stage.hpp"
 #include "mindwalker_amiga/landscape/view_scene.hpp"
+#include "mindwalker_amiga/landscape/landscape_bar.hpp"
 #include "mindwalker_amiga/world/world.hpp"
 #include "platform/files.hpp"
 #include "platform/host.hpp"
@@ -188,8 +189,14 @@ int view(const std::filesystem::path& content, std::uint32_t seed, const std::fi
     for (int direction = 0; direction < 4; ++direction) {
         for (int top : {10, 11, 12}) {
             screen::Canvas canvas;
+            landscape::LandscapeBar bar(files);
+            bar.set(3, direction, 0);
+            bar.draw(canvas);
             landscape::ViewPainter(a).paint(canvas, cells, direction, world.floor_level(), world.ceiling_level(), top);
-            int bad = 0;
+            int bad = 0, bar_bad = 0;
+            for (int py = 0; py < 10; ++py)
+                for (int px = 14; px < 320; ++px) bar_bad += idx[std::size_t(py * 320 + px)] != canvas.pen(px, py);
+            if (direction == 0 && top == 10) std::printf("bar (x 14-319): %d of %d pens differ\n", bar_bad, 10 * 306);
             for (int py = 12; py < 200; ++py)
                 for (int px = 0; px < 320; ++px) bad += idx[std::size_t(py * 320 + px)] != canvas.pen(px, py);
             std::printf("direction %d top %d: %d of %d pens differ\n", direction, top, bad, 188 * 320);
