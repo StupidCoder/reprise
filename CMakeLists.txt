@@ -201,7 +201,6 @@ add_library(wings_of_fury_amiga
     src/wings_of_fury_amiga/data/preview.cpp
     src/wings_of_fury_amiga/data/shapes.cpp
     src/wings_of_fury_amiga/game/ffp.cpp
-    src/wings_of_fury_amiga/game/effects.cpp
     src/wings_of_fury_amiga/game/flight.cpp
     src/wings_of_fury_amiga/game/module.cpp
     src/wings_of_fury_amiga/game/player_view.cpp
@@ -216,8 +215,6 @@ add_library(cannon_fodder_amiga
     src/cannon_fodder_amiga/entry.cpp
     src/cannon_fodder_amiga/data/assets.cpp
     src/cannon_fodder_amiga/data/preview.cpp
-    src/cannon_fodder_amiga/game/camera.cpp
-    src/cannon_fodder_amiga/game/map_view.cpp
     src/cannon_fodder_amiga/import/disk_import.cpp
     src/cannon_fodder_amiga/import/rnc.cpp
     src/cannon_fodder_amiga/import/sensi_disk.cpp)
