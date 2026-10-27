@@ -92,6 +92,10 @@ public:
     // $200E62: the tether layer cleared (a catch's picture; drawn again on
     // the next tick).
     void clear_tethers();
+    // The layer below the bar cleared by another drawing (the map's
+    // RectFill on the screen's five planes, $200D02's $200E62), the
+    // tether timing untouched.
+    void wipe_layer() { std::fill(tethers_.begin() + 10 * 320, tethers_.end(), 0); }
 
     // A creature's two sprite images (attached pair: plane A, plane B).
     const data::Bitmap& image_a(int kind) const;

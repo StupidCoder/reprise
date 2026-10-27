@@ -232,6 +232,7 @@ void LandscapeStage::toggle_map() {
             return cells;
         });
         creatures_.hide_all(creature_scene());
+        creatures_.wipe_layer(); // $20071C's RectFill clears all five planes, the tethers' too
         return;
     }
     map_view_.close();
@@ -242,7 +243,7 @@ void LandscapeStage::toggle_map() {
     rebuild_view();
     cells_.objects = objects;
     cells_.creature_places = places;
-    std::fill(creatures_.layer().begin() + view_top * 320, creatures_.layer().end(), 0);
+    creatures_.wipe_layer();
     repaint();
     creatures_.show_present(creature_scene());
     place_sprite();
@@ -636,16 +637,12 @@ const data::Bitmap& LandscapeStage::walker_bitmap() const {
 platform::Image LandscapeStage::picture() const {
     std::vector<screen::Rgb4> colours;
     if (map_view_.open() || map_closing_ > 0) {
-        // The map: its colours 0-29, the frozen tether layer, no sprites;
-        // the emblem complemented (GADGHCOMP, selected).
+        // The map: its colours 0-29, no sprites (and no tethers: opening
+        // cleared their plane); the emblem complemented (GADGHCOMP, selected).
         for (const auto c : map_view_.colours()) colours.push_back(c & 0xFFF);
         colours.push_back(colours_[30] & 0xFFF);
         colours.push_back(colours_[31] & 0xFFF);
         auto planes = map_view_.planes();
-        const auto& layer = creatures_.tethers();
-        for (int y = 0; y < 200; ++y)
-            for (int x = 0; x < 320; ++x)
-                if (y >= view_top && layer[std::size_t(y * 320 + x)]) planes.plot(x, y, planes.pen(x, y) | 16);
         if (map_view_.open()) // (hypothesis: Intuition's GADGHCOMP; a dump cannot show it)
             for (int y = 0; y < view_top; ++y)
                 for (int x = 288; x < 320; ++x) planes.plot(x, y, planes.pen(x, y) ^ 31);

@@ -98,7 +98,7 @@ void Interlude::fade_step() {
     std::copy(fading_.begin(), fading_.end(), display_.colours.begin());
 }
 
-// One of h32's 22 steps on display planes 0-3: the four quadrants outside
+// One of h32's 22 steps on the screen's five planes: the four quadrants outside
 // the opening scroll outwards by 6 across and 4 down (ScrollRaster, vacated
 // pixels 0), then the next drawing's middle columns (12 per step wide) and
 // middle rows (8 per step high) are copied in.
@@ -108,10 +108,13 @@ void Interlude::reveal_step(int step) {
     const auto scroll = [&](int dx, int dy, int x0, int y0, int x1, int y1) {
         if (x1 < x0 || y1 < y0) return;
         const screen::Canvas before = p;
+        const auto plane4 = display_.plane4;
         for (int y = y0; y <= y1; ++y)
             for (int x = x0; x <= x1; ++x) {
                 const int sx = x + dx, sy = y + dy;
-                p.plot(x, y, sx >= x0 && sx <= x1 && sy >= y0 && sy <= y1 ? before.pen(sx, sy) : 0);
+                const bool inside = sx >= x0 && sx <= x1 && sy >= y0 && sy <= y1;
+                p.plot(x, y, inside ? before.pen(sx, sy) : 0);
+                display_.plane4[std::size_t(y * 320 + x)] = inside ? plane4[std::size_t(sy * 320 + sx)] : 0;
             }
     };
     scroll(6, 4, 0, view_top, 0xA0 - w, mid - h);
@@ -119,10 +122,16 @@ void Interlude::reveal_step(int step) {
     scroll(6, -4, 0, mid + h, 0xA0 - w, 199);
     scroll(-6, -4, w + 0xA0, mid + h, 319, 199);
     const int w1 = 6 * (step + 1), h1 = 4 * (step + 1);
+    // (The drawing has four planes; hypothesis: BltBitMap clears the
+    // screen's fifth where it copies. $200E62 clears it at the end anyway.)
+    const auto copy = [&](int x, int y) {
+        p.plot(x, y, next_.planes.pen(x, y));
+        display_.plane4[std::size_t(y * 320 + x)] = 0;
+    };
     for (int y = view_top; y < 200; ++y)
-        for (int x = std::max(0xA0 - w1, 0); x < std::min(0xA0 + w1, 320); ++x) p.plot(x, y, next_.planes.pen(x, y));
+        for (int x = std::max(0xA0 - w1, 0); x < std::min(0xA0 + w1, 320); ++x) copy(x, y);
     for (int y = std::max(mid - h1, view_top); y < std::min(mid + h1, 200); ++y)
-        for (int x = 0; x < 320; ++x) p.plot(x, y, next_.planes.pen(x, y));
+        for (int x = 0; x < 320; ++x) copy(x, y);
 }
 
 void Interlude::advance() {
