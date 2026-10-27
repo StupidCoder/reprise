@@ -690,18 +690,18 @@ seeds and a clock seed), not stored.
    and the rings within a pixel on shallow edges (about 400 of 57,600
    view pixels). A catch leads into the arena.
 7. **Arena (C)** — playable (2026-10-27; `arena/`). The maze of 8 x 8
-   rooms (generated from the world's seed by the original's rules through
-   a standard generator), the scroll from room to room, the player and
+   rooms (the world's own, from its seed through the game's generators),
+   the scroll from room to room, the player and
    its aim, the beam bent by the wind, the creatures (coming in, chasing,
    draining strength, dying), the wall pulse and its deaths, the
    temperature gauge and the drone, the target, the walled-in exit, the
    win, the pause. Won: progress +7, the way on closed again, then the
    psyche screen (not rebuilt: the game stops there); left or a death:
    back to the landscape (a death costs a life; the last one ends the
-   game). Three recordings (left, won, a wall death; the original's maze
-   injected) equal the original read for read in position, room, aim,
-   target, frames and the drone; screen dumps pixel-exact apart from the
-   random parts (wall tile picks, creatures, wind). Next: the psyche
+   game). Three recordings (left, won, a wall death) equal the original
+   read for read in everything logged: the maze, every generator, the
+   player, the creatures, the wind, the pulse, strength, score and sound;
+   screen dumps within 8 pixels. Next: the psyche
    screen (P), then saves, high scores and T's end screens.
 
 Open: what each shared image set and icon is used for and its colours;

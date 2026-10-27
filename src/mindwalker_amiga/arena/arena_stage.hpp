@@ -9,8 +9,8 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
-#include <random>
 #include <span>
+#include <string>
 #include <vector>
 
 // The arena (program C; main loop $400040): a hunt through the maze of
@@ -46,7 +46,6 @@ public:
         int lives{3};          // +$6E
         std::uint32_t score{}; // +$66
         int form{};            // +$48: the walker's form (the player's figure)
-        std::optional<ArenaMap> map; // for replays: a given maze instead of a generated one
     };
     enum class Outcome { playing, won, left, died, quit };
 
@@ -55,7 +54,7 @@ public:
     // One frame (20 ms); `gadget` a gadget clicked this frame (-2 the close
     // gadget; the P box, id $10, pauses and resumes).
     void frame(const ArenaReader&, int gadget = -1);
-    platform::Image picture() const;
+    platform::Image picture(bool sprites = true) const; // (without sprites: as a screen dump shows it)
     void render_audio(std::span<float> stereo, int rate) { voices_.render(stereo, rate); }
 
     Outcome outcome() const { return outcome_; }
@@ -76,12 +75,14 @@ public:
     };
     const Player& player() const { return player_; }
     const ArenaMap& map() const { return map_; }
-    int wind_direction() const { return wind_direction_; }
-    int wind_strength() const { return wind_strength_; }
+    int wind_direction() const { return wind_direction_[0]; }
+    int wind_strength() const { return wind_strength_[0]; }
     int pulse() const { return pulse_; }
     int frozen() const { return frozen_; }
     int sound_period() const { return period_history_[3]; }
     void set_pulse(int counter) { pulse_ = counter; } // (a poke in a recording)
+    // For replays: the state the recorder logs, by name (`report(name, value)`).
+    void describe(const std::function<void(const std::string&, long)>& report) const;
 
 private:
     struct Creature {
@@ -95,7 +96,6 @@ private:
     };
     using Step = std::function<void()>;
 
-    unsigned draw() { return random_() >> 16; } // a 16-bit draw (the masks below are the original's)
     void tick(const ArenaReader&);
     void enter_room(bool transition);                 // $40167C
     void spawn_room_creatures();                      // $403DAC
@@ -131,7 +131,16 @@ private:
     const amiga::LoadedImage& c_;
     const data::Assets& assets_;
     const data::ImageSet& figure_;
-    std::mt19937 random_;
+    // The game's generators (world/random.hpp), each seeded from C's data
+    // XOR the world's seed (a zero result replaced by a constant).
+    MazeRandom maze_random_;                   // the maze's; play draws creatures' cells and bolts from it
+    world::ShiftRegister fidget_random_;       // $4025FC: the standing figure's fidgets
+    world::ShiftRegister wind_seed_a_, wind_seed_b_; // $402EBC / $402EC0: the wind's generators' seeds
+    world::ShiftRegister pulse_random_;        // $402ED4: the pulse's skipped rounds
+    std::array<world::Mixer, 4> wind_turn_, wind_pull_; // $4030A4 / $4030C4
+    world::ShiftRegister creature_random_;     // h21 $4045EC: behaviour, drift, edges, kills, colours
+    world::ShiftRegister edge_random_;         // $4045F0: where on an edge; erosion
+    world::ShiftRegister spawn_random_;        // $4045F4: coming in, animation phases, bolts
     ArenaMap map_;
     int stage_{}, lives_{}, form_{};
     std::uint32_t seed_{}, score_{};
@@ -152,7 +161,7 @@ private:
     std::array<Creature, 6> creatures_{};
     std::array<std::array<std::uint16_t, 34>, 4> creature_frames_{}; // h27
     int bolt_frames_{}, bolt_x_{}, bolt_y_{}, bolt_turn_{}; // $404874-$404880
-    int wind_direction_{}, wind_strength_{0xF};            // $403080 / $403090 (slot 0)
+    std::array<int, 4> wind_direction_{}, wind_strength_{}; // $403080 / $403090 (only slot 0 is used)
     std::uint16_t line_pattern_{};                         // $403608
     int pulse_{}, pulse_wait_{}, pulse_runs_{}, pulse_colour_{}; // $402EC4, $402EC8, $402ECC, $402ED0
     int sound_wait_{};                                     // $4050B4

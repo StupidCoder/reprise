@@ -178,7 +178,7 @@ public:
         } else {
             arena_.emplace(files_, assets_,
                            arena::ArenaStage::Start{state_.tunnel_seed, state_.stage, state_.lives, state_.score,
-                                                    state_.resume ? state_.resume->form : 0, std::nullopt});
+                                                    state_.resume ? state_.resume->form : 0});
         }
     }
 

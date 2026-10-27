@@ -1,20 +1,39 @@
 #pragma once
+#include "mindwalker_amiga/world/random.hpp"
 #include <array>
 #include <cstdint>
-#include <random>
 
 // The arena's maze (program C, h8 $401108): a 64 x 48 map of cells, read
 // as 8 x 8 rooms of 8 x 6 cells; one room fills the playfield, one cell a
 // 32 x 32 tile. Walls everywhere at first, then corridors drawn as straight
 // runs from a random cell of every room to a random cell of another room in
-// the same map row or column, two to four times over; one run crosses the
+// the same map row or column, one to four times over; one run crosses the
 // whole map through the home room, whose middle is cleared around the exit.
 // The target lies in a random open cell of a room off the home room's row
 // and column. Each room starts with a number of creatures (`$401C56` by a
-// draw), the target's room with six, the home room with none.
+// draw), the target's room with six, the home room with none. All of it
+// follows from the world's seed (shared +$4C) through the game's own
+// generators, so a world's arena is always the same.
 namespace mindwalker::arena {
 
 enum class Cell : std::uint8_t { open = 0, wall = 1, exit = 2, target = 3 }; // the map's pens
+
+// The maze's generators, which play goes on drawing from: a creature's
+// cell when it starts in a room (columns and rows) and the lightning's
+// crooked lines (bolt).
+struct MazeRandom {
+    world::ShiftRegister seed;    // $401CBC: the world's seed
+    world::ShiftRegister columns; // $401CC4: cells across, run directions
+    world::ShiftRegister targets; // $401CC8: which room a run goes to; the target's room
+    world::ShiftRegister rows;    // $401CCC: cells down; the rooms' creatures
+    world::Mixer bolt;            // $4046A0
+};
+
+// C's tables the maze reads.
+struct MazeTables {
+    std::array<std::uint16_t, 3> keys{};    // $401C50: mixed into the three generators' seeds
+    std::array<int, 8> room_creatures{};    // $401C56: creatures per room, by a draw & 7
+};
 
 struct ArenaMap {
     static constexpr int width = 64, height = 48;
@@ -30,13 +49,17 @@ struct ArenaMap {
     Cell at(int x, int y) const { return cells[std::size_t(y * width + x)]; }
     void set(int x, int y, Cell c) { cells[std::size_t(y * width + x)] = c; }
 
-    // A new maze from the world's seed (shared +$4C), through a standard
-    // generator (the original's draws are not reproduced); `room_creatures`
-    // C's table of creatures per room ($401C56, picked by a draw & 7).
-    static ArenaMap generate(std::uint32_t seed, const std::array<int, 8>& room_creatures);
-    // $401CEE..: the target taken: the home room's middle walled in around
+    // h8: the maze of the world's seed; `random` is left as play goes on
+    // with it.
+    static ArenaMap generate(std::uint32_t seed, const MazeTables&, MazeRandom& random);
+    // $401D24: the target taken: the home room's middle walled in around
     // the exit (the way back has to cross walls).
     void wall_in_home();
 };
+
+// $401630 / $401656: a random cell of the room whose corner is (x, y),
+// two to five cells in from its left, one to four down.
+inline int random_column(MazeRandom& r, int x) { return (r.columns.next() & 3) + x + 2; }
+inline int random_row(MazeRandom& r, int y) { return (r.rows.next() & 3) + y + 1; }
 
 } // namespace mindwalker::arena

@@ -9,13 +9,14 @@ namespace mindwalker::screen {
 // into a scratch plane by the line mode with one dot per raster line (SING:
 // the first dot of each row as Bresenham steps from the edge's start to its
 // end, both ends included), exclusive-or; flat edges give none, and an edge
-// that carries on the previous one's way up or down leaves out its first row
-// (the vertex keeps one dot, so the row through it fills). The plane is
+// whose next one carries on its way up or down leaves out its last row (the
+// vertex keeps the next edge's first dot, so the row through it fills). The plane is
 // then filled row by row from right to left, inclusively (the boundary dots
 // are filled too), and the filled pixels take the pen. Then, with
 // AREAOUTLINE, the outline in its own pen. (Matches the original's view and
-// sprite masks pixel for pixel in every recording so far, and the tunnel's
-// rings to within a pixel on shallow edges.)
+// sprite masks pixel for pixel in every recording so far, the arena's beam
+// as its kills show, and the tunnel's rings to within a pixel on shallow
+// edges.)
 void fill_area(const std::vector<AreaPoint>& points, const std::function<void(int x, int y)>& plot) {
     int y0 = 1 << 30, y1 = -(1 << 30), x0 = 1 << 30, x1 = -(1 << 30);
     for (const auto& p : points) {
@@ -30,21 +31,21 @@ void fill_area(const std::vector<AreaPoint>& points, const std::function<void(in
     for (std::size_t i = 0; i < n; ++i) {
         const auto a = points[i], b = points[(i + 1) % n];
         if (a.y == b.y) continue;
-        // The previous edge (flat ones passed over) going the same way up or down.
-        bool through = false;
+        // The next edge (flat ones passed over) going the same way.
+        bool into = false;
         for (std::size_t j = 1; j < n; ++j) {
-            const auto p = points[(i + n - j) % n], q = points[(i + n - j + 1) % n];
+            const auto p = points[(i + j) % n], q = points[(i + j + 1) % n];
             if (p.y == q.y) continue;
-            through = (q.y > p.y) == (b.y > a.y);
+            into = (q.y > p.y) == (b.y > a.y);
             break;
         }
         const int dx = std::abs(b.x - a.x), dy = std::abs(b.y - a.y);
         const int sx = b.x > a.x ? 1 : -1, sy = b.y > a.y ? 1 : -1;
         const bool y_major = dy >= dx;
         const int major = y_major ? dy : dx, minor = y_major ? dx : dy;
-        int error = 2 * minor - major, x = a.x, y = a.y, last_row = through ? a.y : 1 << 30;
+        int error = 2 * minor - major, x = a.x, y = a.y, last_row = 1 << 30;
         for (int k = 0; k <= major; ++k) {
-            if (y != last_row) {
+            if (y != last_row && !(into && y == b.y)) {
                 dots[std::size_t((y - y0) * w + (x - x0))] ^= 1;
                 last_row = y;
             }

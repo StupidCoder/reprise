@@ -13,7 +13,12 @@ namespace {
 // C's data (research layout).
 constexpr std::uint32_t palette = 0x40042C;       // h3: 32 colours
 constexpr std::uint32_t colour_steps = 0x400494, first_colours = 0x4004A4, last_colours = 0x4004B4; // by seed & 7
+constexpr std::uint32_t maze_keys = 0x401C50;     // 3 words
 constexpr std::uint32_t room_creature_counts = 0x401C56; // 8 longs
+// The generators' first values (XOR the world's seed) and what replaces a zero.
+constexpr std::uint32_t fidget_seed = 0x4025FC, wind_seed_a = 0x402EBC, wind_seed_b = 0x402EC0,
+                        pulse_seed = 0x402ED4, creature_seed = 0x4045EC, edge_seed = 0x4045F0,
+                        spawn_seed = 0x4045F4;
 constexpr std::uint32_t scroll_x = 0x401C76, scroll_y = 0x401C86; // a room change's scroll, by direction
 constexpr std::uint32_t figure_rows = 0x40259C;   // the player's sprite rows by form (longs)
 constexpr std::uint32_t figure_colour_a = 0x4025AC, figure_colour_b = 0x4025B4; // colours 29 and 30 by form
@@ -47,6 +52,11 @@ std::vector<std::uint8_t> bytes_at(const amiga::LoadedImage& program, std::uint3
 }
 
 int decay(int v) { return v < 0 ? v + 1 : v > 0 ? v - 1 : 0; } // $403BEA
+
+world::ShiftRegister seeded(const amiga::LoadedImage& c, std::uint32_t at, std::uint32_t seed, std::uint32_t if_zero) {
+    const std::uint32_t v = c.u32(at) ^ seed;
+    return {v != 0 ? v : if_zero};
+}
 
 // PrintIText: a chain of IntuiTexts (JAM2 cells in their BackPen), topaz 8.
 void print_itext(screen::Canvas& canvas, const amiga::LoadedImage& c, std::uint32_t at, int x, int y,
@@ -86,7 +96,7 @@ template <typename Plot> void each_point(int x0, int y0, int x1, int y1, Plot pl
 
 ArenaStage::ArenaStage(const data::GameFiles& files, const data::Assets& assets, Start start)
     : c_(files.program(data::Stage::arena)), assets_(assets),
-      figure_(assets.figures[std::size_t(std::array{0, 3, 1, 2}[std::size_t(start.form & 3)])]), random_(start.seed),
+      figure_(assets.figures[std::size_t(std::array{0, 3, 1, 2}[std::size_t(start.form & 3)])]),
       stage_(start.stage), lives_(start.lives), form_(start.form & 3), seed_(start.seed), score_(start.score) {
     // $400832: the window's gadgets (S's icons; lives as in A and B).
     const auto& s = files.program(data::Stage::setup);
@@ -117,12 +127,27 @@ ArenaStage::ArenaStage(const data::GameFiles& files, const data::Assets& assets,
             creature_frames_[std::size_t(f)][std::size_t(w * 2)] = c_.u16(at + std::uint32_t(w * 2));
             creature_frames_[std::size_t(f)][std::size_t(w * 2 + 1)] = c_.u16(at + 34 + std::uint32_t(w * 2));
         }
-    if (start.map) {
-        map_ = *start.map;
-    } else {
-        std::array<int, 8> counts{};
-        for (std::uint32_t i = 0; i < 8; ++i) counts[i] = c_.s32(room_creature_counts + i * 4);
-        map_ = ArenaMap::generate(seed_, counts);
+    // $404436, $402366, $402A9E: the generators.
+    creature_random_ = seeded(c_, creature_seed, seed_, 0x7F9213EE);
+    edge_random_ = seeded(c_, edge_seed, seed_, 0x0904FFD3);
+    spawn_random_ = seeded(c_, spawn_seed, seed_, 0x59AD87DA);
+    fidget_random_ = seeded(c_, fidget_seed, seed_, 0x79A9C7DA);
+    // h8: the maze.
+    MazeTables tables;
+    for (std::uint32_t i = 0; i < 3; ++i) tables.keys[i] = c_.u16(maze_keys + i * 2);
+    for (std::uint32_t i = 0; i < 8; ++i) tables.room_creatures[i] = c_.s32(room_creature_counts + i * 4);
+    map_ = ArenaMap::generate(seed_, tables, maze_random_);
+    // $402A9E: the wind's eight generators and its four slots.
+    wind_seed_a_ = seeded(c_, wind_seed_a, seed_, 0x679FEDED);
+    wind_seed_b_ = seeded(c_, wind_seed_b, seed_, 0xDEF21234);
+    pulse_random_ = seeded(c_, pulse_seed, seed_, 0x5429F4ED);
+    for (int i = 0; i < 4; ++i) {
+        auto high = std::uint16_t(wind_seed_a_.next() << i);
+        wind_turn_[std::size_t(i)] = world::Mixer::seeded(high, std::uint16_t(i ^ wind_seed_b_.next()));
+        high = std::uint16_t(wind_seed_b_.next() << i);
+        wind_pull_[std::size_t(i)] = world::Mixer::seeded(high, std::uint16_t(i ^ wind_seed_a_.next()));
+        wind_direction_[std::size_t(i)] = (wind_seed_a_.next() ^ (i << 1)) & 0xF;
+        wind_strength_[std::size_t(i)] = 0xF;
     }
     // h29: the drone (C h33) on channels 0 and 1, the squeal (h36) on 2, S's
     // image memory as noise on 3.
@@ -146,8 +171,6 @@ ArenaStage::ArenaStage(const data::GameFiles& files, const data::Assets& assets,
     // h8 / $401446: the home room scrolls in; then $402A9E: the wind, the panel.
     enter_room(true);
     sequence_.push_back([this] {
-        wind_direction_ = int(draw() & 0xF);
-        wind_strength_ = 0xF;
         draw_panel();
         std::fill(overlay_.begin(), overlay_.end(), 0);
         wind_step();
@@ -162,6 +185,68 @@ void ArenaStage::show_lives() {
                 gadget.images[i].depth = int(i) + 1 < lives_ ? 1 : 0;
                 gadget.images[i].plane_pick = int(i) + 1 < lives_ ? 8 : 0;
             }
+}
+
+void ArenaStage::describe(const std::function<void(const std::string&, long)>& report) const {
+    report("x", player_.x);
+    report("y", player_.y);
+    report("room x", player_.room_x);
+    report("room y", player_.room_y);
+    report("aim", player_.aim);
+    report("target", player_.has_target);
+    report("frame", player_.frame);
+    report("strength", player_.strength);
+    report("stand counter", stand_counter_);
+    report("score", long(score_));
+    report("lives", lives_);
+    report("frozen", frozen_);
+    report("difficulty", map_.difficulty);
+    report("maze seed", long(maze_random_.seed.state));
+    report("columns", long(maze_random_.columns.state));
+    report("targets", long(maze_random_.targets.state));
+    report("rows", long(maze_random_.rows.state));
+    report("creature random", long(creature_random_.state));
+    report("edge random", long(edge_random_.state));
+    report("spawn random", long(spawn_random_.state));
+    report("pulse random", long(pulse_random_.state));
+    report("wind seed a", long(wind_seed_a_.state));
+    report("wind seed b", long(wind_seed_b_.state));
+    report("pulse", pulse_);
+    report("pulse wait", pulse_wait_);
+    report("pulse runs", pulse_runs_);
+    report("pulse colour", pulse_colour_);
+    for (std::size_t i = 0; i < 4; ++i) {
+        const auto n = std::to_string(i);
+        report("wind direction " + n, wind_direction_[i]);
+        report("wind strength " + n, wind_strength_[i]);
+        report("wind turn " + n, long(wind_turn_[i].reg));
+        report("wind pull " + n, long(wind_pull_[i].reg));
+    }
+    for (std::size_t i = 0; i < 6; ++i) {
+        const auto n = std::to_string(i);
+        const auto& c = creatures_[i];
+        report("creature active " + n, c.active);
+        if (!c.active) continue;
+        report("creature x " + n, c.x);
+        report("creature y " + n, c.y);
+        report("creature behaviour " + n, long(c.behaviour));
+        report("creature vx " + n, c.vx);
+        report("creature vy " + n, c.vy);
+        report("creature dying " + n, c.dying);
+        report("creature anim " + n, long(c.anim));
+    }
+    for (int x = 0; x < 8; ++x)
+        for (int y = 0; y < 8; ++y)
+            report("room creatures " + std::to_string(x) + "," + std::to_string(y), map_.creatures[std::size_t(x)][std::size_t(y)]);
+    report("bolt frames", bolt_frames_);
+    report("bolt x", bolt_x_);
+    report("bolt y", bolt_y_);
+    report("bolt turn", bolt_turn_);
+    report("sound wait", sound_wait_);
+    report("hit noise", hit_noise_);
+    report("death noise", death_noise_);
+    report("death pitch", death_pitch_);
+    for (std::size_t i = 0; i < 4; ++i) report("drone " + std::to_string(i), period_history_[i]);
 }
 
 int ArenaStage::sine(int direction, int radius) const {
@@ -352,8 +437,8 @@ void ArenaStage::spawn_room_creatures() {
         }
         int cx = 0, cy = 0;
         for (int tries = 0; tries < 1000; ++tries) {
-            cx = int(draw() & 3) + player_.room_x * 8 + 2;
-            cy = int(draw() & 3) + player_.room_y * 6 + 1;
+            cx = random_column(maze_random_, player_.room_x * 8);
+            cy = random_row(maze_random_, player_.room_y * 6);
             if (map_.at(cx, cy) == Cell::open) break;
         }
         place_creature(slot, (cx - player_.room_x * 8) * 32 + 16, (cy - player_.room_y * 6) * 32 + 16);
@@ -369,9 +454,10 @@ void ArenaStage::draw_room(bool transition) {
     std::fill(overlay_.begin(), overlay_.end(), 0);
     for (int y = 12; y < 200; ++y) // $400338 with the cleared overlay
         for (int x = 0; x < 320; ++x) screen_.plot(x, y, screen_.pen(x, y) & 15);
-    // The room's look: the same each visit (a generator seeded by the room).
-    std::mt19937 look(seed_ ^ std::uint32_t(player_.room_x << 6 | player_.room_y << 10) ^ 0x9E3779B9u);
-    const int own_tile = int(look() >> 16) & 3;
+    // The room's look: the same each visit (a generator seeded by the room, $401CC0).
+    const int rx = player_.room_x, ry = player_.room_y;
+    world::ShiftRegister look{std::uint32_t(6 * (ry & 7) ^ ry << 10 ^ rx << 6 ^ ry << 2 ^ rx) ^ seed_};
+    const int own_tile = look.next() & 3;
     back_.clear();
     for (int row = 0; row < 6; ++row)
         for (int column = 7; column >= 0; --column) {
@@ -380,7 +466,7 @@ void ArenaStage::draw_room(bool transition) {
             if (cell == Cell::open) {
                 image = 10;
             } else if (cell == Cell::wall) {
-                image = int(look() >> 16) & 0xF;
+                image = look.next() & 0xF;
                 if (image > 7) image = own_tile;
             } else {
                 image = int(cell) + 6; // 8 the exit, 9 the target, over the blank
@@ -487,7 +573,7 @@ void ArenaStage::pick_frame() {
     if (fire_) {
         frame = form_ == 2 ? 5 : c_.s32(aim_frames + std::uint32_t(player_.aim * 4));
     } else if (!stick_up_ && !stick_down_ && !stick_left_ && !stick_right_) {
-        if (frame < 0x18 || (++stand_counter_ & 0x1F) == 0) frame = frame == 0x18 ? int(draw() & 3) + 0x18 : 0x18;
+        if (frame < 0x18 || (++stand_counter_ & 0x1F) == 0) frame = frame == 0x18 ? (fidget_random_.next() & 3) + 0x18 : 0x18;
     } else {
         ++stand_counter_;
         const bool across = stick_left_ || stick_right_;
@@ -511,13 +597,13 @@ void ArenaStage::pick_frame() {
 // touches die ($403C72). Then the wind's line from the root to the
 // screen's edge, dotted, the dots marching.
 void ArenaStage::beam() {
-    const int d = player_.aim + 8 - wind_direction_;
+    const int d = player_.aim + 8 - wind_direction_[0];
     const bool in_line = std::abs(d) < 4 || (std::abs(d) > 12 && std::abs(d) < 20); // $4034C2
     const int fan = (d + player_.aim) & 0xF;
     const int length = in_line ? 15 : 13;
     const int root_x = std::clamp(sine(player_.aim, length) + player_.x, 0, 319);
     const int root_y = std::clamp(sine(player_.aim + 4, length) + top + player_.y, top, 199);
-    int reach = wind_strength_ * 5;
+    int reach = wind_strength_[0] * 5;
     if (!fire_) reach /= 7;
     std::vector<screen::AreaPoint> points{{root_x, root_y}};
     for (int k = 0; k < 3; ++k) {
@@ -539,7 +625,7 @@ void ArenaStage::beam() {
             hit = overlay_[std::size_t(y * 320 + x)] != 0;
         }
         if (hit) {
-            death_pitch_ = int(draw() & 0x3FF);
+            death_pitch_ = creature_random_.next() & 0x3FF;
             death_noise_ = 0x1F;
             c.dying = 1;
             score_ += std::uint32_t(stage_ / 2 + 1);
@@ -547,7 +633,7 @@ void ArenaStage::beam() {
         }
     }
     // $4032DA: the wind's line, from the root against the wind to the edge.
-    const int against = (wind_direction_ + 8) & 0xF;
+    const int against = (wind_direction_[0] + 8) & 0xF;
     int end_x = root_x, end_y = root_y;
     for (int x = root_x, y = root_y, r = 5; x > 0 && x < 320 && y > 0 && y < 200; r += 0x19) {
         end_x = x;
@@ -584,7 +670,7 @@ void ArenaStage::creatures() {
     for (int i = 0; i < 6; ++i) {
         if (creatures_[std::size_t(i)].active) {
             creature_step(i);
-        } else if ((mask & draw()) == 0 && !stop_spawning_) {
+        } else if ((mask & spawn_random_.next()) == 0 && !stop_spawning_) {
             spawn_at_edge(i);
         }
     }
@@ -593,12 +679,12 @@ void ArenaStage::creatures() {
 // $403AAC: on a random point of the room's edge, if that cell is open.
 void ArenaStage::spawn_at_edge(int slot) {
     int x = 0, y = 0;
-    if ((draw() & 0x20) == 0) {
-        x = (draw() & 0x100) == 0 ? 0xFF : 0;
-        y = int(draw() & 0xBF);
+    if ((creature_random_.next() & 0x20) == 0) {
+        x = (creature_random_.next() & 0x100) == 0 ? 0xFF : 0;
+        y = edge_random_.next() & 0xBF;
     } else {
-        x = int(draw() & 0xFF);
-        y = (draw() & 0x100) == 0 ? 0xBF : 0;
+        x = edge_random_.next() & 0xFF;
+        y = (creature_random_.next() & 0x100) == 0 ? 0xBF : 0;
     }
     if (map_.at(x / 32 + player_.room_x * 8, y / 32 + player_.room_y * 6) == Cell::open) {
         place_creature(slot, x, y);
@@ -612,11 +698,11 @@ void ArenaStage::place_creature(int slot, int x, int y) {
     c.active = true;
     c.x = x;
     c.y = y;
-    c.behaviour = draw() & 3;
-    c.vx = int(draw() & 0xF) - 8;
-    c.vy = int(draw() & 0xF) - 8;
+    c.behaviour = creature_random_.next() & 3;
+    c.vx = (creature_random_.next() & 0xF) - 8;
+    c.vy = (creature_random_.next() & 0xF) - 8;
     c.dying = 0;
-    c.anim = draw();
+    c.anim = spawn_random_.next();
     set_creature_image(slot);
 }
 
@@ -634,8 +720,10 @@ void ArenaStage::creature_step(int slot) {
     auto& c = creatures_[std::size_t(slot)];
     if (c.dying != 0) {
         if (++c.dying < 0x10) {
-            for (unsigned w = unsigned(c.dying) & 1; w < 34; w += 2) // a random part of every other word cleared
-                c.sprite[w] &= std::uint16_t((draw() << (w >> 2)) | ((w << 3) ^ w ^ draw()));
+            for (unsigned w = unsigned(c.dying) & 1; w < 34; w += 2) { // a random part of every other word cleared
+                const unsigned a = creature_random_.next(), b = edge_random_.next();
+                c.sprite[w] &= std::uint16_t((b << (w >> 2)) | ((w << 3) ^ w ^ a));
+            }
         } else {
             c.active = false;
             c.shown = false;
@@ -643,9 +731,9 @@ void ArenaStage::creature_step(int slot) {
         return;
     }
     if ((++c.anim & 1) == 0) set_creature_image(slot);
-    if ((draw() & 0x250) == 0) c.behaviour = draw();
+    if ((creature_random_.next() & 0x250) == 0) c.behaviour = creature_random_.next();
     if (c.x - player_.x < 8 && c.x - player_.x > -8 && c.y - player_.y < 10 && c.y - player_.y > -10) hit_player();
-    if (c.vx == 0 && c.vy == 0 && (c.behaviour & 3) == 0) c.behaviour = draw();
+    if (c.vx == 0 && c.vy == 0 && (c.behaviour & 3) == 0) c.behaviour = creature_random_.next();
     const int vx = (c.behaviour & 1) ? std::clamp(c.vx + (c.x < player_.x ? 2 : -2), -0x14, 0x14) : decay(c.vx);
     const int vy = (c.behaviour & 2) ? std::clamp(c.vy + (c.y < player_.y ? 2 : -2), -0x14, 0x14) : decay(c.vy);
     const int x = std::clamp(c.x + vx / 4, 0, 0xFF);
@@ -673,8 +761,8 @@ void ArenaStage::hit_player() {
     }
     draw_strength();
     if (bolt_frames_ == 0) {
-        bolt_x_ = int(draw() & 0x1F);
-        bolt_y_ = int(draw() & 0x1F);
+        bolt_x_ = creature_random_.next() & 0x1F;
+        bolt_y_ = spawn_random_.next() & 0x1F;
         bolt_frames_ = 3;
     } else {
         ++bolt_frames_;
@@ -707,8 +795,9 @@ void ArenaStage::bolt(int x0, int y0, int x1, int y1, int amplitude) {
         overlay_line(x0, y0, x1, y1);
         return;
     }
-    int offset = amplitude > 0 ? int(draw()) % amplitude : 0;
-    if ((draw() & 0x40) == 0) offset = -offset;
+    const int mix = maze_random_.bolt.step();
+    int offset = amplitude > 0 ? mix % amplitude : 0; // (the division's remainder)
+    if ((maze_random_.bolt.step() & 0x40) == 0) offset = -offset;
     const int mid_y = std::clamp(((y0 + y1) >> 1) + offset, 0, 199);
     bolt(x0, y0, mid_x, mid_y, amplitude >> 1);
     bolt(mid_x, mid_y, x1, y1, amplitude >> 1);
@@ -720,7 +809,7 @@ void ArenaStage::bolt(int x0, int y0, int x1, int y1, int amplitude) {
 bool ArenaStage::pulse_step() {
     const int k = ++pulse_ & 0x1F;
     if (k >= 0xE) return false;
-    if (k == 0 && (draw() & 3) != 0) {
+    if (k == 0 && (pulse_random_.next() & 3) != 0) {
         pulse_ = 0x1B;
         return false;
     }
@@ -736,9 +825,13 @@ bool ArenaStage::pulse_step() {
 // strength wanders towards a random 0-15 (from 0 down it wraps to 15);
 // $402D16: the temperature gauge from the drone's pitch, in the overlay.
 void ArenaStage::wind_step() {
-    const unsigned turn = draw();
-    if ((turn & 0x6E) == 0) wind_direction_ = (wind_direction_ + ((turn & 0x200) ? 1 : -1)) & 0xF;
-    wind_strength_ = (wind_strength_ + (wind_strength_ < int(draw() & 0xF) ? 1 : -1)) & 0xF;
+    for (std::size_t i = 0; i < 4; ++i) {
+        const unsigned turn = wind_turn_[i].step();
+        if ((turn & 0x6E) == 0) wind_direction_[i] = (wind_direction_[i] + ((turn & 0x200) ? 1 : -1)) & 0xF;
+        wind_direction_[i] &= 0xF;
+        const int pull = wind_pull_[i].step() & 0xF;
+        wind_strength_[i] = (wind_strength_[i] + (wind_strength_[i] < pull ? 1 : -1)) & 0xF;
+    }
     // (Unsigned: below 150 the gauge is empty.)
     unsigned y = unsigned(period_history_[3] - 0x96) * 10u / 0x30u + 0x26u;
     const int y0 = int(std::clamp<unsigned>(y, 0x26, 0xC2));
@@ -856,7 +949,7 @@ void ArenaStage::victory() {
             if (8 - (*fall >> 4) < ++*wait) {
                 *wait = 0;
                 colours_[0] = std::uint16_t(*count << 4 ^ *count);
-                for (int i = 16; i < 32; ++i) colours_[std::size_t(i)] = std::uint16_t(draw() & 0xFFF);
+                for (int i = 16; i < 32; ++i) colours_[std::size_t(i)] = std::uint16_t(creature_random_.next() & 0xFFF);
                 const auto last = colours_[15];
                 for (int i = 15; i > 1; --i) colours_[std::size_t(i)] = colours_[std::size_t(i - 1)];
                 colours_[1] = last;
@@ -912,7 +1005,7 @@ void ArenaStage::resume() {
     });
 }
 
-platform::Image ArenaStage::picture() const {
+platform::Image ArenaStage::picture(bool sprites) const {
     std::vector<screen::Rgb4> colours;
     for (const auto c : shown_colours_) colours.push_back(c & 0xFFF);
     screen::Canvas canvas = screen_;
@@ -950,6 +1043,7 @@ platform::Image ArenaStage::picture() const {
     for (int y = 0; y < top; ++y)
         for (int x = 0; x < 320; ++x) canvas.plot(x, y, bar.pen(x, y));
     auto image = canvas.picture(colours);
+    if (!sprites) return image;
     // Sprites: the player (sprite 7, colours 29-31) behind the creatures
     // (sprites 1-6, lower in front).
     const auto put = [&](int x, int y, int colour) {

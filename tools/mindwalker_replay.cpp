@@ -917,22 +917,19 @@ int arena(const std::filesystem::path& content, const std::filesystem::path& scr
     const auto& first = reads.front().fields;
     const auto& sh = first.at("shared");
     const auto at = [&](int offset) { return std::uint32_t(word(sh, offset - 0x10, 4)); };
-    // The original's maze: the map's two planes, the rooms' creatures, the target, the difficulty.
-    arena::ArenaMap map;
-    for (int y = 0; y < arena::ArenaMap::height; ++y)
-        for (int x = 0; x < arena::ArenaMap::width; ++x) {
-            const int bit = 7 - x % 8, byte = y * 8 + x / 8;
-            const int v = int(word(first.at("map0"), byte, 1) >> bit & 1) | int(word(first.at("map1"), byte, 1) >> bit & 1) << 1;
-            map.set(x, y, arena::Cell(v));
-        }
-    for (int x = 0; x < 8; ++x)
-        for (int y = 0; y < 8; ++y) map.creatures[std::size_t(x)][std::size_t(y)] = int(word(first.at("counts"), (x * 8 + y) * 4, 4));
-    map.target_x = int(word(first.at("room"), 0x10, 4));
-    map.target_y = int(word(first.at("room"), 0x14, 4));
-    map.difficulty = int(word(first.at("room"), 0x18, 4));
-    arena::ArenaStage::Start start{at(0x4C), int(at(0x5C)), int(at(0x6E)), at(0x66), int(at(0x48)), map};
-    if (std::getenv("MW_OWN_MAZE")) start.map.reset(); // research: our generator's maze instead
+    arena::ArenaStage::Start start{at(0x4C), int(at(0x5C)), int(at(0x6E)), at(0x66), int(at(0x48))};
     arena::ArenaStage stage(files, assets, start);
+    {
+        // The maze: ours from the seed against the original's map at its first read.
+        int cells = 0;
+        for (int y = 0; y < arena::ArenaMap::height; ++y)
+            for (int x = 0; x < arena::ArenaMap::width; ++x) {
+                const int bit = 7 - x % 8, byte = y * 8 + x / 8;
+                const int v = int(word(first.at("map0"), byte, 1) >> bit & 1) | int(word(first.at("map1"), byte, 1) >> bit & 1) << 1;
+                cells += int(stage.map().at(x, y)) != v;
+            }
+        std::printf("maze: %d of %d cells differ from the original's\n", cells, arena::ArenaMap::width * arena::ArenaMap::height);
+    }
     std::printf("C: seed %08x stage %d lives %d score %u form %d; window top %ld (ours 10)\n", start.seed, start.stage,
                 start.lives, start.score, start.form, word(first.at("flags"), 0xA, 2));
     arena::ArenaInput held;
@@ -957,17 +954,63 @@ int arena(const std::filesystem::path& content, const std::filesystem::path& scr
             const char* name;
             long ours, theirs;
         };
-        const auto s32 = [&](const std::string& f, int o) { return long(std::int32_t(std::uint32_t(word(r.fields.at(f), o, 4)))); };
-        const auto& p = stage.player();
-        std::vector<Field> list = {{"x", p.x, s32("player", 0x3E)},          {"y", p.y, s32("player", 0x42)},
-                                   {"room x", p.room_x, s32("room", 0)},      {"room y", p.room_y, s32("room", 4)},
-                                   {"aim", p.aim, s32("aim", 0)},             {"target", p.has_target, word(r.fields.at("flags"), 8, 2)},
-                                   {"frozen", stage.frozen(), word(r.fields.at("wait"), 0, 2)},
-                                   {"drone", stage.sound_period(), word(r.fields.at("sound"), 0x16, 2)}};
-        if (p.frame < 0x18 || s32("player", 0x36) < 0x18) list.push_back({"frame", p.frame, s32("player", 0x36)});
-        for (const auto& f : list)
-            if (f.ours != f.theirs && ++differences <= print_limit)
-                std::printf("C read %d (frame %d) %s: ours %ld, original %ld\n", r.index, frames, f.name, f.ours, f.theirs);
+        // Where the recorder logged each named state: (peek, offset, bytes).
+        struct Place {
+            std::string field;
+            int offset, bytes;
+        };
+        static const std::map<std::string, Place> places = [] {
+            std::map<std::string, Place> m = {
+                {"x", {"player", 0x3E, 4}},          {"y", {"player", 0x42, 4}},
+                {"room x", {"room", 0, 4}},          {"room y", {"room", 4, 4}},
+                {"aim", {"aim", 0, 4}},              {"target", {"flags", 8, 2}},
+                {"frame", {"player", 0x36, 4}},      {"strength", {"player", 0x3A, 4}},
+                {"stand counter", {"player", 0x2E, 4}}, {"score", {"shared", 0x66 - 0x10, 4}},
+                {"lives", {"shared", 0x6E - 0x10, 4}}, {"frozen", {"wait", 0, 2}},
+                {"difficulty", {"room", 0x18, 4}},   {"maze seed", {"room", 0x1C, 4}},
+                {"columns", {"room", 0x24, 4}},      {"targets", {"room", 0x28, 4}},
+                {"rows", {"room", 0x2C, 4}},         {"creature random", {"crand", 0, 4}},
+                {"edge random", {"crand", 4, 4}},    {"spawn random", {"crand", 8, 4}},
+                {"wind seed a", {"pulse", 0, 4}},    {"wind seed b", {"pulse", 4, 4}},
+                {"pulse", {"pulse", 8, 4}},          {"pulse wait", {"pulse", 0xC, 4}},
+                {"pulse runs", {"pulse", 0x10, 4}},  {"pulse colour", {"pulse", 0x14, 4}},
+                {"pulse random", {"pulse", 0x18, 4}}, {"bolt frames", {"creatures", 0xBC, 4}},
+                {"bolt x", {"creatures", 0xC0, 4}},  {"bolt y", {"creatures", 0xC4, 4}},
+                {"bolt turn", {"creatures", 0xC8, 4}}, {"sound wait", {"sound", 0, 4}},
+                {"hit noise", {"sound", 4, 4}},      {"death noise", {"sound", 8, 4}},
+                {"death pitch", {"sound", 0xC, 4}}};
+            for (int i = 0; i < 4; ++i) {
+                const auto n = std::to_string(i);
+                m["wind direction " + n] = {"wind", 4 * i, 4};
+                m["wind strength " + n] = {"wind", 0x10 + 4 * i, 4};
+                m["wind turn " + n] = {"wind", 0x24 + 8 * i, 4};
+                m["wind pull " + n] = {"wind", 0x44 + 8 * i, 4};
+                m["drone " + n] = {"sound", 0x10 + 2 * i, 2};
+            }
+            const char* parts[] = {"x", "y", "behaviour", "vx", "vy", "dying", "anim"};
+            for (int i = 0; i < 6; ++i) {
+                const auto n = std::to_string(i);
+                for (int k = 0; k < 7; ++k) m[std::string("creature ") + parts[k] + " " + n] = {"creatures", 0x18 * k + 4 * i, 4};
+                m["creature active " + n] = {"creatures", 0xA8 + 2 * i, 2};
+            }
+            for (int x = 0; x < 8; ++x)
+                for (int y = 0; y < 8; ++y) m["room creatures " + std::to_string(x) + "," + std::to_string(y)] = {"counts", (x * 8 + y) * 4, 4};
+            return m;
+        }();
+        stage.describe([&](const std::string& name, long ours) {
+            const auto& place = places.at(name);
+            const unsigned long raw = std::uint32_t(word(r.fields.at(place.field), place.offset, place.bytes));
+            long theirs = place.bytes == 4 ? long(std::int32_t(raw)) : long(raw);
+            if (place.bytes == 4 && name.find("random") == std::string::npos && name.find("wind turn") == std::string::npos &&
+                name.find("wind pull") == std::string::npos && name.find("seed") == std::string::npos &&
+                name != "columns" && name != "targets" && name != "rows") {
+            } else {
+                ours = long(std::uint32_t(ours));
+                theirs = long(raw);
+            }
+            if (ours != theirs && ++differences <= print_limit)
+                std::printf("C read %d (frame %d) %s: ours %ld, original %ld\n", r.index, frames, name.c_str(), ours, theirs);
+        });
     };
     const auto reader = [&](arena::ArenaRead kind) {
         const char* expected = kind == arena::ArenaRead::button ? "4005c0" : kind == arena::ArenaRead::stick ? "402528" : "402574";
@@ -981,15 +1024,19 @@ int arena(const std::filesystem::path& content, const std::filesystem::path& scr
             ++differences;
             std::printf("C read %d: the original read %s, the stage %s\n", r.index, r.address.c_str(), expected);
         }
+        if (events.count(r.index)) // (the recorder pokes before it logs the read)
+            for (const auto& ev : events.at(r.index))
+                if (ev[0] == "poke") apply(ev);
         if (kind == arena::ArenaRead::button) compare(r);
         if (const char* list = std::getenv("MW_SHOTS")) { // research: read:file.png,...
             std::istringstream in(list);
             for (std::string item; std::getline(in, item, ',');)
                 if (std::stoi(item.substr(0, item.find(':'))) == r.index)
-                    platform::save_png(stage.picture(), item.substr(item.find(':') + 1));
+                    platform::save_png(stage.picture(!std::getenv("MW_NO_SPRITES")), item.substr(item.find(':') + 1));
         }
         if (events.count(r.index))
-            for (const auto& ev : events.at(r.index)) apply(ev);
+            for (const auto& ev : events.at(r.index))
+                if (ev[0] != "poke") apply(ev);
         ++next;
         return held;
     };
