@@ -46,18 +46,44 @@ LandscapeStage::LandscapeStage(const data::GameFiles& files, const data::Assets&
     // $20ADF6: the bolt's mixer ($20648E, seeded by h47) from two draws.
     const auto high = fidget_.next();
     bolt_.seed(high, fidget_.next());
-    // $20AEE4 (new game): facing north, x 120 (column 1), z 40 (row 0),
-    // level 0, the view's first column left of the start cell.
-    direction_ = 0;
-    walker_.x = 120;
-    walker_.z = 40;
-    walker_.level = 0;
-    walker_.cell_x = home_x_;
-    walker_.cell_y = home_y_;
-    walker_.terrain = 0x4BE;
-    walker_.next_terrain = 0;
-    view_x_ = std::uint16_t((home_x_ - 1) & 0xFFF);
-    view_y_ = home_y_;
+    const auto& resume = start.resume;
+    if (resume) { // $2096B2's second branch
+        home_x_ = resume->home_x;
+        home_y_ = resume->home_y;
+        world_.marked_u = resume->marked_u;
+        world_.marked_v = resume->marked_v;
+        ramp_closed_ = resume->ramp_closed;
+        damage_ = resume->damage; // h35
+    }
+    if (resume) {
+        // $20AEE4 resuming: as left, the walker's cell marked ($1BE) so that
+        // its events run again on the first step.
+        direction_ = resume->direction & 3;
+        walker_.x = resume->x;
+        walker_.z = resume->z;
+        walker_.level = resume->level;
+        walker_.cell_x = resume->cell_x;
+        walker_.cell_y = resume->cell_y;
+        walker_.terrain = 0x1BE;
+        walker_.next_terrain = std::uint16_t(resume->level | 0x100);
+        slow_creatures_ = resume->slow;
+        inputs_.found = resume->found;
+        view_x_ = resume->view_x;
+        view_y_ = resume->view_y;
+    } else {
+        // $20AEE4 (new game): facing north, x 120 (column 1), z 40 (row 0),
+        // level 0, the view's first column left of the start cell.
+        direction_ = 0;
+        walker_.x = 120;
+        walker_.z = 40;
+        walker_.level = 0;
+        walker_.cell_x = home_x_;
+        walker_.cell_y = home_y_;
+        walker_.terrain = 0x4BE;
+        walker_.next_terrain = 0;
+        view_x_ = std::uint16_t((home_x_ - 1) & 0xFFF);
+        view_y_ = home_y_;
+    }
     // $205A14: the map window around the start.
     centre_map(home_x_, home_y_);
     // $206944: the form from the surface of the view's cell [2][0] (built for
@@ -69,12 +95,16 @@ LandscapeStage::LandscapeStage(const data::GameFiles& files, const data::Assets&
     colours_ = stored_colours(a_);
     inputs_.colour17 = colours_[17];
     inputs_.colour18 = colours_[18];
-    rebuild_view();
-    walker_.form = 0;
-    while (walker_.form < 4 &&
-           (cells_.terrain[2][0] & 0xC000) != a_.u16(form_kinds + std::uint32_t(walker_.form * 2)))
-        ++walker_.form;
-    set_form(walker_.form & 3); // (4 never matches: the four kinds cover the field)
+    if (resume) {
+        set_form(resume->form & 3); // h35: +$48
+    } else {
+        rebuild_view();
+        walker_.form = 0;
+        while (walker_.form < 4 &&
+               (cells_.terrain[2][0] & 0xC000) != a_.u16(form_kinds + std::uint32_t(walker_.form * 2)))
+            ++walker_.form;
+        set_form(walker_.form & 3); // (4 never matches: the four kinds cover the field)
+    }
     // $200262: the view again (now with the form's colours), then drawn.
     rebuild_view();
     bar_.set(lives_, direction_, stage_);
@@ -87,6 +117,28 @@ LandscapeStage::LandscapeStage(const data::GameFiles& files, const data::Assets&
     Display next = current_display();
     std::fill(next.plane4.begin(), next.plane4.end(), 0);
     interlude_.start_reveal(empty, next);
+}
+
+LandscapeStage::Resume LandscapeStage::resume_state() const {
+    Resume r;
+    r.home_x = home_x_;
+    r.home_y = home_y_;
+    r.marked_u = world_.marked_u;
+    r.marked_v = world_.marked_v;
+    r.direction = direction_;
+    r.cell_x = walker_.cell_x;
+    r.cell_y = walker_.cell_y;
+    r.x = walker_.x;
+    r.level = walker_.level;
+    r.z = walker_.z;
+    r.slow = slow_creatures_;
+    r.found = inputs_.found;
+    r.form = walker_.form;
+    r.view_x = view_x_;
+    r.view_y = view_y_;
+    r.damage = damage_;
+    r.ramp_closed = ramp_closed_;
+    return r;
 }
 
 Display LandscapeStage::current_display() const {

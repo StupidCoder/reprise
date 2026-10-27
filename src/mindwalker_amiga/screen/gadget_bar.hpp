@@ -56,6 +56,7 @@ public:
 
     Gadget* find(int id);
     const std::vector<Gadget>& gadgets() const { return gadgets_; }
+    std::vector<Gadget>& gadgets() { return gadgets_; }
     // Rows 0-9 start in `background` (T's screen bar: pen 15; A's window
     // title bar: its BlockPen, 18), rows 10-11 in pen 0.
     void draw(Canvas&, int background = 15) const;

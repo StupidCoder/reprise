@@ -4,6 +4,7 @@
 #include "mindwalker_amiga/title/title_stage.hpp"
 #include "mindwalker_amiga/world/world.hpp"
 #include "mindwalker_amiga/landscape/landscape_stage.hpp"
+#include "mindwalker_amiga/tunnel/tunnel_stage.hpp"
 #include "mindwalker_amiga/data/assets.hpp"
 #include <optional>
 #include "platform/files.hpp"
@@ -57,6 +58,8 @@ std::uint32_t clock_value() {
 }
 
 class MindWalker final : public app::GameModule {
+    enum class Phase { title, loading, landscape, tunnel, stopped };
+
 public:
     explicit MindWalker(const std::filesystem::path& content)
         : files_(content), picture_(platform::read_file(content / "MindB")),
@@ -73,55 +76,108 @@ public:
             mouse_x_ = input.pointer_x;
             mouse_y_ = input.pointer_y;
         }
-        if (landscape_) {
-            const bool press = input.mouse_button && !button_was_down_;
-            button_was_down_ = input.mouse_button;
+        const bool press = input.mouse_button && !button_was_down_;
+        button_was_down_ = input.mouse_button;
+        switch (phase_) {
+        case Phase::title:
+            title_.frame({mouse_x_, mouse_y_, input.mouse_button});
+            if (title_.phase() == title::TitleStage::Phase::loading) {
+                const auto& game = *title_.new_game();
+                state_ = {game.seed, game.stage, game.lives, game.score, std::nullopt, 0};
+                load_next(Phase::landscape);
+            }
+            break;
+        case Phase::loading:
+            // The loading picture on S's screen, held a fixed 2 seconds
+            // (owner's decision) while the loader brings the next program.
+            if (++loading_frames_ >= 100) open(next_);
+            break;
+        case Phase::landscape: {
             int gadget = press ? landscape_->gadget_at(mouse_x_, mouse_y_) : -1;
-            if (gadget == -2) {
-                leave_ = true; // Intuition's close gadget: CLOSEWINDOW quits the stage
+            if (gadget == -2) { // Intuition's close gadget: CLOSEWINDOW quits the stage
+                stop("Left the landscape (score %u).", landscape_->score());
                 return;
             }
             landscape::LandscapeInput in{input.up, input.down, input.left, input.right, input.fire,
                                          input.mouse_button, mouse_x_, mouse_y_};
             landscape_->frame([&](landscape::InputRead) { return in; }, gadget);
-            if (landscape_->over()) leave_ = true;
-            return;
+            if (!landscape_->over()) break;
+            state_.score = landscape_->score();
+            state_.lives = landscape_->lives();
+            if (landscape_->out_of_lives()) {
+                stop("The creatures took every life (score %u). What follows is not rebuilt yet.", state_.score);
+            } else {
+                // The way on ($20B056 keeps the landscape, mode 9): the tunnel.
+                state_.resume = landscape_->resume_state();
+                state_.tunnel_seed = landscape_->next_seed();
+                load_next(Phase::tunnel);
+            }
+            break;
         }
-        title_.frame({mouse_x_, mouse_y_, input.mouse_button});
-        button_was_down_ = input.mouse_button;
-        if (title_.phase() == title::TitleStage::Phase::loading && ++loading_frames_ == 100) open_landscape();
+        case Phase::tunnel: {
+            int gadget = press ? tunnel_->gadget_at(mouse_x_, mouse_y_) : -1;
+            tunnel::TunnelInput in{input.up, input.down, input.left, input.right, input.fire, input.mouse_button};
+            tunnel_->frame([&](tunnel::TunnelRead) { return in; }, gadget);
+            if (!tunnel_->over()) break;
+            state_.score = tunnel_->score();
+            switch (tunnel_->outcome()) {
+            case tunnel::TunnelStage::Outcome::ran_out: load_next(Phase::landscape); break; // mode 1: the landscape again
+            case tunnel::TunnelStage::Outcome::caught:
+                stop("A rectangle caught in the tunnel (score %u). The arena is not rebuilt yet.", state_.score);
+                break;
+            default: stop("Left the tunnel (score %u).", state_.score); break;
+            }
+            break;
+        }
+        case Phase::stopped: break;
+        }
     }
 
-    // The landscape stage (A) with the new game's world.
-    void open_landscape() {
-        const auto& game = *title_.new_game();
-        landscape_.emplace(files_, assets_, landscape::LandscapeStage::Start{game.seed, game.stage, game.lives, game.score});
+    void load_next(Phase next) {
+        next_ = next;
+        loading_frames_ = 0;
+        phase_ = Phase::loading;
+        landscape_.reset();
+        tunnel_.reset();
     }
 
-    // The landscape's sound (the title and the other stages: not rebuilt yet).
+    void open(Phase next) {
+        phase_ = next;
+        if (next == Phase::landscape) {
+            landscape_.emplace(files_, assets_,
+                               landscape::LandscapeStage::Start{state_.seed, state_.stage, state_.lives, state_.score,
+                                                                state_.resume});
+        } else {
+            tunnel_.emplace(files_, assets_,
+                            tunnel::TunnelStage::Start{state_.tunnel_seed, state_.stage, state_.lives, state_.score});
+        }
+    }
+
+    void stop(const char* format, std::uint32_t score) {
+        char text[200];
+        std::snprintf(text, sizeof text, format, score);
+        message_ = text;
+        phase_ = Phase::stopped;
+    }
+
     void audio(std::span<float> stereo, int sample_rate) override {
         std::fill(stereo.begin(), stereo.end(), 0.0f);
-        if (landscape_) landscape_->render_audio(stereo, sample_rate);
+        if (phase_ == Phase::landscape) landscape_->render_audio(stereo, sample_rate);
+        if (phase_ == Phase::tunnel) tunnel_->render_audio(stereo, sample_rate);
     }
 
     platform::Image picture() const override {
-        auto image = landscape_ ? landscape_->picture() : title_.picture();
+        platform::Image image = phase_ == Phase::landscape ? landscape_->picture()
+                                : phase_ == Phase::tunnel  ? tunnel_->picture()
+                                : phase_ == Phase::loading ? title_.loading_canvas().picture({0x000, 0x0F0})
+                                                           : title_.picture();
         pointer_.draw(image, mouse_x_, mouse_y_);
         return image;
     }
 
     std::string stopped() const override {
         if (title_.phase() == title::TitleStage::Phase::quit) return "Mind Walker: QUIT.";
-        if (leave_) {
-            char text[200];
-            std::snprintf(text, sizeof text,
-                          landscape_->finished()       ? "The way on from the landscape is found (score %u). The tunnel is not rebuilt yet."
-                          : landscape_->out_of_lives() ? "The creatures took every life (score %u). What follows is not rebuilt yet."
-                                                       : "Left the landscape (score %u). Finds are not rebuilt yet.",
-                          landscape_->score());
-            return text;
-        }
-        return {};
+        return phase_ == Phase::stopped ? message_ : std::string();
     }
 
 private:
@@ -132,8 +188,19 @@ private:
     title::TitleStage title_;
     int mouse_x_{160}, mouse_y_{100};
     int loading_frames_{};
-    bool button_was_down_{}, leave_{};
+    bool button_was_down_{};
+    Phase phase_{Phase::title}, next_{Phase::landscape};
+    // What crosses between the programs (the loader's shared block).
+    struct GameState {
+        std::uint32_t seed{};          // the world's
+        int stage{}, lives{3};
+        std::uint32_t score{};
+        std::optional<landscape::LandscapeStage::Resume> resume; // +$18-$60
+        std::uint32_t tunnel_seed{};   // +$4C
+    } state_;
+    std::string message_;
     std::optional<landscape::LandscapeStage> landscape_;
+    std::optional<tunnel::TunnelStage> tunnel_;
 };
 
 } // namespace

@@ -15,6 +15,7 @@
 #include "mindwalker_amiga/landscape/view_scene.hpp"
 #include "mindwalker_amiga/landscape/landscape_bar.hpp"
 #include "mindwalker_amiga/landscape/landscape_stage.hpp"
+#include "mindwalker_amiga/tunnel/tunnel_stage.hpp"
 #include "mindwalker_amiga/data/assets.hpp"
 #include "mindwalker_amiga/world/world.hpp"
 #include "platform/files.hpp"
@@ -246,7 +247,7 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
             std::istringstream f(line);
             std::vector<std::string> w;
             for (std::string x; f >> x;) w.push_back(x);
-            if (w.size() >= 3 && (w[0] == "T" || w[0] == "A")) events[{w[0][0], std::stoi(w[1])}].push_back({w.begin() + 2, w.end()});
+            if (w.size() >= 3 && (w[0] == "T" || w[0] == "A" || w[0] == "B")) events[{w[0][0], std::stoi(w[1])}].push_back({w.begin() + 2, w.end()});
             // Clicks the recorder posts from hooks (loops without reads: the pause).
             if (w.size() == 5 && w[0] == "hook" && w[1] == "A" && w[3] == "gadget") hook_gadgets.push_back(std::stoi(w[4], nullptr, 16));
         }
@@ -261,9 +262,14 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
     {
         std::ifstream in(log_path);
         std::string line;
+        // MW_SESSION=n: the nth run of A in the recording (from 1; a later
+        // one resumes from the shared block).
+        const int wanted = std::getenv("MW_SESSION") ? std::atoi(std::getenv("MW_SESSION")) : 1;
+        int session = 0;
         while (std::getline(in, line)) {
             if (line.starts_with("T ")) ++t_reads;
-            if (!line.starts_with("A ")) continue;
+            if (line.starts_with("# module A")) ++session;
+            if (!line.starts_with("A ") || session != wanted) continue;
             std::istringstream f(line);
             std::string m, addr;
             int index;
@@ -302,16 +308,45 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
         }
     };
     for (int i = 0; i < t_reads; ++i) apply('T', i);
+    // A later run of A: the recorder's held inputs went on through A's
+    // earlier reads and B's.
+    if (!reads.empty() && reads.front().index > 0) {
+        for (int i = 0; i < reads.front().index; ++i) apply('A', i);
+        for (const auto& [key, list] : events)
+            if (key.first == 'B') apply('B', key.second);
+    }
 
     // The new game's stage, lives and score from the shared block at A's
     // first read (+$5C, +$6E, +$66; the log holds +$10 on).
-    landscape::LandscapeStage::Start start{seed, 0, 3, 0};
+    landscape::LandscapeStage::Start start{seed, 0, 3, 0, {}};
     if (!reads.empty() && reads.front().fields.count("shared")) {
         const auto& sh = reads.front().fields.at("shared");
         const auto at = [&](int offset) { return std::stoul(sh.substr(std::size_t((offset - 0x10) * 2), 8), nullptr, 16); };
         start.stage = int(at(0x5C));
         start.lives = int(at(0x6E));
         start.score = std::uint32_t(at(0x66));
+        if (std::getenv("MW_SESSION") && std::atoi(std::getenv("MW_SESSION")) > 1) {
+            const auto w16 = [&](int offset) { return std::uint16_t(std::stoul(sh.substr(std::size_t((offset - 0x10) * 2), 4), nullptr, 16)); };
+            landscape::LandscapeStage::Resume r;
+            r.home_x = std::uint16_t(at(0x18));
+            r.home_y = std::uint16_t(at(0x1C));
+            r.marked_u = std::uint16_t(at(0x20));
+            r.marked_v = std::uint16_t(at(0x24));
+            r.direction = int(at(0x28));
+            r.cell_x = std::uint16_t(at(0x2C));
+            r.cell_y = std::uint16_t(at(0x30));
+            r.x = int(at(0x34));
+            r.level = int(at(0x38));
+            r.z = int(at(0x3C));
+            r.slow = int(at(0x40));
+            r.found = {w16(0x44) != 0, w16(0x46) != 0};
+            r.form = int(at(0x48));
+            r.view_x = std::uint16_t(at(0x50));
+            r.view_y = std::uint16_t(at(0x54));
+            r.damage = int(at(0x58));
+            r.ramp_closed = w16(0x60) != 0;
+            start.resume = r;
+        }
     }
     landscape::LandscapeStage stage(files, assets, start);
     std::vector<std::array<int, 6>> music_ours;
@@ -558,7 +593,7 @@ int sim(const std::filesystem::path& content, std::uint32_t seed, int stage_numb
             }
         }
     }
-    landscape::LandscapeStage stage(files, assets, {seed, stage_number, 3, 0});
+    landscape::LandscapeStage stage(files, assets, {seed, stage_number, 3, 0, {}});
     landscape::LandscapeInput held;
     int reads = 0, pending_gadget = -1;
     bool stop = false;
@@ -673,6 +708,138 @@ int sim(const std::filesystem::path& content, std::uint32_t seed, int stage_numb
     return 0;
 }
 
+// The tunnel stage on a recording's B reads, compared at every frame's
+// first read: pan, pace and its counters, the wander's mixer, the four
+// rectangles and their mixers, the wait after a click.
+int tunnel(const std::filesystem::path& content, const std::filesystem::path& script_path,
+           const std::filesystem::path& log_path, int frame_limit, const std::filesystem::path& png) {
+    using namespace mindwalker;
+    const data::GameFiles files(content);
+    const auto assets = data::load_assets(content);
+    std::map<int, std::vector<std::vector<std::string>>> events;
+    std::map<int, std::vector<std::string>> carried; // T's and A's input events, in order
+    int a_reads_before = 0;
+    {
+        std::ifstream in(script_path);
+        std::string line;
+        while (std::getline(in, line)) {
+            line = line.substr(0, line.find('#'));
+            std::istringstream f(line);
+            std::vector<std::string> w;
+            for (std::string x; f >> x;) w.push_back(x);
+            if (w.size() >= 3 && w[0] == "B") events[std::stoi(w[1])].push_back({w.begin() + 2, w.end()});
+            // The recorder holds the inputs across modules: A's last ones carry into B.
+            if (w.size() >= 3 && (w[0] == "A" || w[0] == "T") && (w[2] == "joy" || w[2] == "button" || w[2] == "fire"))
+                carried[std::stoi(w[1]) + (w[0] == "A" ? 100000 : 0)] = {w.begin() + 2, w.end()};
+        }
+    }
+    struct Read {
+        int index;
+        std::string address;
+        std::map<std::string, std::string> fields;
+    };
+    std::vector<Read> reads;
+    {
+        std::ifstream in(log_path);
+        std::string line;
+        // MW_SESSION=n: the nth time B ran in the recording (from 1).
+        const int wanted = std::getenv("MW_SESSION") ? std::atoi(std::getenv("MW_SESSION")) : 1;
+        int session = 0;
+        while (std::getline(in, line)) {
+            if (line.starts_with("# module B")) ++session;
+            if (line.starts_with("A ") && session < wanted) ++a_reads_before; // (A's reads count on across its runs)
+            if (!line.starts_with("B ") || session != wanted) continue;
+            std::istringstream f(line);
+            std::string m, addr;
+            int index;
+            f >> m >> index >> addr;
+            auto fs = fields(line);
+            // (A button read logged twice with the same state, the moving
+            // reads missing between: the stub reported one stop twice.)
+            if (!reads.empty() && addr == "300418" && reads.back().address == "300418" && reads.back().fields == fs) continue;
+            reads.push_back({index, addr, std::move(fs)});
+        }
+    }
+    if (reads.empty()) throw std::runtime_error("no B reads in the log");
+    const auto word = [](const std::string& hexs, int offset, int bytes) {
+        return std::stol(hexs.substr(std::size_t(offset * 2), std::size_t(bytes * 2)), nullptr, 16);
+    };
+    const auto& sh = reads.front().fields.at("shared");
+    const auto at = [&](int offset) { return std::uint32_t(word(sh, offset - 0x10, 4)); };
+    tunnel::TunnelStage::Start start{at(0x4C), int(at(0x5C)), int(at(0x6E)), at(0x66)};
+    // (B's flags may already be set at its first read: the start state is the log's.)
+    tunnel::TunnelStage stage(files, assets, start);
+    tunnel::TunnelInput held;
+    const auto apply = [&](const std::vector<std::string>& ev) {
+        if (ev[0] == "button") held.button = ev[1] == "1";
+        if (ev[0] == "fire") held.fire = ev[1] == "1";
+        if (ev[0] == "joy") {
+            held.up = ev[1].find('U') != std::string::npos;
+            held.down = ev[1].find('D') != std::string::npos;
+            held.left = ev[1].find('L') != std::string::npos;
+            held.right = ev[1].find('R') != std::string::npos;
+        }
+    };
+    for (const auto& [index, ev] : carried)
+        if (index < 100000 || index - 100000 < a_reads_before) apply(ev);
+    std::size_t next = 0;
+    int frames = 0, differences = 0;
+    bool out_of_step = false;
+    const auto compare = [&](const Read& r) {
+        struct Field {
+            const char* name;
+            long ours, theirs;
+        };
+        const auto s32 = [&](const std::string& f, int o) { return long(std::int32_t(std::uint32_t(word(r.fields.at(f), o, 4)))); };
+        std::vector<Field> list = {{"ticks", stage.ticks(), s32("tunnel", 0)},  {"pace", stage.pace(), s32("tunnel", 4)},
+                                   {"laps", stage.laps(), s32("tunnel", 8)},    {"pan x", stage.pan_x(), s32("tunnel", 0xC)},
+                                   {"pan y", stage.pan_y(), s32("tunnel", 0x10)},
+                                   {"wander", long(stage.wander().reg), long(word(r.fields.at("tunnel"), 0x14, 4))},
+                                   {"frozen", stage.frozen(), long(word(r.fields.at("wait"), 0, 2))}};
+        for (int k = 0; k < 4; ++k) {
+            const auto& rect = stage.rects()[std::size_t(k)];
+            list.push_back({"rect size", rect.size, s32("rects", 0x60 + 4 * k)});
+            list.push_back({"rect x", rect.x, s32("rects", 0x70 + 4 * k)});
+            list.push_back({"rect y", rect.y, s32("rects", 0x80 + 4 * k)});
+        }
+        for (int k = 0; k < 12; ++k)
+            list.push_back({"rect mixer", long(stage.rect_random()[std::size_t(k)].reg), long(word(r.fields.at("rects"), 8 * k, 4))});
+        for (const auto& f : list)
+            if (f.ours != f.theirs && ++differences <= print_limit)
+                std::printf("B read %d (frame %d) %s: ours %ld, original %ld\n", r.index, frames, f.name, f.ours, f.theirs);
+    };
+    const tunnel::TunnelReader reader = [&](tunnel::TunnelRead kind) {
+        const char* expected = kind == tunnel::TunnelRead::button ? "300418" : kind == tunnel::TunnelRead::stick ? "3026ce" : "30271a";
+        if (next >= reads.size()) return held;
+        const auto& r = reads[next];
+        if (r.address != expected && !out_of_step) {
+            out_of_step = true;
+            ++differences;
+            std::printf("B read %d: the original read %s, the stage %s\n", r.index, r.address.c_str(), expected);
+        }
+        if (kind == tunnel::TunnelRead::button) compare(r);
+        if (const char* list = std::getenv("MW_SHOTS")) { // research: read:file.png,...
+            std::istringstream in(list);
+            for (std::string item; std::getline(in, item, ',');)
+                if (std::stoi(item.substr(0, item.find(':'))) == r.index)
+                    platform::save_png(stage.picture(), item.substr(item.find(':') + 1));
+        }
+        if (events.count(r.index))
+            for (const auto& ev : events.at(r.index)) apply(ev);
+        ++next;
+        return held;
+    };
+    while (next < reads.size() && !out_of_step && frames < frame_limit && !stage.over()) {
+        stage.frame(reader);
+        ++frames;
+    }
+    const char* outcome[] = {"playing", "caught", "ran out", "quit"};
+    std::printf("%d frames, %zu reads compared, %d differences; outcome %s, score %u\n", frames, next, differences,
+                outcome[int(stage.outcome())], stage.score());
+    if (!png.empty()) platform::save_png(stage.picture(), png);
+    return differences == 0 ? 0 : 1;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -686,6 +853,10 @@ int main(int argc, char** argv) {
             return walk(platform::utf8_path(argv[2]), std::uint32_t(std::stoul(argv[3], nullptr, 16)),
                         platform::utf8_path(argv[4]), platform::utf8_path(argv[5]), argc >= 7 ? std::stoi(argv[6]) : 1 << 30,
                         argc == 8 ? platform::utf8_path(argv[7]) : std::filesystem::path());
+        }
+        if (command == "tunnel" && argc >= 5 && argc <= 7) {
+            return tunnel(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]), platform::utf8_path(argv[4]),
+                          argc >= 6 ? std::stoi(argv[5]) : 1 << 30, argc == 7 ? platform::utf8_path(argv[6]) : std::filesystem::path());
         }
         if (command == "sim" && argc >= 6 && argc <= 8) {
             return sim(platform::utf8_path(argv[2]), std::uint32_t(std::stoul(argv[3], nullptr, 16)), std::stoi(argv[4]),

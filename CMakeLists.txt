@@ -179,6 +179,7 @@ add_library(mindwalker_amiga
     src/mindwalker_amiga/data/preview.cpp
     src/mindwalker_amiga/world/world.cpp
     src/mindwalker_amiga/screen/canvas.cpp
+    src/mindwalker_amiga/screen/area_fill.cpp
     src/mindwalker_amiga/screen/gadget_bar.cpp
     src/mindwalker_amiga/title/title_stage.cpp
     src/mindwalker_amiga/game/module.cpp
@@ -190,6 +191,7 @@ add_library(mindwalker_amiga
     src/mindwalker_amiga/landscape/zap_bolt.cpp
     src/mindwalker_amiga/landscape/map_view.cpp
     src/mindwalker_amiga/landscape/sound.cpp
+    src/mindwalker_amiga/tunnel/tunnel_stage.cpp
     src/mindwalker_amiga/landscape/landscape_stage.cpp
     src/mindwalker_amiga/import/disk_import.cpp)
 target_include_directories(mindwalker_amiga PUBLIC ${SOURCE_ROOT})

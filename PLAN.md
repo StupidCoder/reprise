@@ -43,7 +43,7 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
 | --- | --- | --- | --- |
 | Fort Apocalypse | C64 | `Fort_Apocalypse.tap` (MD5 `bec7409816865f3ad160af9984f127cd`) | playable from title to debrief, compared with the original in scripted runs; pause menu with the enemy-pilot option |
 | Bruce Lee | C64 | `Bruce_Lee_(Original).g64` (MD5 `8cbfd1595cdc18a8e68fe4d43eec6aa8`) | playable from the title to the end and the next round, with sound, the demo and both two-player modes; compared with the original pass by pass (actors, rooms, screen, SID); smooth motion, particle and VHS options |
-| Mindwalker | Amiga | `Mind Walker (1986)(Commodore).adf` (SHA-256 `2e83a67a…a8969c`) | disk import and decoded assets with launcher viewer; title, world menu and new game playable (mouse), matching the original frame for frame and pen for pen; world generator's base layer verified against the original; the landscape and later stages not rebuilt yet |
+| Mindwalker | Amiga | `Mind Walker (1986)(Commodore).adf` (SHA-256 `2e83a67a…a8969c`) | disk import and decoded assets with launcher viewer; title, world menu and new game playable (mouse), matching the original frame for frame and pen for pen; world generator verified against the original; the landscape and the tunnel playable and checked read for read against the original; the arena and the psyche screen not rebuilt yet |
 | Marble Madness | Amiga | `Marble_Madness.adf` (MD5 `735dc697d64b3eeaa000778eb0b1153a`) | disk import (both encrypted programs decrypted, checked against the original's memory); asset previews; all six courses complete in play (physics, covers, creatures, special regions, music and effects; each compared with the original update for update from start to goal); front end for one player (options, introductions, bonus, game over, the end) |
 | Wizball | C64 | `Wizball.g64` (MD5 `73e1a136da4b6972d39f00817b86983e`) | disk import, asset decoding with launcher previews; play rebuilt and checked in lockstep (places, enemies, catellite, tunnels, lives, bonus wave, Wizlab, level flight, round end, sound and music); front end, high scores and keys rebuilt |
 | Cannon Fodder | Amiga | three ADFs, `Cannon Fodder (1993)(Virgin)(Disk N of 3)[cr CSL].adf` (SHA-256 `2b01cbc9…`, `9089815b…`, `87ea9c1d…`; a cracked copy) | import of all three disks (Sensible disk format, RNC unpacking) and decoded screens, sprite sheets, tile sets, colours and the 72 mission maps with launcher viewer; map view, camera, tile drawer, mission set-up, object drawing and panel rebuilt and checked against the original; nothing playable yet |
@@ -675,8 +675,22 @@ seeds and a clock seed), not stored.
    changes), the pause, every repaint's sequence (view change, flashes,
    stars) at the measured pace, and its sound (timer-paced sequencer with
    echo, effects, the aim's synth, the catch's rumble). Open items in
-   game.md. Next: the tunnel (B), the arena (C), the psyche screen (P),
-   then saves, high scores and T's end screens.
+   game.md. The polygon fill is now graphics.library's AreaEnd as the
+   blitter does it (`screen/area_fill`): the walker's masks are exact in
+   every recording and 2 of 60,160 view pens differ.
+6. **Tunnel (B)** — playable (2026-10-27; `tunnel/`). Taking the way on
+   saves the landscape to the shared block and runs the tunnel: 17
+   octagon rings through a panning window, colour rotation at a pace that
+   counts down, wandering and steering, four rectangles rising out of the
+   depth (catch one across the middle for points by pace), the hands, the
+   top bar, its sound and the closing collapse. When the pace runs out the
+   landscape resumes where it was left (mode 1). One recording (the way
+   on, 1,604 tunnel frames, then the resumed landscape) equals the
+   original read for read in all three runs; the bar's pens are exact
+   and the rings within a pixel on shallow edges (about 400 of 57,600
+   view pixels). A catch stops with a message until the arena is
+   rebuilt. Next: the arena (C), the psyche screen (P), then saves, high
+   scores and T's end screens.
 
 Open: what each shared image set and icon is used for and its colours;
 sample playback periods and triggers; A's world model beyond the generator;

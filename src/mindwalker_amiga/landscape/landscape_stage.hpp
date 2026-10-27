@@ -15,6 +15,7 @@
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <vector>
 
 // The landscape stage (program A) as far as it is rebuilt: the view, the
@@ -77,12 +78,30 @@ struct Walker {
 
 class LandscapeStage {
 public:
+    // What the landscape keeps when it is left ($20B056, shared +$18-$60)
+    // and takes up again when it resumes (mode not 0: h35, $2096B2,
+    // $20AEE4): the same world from the same seed, the walker where it was.
+    struct Resume {
+        std::uint16_t home_x{}, home_y{}, marked_u{0xFFFF}, marked_v{}; // +$18-$24
+        int direction{};                                                // +$28
+        std::uint16_t cell_x{}, cell_y{};                               // +$2C/$30
+        int x{}, level{}, z{};                                          // +$34/$38/$3C
+        int slow{};                                                     // +$40
+        std::array<bool, 2> found{};                                    // +$44/$46
+        int form{};                                                     // +$48
+        std::uint16_t view_x{}, view_y{};                               // +$50/$54
+        int damage{};                                                   // +$58
+        bool ramp_closed{true};                                         // +$60
+    };
     struct Start {
         std::uint32_t seed{};
         int stage{};
         int lives{3};
         std::uint32_t score{};
+        std::optional<Resume> resume; // (none: a new game's landscape)
     };
+    // $20B056: the state to resume from, as the stage stands.
+    Resume resume_state() const;
 
     LandscapeStage(const data::GameFiles&, const data::Assets&, const Start&);
 
