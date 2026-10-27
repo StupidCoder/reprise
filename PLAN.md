@@ -655,8 +655,12 @@ seeds and a clock seed), not stored.
    text, the catch picture and the opening reveal (timed on the reference
    machine); five recordings (up to 10,601 input reads, catches, lost
    lives to the stage's end, stage 21) equal the original read for read.
-   Next: zapping, view creatures and finds, the walker's mask, the status
-   bar; then B, C, P, sound, saves, high scores.
+   The walker hides behind the scenery (h11), zapping (fire: cursor,
+   lightning bolt, zapped creatures) and the map (the emblem: 16 x 8
+   squares, its legend and fill buttons) are rebuilt and compared with
+   the original read for read and against screen dumps. Next: view
+   creatures and finds, pyramids, the pause screen; then B, C, P, sound,
+   saves, high scores.
 
 Open: what each shared image set and icon is used for and its colours;
 sample playback periods and triggers; A's world model beyond the generator;
