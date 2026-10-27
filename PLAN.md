@@ -762,19 +762,44 @@ files RNC-packed. The image set is a cracked copy (CSL intro loaded by disk
    import|export`. Checked: C++ import equals the Python research
    extraction (300 files); all pictures and 72 maps rendered and looked at;
    import in any disk order through `joyport --import`.
-2. Next: reference machine (FS-UAE, 1 MB chip so `FODDERC` runs at
-   $80000; GDB stub harness as for Wings of Fury), then the program's
-   structure in Ghidra (`work/F.bin`, 616 functions so far): main loop,
-   file loads, RNC unpacker, map/tile drawing and scrolling, sprite sheet
-   cutting and palettes, `.spt` placements, tile attributes (`.hit`,
-   `.bht`, `.swp`), the RJP1 music player, recruits and front end.
+2. **Done 2026-10-27: reference machine.** FS-UAE harness on port 6863
+   (`harness/run.sh`, `mkboot.py` skips the crack intro, `cf.py`); the
+   program in memory equals `work/F.bin` at its entry; boots to the title.
+3. **Done 2026-10-27: top-level structure.** Start-up, phase loop
+   (`$80626`, 72 phases), mission loop `$86292` (logic every 3rd vertical
+   blank, to be confirmed in a mission), vertical-blank work, file records;
+   game.md.
+4. **Done 2026-10-27: into the missions; view and scrolling read.** Harness
+   clicks at the game's input reads, three drives, phase poke; 3-frame tick
+   and map 1's fixed camera checked in mission 1. View: ring buffer, copper
+   split and fine scroll, camera limits and per-frame scroll steps read;
+   native `game/map_view` (camera → 320 × 224 map background) equals the
+   original's display on map 2 at two camera positions except for object
+   pixels (`cannon_fodder_assets view`, `harness/display.py`).
+5. **Done 2026-10-27: camera motion.** Look-ahead target between the squad
+   leader and the pointer, chase (twice per frame, speed up to 20/8 px),
+   hard follow at the view's edges, reversal hold, limits, y step `$86A8C`
+   and the ring's line bookkeeping. Native `game/camera` (program tables
+   read from `fodderc`, look-ahead, follow, `step_camera`) equals two
+   recorded 200-frame traces of the original exactly
+   (`cannon_fodder_assets camreplay`, `lookahead`).
+6. **Done 2026-10-27: tile drawer.** Snapshot every second tick, one tile
+   column and one tile row queued per tick at the far edges and blitted;
+   it ends the reversal holds. Native `tile_drawer_tick` and
+   `ring_position`; with native holds the camera equals a 260-frame
+   recording with a reversal on 258 of 259 frames (the original's snapshot
+   time jitters with CPU load; we take it at the tick start).
+7. Next: the panel, then: file loads, RNC unpacker, sprite sheet cutting
+   and palettes, `.spt` placements, tile attributes (`.hit`, `.bht`,
+   `.swp`), the RJP1 music player, recruits and front end.
 
-Open: the meaning of the map cell flags (bits 13-15) and of tile 399 (map
-31); `.spt` fields; `.hit`/`.bht`/`.swp`; sprite-sheet palettes; `*play.lbm`
-and the `.pl8` colours; `disk2.ra`, `dir`, `abgnd32.lbm` (named, not on any
-disk); the directory header byte $1A; recruit record bytes 6-8; the
-crack's TRAP #1 hook ("pstu"/"rank"); the retail boot; a second release
-entry for the importer.
+Open: the look-ahead's right-button branch; the left panel (sprites?); ring
+columns 304-319 left stale; the meaning of the map cell flags (bits 13-15)
+and of tile 399 (map 31); `.spt` fields; `.hit`/`.bht`/`.swp`; sprite-sheet
+palettes; `*play.lbm` and the `.pl8` colours; `disk2.ra`, `dir`,
+`abgnd32.lbm` (named, not on any disk); the directory header byte $1A;
+recruit record bytes 6-8; the crack's TRAP #1 hook ("pstu"/"rank"); the
+retail boot; a second release entry for the importer.
 
 ## Launcher visual exploration (2026-10-26)
 
