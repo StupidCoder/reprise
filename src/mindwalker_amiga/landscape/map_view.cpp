@@ -24,7 +24,6 @@ void MapView::load_colours() {
 void MapView::show(const screen::Canvas& display, std::uint16_t view_x, std::uint16_t view_y, const Builder& build) {
     open_ = true;
     held_ = false;
-    build_ = build;
     display_ = display;
     view_x_ = view_x;
     view_y_ = view_y;
@@ -54,7 +53,7 @@ void MapView::show(const screen::Canvas& display, std::uint16_t view_x, std::uin
     wait_ = open_frames;
 }
 
-void MapView::redraw() { show(display_, view_x_, view_y_, build_); }
+void MapView::redraw(const Builder& build) { show(display_, view_x_, view_y_, build); }
 
 void MapView::queue_square(int column, int row) {
     row = std::clamp(row, 0, 7);
@@ -64,7 +63,7 @@ void MapView::queue_square(int column, int row) {
     pending_.push_back(column * 8 + row);
 }
 
-void MapView::work() {
+void MapView::work(const Builder& build) {
     if (wait_ > 0 && --wait_ > 0) return;
     while (!pending_.empty()) {
         const int item = pending_.front();
@@ -73,7 +72,7 @@ void MapView::work() {
             draw_box();
             continue;
         }
-        draw_square(item / 8, item % 8);
+        draw_square(item / 8, item % 8, build);
         wait_ = square_frames;
         return;
     }
@@ -110,7 +109,7 @@ int MapView::pen(const ViewCells& v, int x, int y) const {
 }
 
 // $200A36: a square, unless already drawn (its middle block not pen 0).
-void MapView::draw_square(int column, int row) {
+void MapView::draw_square(int column, int row, const Builder& build_) {
     row = std::clamp(row, 0, 7);
     const int left = column * 20, base = view_top + 0xB8 - row * 20;
     if (canvas_.pen(left + 10, base - 10) != 0) return;

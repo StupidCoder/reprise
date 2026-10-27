@@ -4,7 +4,6 @@
 #include <algorithm>
 #include <cstdlib>
 #include <map>
-#include <memory>
 #include <string>
 
 namespace mindwalker::arena {
@@ -170,11 +169,7 @@ ArenaStage::ArenaStage(const data::GameFiles& files, const data::Assets& assets,
     voices_.set_dma(true);
     // h8 / $401446: the home room scrolls in; then $402A9E: the wind, the panel.
     enter_room(true);
-    sequence_.push_back([this] {
-        draw_panel();
-        std::fill(overlay_.begin(), overlay_.end(), 0);
-        wind_step();
-    });
+    sequence_.push_back({Act::panel});
 }
 
 // $40052C: life figure i shown while i + 1 < lives (PlanePick 8).
@@ -264,9 +259,9 @@ int ArenaStage::gadget_at(int x, int y) const {
 
 void ArenaStage::frame(const ArenaReader& read, int gadget) {
     if (!sequence_.empty()) {
-        const auto step = std::move(sequence_.front());
+        const Action action = sequence_.front();
         sequence_.erase(sequence_.begin());
-        step();
+        run(action);
         return;
     }
     if (outcome_ != Outcome::playing) return;
@@ -318,28 +313,109 @@ void ArenaStage::tick(const ArenaReader& read) {
         move_player();
     }
     if (outcome_ == Outcome::won) return;
-    const auto finish = [this] {
-        pick_frame();
-        beam();
-        creatures();
-        lightning();
-        if (outcome_ == Outcome::playing && sequence_.empty()) {
-            // $400338: the overlay becomes display plane 4 (rows 12-199).
-            for (int y = 12; y < 200; ++y)
-                for (int x = 0; x < 320; ++x)
-                    screen_.plot(x, y, (screen_.pen(x, y) & 15) | overlay_[std::size_t(y * 320 + x)] << 4);
+    if (sequence_.empty()) finish_tick();
+    else sequence_.push_back({Act::finish_tick}); // after the room's scroll
+}
+
+// The rest of the pass: the figure, the beam, the creatures, the lightning,
+// the overlay shown, the pulse.
+void ArenaStage::finish_tick() {
+    pick_frame();
+    beam();
+    creatures();
+    lightning();
+    if (outcome_ == Outcome::playing && sequence_.empty()) {
+        // $400338: the overlay becomes display plane 4 (rows 12-199).
+        for (int y = 12; y < 200; ++y)
+            for (int x = 0; x < 320; ++x)
+                screen_.plot(x, y, (screen_.pen(x, y) & 15) | overlay_[std::size_t(y * 320 + x)] << 4);
+    }
+    if (outcome_ != Outcome::playing || !sequence_.empty()) return;
+    // $4028C0: the pulse; standing on a wall while it runs kills.
+    if ((pulse_runs_ & 2) < ++pulse_wait_) {
+        pulse_wait_ = 0;
+        if (pulse_step() && map_.at(player_.x / 32 + player_.room_x * 8, player_.y / 32 + player_.room_y * 6) == Cell::wall)
+            wall_death();
+    }
+}
+
+// One frame of a sequence (the frames between its vertical blanks).
+void ArenaStage::run(const Action& action) {
+    const int k = action.k;
+    switch (action.act) {
+    case Act::panel: // $402A9E after the opening scroll: the panel, the wind
+        draw_panel();
+        std::fill(overlay_.begin(), overlay_.end(), 0);
+        wind_step();
+        break;
+    case Act::finish_tick: finish_tick(); break;
+    case Act::strip: { // $4018D2: a strip of the new room in, the screen scrolled
+        const auto [dx, dy] = scroll_step();
+        if (k > 0) scroll(dx, dy, 0, top, 0xFF, 199);
+        switch (direction_) {
+        case 0: blit_back(k * 32, 0, 0xE0, top, 32, 200 - top); break;
+        case 1: blit_back(0xE0 - k * 32, 0, 0, top, 32, 200 - top); break;
+        case 2: blit_back(0, 0xA0 - k * 32, 0, top, room_pixels_x, 32); break;
+        default: blit_back(0, k * 32, 0, 0xA8, room_pixels_x, 32); break;
         }
-        if (outcome_ != Outcome::playing || !sequence_.empty()) return;
-        // $4028C0: the pulse; standing on a wall while it runs kills.
-        if ((pulse_runs_ & 2) < ++pulse_wait_) {
-            pulse_wait_ = 0;
-            if (pulse_step() &&
-                map_.at(player_.x / 32 + player_.room_x * 8, player_.y / 32 + player_.room_y * 6) == Cell::wall)
-                wall_death();
+        sound_tick();
+        break;
+    }
+    case Act::show_room: {
+        const auto [dx, dy] = scroll_step();
+        scroll(dx, dy, 0, top, 0xFF, 199);
+        show_room();
+        break;
+    }
+    case Act::implode: // $401A90's 44 steps: the four quarters drawn in
+        for (int c = 0; c < 2; ++c) { // $404D8C
+            voices_.set_volume(c, 0x2B - k);
+            voices_.set_period(c, k * 16 + 0x7C);
         }
-    };
-    if (sequence_.empty()) finish();
-    else sequence_.push_back(finish); // after the room's scroll
+        scroll(-3, -3, 0, top, 0x7F, 0x6A);
+        scroll(3, -3, 0x80, top, 0xFF, 0x6A);
+        scroll(3, 3, 0x80, 0x6B, 0xFF, 199);
+        scroll(-3, 3, 0, 0x6B, 0x7F, 199);
+        break;
+    case Act::wall_race: // $402A2C's 44 frames
+        for (int c = 0; c < 2; ++c) {
+            voices_.set_volume(c, 0x3F);
+            voices_.set_period(c, (0xB - k / 4) * 16 + 0x7C);
+        }
+        pulse_step();
+        if ((pulse_ & 0x1F) > 0xF) pulse_ = 0;
+        pulse_step();
+        if (k == 0x2B) die();
+        break;
+    case Act::victory: victory_frame(); break;
+    case Act::wait: break;
+    case Act::resume_room: // $40077E after its 30 frames
+        screen_.fill(0, top, 0x13F, 199, 0);
+        draw_room(true);
+        sequence_.push_back({Act::resume_panel});
+        break;
+    case Act::resume_panel:
+        draw_panel();
+        voices_.set_dma(true);
+        break;
+    }
+}
+
+std::pair<int, int> ArenaStage::scroll_step() const { // a room change's scroll, 32 pixels
+    return {c_.s32(scroll_x + std::uint32_t(direction_ * 4)) * 32, c_.s32(scroll_y + std::uint32_t(direction_ * 4)) * 32};
+}
+
+void ArenaStage::blit_back(int sx, int sy, int x, int y, int w, int h) { // ClipBlit, planes 0-3
+    for (int j = 0; j < h; ++j)
+        for (int i = 0; i < w; ++i)
+            if (y + j < 200) screen_.plot(x + i, y + j, (screen_.pen(x + i, y + j) & 16) | back_.pen(sx + i, sy + j));
+}
+
+void ArenaStage::show_room() {
+    blit_back(0, 0, 0, top, room_pixels_x, 200 - top);
+    for (auto& c : creatures_) c.shown = c.active; // $403FD2
+    std::fill(overlay_.begin(), overlay_.end(), 0);
+    draw_strength();
 }
 
 // $401D24: four pixels a frame across, three up and down; off an edge into
@@ -484,41 +560,15 @@ void ArenaStage::draw_room(bool transition) {
                     for (int x = 0; x < 32; ++x) back_.plot(x0 + x, y0 + dy + y, tile.at(x, y));
             }
         }
-    const int dx = c_.s32(scroll_x + std::uint32_t(direction_ * 4)) * 32;
-    const int dy = c_.s32(scroll_y + std::uint32_t(direction_ * 4)) * 32;
-    const auto blit = [this](int sx, int sy, int x, int y, int w, int h) { // ClipBlit, planes 0-3
-        for (int j = 0; j < h; ++j)
-            for (int i = 0; i < w; ++i)
-                if (y + j < 200) screen_.plot(x + i, y + j, (screen_.pen(x + i, y + j) & 16) | back_.pen(sx + i, sy + j));
-    };
-    const auto show = [this, blit] {
-        blit(0, 0, 0, top, room_pixels_x, 200 - top);
-        for (auto& c : creatures_) c.shown = c.active; // $403FD2
-        std::fill(overlay_.begin(), overlay_.end(), 0);
-        draw_strength();
-    };
     if (!transition) {
-        show();
+        show_room();
         return;
     }
+    const auto [dx, dy] = scroll_step();
     scroll(dx, dy, 0, top, 0xFF, 199); // at the fifth row of cells ($40168C)
     const int strips = direction_ < 2 ? 7 : 5;
-    for (int k = 0; k < strips; ++k) {
-        sequence_.push_back([this, k, dx, dy, blit] {
-            if (k > 0) scroll(dx, dy, 0, top, 0xFF, 199);
-            switch (direction_) {
-            case 0: blit(k * 32, 0, 0xE0, top, 32, 200 - top); break;
-            case 1: blit(0xE0 - k * 32, 0, 0, top, 32, 200 - top); break;
-            case 2: blit(0, 0xA0 - k * 32, 0, top, room_pixels_x, 32); break;
-            default: blit(0, k * 32, 0, 0xA8, room_pixels_x, 32); break;
-            }
-            sound_tick();
-        });
-    }
-    sequence_.push_back([this, dx, dy, show] {
-        scroll(dx, dy, 0, top, 0xFF, 199);
-        show();
-    });
+    for (int k = 0; k < strips; ++k) sequence_.push_back({Act::strip, k});
+    sequence_.push_back({Act::show_room});
 }
 
 // ScrollRaster: the rectangle's contents move by (-dx, -dy); what is left
@@ -894,17 +944,7 @@ void ArenaStage::die() {
                 for (int x = 0; x < picture.width; ++x)
                     screen_.plot(column * 32 + 9 + x, top + row * 32 + 8 + y,
                                  (screen_.pen(column * 32 + 9 + x, top + row * 32 + 8 + y) & 16) | picture.at(x, y));
-    for (int k = 0; k < 0x2C; ++k)
-        sequence_.push_back([this, k] {
-            for (int c = 0; c < 2; ++c) { // $404D8C
-                voices_.set_volume(c, 0x2B - k);
-                voices_.set_period(c, k * 16 + 0x7C);
-            }
-            scroll(-3, -3, 0, top, 0x7F, 0x6A);
-            scroll(3, -3, 0x80, top, 0xFF, 0x6A);
-            scroll(3, 3, 0x80, 0x6B, 0xFF, 199);
-            scroll(-3, 3, 0, 0x6B, 0x7F, 199);
-        });
+    for (int k = 0; k < 0x2C; ++k) sequence_.push_back({Act::implode, k});
 }
 
 // $402A2C: on a wall in the pulse: the pulse races (two steps a frame) for
@@ -916,17 +956,7 @@ void ArenaStage::wall_death() {
     }
     voices_.set_volume(2, 0);
     voices_.set_volume(3, 0);
-    for (int k = 0; k < 0x2C; ++k)
-        sequence_.push_back([this, k] {
-            for (int c = 0; c < 2; ++c) {
-                voices_.set_volume(c, 0x3F);
-                voices_.set_period(c, (0xB - k / 4) * 16 + 0x7C);
-            }
-            pulse_step();
-            if ((pulse_ & 0x1F) > 0xF) pulse_ = 0;
-            pulse_step();
-            if (k == 0x2B) die();
-        });
+    for (int k = 0; k < 0x2C; ++k) sequence_.push_back({Act::wall_race, k});
 }
 
 // $40653A: the exit with the target: 7,000 points, then 158 frames of
@@ -942,42 +972,45 @@ void ArenaStage::victory() {
         voices_.set_period(c, 300);
     }
     voices_.set_dma(true);
-    auto fall = std::make_shared<int>(0x7F), count = std::make_shared<int>(0x9E), wait = std::make_shared<int>(0);
+    victory_fall_ = 0x7F;
+    victory_left_ = 0x9E;
+    victory_wait_ = 0;
     outcome_ = Outcome::won;
-    for (int f = 0; f < 0x9E; ++f)
-        sequence_.push_back([this, fall, count, wait] {
-            if (8 - (*fall >> 4) < ++*wait) {
-                *wait = 0;
-                colours_[0] = std::uint16_t(*count << 4 ^ *count);
-                for (int i = 16; i < 32; ++i) colours_[std::size_t(i)] = std::uint16_t(creature_random_.next() & 0xFFF);
-                const auto last = colours_[15];
-                for (int i = 15; i > 1; --i) colours_[std::size_t(i)] = colours_[std::size_t(i - 1)];
-                colours_[1] = last;
-            }
-            load_colours();
-            // $406642.
-            std::fill(victory_wave_.begin(), victory_wave_.end(), 0);
-            ++victory_count_;
-            for (int i = 0; i < 4; ++i)
-                for (int c = 0; c < 4; ++c) {
-                    auto& v = victory_wave_[std::size_t(((victory_count_ & 0xFFFF) >> i) + c & 0x3F)];
-                    v = std::int8_t(v + c * 10);
-                }
-            for (int c = 0; c < 4; ++c) voices_.set_samples(c, std::span(victory_wave_).first(c < 2 ? 64 : 32));
-            const int period = *fall <= 0x3F ? 0x21A : *fall * 8 + 0x22;
-            const int volume = *fall <= 0x1F ? *fall * 2 : 0x3F;
-            voices_.set_period(0, period);
-            voices_.set_volume(0, volume);
-            voices_.set_period(1, period * 3 / 2);
-            voices_.set_volume(1, volume);
-            for (int c = 0; c < 2; ++c) {
-                voices_.set_period(2 + c, c_.u16(victory_periods + std::uint32_t(((c * 2 + (victory_count_ >> 1)) & 7) * 2)));
-                voices_.set_volume(2 + c, std::min(*count, 0x3F));
-            }
-            if (*fall != 0) --*fall;
-            if (*count != 0) --*count;
-            if (*count == 0) voices_.set_dma(false);
-        });
+    for (int f = 0; f < 0x9E; ++f) sequence_.push_back({Act::victory});
+}
+
+void ArenaStage::victory_frame() {
+    if (8 - (victory_fall_ >> 4) < ++victory_wait_) {
+        victory_wait_ = 0;
+        colours_[0] = std::uint16_t(victory_left_ << 4 ^ victory_left_);
+        for (int i = 16; i < 32; ++i) colours_[std::size_t(i)] = std::uint16_t(creature_random_.next() & 0xFFF);
+        const auto last = colours_[15];
+        for (int i = 15; i > 1; --i) colours_[std::size_t(i)] = colours_[std::size_t(i - 1)];
+        colours_[1] = last;
+    }
+    load_colours();
+    // $406642.
+    std::fill(victory_wave_.begin(), victory_wave_.end(), 0);
+    ++victory_count_;
+    for (int i = 0; i < 4; ++i)
+        for (int c = 0; c < 4; ++c) {
+            auto& v = victory_wave_[std::size_t(((victory_count_ & 0xFFFF) >> i) + c & 0x3F)];
+            v = std::int8_t(v + c * 10);
+        }
+    for (int c = 0; c < 4; ++c) voices_.set_samples(c, std::span(victory_wave_).first(c < 2 ? 64 : 32));
+    const int period = victory_fall_ <= 0x3F ? 0x21A : victory_fall_ * 8 + 0x22;
+    const int volume = victory_fall_ <= 0x1F ? victory_fall_ * 2 : 0x3F;
+    voices_.set_period(0, period);
+    voices_.set_volume(0, volume);
+    voices_.set_period(1, period * 3 / 2);
+    voices_.set_volume(1, volume);
+    for (int c = 0; c < 2; ++c) {
+        voices_.set_period(2 + c, c_.u16(victory_periods + std::uint32_t(((c * 2 + (victory_count_ >> 1)) & 7) * 2)));
+        voices_.set_volume(2 + c, std::min(victory_left_, 0x3F));
+    }
+    if (victory_fall_ != 0) --victory_fall_;
+    if (victory_left_ != 0) --victory_left_;
+    if (victory_left_ == 0) voices_.set_dma(false);
 }
 
 // $40070C: the P box: silence, the sprites gone, the window down a bar's
@@ -994,15 +1027,8 @@ void ArenaStage::pause() {
 // scrolled in again, the panel; the sound back.
 void ArenaStage::resume() {
     paused_ = false;
-    for (int f = 0; f < 29; ++f) sequence_.push_back([] {});
-    sequence_.push_back([this] {
-        screen_.fill(0, top, 0x13F, 199, 0);
-        draw_room(true);
-        sequence_.push_back([this] {
-            draw_panel();
-            voices_.set_dma(true);
-        });
-    });
+    for (int f = 0; f < 29; ++f) sequence_.push_back({Act::wait});
+    sequence_.push_back({Act::resume_room});
 }
 
 platform::Image ArenaStage::picture(bool sprites) const {

@@ -146,7 +146,7 @@ void Interlude::reveal_step(int step) {
 }
 
 void Interlude::start_repaint(const Display& now, const Display& next, Repaint kind, int repeats, int sx, int sy,
-                              std::function<void(screen::Canvas&)> grid) {
+                              const Grid& grid) {
     if (phase_ == Phase::repaint) {
         queued_.push_back({next, kind, repeats, sx, sy});
         return;
@@ -157,7 +157,6 @@ void Interlude::start_repaint(const Display& now, const Display& next, Repaint k
     repeats_ = repeats;
     star_x_ = sx;
     star_y_ = sy;
-    grid_ = std::move(grid);
     frame_ = 0;
     phase_ = Phase::repaint;
     // $201492 modes 0 and 1 clear the tether layer at once ($200E62).
@@ -165,10 +164,10 @@ void Interlude::start_repaint(const Display& now, const Display& next, Repaint k
         std::fill(display_.plane4.begin() + view_top * 320, display_.plane4.end(), 0);
     if (kind == Repaint::star) display_.colours[13] = 0xFFF; // $201602(1)
     blackened_ = next_.colours;
-    repaint_frame();
+    repaint_frame(grid);
 }
 
-void Interlude::repaint_frame() {
+void Interlude::repaint_frame(const Grid& grid) {
     const int t = frame_;
     if (repaint_ == Repaint::plain) {
         if (t == plain_copy) display_ = next_;
@@ -185,7 +184,7 @@ void Interlude::repaint_frame() {
             const int mask = 8 >> row;
             for (int y = view_top; y < 200; ++y)
                 for (int x = 0; x < 320; ++x) display_.planes.plot(x, y, display_.planes.pen(x, y) & ~mask);
-            if (grid_) grid_(display_.planes);
+            if (grid) grid(display_.planes);
         } else {
             // $201244 / $201122: colour 0 in turn; the star at 8 x (4 - row).
             display_.colours[0] = a_.u16(flash_colours + std::uint32_t((3 - row) * 2));
@@ -240,7 +239,7 @@ void Interlude::grab_frame() {
     }
 }
 
-void Interlude::advance() {
+void Interlude::advance(const Grid& grid) {
     if (phase_ == Phase::grab) {
         if (++frame_ > 1) {
             frame_ = 0;
@@ -260,15 +259,15 @@ void Interlude::advance() {
             display_ = next_;
             phase_ = Phase::idle;
             if (--repeats_ > 0) {
-                start_repaint(display_, next_, repaint_, repeats_, star_x_, star_y_, grid_);
+                start_repaint(display_, next_, repaint_, repeats_, star_x_, star_y_, grid);
             } else if (!queued_.empty()) {
                 const auto q = queued_.front();
                 queued_.erase(queued_.begin());
-                start_repaint(display_, q.next, q.kind, q.repeats, q.star_x, q.star_y, grid_);
+                start_repaint(display_, q.next, q.kind, q.repeats, q.star_x, q.star_y, grid);
             }
             return;
         }
-        repaint_frame();
+        repaint_frame(grid);
         return;
     }
     if (phase_ == Phase::idle || --frames_left_ > 0) return;

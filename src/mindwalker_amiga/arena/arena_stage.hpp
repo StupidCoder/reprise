@@ -8,6 +8,7 @@
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <utility>
 #include <optional>
 #include <span>
 #include <string>
@@ -95,9 +96,21 @@ private:
         bool shown{};              // its sprite placed on screen
         std::array<std::uint16_t, 34> sprite{}; // 17 rows, two words each (its current image)
     };
-    using Step = std::function<void()>;
+    // A sequence's frames (no input read): what each one does. (Plain data,
+    // so that a stage can be copied for a quick save.)
+    enum class Act { panel, finish_tick, strip, show_room, implode, wall_race, victory, wait, resume_room, resume_panel };
+    struct Action {
+        Act act{};
+        int k{};
+    };
 
     void tick(const ArenaReader&);
+    void finish_tick();
+    void run(const Action&);
+    std::pair<int, int> scroll_step() const;
+    void blit_back(int sx, int sy, int x, int y, int w, int h);
+    void show_room();
+    void victory_frame();
     void enter_room(bool transition);                 // $40167C
     void spawn_room_creatures();                      // $403DAC
     void draw_room(bool transition);                  // $40168C
@@ -171,7 +184,8 @@ private:
     int frozen_{};                                         // $4010FA
     bool button_was_down_{}, paused_{};
     Outcome outcome_{Outcome::playing};
-    std::vector<Step> sequence_;   // frames of a scripted sequence (room transition, death, victory, resume)
+    std::vector<Action> sequence_; // frames of a sequence (room transition, death, victory, resume)
+    int victory_fall_{}, victory_left_{}, victory_wait_{}; // $406802, $406806, $40680A
     amiga::PaulaVoices voices_;
     std::vector<std::int8_t> drone_, noise_, squeal_, victory_wave_ = std::vector<std::int8_t>(64);
     int victory_count_{};                                  // $406800

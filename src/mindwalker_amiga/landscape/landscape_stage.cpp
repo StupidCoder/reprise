@@ -91,7 +91,6 @@ LandscapeStage::LandscapeStage(const data::GameFiles& files, const data::Assets&
     inputs_.stage = stage_;
     inputs_.home_x = home_x_;
     inputs_.home_y = home_y_;
-    inputs_.visited = [this](std::uint16_t x, std::uint16_t y) { return visited(x, y); };
     colours_ = stored_colours(a_);
     inputs_.colour17 = colours_[17];
     inputs_.colour18 = colours_[18];
@@ -149,10 +148,34 @@ Display LandscapeStage::current_display() const {
     return d;
 }
 
+// The view builder's inputs with the visited map looked up in this stage
+// (bound for the call only: the stage keeps no pointer to itself, so that it
+// can be copied for a quick save).
+ViewInputs LandscapeStage::view_inputs() const {
+    auto in = inputs_;
+    in.visited = [this](std::uint16_t x, std::uint16_t y) { return visited(x, y); };
+    return in;
+}
+
+MapView::Builder LandscapeStage::map_builder() {
+    return [this](std::uint16_t x, std::uint16_t y) {
+        auto in = view_inputs();
+        in.previous_x = view_x_;
+        in.previous_y = view_y_;
+        auto cells = build_view(world_, a_, x, y, in, map_palette_);
+        map_palette_ = cells.colours;
+        return cells;
+    };
+}
+
+Interlude::Grid LandscapeStage::grid_painter() const {
+    return [this](screen::Canvas& c) { painter_.draw_grid(c, view_top, printed_score_); };
+}
+
 void LandscapeStage::rebuild_view() {
     inputs_.previous_x = view_x_;
     inputs_.previous_y = view_y_;
-    cells_ = build_view(world_, a_, view_x_, view_y_, inputs_, colours_);
+    cells_ = build_view(world_, a_, view_x_, view_y_, view_inputs(), colours_);
     colours_ = cells_.colours;
 }
 
@@ -184,8 +207,7 @@ void LandscapeStage::repaint_from(const Display& before, Interlude::Repaint kind
     if (kind != Interlude::Repaint::plain && kind != Interlude::Repaint::view_change) after.plane4 = before.plane4;
     const auto star = FixedCamera().project(walker_.view_column * 80 - 120, (walker_.terrain & 0xFF) - 12,
                                             walker_.view_row * 80 + 0x40);
-    interlude_.start_repaint(before, after, kind, repeats, star.x, view_top + star.y,
-                             [this](screen::Canvas& c) { painter_.draw_grid(c, view_top, printed_score_); });
+    interlude_.start_repaint(before, after, kind, repeats, star.x, view_top + star.y, grid_painter());
 }
 
 // $204106: the pause. The tethers go, the walker and creatures hide, the
@@ -215,7 +237,7 @@ void LandscapeStage::resume() {
 void LandscapeStage::after_pause() {
     sound_.start(); // $20BED6
     if (map_view_.open()) {
-        map_view_.redraw();
+        map_view_.redraw(map_builder());
         return;
     }
     Display black = current_display();
@@ -293,12 +315,12 @@ void LandscapeStage::frame(const InputReader& read, int clicked) {
     }
     sound_tick();
     if (interlude_.active()) {
-        interlude_.advance();
+        interlude_.advance(grid_painter());
         return;
     }
     if (out_of_lives_ || finished_) return; // the main loop has ended
     if (map_view_.open() && map_view_.busy()) { // drawing squares: no input read
-        map_view_.work();
+        map_view_.work(map_builder());
         return;
     }
     if (map_view_.open() && map_frames_left_ > 1) { // the map's turn waits two frames
@@ -360,14 +382,7 @@ void LandscapeStage::frame(const InputReader& read, int clicked) {
 void LandscapeStage::toggle_map() {
     if (!map_view_.open()) {
         map_palette_ = colours_;
-        map_view_.show(view_canvas_, view_x_, view_y_, [this](std::uint16_t x, std::uint16_t y) {
-            auto in = inputs_;
-            in.previous_x = view_x_;
-            in.previous_y = view_y_;
-            auto cells = build_view(world_, a_, x, y, in, map_palette_);
-            map_palette_ = cells.colours;
-            return cells;
-        });
+        map_view_.show(view_canvas_, view_x_, view_y_, map_builder());
         creatures_.hide_all(creature_scene());
         creatures_.wipe_layer(); // $20071C's RectFill clears all five planes, the tethers' too
         return;

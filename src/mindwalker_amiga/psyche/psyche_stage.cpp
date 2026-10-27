@@ -230,9 +230,9 @@ void PsycheStage::draw_whole() { // $506694
 
 void PsycheStage::frame(const PsycheReader& read, int gadget) {
     if (!sequence_.empty()) {
-        const auto step = std::move(sequence_.front());
+        const Action action = sequence_.front();
         sequence_.erase(sequence_.begin());
-        step();
+        run(action);
         return;
     }
     if (outcome_ != Outcome::playing) return;
@@ -420,7 +420,7 @@ void PsycheStage::hints(int from) {
                 image(button_image_, 15, bx - 2, by - 15);
                 hint_home(i);
                 if (!sequence_.empty()) {
-                    sequence_.push_back([this, i] { hints(i + 1); });
+                    sequence_.push_back({Act::more_hints, i + 1});
                     return;
                 }
             } else {
@@ -463,17 +463,25 @@ void PsycheStage::hint_home(int slot) {
         else y += ty < y ? -1 : 1;
         if (pace >> 3 < ++steps) {
             steps = 0;
-            sequence_.push_back([this, x, y] {
-                cursor_x_ = x;
-                cursor_y_ = y;
-                sound_.frame(0);
-            });
+            sequence_.push_back({Act::flight, x, y});
             if (pace > 8) --pace;
         }
     }
-    sequence_.push_back([this, slot, column, row, before, x, y] {
-        cursor_x_ = x;
-        cursor_y_ = y;
+    sequence_.push_back({Act::landed, x, y, slot, column, row, before});
+}
+
+// One frame of a sequence (no input read).
+void PsycheStage::run(const Action& action) {
+    switch (action.act) {
+    case Act::flight: // $506332: the hand a step of the flight on, the music hurried
+        cursor_x_ = action.a;
+        cursor_y_ = action.b;
+        sound_.frame(0);
+        break;
+    case Act::landed: { // the flight over: the cell cleared, a tile that lay there to the slot
+        const int slot = action.c, column = action.d, row = action.e, before = action.f;
+        cursor_x_ = action.a;
+        cursor_y_ = action.b;
         sound_.set_fast(false);
         bonus_ = bonus_ < 1000 ? 0 : bonus_ - 1000; // $506796
         draw_bonus();
@@ -484,7 +492,16 @@ void PsycheStage::hint_home(int slot) {
             place_[std::size_t(before)] = std::uint8_t(slot);
             draw_slot(slot, 0);
         }
-    });
+        break;
+    }
+    case Act::more_hints: hints(action.a); break;
+    case Act::wait: break;
+    case Act::resume_panel: // $5005F0 after its 30 frames
+        screen_.fill(0, top_, 0x13F, 199, 0);
+        draw_panel();
+        sound_.start();
+        break;
+    }
 }
 
 void PsycheStage::rotate_bar() { // $505C5E: colours 25-31 turn
@@ -603,12 +620,8 @@ void PsycheStage::pause() {
 // drawn again; the sound back.
 void PsycheStage::resume() {
     paused_ = false;
-    for (int f = 0; f < 29; ++f) sequence_.push_back([] {});
-    sequence_.push_back([this] {
-        screen_.fill(0, top_, 0x13F, 199, 0);
-        draw_panel();
-        sound_.start();
-    });
+    for (int f = 0; f < 29; ++f) sequence_.push_back({Act::wait});
+    sequence_.push_back({Act::resume_panel});
 }
 
 platform::Image PsycheStage::picture(bool sprites) const {

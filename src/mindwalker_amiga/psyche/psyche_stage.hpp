@@ -69,7 +69,14 @@ public:
     void describe(const std::function<void(const std::string&, long)>& report) const;
 
 private:
-    using Step = std::function<void()>;
+    // A sequence's frames (no input read), as plain data so that a stage
+    // can be copied for a quick save.
+    enum class Act { flight, landed, more_hints, wait, resume_panel };
+    struct Action {
+        Act act{};
+        int a{}, b{}, c{}, d{}, e{}, f{};
+    };
+    void run(const Action&);
     void layout(std::uint32_t world_seed); // h11 / $5022EA: the shuffle and the first places
     void draw_panel();                     // $5010AC
     void draw_slot(int slot, int pen);     // $501358
@@ -134,7 +141,7 @@ private:
     int whole_wait_{};                               // frames to the next timer tick (the last picture's passes)
     int top_{10};                                    // $500CF0
     Outcome outcome_{Outcome::playing};
-    std::vector<Step> sequence_;
+    std::vector<Action> sequence_;
 };
 
 } // namespace mindwalker::psyche

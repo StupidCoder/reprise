@@ -16,6 +16,7 @@
 #include <chrono>
 #include <cstdio>
 #include <map>
+#include <memory>
 #include <sstream>
 
 namespace mindwalker::game {
@@ -80,7 +81,6 @@ public:
 
     void tick(const app::GameInput& input) override {
         ++frames_;
-        if (in_game() && !replaying_) record(input); // (for quick save)
         if (input.pointer) {
             mouse_x_ = input.pointer_x;
             mouse_y_ = input.pointer_y;
@@ -205,7 +205,7 @@ public:
     void to_title(int where) {
         ended_where_ = where;
         ended_ = state_;
-        restore_ = stage_start_.state;
+        restore_ = stage_start_;
         load_next(Phase::title);
     }
 
@@ -357,9 +357,7 @@ public:
     }
 
     void open(Phase next) {
-        // A quick save holds the stage's start and the inputs since.
-        stage_start_ = {next, state_, mouse_x_, mouse_y_, button_was_down_, {}};
-        inputs_.clear();
+        stage_start_ = state_; // (the restore point B, C and P keep, +$2BC on)
         phase_ = next;
         if (next == Phase::landscape) {
             landscape_.emplace(files_, assets_,
@@ -408,36 +406,45 @@ public:
     }
 
     // Quick save and load, in the landscape, the tunnel, the arena and the
-    // psyche screen: the stage's start (the game's record as the stage
-    // began) and the inputs since; loading builds the stage again and runs
-    // those inputs (every stage follows only its start and its inputs, the
-    // game's own random generators included).
+    // psyche screen: a copy of the running stage and of the game's record
+    // (the stages hold no pointers into themselves, so a copy is the whole
+    // state, sound and random generators included).
     bool save() override {
         if (!in_game()) return false;
-        saved_ = stage_start_;
-        saved_->inputs = inputs_;
+        auto snapshot = std::make_unique<Snapshot>();
+        snapshot->phase = phase_;
+        snapshot->state = state_;
+        snapshot->stage_start = stage_start_;
+        snapshot->mouse_x = mouse_x_;
+        snapshot->mouse_y = mouse_y_;
+        snapshot->button_was_down = button_was_down_;
+        if (landscape_) snapshot->landscape.emplace(*landscape_);
+        if (tunnel_) snapshot->tunnel.emplace(*tunnel_);
+        if (arena_) snapshot->arena.emplace(*arena_);
+        if (psyche_) snapshot->psyche.emplace(*psyche_);
+        saved_ = std::move(snapshot);
         return true;
     }
     bool load() override {
         if (!saved_ || stopped_by_end()) return false;
-        const Snapshot snapshot = *saved_;
-        state_ = snapshot.state;
-        mouse_x_ = snapshot.mouse_x;
-        mouse_y_ = snapshot.mouse_y;
-        button_was_down_ = snapshot.button_was_down;
+        const Snapshot& s = *saved_;
+        phase_ = s.phase;
+        state_ = s.state;
+        stage_start_ = s.stage_start;
+        mouse_x_ = s.mouse_x;
+        mouse_y_ = s.mouse_y;
+        button_was_down_ = s.button_was_down;
         landscape_.reset();
         tunnel_.reset();
         arena_.reset();
         psyche_.reset();
-        open(snapshot.phase);
-        replaying_ = true;
-        for (const auto& run : snapshot.inputs)
-            for (std::uint32_t k = 0; k < run.frames; ++k) tick(run.input.to_game());
-        replaying_ = false;
-        inputs_ = snapshot.inputs;
+        if (s.landscape) landscape_.emplace(*s.landscape);
+        if (s.tunnel) tunnel_.emplace(*s.tunnel);
+        if (s.arena) arena_.emplace(*s.arena);
+        if (s.psyche) psyche_.emplace(*s.psyche);
         return true;
     }
-    bool has_save() const override { return saved_.has_value(); }
+    bool has_save() const override { return saved_ != nullptr; }
 
     std::vector<app::GameOption> options() const override {
         return {{"VHS look", {"Off", "Light", "Medium", "Heavy", "Broken"}, vhs_,
@@ -487,53 +494,21 @@ private:
     std::optional<tunnel::TunnelStage> tunnel_;
     std::optional<arena::ArenaStage> arena_;
     std::optional<psyche::PsycheStage> psyche_;
-    // What Mind Walker reads of a frame's input, and how many frames it
-    // stayed so (quick save keeps only the changes).
-    struct Input {
-        bool up{}, down{}, left{}, right{}, fire{}, button{}, pointer{};
-        std::int16_t x{}, y{};
-        bool operator==(const Input&) const = default;
-        static Input of(const app::GameInput& in) {
-            return {in.up, in.down, in.left, in.right, in.fire, in.mouse_button, in.pointer,
-                    std::int16_t(in.pointer_x), std::int16_t(in.pointer_y)};
-        }
-        app::GameInput to_game() const {
-            app::GameInput in;
-            in.up = up;
-            in.down = down;
-            in.left = left;
-            in.right = right;
-            in.fire = fire;
-            in.mouse_button = button;
-            in.pointer = pointer;
-            in.pointer_x = x;
-            in.pointer_y = y;
-            return in;
-        }
-    };
-    struct Run {
-        Input input;
-        std::uint32_t frames{};
-    };
-    void record(const app::GameInput& in) {
-        const auto input = Input::of(in);
-        if (!inputs_.empty() && inputs_.back().input == input) ++inputs_.back().frames;
-        else inputs_.push_back({input, 1});
-    }
     struct Snapshot {
         Phase phase{};
-        GameState state;
+        GameState state, stage_start;
         int mouse_x{}, mouse_y{};
         bool button_was_down{};
-        std::vector<Run> inputs;
+        std::optional<landscape::LandscapeStage> landscape;
+        std::optional<tunnel::TunnelStage> tunnel;
+        std::optional<arena::ArenaStage> arena;
+        std::optional<psyche::PsycheStage> psyche;
     };
-    Snapshot stage_start_;
+    GameState stage_start_;
     GameState ended_, restore_;    // the game T was handed, and its stage's start
     int ended_where_{};            // +$2BA
     Phase restart_phase_{Phase::landscape};
-    std::vector<Run> inputs_;
-    std::optional<Snapshot> saved_;
-    bool replaying_{};
+    std::unique_ptr<Snapshot> saved_;
     long frames_{};
     int vhs_{};
 };

@@ -195,7 +195,10 @@ private:
     std::uint16_t view_x_{}, view_y_{};   // $209980/$209982
     std::uint16_t home_x_{}, home_y_{};   // $209984/$209986
     int direction_{};                     // $203070
-    ViewInputs inputs_;
+    ViewInputs inputs_;                   // (its visited lookup bound per call: view_inputs())
+    ViewInputs view_inputs() const;
+    MapView::Builder map_builder();
+    Interlude::Grid grid_painter() const;
     ViewCells cells_;
     std::array<std::uint16_t, 32> colours_{};
     Walker walker_;

@@ -39,12 +39,15 @@ public:
     // The reveal of `next` over `now` ($201492 mode 2).
     void start_reveal(const Display& now, const Display& next);
     // A repaint of the view from `now` to `next`, the old picture kept
-    // until the new one is copied. `grid` draws the grid and score onto
-    // the display (h8 does so after each plane it clears); `star_x/y` the
-    // star's middle (display rows).
+    // until the new one is copied; `star_x/y` the star's middle (display
+    // rows).
+    // `grid` draws the grid and score onto the display (h8 does so after each
+    // plane a repaint clears); passed on each call, not kept, so that an
+    // interlude holds no pointer back into its stage (a stage can be copied).
+    using Grid = std::function<void(screen::Canvas&)>;
     enum class Repaint { plain, view_change, flash, star };
     void start_repaint(const Display& now, const Display& next, Repaint, int repeats = 1, int star_x = 0, int star_y = 0,
-                       std::function<void(screen::Canvas&)> grid = {});
+                       const Grid& grid = {});
     // $205EC4, the moment of a catch (before the catch picture, in the same
     // frame): 24 steps of 2 frames, the catchers' tethers (`tethers`, plane
     // 4) reaching the walker, colour 0 flashing green, colours 19-31 and 17
@@ -57,13 +60,13 @@ public:
     // Whether the sequence leaves the sprites on screen (repaints do).
     bool shows_sprites() const { return phase_ == Phase::repaint || phase_ == Phase::grab; }
     // One display frame on.
-    void advance();
+    void advance(const Grid& grid = {});
     const Display& display() const { return display_; }
 
 private:
     enum class Phase { idle, face, fade, fade_tail, paint, reveal, settle, repaint, grab };
     void grab_frame();
-    void repaint_frame();
+    void repaint_frame(const Grid& grid);
     void start_paint();
     void face_step(int step);
     void fade_step();
@@ -80,7 +83,6 @@ private:
     int repeats_{}, frame_{}, star_x_{}, star_y_{};
     std::array<std::uint16_t, 32> blackened_{}; // h8's h10
     std::array<std::uint16_t, 32> grab_colours_{}; // $2004AC, loaded again at the end
-    std::function<void(screen::Canvas&)> grid_;
     struct Queued {
         Display next;
         Repaint kind;

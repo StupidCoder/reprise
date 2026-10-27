@@ -32,7 +32,7 @@ public:
     void show(const screen::Canvas& display, std::uint16_t view_x, std::uint16_t view_y, const Builder&);
     void close() { open_ = false; fill_all_ = false; }
     // $20071C(0) after a pause: drawn again (all squares when it was filled).
-    void redraw();
+    void redraw(const Builder&);
     // $2005C2: the left button pressed or released at the pointer.
     void button(bool down, int x, int y);
     // $200D92: one turn of the map's loop. Returns the display frames it
@@ -41,15 +41,17 @@ public:
     // Squares are drawn one after another, about 3 frames each on the A500
     // (measured: opening 79 frames, filling 102 squares 304); meanwhile the
     // loop reads no input. One frame of that work.
+    // (The builder is passed on each call, not kept: a map view holds no
+    // pointer back into its stage, so a stage can be copied.)
     bool busy() const { return wait_ > 0 || !pending_.empty(); }
-    void work();
+    void work(const Builder&);
 
     const screen::Canvas& planes() const { return canvas_; }
     // Colours 0-29 as the map has them (30 and 31 stay the view's).
     const std::array<std::uint16_t, 30>& colours() const { return colours_; }
 
 private:
-    void draw_square(int column, int row); // $200A36
+    void draw_square(int column, int row, const Builder&); // $200A36
     void queue_square(int column, int row);
     void draw_box();
     int pen(const ViewCells&, int x, int y) const; // $200BF0
@@ -58,7 +60,6 @@ private:
     const amiga::LoadedImage& a_;
     screen::Canvas canvas_;
     std::array<std::uint16_t, 30> colours_{};
-    Builder build_;
     std::uint16_t origin_x_{}, origin_y_{}, view_x_{}, view_y_{};
     screen::Canvas display_;
     bool open_{}, held_{}, fill_all_{}; // $204D6E, $20102E, $20101E

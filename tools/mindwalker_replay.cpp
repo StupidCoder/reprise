@@ -24,11 +24,13 @@
 #include "platform/files.hpp"
 #include "platform/host.hpp"
 #include <bit>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <deque>
 #include <map>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -351,9 +353,13 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
             start.resume = r;
         }
     }
-    landscape::LandscapeStage stage(files, assets, start);
+    auto stage_owner = std::make_unique<landscape::LandscapeStage>(files, assets, start);
+    auto* stage = stage_owner.get();
+    // MW_COPY_AT=n (research): at frame n the stage replaced by a copy of itself (the
+    // original destroyed): a copy must carry the whole state (quick save).
+    const int copy_at = std::getenv("MW_COPY_AT") ? std::atoi(std::getenv("MW_COPY_AT")) : -1;
     std::vector<std::array<int, 6>> music_ours;
-    stage.sound().trace = &music_ours;
+    stage->sound().trace = &music_ours;
     std::size_t next = 0;
     int frames = 0, differences = 0;
     // The walker's mask is close, not exact (our polygon fill): its pixel
@@ -367,31 +373,31 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
     const auto compare = [&](const Read& r) {
         const auto& w = r.fields.at("walker");
         const auto signed32 = [&](int o) { return std::int32_t(std::uint32_t(word(w, o, 4))); };
-        const auto& me = stage.walker();
+        const auto& me = stage->walker();
         struct Field { const char* name; long ours, theirs; };
         const Field list[] = {
             {"height", me.height, signed32(0)}, {"x", me.x, signed32(4)}, {"z", me.z, signed32(0xC)}, {"level", me.level, signed32(8)},
             {"cell x", me.cell_x, signed32(0x10)}, {"cell y", me.cell_y, signed32(0x14)},
             {"screen x", me.screen_x, signed32(0x18)}, {"screen y", me.screen_y, signed32(0x1C)},
             {"terrain", me.terrain, signed32(0x30) & 0xFFFF}, {"frame", me.frame, signed32(0x76)},
-            {"speed", me.speed, signed32(0x82)}, {"view x", stage.view_x(), word(r.fields.at("view"), 0, 2)},
-            {"view y", stage.view_y(), word(r.fields.at("view"), 2, 2)},
-            {"direction", stage.direction(), word(r.fields.at("direction"), 0, 4)},
+            {"speed", me.speed, signed32(0x82)}, {"view x", stage->view_x(), word(r.fields.at("view"), 0, 2)},
+            {"view y", stage->view_y(), word(r.fields.at("view"), 2, 2)},
+            {"direction", stage->direction(), word(r.fields.at("direction"), 0, 4)},
             {"aiming", me.aiming, signed32(0x86)}, {"cursor x", me.cursor_x, signed32(0x8A)},
             {"cursor y", me.cursor_y, signed32(0x8E)}, {"edge push", me.edge_push, signed32(0x92)},
             // $209984 on: creature places $2099AC, the way on closed $2099B6,
             // the finds $2099BC/$2099BE; the score (shared +$66).
-            {"creature places", stage.creature_places(), word(r.fields.at("params"), 0x2A, 2)},
-            {"ramp closed", stage.ramp_closed(), word(r.fields.at("params"), 0x32, 2)},
-            {"find E=", stage.found()[0], word(r.fields.at("params"), 0x38, 2)},
-            {"find mc2", stage.found()[1], word(r.fields.at("params"), 0x3A, 2)},
-            {"score", long(stage.score()), word(r.fields.at("shared"), 0x56, 4)}};
+            {"creature places", stage->creature_places(), word(r.fields.at("params"), 0x2A, 2)},
+            {"ramp closed", stage->ramp_closed(), word(r.fields.at("params"), 0x32, 2)},
+            {"find E=", stage->found()[0], word(r.fields.at("params"), 0x38, 2)},
+            {"find mc2", stage->found()[1], word(r.fields.at("params"), 0x3A, 2)},
+            {"score", long(stage->score()), word(r.fields.at("shared"), 0x56, 4)}};
         for (const auto& f : list) {
             // A beacon's bonus counts whole seconds of a real-time clock whose
             // second boundaries we cannot place: one point either way is
             // that phase, counted apart.
             if (std::string(f.name) == "score" && f.ours != f.theirs && std::abs(f.ours - f.theirs) == 1 &&
-                !stage.ramp_closed()) {
+                !stage->ramp_closed()) {
                 ++clock_phase;
                 continue;
             }
@@ -400,10 +406,10 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
         }
         // The walker's sprite data after h11 (header, then plane A and B
         // words a row), in recordings that have it.
-        if (r.fields.count("sprite") && stage.walker().sprite_rows > 0) {
+        if (r.fields.count("sprite") && stage->walker().sprite_rows > 0) {
             const auto& sp = r.fields.at("sprite");
-            const auto rows = stage.walker_sprite();
-            const int top = stage.walker().screen_y - stage.walker().height;
+            const auto rows = stage->walker_sprite();
+            const int top = stage->walker().screen_y - stage->walker().height;
             for (std::size_t y = 0; y < rows.size() && 4 + y * 4 + 4 <= sp.size() / 2; ++y) {
                 if (top + int(y) < 0) continue; // above the screen: h11 leaves these rows as they were
                 const long theirs = word(sp, int(4 + y * 4), 4);
@@ -415,9 +421,9 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
             }
             const long hidden = word(r.fields.at("walker"), 0x96, 4);
             // (It follows the mask's pixels, so it is counted with them.)
-            if (stage.walker().hidden_frames != hidden && ++hidden_differing <= print_limit)
+            if (stage->walker().hidden_frames != hidden && ++hidden_differing <= print_limit)
                 std::printf("A read %d (frame %d) hidden frames: ours %d, original %ld\n", r.index, frames,
-                            stage.walker().hidden_frames, hidden);
+                            stage->walker().hidden_frames, hidden);
         }
         // The sound's states in order (its timer runs on its own clock, so
         // only the sequence of changes is compared, at the end).
@@ -434,7 +440,7 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
         // draw, so the branches' timing too).
         if (r.fields.count("bolt")) {
             const auto& b = r.fields.at("bolt");
-            const auto& m = stage.bolt().random();
+            const auto& m = stage->bolt().random();
             const Field bolt[] = {{"bolt register", long(m.reg), word(b, 0, 4)}, {"bolt mix", m.mix, word(b, 4, 2)},
                                   {"bolt counter", m.counter, word(b, 6, 2)}};
             for (const auto& f : bolt)
@@ -448,13 +454,13 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
         const auto long_at = [&](int o) { return long(std::int32_t(std::uint32_t(word(c, o, 4)))); };
         const auto word_at = [&](int o) { return long(std::int16_t(std::uint16_t(word(c, o, 2)))); };
         std::vector<Field> more = {
-            {"attached", stage.creatures().attached(), long_at(0x286)},
-            {"creature bonus", stage.creatures().score_bonus(), long_at(0x0A)},
-            {"damage", stage.damage(), long(std::int32_t(std::uint32_t(word(r.fields.at("damage"), 0, 4))))},
-            {"lives", stage.lives(), long(std::int32_t(std::uint32_t(word(r.fields.at("shared"), 0x5E, 4))))}};
+            {"attached", stage->creatures().attached(), long_at(0x286)},
+            {"creature bonus", stage->creatures().score_bonus(), long_at(0x0A)},
+            {"damage", stage->damage(), long(std::int32_t(std::uint32_t(word(r.fields.at("damage"), 0, 4))))},
+            {"lives", stage->lives(), long(std::int32_t(std::uint32_t(word(r.fields.at("shared"), 0x5E, 4))))}};
         static const char* names[] = {"present", "kind", "x", "y", "depth", "tether x", "tether y"};
         for (int i = 0; i < 12; ++i) {
-            const auto& me = stage.creatures().all()[std::size_t(i)];
+            const auto& me = stage->creatures().all()[std::size_t(i)];
             const long ours[] = {me.present, me.kind, me.x, me.y, me.depth, me.tether_x, me.tether_y};
             const long theirs[] = {word_at(0x252 + 2 * i), long_at(0x0E + 4 * i), long_at(0x102 + 4 * i),
                                    long_at(0xD2 + 4 * i), long_at(0xA2 + 4 * i), long_at(0x222 + 4 * i),
@@ -483,16 +489,16 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
             const int vbl = int(std::stoul(r.fields.at("vbl"), nullptr, 16));
             if (vbl_start < 0) {
                 vbl_start = vbl;
-                clock_start = stage.clock();
+                clock_start = stage->clock();
             }
-            stage.set_clock(clock_start + vbl - vbl_start);
+            stage->set_clock(clock_start + vbl - vbl_start);
         }
         // The recorder pokes before it logs the read: the damage ($20052E).
         if (events.count({'A', r.index}))
             for (const auto& ev : events.at({'A', r.index}))
-                if (ev.size() == 3 && ev[0] == "poke" && ev[1] == "20052E") stage.set_damage(int(std::stoul(ev[2], nullptr, 16)));
+                if (ev.size() == 3 && ev[0] == "poke" && ev[1] == "20052E") stage->set_damage(int(std::stoul(ev[2], nullptr, 16)));
         if (kind == landscape::InputRead::button) compare(r);
-        if (shots.count(r.index)) platform::save_png(stage.picture(), shots.at(r.index));
+        if (shots.count(r.index)) platform::save_png(stage->picture(), shots.at(r.index));
         apply('A', r.index);
         ++next;
         return held;
@@ -500,11 +506,11 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
     while (next < reads.size() && !out_of_step && frames < frame_limit) {
         int gadget = pending_gadget;
         pending_gadget = -1;
-        if (stage.paused() && std::getenv("MW_PAUSE_SHOT") && !pause_shot_done) { // research: the pause as shown
-            platform::save_png(stage.picture(), std::getenv("MW_PAUSE_SHOT"));
+        if (stage->paused() && std::getenv("MW_PAUSE_SHOT") && !pause_shot_done) { // research: the pause as shown
+            platform::save_png(stage->picture(), std::getenv("MW_PAUSE_SHOT"));
             pause_shot_done = true;
         }
-        if (stage.paused() && !hook_gadgets.empty()) {
+        if (stage->paused() && !hook_gadgets.empty()) {
             gadget = hook_gadgets.front();
             hook_gadgets.pop_front();
         }
@@ -512,19 +518,27 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
         if (events.count({'A', frame_first_read}))
             for (const auto& ev : events.at({'A', frame_first_read}))
                 if (ev[0] == "gadget") gadget = std::stoi(ev[1], nullptr, 16);
-        stage.frame(reader, gadget);
+        stage->frame(reader, gadget);
         ++frames;
+        if (frames == copy_at) {
+            stage_owner = std::make_unique<landscape::LandscapeStage>(*stage);
+            stage = stage_owner.get();
+        }
     }
     // A picture sequence the last read started plays on without reads.
-    while (frame_limit < (1 << 30) && frames < frame_limit && stage.in_sequence()) {
-        stage.frame(reader);
+    while (frame_limit < (1 << 30) && frames < frame_limit && stage->in_sequence()) {
+        stage->frame(reader);
         ++frames;
+        if (frames == copy_at) {
+            stage_owner = std::make_unique<landscape::LandscapeStage>(*stage);
+            stage = stage_owner.get();
+        }
     }
     if (std::getenv("MW_STATE")) // research: the walker at the end
-        std::printf("walker x %d y %d row %d column %d hidden %d\n", stage.walker().screen_x, stage.walker().screen_y,
-                    stage.walker().view_row, stage.walker().view_column, stage.walker().hidden_frames);
+        std::printf("walker x %d y %d row %d column %d hidden %d\n", stage->walker().screen_x, stage->walker().screen_y,
+                    stage->walker().view_row, stage->walker().view_column, stage->walker().hidden_frames);
     std::printf("%d frames, %zu reads compared, %d differences; score %u, lives %d%s", frames, next, differences,
-                stage.score(), stage.lives(), stage.out_of_lives() ? " (out of lives: the stage ends)" : "");
+                stage->score(), stage->lives(), stage->out_of_lives() ? " (out of lives: the stage ends)" : "");
     if (sprite_pixels) std::printf("; walker mask: %d pixels in %d rows differ", sprite_pixels, sprite_rows_differing);
     if (hidden_differing) std::printf(", hidden count in %d reads", hidden_differing);
     if (clock_phase) std::printf("; beacon bonus a second's phase apart in %d reads", clock_phase);
@@ -565,7 +579,7 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
             }
     }
     std::printf("\n");
-    if (!png.empty()) platform::save_png(stage.picture(), png);
+    if (!png.empty()) platform::save_png(stage->picture(), png);
     return differences == 0 ? 0 : 1;
 }
 
@@ -771,7 +785,11 @@ int tunnel(const std::filesystem::path& content, const std::filesystem::path& sc
     const auto at = [&](int offset) { return std::uint32_t(word(sh, offset - 0x10, 4)); };
     tunnel::TunnelStage::Start start{at(0x4C), int(at(0x5C)), int(at(0x6E)), at(0x66)};
     // (B's flags may already be set at its first read: the start state is the log's.)
-    tunnel::TunnelStage stage(files, assets, start);
+    auto stage_owner = std::make_unique<tunnel::TunnelStage>(files, assets, start);
+    auto* stage = stage_owner.get();
+    // MW_COPY_AT=n (research): at frame n the stage replaced by a copy of itself (the
+    // original destroyed): a copy must carry the whole state (quick save).
+    const int copy_at = std::getenv("MW_COPY_AT") ? std::atoi(std::getenv("MW_COPY_AT")) : -1;
     tunnel::TunnelInput held;
     const auto apply = [&](const std::vector<std::string>& ev) {
         if (ev[0] == "button") held.button = ev[1] == "1";
@@ -794,19 +812,19 @@ int tunnel(const std::filesystem::path& content, const std::filesystem::path& sc
             long ours, theirs;
         };
         const auto s32 = [&](const std::string& f, int o) { return long(std::int32_t(std::uint32_t(word(r.fields.at(f), o, 4)))); };
-        std::vector<Field> list = {{"ticks", stage.ticks(), s32("tunnel", 0)},  {"pace", stage.pace(), s32("tunnel", 4)},
-                                   {"laps", stage.laps(), s32("tunnel", 8)},    {"pan x", stage.pan_x(), s32("tunnel", 0xC)},
-                                   {"pan y", stage.pan_y(), s32("tunnel", 0x10)},
-                                   {"wander", long(stage.wander().reg), long(word(r.fields.at("tunnel"), 0x14, 4))},
-                                   {"frozen", stage.frozen(), long(word(r.fields.at("wait"), 0, 2))}};
+        std::vector<Field> list = {{"ticks", stage->ticks(), s32("tunnel", 0)},  {"pace", stage->pace(), s32("tunnel", 4)},
+                                   {"laps", stage->laps(), s32("tunnel", 8)},    {"pan x", stage->pan_x(), s32("tunnel", 0xC)},
+                                   {"pan y", stage->pan_y(), s32("tunnel", 0x10)},
+                                   {"wander", long(stage->wander().reg), long(word(r.fields.at("tunnel"), 0x14, 4))},
+                                   {"frozen", stage->frozen(), long(word(r.fields.at("wait"), 0, 2))}};
         for (int k = 0; k < 4; ++k) {
-            const auto& rect = stage.rects()[std::size_t(k)];
+            const auto& rect = stage->rects()[std::size_t(k)];
             list.push_back({"rect size", rect.size, s32("rects", 0x60 + 4 * k)});
             list.push_back({"rect x", rect.x, s32("rects", 0x70 + 4 * k)});
             list.push_back({"rect y", rect.y, s32("rects", 0x80 + 4 * k)});
         }
         for (int k = 0; k < 12; ++k)
-            list.push_back({"rect mixer", long(stage.rect_random()[std::size_t(k)].reg), long(word(r.fields.at("rects"), 8 * k, 4))});
+            list.push_back({"rect mixer", long(stage->rect_random()[std::size_t(k)].reg), long(word(r.fields.at("rects"), 8 * k, 4))});
         for (const auto& f : list)
             if (f.ours != f.theirs && ++differences <= print_limit)
                 std::printf("B read %d (frame %d) %s: ours %ld, original %ld\n", r.index, frames, f.name, f.ours, f.theirs);
@@ -825,21 +843,25 @@ int tunnel(const std::filesystem::path& content, const std::filesystem::path& sc
             std::istringstream in(list);
             for (std::string item; std::getline(in, item, ',');)
                 if (std::stoi(item.substr(0, item.find(':'))) == r.index)
-                    platform::save_png(stage.picture(), item.substr(item.find(':') + 1));
+                    platform::save_png(stage->picture(), item.substr(item.find(':') + 1));
         }
         if (events.count(r.index))
             for (const auto& ev : events.at(r.index)) apply(ev);
         ++next;
         return held;
     };
-    while (next < reads.size() && !out_of_step && frames < frame_limit && !stage.over()) {
-        stage.frame(reader);
+    while (next < reads.size() && !out_of_step && frames < frame_limit && !stage->over()) {
+        stage->frame(reader);
         ++frames;
+        if (frames == copy_at) {
+            stage_owner = std::make_unique<tunnel::TunnelStage>(*stage);
+            stage = stage_owner.get();
+        }
     }
     const char* outcome[] = {"playing", "caught", "ran out", "quit"};
     std::printf("%d frames, %zu reads compared, %d differences; outcome %s, score %u\n", frames, next, differences,
-                outcome[int(stage.outcome())], stage.score());
-    if (!png.empty()) platform::save_png(stage.picture(), png);
+                outcome[int(stage->outcome())], stage->score());
+    if (!png.empty()) platform::save_png(stage->picture(), png);
     return differences == 0 ? 0 : 1;
 }
 
@@ -920,7 +942,11 @@ int arena(const std::filesystem::path& content, const std::filesystem::path& scr
     const auto& sh = first.at("shared");
     const auto at = [&](int offset) { return std::uint32_t(word(sh, offset - 0x10, 4)); };
     arena::ArenaStage::Start start{at(0x4C), int(at(0x5C)), int(at(0x6E)), at(0x66), int(at(0x48))};
-    arena::ArenaStage stage(files, assets, start);
+    auto stage_owner = std::make_unique<arena::ArenaStage>(files, assets, start);
+    auto* stage = stage_owner.get();
+    // MW_COPY_AT=n (research): at frame n the stage replaced by a copy of itself (the
+    // original destroyed): a copy must carry the whole state (quick save).
+    const int copy_at = std::getenv("MW_COPY_AT") ? std::atoi(std::getenv("MW_COPY_AT")) : -1;
     {
         // The maze: ours from the seed against the original's map at its first read.
         int cells = 0;
@@ -928,7 +954,7 @@ int arena(const std::filesystem::path& content, const std::filesystem::path& scr
             for (int x = 0; x < arena::ArenaMap::width; ++x) {
                 const int bit = 7 - x % 8, byte = y * 8 + x / 8;
                 const int v = int(word(first.at("map0"), byte, 1) >> bit & 1) | int(word(first.at("map1"), byte, 1) >> bit & 1) << 1;
-                cells += int(stage.map().at(x, y)) != v;
+                cells += int(stage->map().at(x, y)) != v;
             }
         std::printf("maze: %d of %d cells differ from the original's\n", cells, arena::ArenaMap::width * arena::ArenaMap::height);
     }
@@ -944,7 +970,7 @@ int arena(const std::filesystem::path& content, const std::filesystem::path& scr
             held.left = ev[1].find('L') != std::string::npos;
             held.right = ev[1].find('R') != std::string::npos;
         }
-        if (ev[0] == "poke" && ev[1] == "402EC4") stage.set_pulse(int(std::stoul(ev[2], nullptr, 16)));
+        if (ev[0] == "poke" && ev[1] == "402EC4") stage->set_pulse(int(std::stoul(ev[2], nullptr, 16)));
     };
     for (std::size_t i = 0; i < carried.size(); ++i)
         if (carried[i].first == "T" || carried_index[i] < reads_before[carried[i].first]) apply(carried[i].second);
@@ -999,7 +1025,7 @@ int arena(const std::filesystem::path& content, const std::filesystem::path& scr
                 for (int y = 0; y < 8; ++y) m["room creatures " + std::to_string(x) + "," + std::to_string(y)] = {"counts", (x * 8 + y) * 4, 4};
             return m;
         }();
-        stage.describe([&](const std::string& name, long ours) {
+        stage->describe([&](const std::string& name, long ours) {
             const auto& place = places.at(name);
             const unsigned long raw = std::uint32_t(word(r.fields.at(place.field), place.offset, place.bytes));
             long theirs = place.bytes == 4 ? long(std::int32_t(raw)) : long(raw);
@@ -1034,7 +1060,7 @@ int arena(const std::filesystem::path& content, const std::filesystem::path& scr
             std::istringstream in(list);
             for (std::string item; std::getline(in, item, ',');)
                 if (std::stoi(item.substr(0, item.find(':'))) == r.index)
-                    platform::save_png(stage.picture(!std::getenv("MW_NO_SPRITES")), item.substr(item.find(':') + 1));
+                    platform::save_png(stage->picture(!std::getenv("MW_NO_SPRITES")), item.substr(item.find(':') + 1));
         }
         if (events.count(r.index))
             for (const auto& ev : events.at(r.index))
@@ -1042,23 +1068,31 @@ int arena(const std::filesystem::path& content, const std::filesystem::path& scr
         ++next;
         return held;
     };
-    while (next < reads.size() && !out_of_step && frames < frame_limit && !stage.over()) {
-        stage.frame(reader);
+    while (next < reads.size() && !out_of_step && frames < frame_limit && !stage->over()) {
+        stage->frame(reader);
         ++frames;
+        if (frames == copy_at) {
+            stage_owner = std::make_unique<arena::ArenaStage>(*stage);
+            stage = stage_owner.get();
+        }
     }
     // Run out the closing sequence (no reads).
-    while (!stage.over() && (stage.outcome() != arena::ArenaStage::Outcome::playing || stage.in_sequence()) && frames < frame_limit) {
-        stage.frame(reader);
+    while (!stage->over() && (stage->outcome() != arena::ArenaStage::Outcome::playing || stage->in_sequence()) && frames < frame_limit) {
+        stage->frame(reader);
         ++frames;
+        if (frames == copy_at) {
+            stage_owner = std::make_unique<arena::ArenaStage>(*stage);
+            stage = stage_owner.get();
+        }
     }
     const char* outcome[] = {"playing", "won", "left", "died", "quit"};
     const auto& last = reads.back().fields;
     std::printf("%d frames, %zu of %zu reads compared, %d differences; outcome %s, score %u (original at its last read %ld), "
                 "strength %d (original %ld)\n",
-                frames, next, reads.size(), differences, outcome[int(stage.outcome())], stage.score(),
-                word(last.at("shared"), 0x66 - 0x10, 4), stage.player().strength,
+                frames, next, reads.size(), differences, outcome[int(stage->outcome())], stage->score(),
+                word(last.at("shared"), 0x66 - 0x10, 4), stage->player().strength,
                 long(std::int32_t(std::uint32_t(word(last.at("player"), 0x3A, 4)))));
-    if (!png.empty()) platform::save_png(stage.picture(), png);
+    if (!png.empty()) platform::save_png(stage->picture(), png);
     return differences == 0 ? 0 : 1;
 }
 
@@ -1133,7 +1167,11 @@ int psyche(const std::filesystem::path& content, const std::filesystem::path& sc
     const auto at = [&](int offset) { return std::uint32_t(word(first.at("shared"), offset - 0x10, 4)); };
     psyche::PsycheStage::Start start{at(0x10), int(at(0x5C)), int(at(0x6E)), at(0x66), 42000, at(0x62)};
     if (const char* b = std::getenv("MW_BONUS")) start.bonus = std::uint32_t(std::stoul(b));
-    psyche::PsycheStage stage(files, assets, start);
+    auto stage_owner = std::make_unique<psyche::PsycheStage>(files, assets, start);
+    auto* stage = stage_owner.get();
+    // MW_COPY_AT=n (research): at frame n the stage replaced by a copy of itself (the
+    // original destroyed): a copy must carry the whole state (quick save).
+    const int copy_at = std::getenv("MW_COPY_AT") ? std::atoi(std::getenv("MW_COPY_AT")) : -1;
     std::printf("P: seed %08x stage %d lives %d score %u time %u\n", start.world_seed, start.stage, start.lives, start.score,
                 start.time);
     psyche::PsycheInput held;
@@ -1175,7 +1213,7 @@ int psyche(const std::filesystem::path& content, const std::filesystem::path& sc
         return m;
     }();
     const auto compare = [&](const Read& r) {
-        stage.describe([&](const std::string& name, long ours) {
+        stage->describe([&](const std::string& name, long ours) {
             if (name == "bonus") return; // (+$308 is not logged)
             const auto& place = places.at(name);
             const unsigned long raw = std::uint32_t(word(r.fields.at(place.field), place.offset, place.bytes));
@@ -1196,7 +1234,7 @@ int psyche(const std::filesystem::path& content, const std::filesystem::path& sc
             std::istringstream in(list);
             for (std::string item; std::getline(in, item, ',');)
                 if (std::stoi(item.substr(0, item.find(':'))) == r.index)
-                    platform::save_png(stage.picture(!std::getenv("MW_NO_SPRITES")), item.substr(item.find(':') + 1));
+                    platform::save_png(stage->picture(!std::getenv("MW_NO_SPRITES")), item.substr(item.find(':') + 1));
         }
         if (events.count(r.index))
             for (const auto& ev : events.at(r.index)) apply(ev);
@@ -1204,14 +1242,18 @@ int psyche(const std::filesystem::path& content, const std::filesystem::path& sc
         return held;
     };
     for (const auto& ev : events[0]) apply(ev); // (the pointer before the first read)
-    while (next < reads.size() && frames < frame_limit && !stage.over()) {
-        stage.frame(reader);
+    while (next < reads.size() && frames < frame_limit && !stage->over()) {
+        stage->frame(reader);
         ++frames;
+        if (frames == copy_at) {
+            stage_owner = std::make_unique<psyche::PsycheStage>(*stage);
+            stage = stage_owner.get();
+        }
     }
     const char* outcome[] = {"playing", "done", "quit"};
     std::printf("%d frames, %zu of %zu reads compared, %d differences; outcome %s, score %u\n", frames, next, reads.size(),
-                differences, outcome[int(stage.outcome())], stage.score());
-    if (!png.empty()) platform::save_png(stage.picture(), png);
+                differences, outcome[int(stage->outcome())], stage->score());
+    if (!png.empty()) platform::save_png(stage->picture(), png);
     return differences == 0 ? 0 : 1;
 }
 
@@ -1242,19 +1284,26 @@ int quicksave(const std::filesystem::path& content, int at, int more) {
     };
     int f = 0;
     for (; f < at; ++f) module->tick(input_at(f));
+    const auto t0 = std::chrono::steady_clock::now();
     if (!module->save()) {
         std::printf("save refused at frame %d\n", at);
         return 1;
     }
+    const auto saved_at = std::chrono::steady_clock::now();
     std::vector<std::uint64_t> first;
     for (int k = 0; k < more; ++k, ++f) {
         module->tick(input_at(f));
         first.push_back(hash(module->picture()));
     }
+    const auto t1 = std::chrono::steady_clock::now();
+    (void)t1;
     if (!module->load()) {
         std::printf("load refused\n");
         return 1;
     }
+    const auto t2 = std::chrono::steady_clock::now();
+    std::printf("save %.2f ms, load %.2f ms\n", std::chrono::duration<double, std::milli>(saved_at - t0).count(),
+                std::chrono::duration<double, std::milli>(t2 - t1).count());
     int differ = 0;
     f = at;
     for (int k = 0; k < more; ++k, ++f) {
