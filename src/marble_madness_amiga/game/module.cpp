@@ -17,7 +17,7 @@ namespace {
 // vertical blanks per update).
 constexpr double update_seconds = 2.0 / 50.0;
 
-enum Option { steering = 0, vhs_look = 1, stop_timer = 2, safe_falls = 3 };
+enum Option { steering = 0, vhs_look = 1, stop_timer = 2, safe_falls = 3, crowd_race = 4 };
 
 // The game as the program runs it (front_end.hpp): the options screen, the
 // courses with their introductions, finishes and the end. One player.
@@ -71,7 +71,15 @@ public:
                  .value = cheats_.safe_falls ? 1 : 0,
                  .description = "Drops from high places never break the marble: it bounces on and rolls away. "
                                 "Rolling off the course into nothing still costs a marble.",
-                 .group = "Cheats"}};
+                 .group = "Cheats"},
+                {.name = "Crowd race",
+                 .choices = {"Off", "On"},
+                 .value = crowd_ ? 1 : 0,
+                 .description = "Not the original game: seven more marbles race you to the goal, steered by the "
+                                "computer, each in its own colour. They bump, fall, break and come back by the "
+                                "same rules as yours. Turning it on mid-race puts them on the course's start; "
+                                "turning it off takes them away.",
+                 .group = "Crowd race"}};
     }
     void set_option(std::size_t index, int value) override {
         if (index == steering) {
@@ -84,6 +92,9 @@ public:
             cheats_.stop_timer = value != 0;
         } else if (index == safe_falls) {
             cheats_.safe_falls = value != 0;
+        } else if (index == crowd_race) {
+            crowd_ = value != 0;
+            flow_.set_crowd(crowd_);
         }
     }
 
@@ -101,6 +112,7 @@ public:
         flow_ = *saved_;
         next_push_ = saved_push_;
         flow_.set_device(device_);
+        flow_.set_crowd(crowd_);
         return true;
     }
     bool has_save() const override { return saved_.has_value(); }
@@ -135,6 +147,7 @@ private:
     int device_{};
     int vhs_{};
     Race::Cheats cheats_;
+    bool crowd_{};
     long frames_{};
     std::optional<GameFlow> saved_;
     Push saved_push_{};

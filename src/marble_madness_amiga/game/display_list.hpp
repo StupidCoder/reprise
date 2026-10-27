@@ -20,6 +20,9 @@ namespace marble_madness::game {
 class DisplayList {
 public:
     static constexpr int capacity = 31;
+    // Room for the crowd race's six more marbles (not the original game).
+    static constexpr int max_capacity = capacity + 9;
+    void set_limit(int limit) { limit_ = limit; }
 
     struct Box {
         std::int16_t x0{}, y0{}, z0{}, x1{}, y1{}, z1{};
@@ -41,15 +44,16 @@ public:
     void sort(const BoxOf& box_of);                                      // $111BB4's first part
 
     // The drawing order: slot numbers, $FF ends.
-    const std::array<std::uint8_t, capacity + 1>& order() const { return order_; }
+    const std::array<std::uint8_t, max_capacity + 1>& order() const { return order_; }
     const Slot& slot(int n) const { return slots_[std::size_t(n)]; }
 
     // $1113DC: a belongs after (in front of) b.
     static bool in_front(const Box& a, const Box& b);
 
 private:
-    std::array<Slot, capacity> slots_{};
-    std::array<std::uint8_t, capacity + 1> order_{};
+    std::array<Slot, max_capacity> slots_{};
+    std::array<std::uint8_t, max_capacity + 1> order_{};
+    int limit_{capacity};
 };
 
 } // namespace marble_madness::game

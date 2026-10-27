@@ -344,11 +344,14 @@ void Race::remove(Steelie& s, bool bonus, bool gone) {
 bool Race::collide(Marble& m) {
     const auto& p = files_->program();
     constexpr std::uint32_t push_by_speed = 0x116EC8;
-    const int count = (course_ == data::Course::beginner || course_ == data::Course::intermediate ||
-                       course_ == data::Course::ultimate)
-                          ? 4
-                          : 2;
-    std::array<Marble*, 4> all{&marbles[0], &marbles[1], &steelies[0].body, &steelies[1].body};
+    const bool with_steelies = course_ == data::Course::beginner || course_ == data::Course::intermediate ||
+                               course_ == data::Course::ultimate;
+    // The players' marbles, the steelies, then the crowd race's marbles.
+    std::array<Marble*, 4 + max_marbles - 2> all{&marbles[0], &marbles[1], &steelies[0].body, &steelies[1].body};
+    int count = with_steelies ? 4 : 2;
+    for (int i = 2; i < marble_count_; ++i) {
+        all[std::size_t(count++)] = &marbles[std::size_t(i)];
+    }
     const auto px = probe_.x(), py = probe_.y(), pz = probe_.z();
     const bool right = px < py;
     bool hit = false;
@@ -356,6 +359,20 @@ bool Race::collide(Marble& m) {
         Marble& o = *all[std::size_t(i)];
         if (&o == &m || o.status != 1) {
             continue;
+        }
+        // (The crowd race: marbles a funnel or tube holds do not meet the
+        // crowd's; in there a collision would put them back every update.)
+        // Nor do the crowd's marbles meet one they overlapped already when
+        // the update began (a funnel's exit put them on one spot): a
+        // collision puts both back there, so they would never part.
+        if (is_bot(m) || is_bot(o)) {
+            if (m.region_code != 0 || o.region_code != 0) {
+                continue;
+            }
+            const auto sx = s16(s16(start_x_ >> 16) - s16(o.x >> 16)), sy = s16(s16(start_y_ >> 16) - s16(o.y >> 16));
+            if (sx > -6 && sx < 6 && sy > -6 && sy < 6) {
+                continue;
+            }
         }
         const auto dx = s16(px - s16(o.x >> 16)), dy = s16(py - s16(o.y >> 16)), dz = s16(pz - s16(o.z >> 16));
         if (dx <= -8 || dx >= 8 || dy <= -8 || dy >= 8 || dz <= -0xF || dz >= 0xF ||

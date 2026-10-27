@@ -1,5 +1,6 @@
 #pragma once
 #include "marble_madness_amiga/data/game_files.hpp"
+#include "marble_madness_amiga/game/crowd.hpp"
 #include "marble_madness_amiga/game/display_list.hpp"
 #include "marble_madness_amiga/game/marble.hpp"
 #include "marble_madness_amiga/game/probe.hpp"
@@ -9,6 +10,7 @@
 #include <array>
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -46,7 +48,10 @@ public:
     // caller passes what it read after the previous update.
     void update(const std::array<Push, 2>& pushes);
 
-    std::array<Marble, 2> marbles{};
+    // Marbles 0 and 1 are the players' (as in the original); 2-7 only race
+    // in the crowd race.
+    static constexpr int max_marbles = 8;
+    std::array<Marble, max_marbles> marbles{};
     std::array<Steelie, 2> steelies{};      // $100BD6 (Beginner, Intermediate, Ultimate)
     std::array<Slinky, 4> slinkies{};       // $101548
     std::array<Acid, 5> acids{};            // $1016F0 (Intermediate, Ultimate)
@@ -60,6 +65,19 @@ public:
     std::vector<Regions::Blit> take_piston_blits() { return std::exchange(piston_blits_, {}); }
     Random random;                          // $109136
     int players() const { return players_; }
+    // The marbles in the race: the players', and the crowd's while it runs.
+    int marble_count() const { return marble_count_; }
+
+    // The crowd race (not the original game, crowd.cpp): the other seven
+    // marbles race too, steered by the computer. Turning it on puts them on
+    // the course's start; turning it off takes them away.
+    void set_crowd(bool on);
+    bool crowd() const { return crowd_; }
+    const CrowdMap* crowd_map() const { return crowd_map_.get(); }
+    // Research: the crowd's driving steers marble 0 too (tools).
+    bool bot_drives_player{};
+    // A crowd marble (not a player's).
+    bool is_bot(const Marble& m) const { return &m >= &marbles[std::size_t(players_)] && &m < marbles.data() + max_marbles; }
     data::Course course() const { return course_; }
     const Terrain& terrain() const { return terrain_; }
     const Regions& regions() const { return regions_; }
@@ -220,13 +238,25 @@ private:
         bool lists;                    // use the Track's hand-placed covers
     };
     unsigned find_covers(const CoverArea&, int& columns, std::array<Marble::Cover, 5>& out);
-    bool is_player(const Marble& m) const { return &m == &marbles[0] || &m == &marbles[1]; }
+    // A racer's marble, not a steelie's body (the crowd's marbles race by
+    // the players' rules).
+    bool is_player(const Marble& m) const { return &m >= marbles.data() && &m < marbles.data() + max_marbles; }
+    // The crowd (crowd.cpp).
+    void spawn_bot(int index);
+    void steer_bot(Marble&);
+    void plan(Marble&);
+    void carry_off_screen(Marble&);
+    Push usual_push(Marble&);
+    CrowdDriver new_driver(int index) const;
+
 
     std::int32_t ground_at(std::int32_t x, std::int32_t y);
     void locate(const Marble& m) { probe_.locate(terrain_, m.x, m.y, m.z); }
     // $1224D8: on the side of the point last looked up in the height map.
     void sound(int id) { sound(id, probe_.x() < probe_.y()); }
-    void sound(int id, bool right) { sounds_.push_back({id, right}); } // $1222E4
+    void sound(int id, bool right) { // $1222E4
+        if (!quiet_) sounds_.push_back({id, right});
+    }
     // $12250A: ends the rolling sounds (entries $F and, except on
     // Intermediate, $10).
     void sound_stop() {
@@ -242,7 +272,13 @@ private:
     Terrain terrain_;
     Regions regions_;
     Probe probe_;
-    std::array<Push, 2> push_{};
+    std::array<Push, max_marbles> push_{};
+    int marble_count_{1};
+    bool crowd_{};
+    bool quiet_{}; // the crowd's marbles make no sounds
+    bool planning_{}; // a copy the crowd tries pushes on
+    std::shared_ptr<const CrowdMap> crowd_map_; // read-only: shared by copies
+    std::array<CrowdDriver, max_marbles> drivers_{};
     std::vector<SoundEvent> sounds_;
 
     // The marble's position at the start of its update ($1006D0-$1006D8)

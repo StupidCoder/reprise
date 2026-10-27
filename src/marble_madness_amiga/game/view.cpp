@@ -22,6 +22,28 @@ std::array<data::Rgb4, 3> ramp_at(const amiga::LoadedImage& program, std::uint32
     return {program.u16(at), program.u16(at + 2), program.u16(at + 4)};
 }
 
+// The crowd race's marbles 2-7 (not the original game): each its own
+// colours, laid out as the players' ramps: the shine's yellow, then dark
+// and light (the animation frames: light, then dark).
+constexpr std::array<std::array<data::Rgb4, 3>, 6> crowd_colours = {{
+    {0xAA0, 0x060, 0x0C0}, // green
+    {0xAA0, 0x606, 0xC0C}, // purple
+    {0xAA0, 0x066, 0x0CC}, // cyan
+    {0xAA0, 0x740, 0xF90}, // orange
+    {0xAA0, 0x666, 0xDDD}, // white
+    {0xAA0, 0x824, 0xF8A}, // pink
+}};
+std::array<data::Rgb4, 3> plain_ramp(const amiga::LoadedImage& program, std::size_t marble) {
+    return marble < 2 ? ramp_at(program, plain_ramps[marble]) : crowd_colours[marble - 2];
+}
+std::array<data::Rgb4, 3> animation_ramp(const amiga::LoadedImage& program, std::size_t marble) {
+    if (marble < 2) {
+        return ramp_at(program, animation_ramps[marble]);
+    }
+    const auto& c = crowd_colours[marble - 2];
+    return {c[0], c[2], c[1]};
+}
+
 } // namespace
 
 View::View(const data::GameFiles& files, const data::Assets& assets, const Race& race)
@@ -124,7 +146,7 @@ void View::update(Race& race) {
     }
     // $10694C draws each dot record's two dots and marks the second one
     // drawn; without a new rotation the next frame shows only the first.
-    for (int i = 0; i < race.players(); ++i) {
+    for (int i = 0; i < race.marble_count(); ++i) {
         auto& m = race.marbles[std::size_t(i)];
         dots_[std::size_t(i)] = m.shine_dots;
         for (auto& d : m.shine_dots) {
@@ -396,8 +418,8 @@ void View::draw_sprites(platform::Image& image, const Race& race) const {
         const auto& entry = list.slot(slot);
         switch (entry.type) {
         case 1:
-            if (entry.index < race.players()) {
-                draw_marble(image, race, race.marbles[entry.index & 1]);
+            if (entry.index < race.marble_count()) {
+                draw_marble(image, race, race.marbles[entry.index % Race::max_marbles]);
             }
             break;
         case 2:
@@ -509,7 +531,7 @@ void View::draw_marble(platform::Image& image, const Race& race, const Marble& m
     const auto& marble_data = files_->marble_data();
     const int screen_x = std::int16_t(std::uint32_t(m.screen[0]) >> 16);
     const int screen_y = std::int16_t(m.screen[0]);
-    const auto player = std::size_t(m.player & 1);
+    const auto player = std::size_t(m.player) % Race::max_marbles;
     // The shatter's broom sweeping up the shards (+$6C while +$71) and the
     // dizzy marble's stars (+$DE while +$E3), in their records' own colours.
     for (const auto& [list, shown] : {std::pair{m.dust_animation, m.dust_shown}, {m.dizzy_animation, m.dizzy_shown}}) {
@@ -529,7 +551,7 @@ void View::draw_marble(platform::Image& image, const Race& race, const Marble& m
         // $111474: the respawn sparkles instead of the marble, each a
         // one-cell sprite in the marble's colours (no covers); none at
         // all once they are all gone.
-        const auto ramp = ramp_at(program, plain_ramps[player]);
+        const auto ramp = plain_ramp(program, player);
         for (std::size_t i = 0; i < m.sparkle_count; ++i) {
             const auto& s = m.sparkles[i];
             if (s.cell < 0 || std::size_t(s.cell) >= assets_->marble.cells.size()) {
@@ -562,7 +584,7 @@ void View::draw_marble(platform::Image& image, const Race& race, const Marble& m
     if (m.bonus_on && m.mode != Marble::frozen && m.mode != Marble::breaking && m.bonus_picture != 0) {
         const int lift = m.mode == Marble::finishing ? 0x20 : 0x10;
         draw_record(image, marble_data, m.bonus_picture, screen_x + m.bonus_wobble, screen_y + lift,
-                    ramp_at(program, plain_ramps[player]), race.course());
+                    plain_ramp(program, player), race.course());
     }
     const bool animating = m.mode == Marble::breaking || m.mode == Marble::dissolving ||
                            m.mode == Marble::landing || m.mode == Marble::bumped;
@@ -575,12 +597,12 @@ void View::draw_marble(platform::Image& image, const Race& race, const Marble& m
             !make_sprite(sprite, marble_data, marble_data.u32(m.animation), screen_x, screen_y, race.course())) {
             return;
         }
-        ramp = ramp_at(program, animation_ramps[player]);
+        ramp = animation_ramp(program, player);
     } else {
         if (!make_sprite(sprite, program, plain_marble, screen_x, screen_y, race.course())) {
             return;
         }
-        ramp = ramp_at(program, plain_ramps[player]);
+        ramp = plain_ramp(program, player);
         // $10694C: the shine, 2 x 2 dots in sprite colour 1 (one pixel at
         // the right edge), only on the sprite's first rows but two.
         for (const auto& d : dots_[player]) {

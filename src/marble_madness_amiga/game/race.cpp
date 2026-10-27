@@ -165,7 +165,7 @@ DisplayList::Box Race::box_of(std::uint8_t type, std::uint8_t index) const {
         return make(0x7FFF, 0x7FFF, 0x7FFF, 0, 0, 0);
     case 1:
     case 2: {
-        const Marble& m = type == 1 ? marbles[index & 1] : steelies[index & 1].body;
+        const Marble& m = type == 1 ? marbles[index % max_marbles] : steelies[index & 1].body;
         return make(hi(m.x) - 3, hi(m.y) - 3, hi(m.z) + 1, 6, 6, 6);
     }
     case 4: {
@@ -262,8 +262,18 @@ int Race::band(std::int32_t view) const {
 }
 
 void Race::update(const std::array<Push, 2>& pushes) {
-    push_ = pushes;
+    push_[0] = pushes[0];
+    push_[1] = pushes[1];
+    // The crowd's drivers decide from what they see before the update.
+    for (int i = players_; i < marble_count_; ++i) {
+        steer_bot(marbles[std::size_t(i)]);
+    }
+    if (bot_drives_player && crowd_map_) {
+        steer_bot(marbles[0]);
+    }
     scroll();
+    // The course's moving pieces react to the players' marbles alone (a
+    // crowd always near would keep Beginner's drawbridge up for good).
     for (int i = 0; i < players_; ++i) {
         Marble& m = marbles[std::size_t(i)];
         regions_.racers[std::size_t(i)] = {m.status == 1, m.x, m.y, m.feature};
@@ -272,10 +282,25 @@ void Race::update(const std::array<Push, 2>& pushes) {
     // $113F72: the dizzy surprise, then every marble in the race.
     dizzy_surprise();
     int finished = 0, out = 0;
-    for (int i = 0; i < players_; ++i) {
+    for (int i = 0; i < marble_count_; ++i) {
         Marble& m = marbles[std::size_t(i)];
+        const bool bot = i >= players_;
+        quiet_ = bot;
         if (m.status != 0) {
             update_marble(m);
+            if (bot) {
+                carry_off_screen(m);
+            }
+        }
+        quiet_ = false;
+        if (bot) {
+            // A crowd marble home goes off the course.
+            if (m.status == 3) {
+                hide(1, m.player);
+                m = Marble{};
+                m.player = std::uint8_t(i); // (its slot: never another's push)
+            }
+            continue;
         }
         if (m.status == 0 || m.status == 2) {
             ++out;
@@ -837,7 +862,7 @@ void Race::roll(Marble& m) {
         if (ground < m.z) {
             // (Cheat: a long drop onto ground lands; into nothing it is
             // still lost.)
-            if (m.fall_start_z - m.z > 0x800000 && !(cheats.safe_falls && ground > 0)) {
+            if (m.fall_start_z - m.z > 0x800000 && !(cheats.safe_falls && !is_bot(m) && ground > 0)) {
                 // Fell too far: lost.
                 if (player) {
                     sound_stop();
@@ -861,7 +886,9 @@ void Race::roll(Marble& m) {
                 sound(0x1F);
             }
             if (course_ == data::Course::practice) {
-                drop_bonus(m);
+                if (!is_bot(m)) {
+                    drop_bonus(m); // the players' alone
+                }
             }
         }
     } else if (m.air == 0) {
@@ -1183,7 +1210,6 @@ void Race::touch_regions(Marble& m) {
             if (r.state == 0) {
                 break;
             }
-            const auto& t = files_->track(course_);
             // (At the end of its frame list the box comes from low memory.)
             const int bx = frame_box_byte(r.frame, 4), by = frame_box_byte(r.frame, 5);
             const int bw = frame_box_byte(r.frame, 6), bh = frame_box_byte(r.frame, 7);

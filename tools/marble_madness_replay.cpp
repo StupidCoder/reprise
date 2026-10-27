@@ -12,6 +12,7 @@
 // with record k + 1. Record offsets are the original's marble record
 // (game/marble.hpp names them).
 #include "marble_madness_amiga/data/assets.hpp"
+#include "marble_madness_amiga/data/preview.hpp"
 #include "marble_madness_amiga/game/front_end.hpp"
 #include "marble_madness_amiga/game/probe.hpp"
 #include "marble_madness_amiga/game/race.hpp"
@@ -19,6 +20,7 @@
 #include "marble_madness_amiga/sound/sound_board.hpp"
 #include "platform/files.hpp"
 #include "platform/host.hpp"
+#include <chrono>
 #include <cstdio>
 #include <deque>
 #include <algorithm>
@@ -734,7 +736,7 @@ int pictures(int argc, char** argv) {
 // Plays a course with random controls (after an optional prefix of a
 // recorded run's pushes) and reports any exception the race or the view
 // throws: fuzz <content> <course> <run.bin|-> <prefix> <seeds> <updates>.
-int fuzz(int argc, char** argv) {
+int fuzz(int /*argc*/, char** argv) {
     const auto content = platform::utf8_path(argv[2]);
     data::GameFiles files(content);
     const auto assets = data::load_assets(content);
@@ -749,6 +751,7 @@ int fuzz(int argc, char** argv) {
         auto next = [&] { rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5; return rng; };
         game::Race race(files, course);
         race.cheats.stop_timer = true;
+        if (std::getenv("MM_CROWD")) race.set_crowd(true); // with the crowd race
         game::View view(files, assets, race);
         view.update(race);
         game::Push push{};
@@ -777,6 +780,228 @@ int fuzz(int argc, char** argv) {
             std::printf("seed %d update %d: %s (marble at %d,%d,%d mode %d)\n", seed, k, e.what(), m.x >> 16, m.y >> 16,
                         m.z >> 16, int(m.mode));
         }
+    }
+    return 0;
+}
+
+// The crowd race with the computer driving all eight marbles (marble 0
+// too), the clock stopped: crowd <content> <course> <updates> [dir [ticks]]
+// reports when each finishes and how often it was lost; pictures after
+// the listed ticks (crowd-<tick>.png).
+int crowd(int argc, char** argv) {
+    const auto content = platform::utf8_path(argv[2]);
+    data::GameFiles files(content);
+    const auto assets = data::load_assets(content);
+    game::Race race(files, data::Course(std::stoi(argv[3])));
+    const int updates = std::stoi(argv[4]);
+    std::set<int> wanted;
+    for (int i = 6; i < argc; ++i) wanted.insert(std::stoi(argv[i]));
+    race.cheats.stop_timer = true;
+    // MM_IDLE=n: marble 0 stays idle and the crowd starts after n updates
+    // (the computer's marbles alone, from different moments).
+    const int idle = std::getenv("MM_IDLE") ? std::atoi(std::getenv("MM_IDLE")) : -1;
+    for (int k = 0; k < idle; ++k) race.update({});
+    // MM_PLAYER_ZONE=z: the computer drives marble 0 into zone z and stops
+    // it there (the view stays), then the crowd starts from the start.
+    if (const char* pz = std::getenv("MM_PLAYER_ZONE")) {
+        const int zone = std::atoi(pz);
+        race.set_crowd(true);
+        race.set_crowd(false); // (the map stays)
+        race.bot_drives_player = true;
+        for (int k = 0; k < 5000 && race.marbles[0].feature != zone; ++k) race.update({});
+        race.bot_drives_player = false;
+        for (int k = 0; k < 60; ++k) race.update({});
+        std::printf("player stopped in zone %d at %d,%d\n", int(race.marbles[0].feature), race.marbles[0].x >> 16, race.marbles[0].y >> 16);
+    }
+    race.set_crowd(true);
+    race.bot_drives_player = idle < 0 && !std::getenv("MM_PLAYER_ZONE");
+    // MM_SOLO=1: marble 0 alone (the driving without the crowd's bumping).
+    if (std::getenv("MM_SOLO")) {
+        race.set_crowd(false);
+    }
+    // MM_PILE=1: marbles 1 and 2 put on marble 0's spot (as a funnel's exit
+    // can), then whether they come apart.
+    if (std::getenv("MM_PILE")) {
+        for (int i = 1; i <= 2; ++i) {
+            auto& m = race.marbles[std::size_t(i)];
+            m.x = race.marbles[0].x + (i << 15);
+            m.y = race.marbles[0].y;
+            m.z = race.marbles[0].z;
+            m.vx = m.vy = 0;
+        }
+        for (int k = 0; k < 120; ++k) {
+            race.update({});
+            if (k % 30 == 29) {
+                const auto& a = race.marbles[0];
+                std::printf("pile after %d: marble 1 %d,%d marble 2 %d,%d from marble 0\n", k + 1, (race.marbles[1].x - a.x) >> 16,
+                            (race.marbles[1].y - a.y) >> 16, (race.marbles[2].x - a.x) >> 16, (race.marbles[2].y - a.y) >> 16);
+            }
+        }
+        return 0;
+    }
+    game::View view(files, assets, race);
+    view.update(race);
+    for (int i = 0; i < game::Race::max_marbles; ++i) {
+        const auto& m = race.marbles[std::size_t(i)];
+        std::printf("start %d: %d,%d,%d cell %d,%d screen %d,%d\n", i, m.x >> 16, m.y >> 16, m.z >> 16, m.x >> 19, m.y >> 19,
+                    std::int16_t(std::uint32_t(m.screen[0]) >> 16), std::int16_t(m.screen[0]));
+    }
+    std::array<int, game::Race::max_marbles> finished{}, lost{};
+    std::map<std::tuple<int, int, int>, int> losses, lost_points;
+    std::map<std::string, int> causes;
+    std::vector<std::tuple<int, int, int>> trail;
+    finished.fill(-1);
+    std::array<int, game::Race::max_marbles> respawns{};
+    for (int k = 0; k <= updates; ++k) {
+        if (wanted.contains(k) && argc > 5) {
+            platform::save_png(view.draw(race), platform::utf8_path(argv[5]) / ("crowd-" + std::to_string(k) + ".png"));
+        }
+        std::array<int, game::Race::max_marbles> before{};
+        for (int i = 0; i < game::Race::max_marbles; ++i) {
+            before[std::size_t(i)] = race.marbles[std::size_t(i)].status;
+            respawns[std::size_t(i)] = std::max(respawns[std::size_t(i)], int(race.marbles[std::size_t(i)].respawns));
+        }
+        // MM_LOSS_FRAMES=dir: the 16 pictures before marble 0's first loss
+        // (every second update), as loss-<n>.png.
+        static std::deque<platform::Image> recent;
+        static bool saved = false;
+        if (std::getenv("MM_LOSS_FRAMES") && !saved) {
+            recent.push_back(view.draw(race));
+            if (recent.size() > 32) recent.pop_front();
+        }
+        static int losses_seen = 0;
+        const int wanted_zone = std::getenv("MM_LOSS_ZONE") ? std::atoi(std::getenv("MM_LOSS_ZONE")) : -99;
+        const bool lost_now = race.marbles[0].respawns > losses_seen;
+        if (lost_now) losses_seen = race.marbles[0].respawns;
+        if (std::getenv("MM_LOSS_FRAMES") && !saved && lost_now && (wanted_zone == -99 || race.marbles[0].feature == wanted_zone)) {
+            saved = true;
+            for (std::size_t f = 0; f < recent.size(); f += 2) {
+                platform::save_png(recent[f], platform::utf8_path(std::getenv("MM_LOSS_FRAMES")) / ("loss-" + std::to_string(f / 2) + ".png"));
+            }
+            std::printf("first loss of marble 0 at update %d\n", k);
+        }
+        if (const char* tm = std::getenv("MM_TRACE_MARBLE")) {
+            int which = 0, from = 0, to = 0;
+            std::sscanf(tm, "%d,%d,%d", &which, &from, &to);
+            const auto& m = race.marbles[std::size_t(which)];
+            if (k >= from && k <= to) {
+                std::printf("%d: %d,%d,%d v %d,%d mode %d air %d zone %d lost %d\n", k, m.x >> 16, m.y >> 16, m.z >> 16,
+                            m.vx >> 12, m.vy >> 12, int(m.mode), int(m.air), int(m.feature), int(m.respawns));
+            }
+        }
+        // Marbles waiting to respawn for a long time (a respawn point kept
+        // occupied).
+        static std::array<int, game::Race::max_marbles> waiting{};
+        for (int i = 0; i < game::Race::max_marbles; ++i) {
+            const auto& m = race.marbles[std::size_t(i)];
+            waiting[std::size_t(i)] = m.status == 1 && m.mode == game::Marble::respawning ? waiting[std::size_t(i)] + 1 : 0;
+            if (waiting[std::size_t(i)] == 400) {
+                std::printf("marble %d stuck respawning at %d,%d from update %d\n", i, m.x >> 16, m.y >> 16, k - 400);
+            }
+        }
+        // Marbles a course piece holds for long (stuck in a funnel).
+        static std::array<int, game::Race::max_marbles> held{};
+        for (int i = 0; i < game::Race::max_marbles; ++i) {
+            const auto& m = race.marbles[std::size_t(i)];
+            held[std::size_t(i)] = m.status == 1 && m.region_code != 0 ? held[std::size_t(i)] + 1 : 0;
+            if (held[std::size_t(i)] == 300) {
+                std::printf("marble %d held by region code %d at %d,%d mode %d from update %d\n", i, int(m.region_code), m.x >> 16,
+                            m.y >> 16, int(m.mode), k - 300);
+            }
+        }
+        // Crowd marbles that stay where they are (within 4 pixels) for 300
+        // updates.
+        static std::array<std::pair<int, int>, game::Race::max_marbles> anchor{};
+        static std::array<int, game::Race::max_marbles> still{};
+        for (int i = 1; i < game::Race::max_marbles; ++i) {
+            const auto& m = race.marbles[std::size_t(i)];
+            const int x = m.x >> 16, y = m.y >> 16;
+            auto& a = anchor[std::size_t(i)];
+            if (m.status != 1 || std::abs(x - a.first) > 4 || std::abs(y - a.second) > 4) {
+                a = {x, y};
+                still[std::size_t(i)] = 0;
+            } else if (++still[std::size_t(i)] == 300) {
+                std::printf("marble %d still at %d,%d zone %d mode %d from update %d\n", i, x, y, int(m.feature), int(m.mode), k - 300);
+            }
+        }
+        std::array<game::Marble, game::Race::max_marbles> was = race.marbles;
+        race.update({game::Push{}, game::Push{}});
+        view.update(race);
+        for (int i = 0; i < game::Race::max_marbles; ++i) {
+            const auto& m = race.marbles[std::size_t(i)];
+            // Where marbles get lost: the point it was at when it began to
+            // break or respawn.
+            if (m.status == 1 && (k % 3) == 0) trail.push_back({m.x >> 16, m.y >> 16, m.z >> 16});
+            if (m.respawns > was[std::size_t(i)].respawns) {
+                const auto& w = was[std::size_t(i)];
+                lost_points[{w.x >> 16, w.y >> 16, w.z >> 16}]++;
+                // What was near: the nearest steelie or slinky.
+                int near = 9999;
+                for (const auto& st : race.steelies) {
+                    if (st.body.status != 0) near = std::min(near, std::abs((st.body.x - w.x) >> 16) + std::abs((st.body.y - w.y) >> 16));
+                }
+                for (const auto& sl : race.slinkies) {
+                    if (sl.status != 0) near = std::min(near, std::abs((sl.x - w.x) >> 16) + std::abs((sl.y - w.y) >> 16));
+                }
+                causes[std::to_string(int(w.mode)) + (near < 24 ? " creature" : "")]++;
+                losses[{int(was[std::size_t(i)].feature), (was[std::size_t(i)].x >> 16) / 16, (was[std::size_t(i)].y >> 16) / 16}]++;
+            }
+            if (finished[std::size_t(i)] < 0 && ((i > 0 && before[std::size_t(i)] == 1 && m.status == 0) || (i == 0 && m.status == 3))) {
+                finished[std::size_t(i)] = k;
+                // The player's controls must still reach marble 0: pushed and
+                // not pushed, two copies must part.
+                const auto& p0 = race.marbles[0];
+                if (i > 0 && p0.status == 1 && p0.mode == game::Marble::rolling && p0.air == 0 && p0.region_code == 0) {
+                    game::Race pushed = race, idle_copy = race;
+                    pushed.bot_drives_player = idle_copy.bot_drives_player = false;
+                    for (int t = 0; t < 8; ++t) {
+                        pushed.update({game::Push{0x40, 0x40}, game::Push{}});
+                        idle_copy.update({game::Push{}, game::Push{}});
+                    }
+                    const bool same = pushed.marbles[0].vx == idle_copy.marbles[0].vx && pushed.marbles[0].vy == idle_copy.marbles[0].vy;
+                    std::printf("marble %d home at %d: the player's push %s\n", i, k, same ? "IGNORED" : "works");
+                }
+            }
+        }
+    }
+    int home = 0;
+    for (int i = 0; i < game::Race::max_marbles; ++i) {
+        const auto& m = race.marbles[std::size_t(i)];
+        home += finished[std::size_t(i)] >= 0;
+        std::printf("marble %d: %s, lost %d times, zone %d at %d,%d\n", i,
+                    finished[std::size_t(i)] >= 0 ? ("home at " + std::to_string(finished[std::size_t(i)])).c_str() : "not home",
+                    respawns[std::size_t(i)], int(m.feature), m.x >> 16, m.y >> 16);
+        (void)lost;
+    }
+    std::printf("%d of 8 home\n", home);
+    // MM_LOSS_MAP=file: the course with a dot where marbles were lost (the
+    // projection the view uses: rows from the course's first view).
+    if (const char* map = std::getenv("MM_LOSS_MAP")) {
+        auto image = data::course_image(assets, race.course());
+        const int view0 = race.terrain().view_offset();
+        for (const auto& [where, count] : lost_points) {
+            const auto [x, y, z] = where;
+            const int ix = y - x + 0x88 + 4, iy = 0x93 + 7 - view0 - z + (x + y) / 2;
+            const int r = std::min(1 + count, 6);
+            for (int dy = -r; dy <= r; ++dy) {
+                for (int dx = -r; dx <= r; ++dx) {
+                    if (dx * dx + dy * dy <= r * r) image.put(ix + dx, iy + dy, platform::Color{255, 0, 255, 255});
+                }
+            }
+        }
+        for (const auto& [x, y, z] : trail) {
+            const int ix = y - x + 0x88 + 4, iy = 0x93 + 7 - view0 - z + (x + y) / 2;
+            image.put(ix, iy, platform::Color{0, 255, 0, 255});
+        }
+        platform::save_png(image, platform::utf8_path(map));
+    }
+    for (const auto& [c, n] : causes) std::printf("  mode before loss %s: %d\n", c.c_str(), n);
+    std::vector<std::pair<int, std::tuple<int, int, int>>> worst;
+    for (const auto& [where, count] : losses) worst.push_back({count, where});
+    std::sort(worst.rbegin(), worst.rend());
+    for (std::size_t i = 0; i < worst.size() && i < 8; ++i) {
+        const auto [zone, x, y] = worst[i].second;
+        std::printf("  lost %d times in zone %d near %d,%d\n", worst[i].first, zone, x * 16 + 8, y * 16 + 8);
     }
     return 0;
 }
@@ -1428,6 +1653,27 @@ int search(int argc, char** argv) {
 int main(int argc, char** argv) {
     const std::string command = argc > 1 ? argv[1] : "";
     try {
+        if (command == "starts" && argc >= 3) {
+            // Research: each course's start cells (descriptor +$14, a word
+            // per player) and the floor height there.
+            data::GameFiles files(platform::utf8_path(argv[2]));
+            for (int c = 0; c < data::course_count; ++c) {
+                const auto& t = files.track(data::Course(c));
+                const std::uint32_t d = t.u32(files.track_header(data::Course(c)));
+                game::Terrain terrain(files, data::Course(c));
+                game::Probe probe;
+                std::printf("course %d:", c);
+                for (int p = 0; p < 2; ++p) {
+                    const std::uint16_t w = t.u16(d + 0x14 + std::uint32_t(p) * 2);
+                    const int x = (w >> 8) * 8 + 4, y = (w & 0xFF) * 8 + 4;
+                    probe.place(x << 16, y << 16);
+                    std::printf(" player %d cell %d,%d (%d,%d) z %d", p, w >> 8, w & 0xFF, x, y,
+                                probe.ground_height_here(terrain) >> 16);
+                }
+                std::printf("\n");
+            }
+            return 0;
+        }
         if (command == "words" && argc >= 6) {
             // Research: words of a course's loaded Track at an address.
             data::GameFiles files(platform::utf8_path(argv[2]));
@@ -1489,7 +1735,7 @@ int main(int argc, char** argv) {
             // its first update).
             std::vector<std::string> keys;
             for (std::string line; std::getline(in, line);) {
-                if (line == "race" || line == "finish") {
+                if (line == "race" || line == "finish" || line == "crowd on" || line == "crowd off") {
                     keys.push_back(line);
                     continue;
                 }
@@ -1515,6 +1761,13 @@ int main(int argc, char** argv) {
                     std::printf("tick %ld: the race on course %d\n", tick, int(flow.course()));
                     ++at;
                     started = false;
+                }
+                if (at < keys.size() && (keys[at] == "crowd on" || keys[at] == "crowd off")) {
+                    // As the pause menu's Crowd race option does.
+                    flow.set_crowd(keys[at] == "crowd on");
+                    if (copy) copy->set_crowd(keys[at] == "crowd on");
+                    std::printf("tick %ld: %s\n", tick, keys[at].c_str());
+                    ++at;
                 }
                 if (at < keys.size() && keys[at] == "finish") {
                     std::printf("tick %ld: finish on course %d\n", tick, int(flow.course()));
@@ -1555,6 +1808,50 @@ int main(int argc, char** argv) {
                 }
             }
             return 0;
+        }
+        if (command == "copytime" && argc >= 4) {
+            // Research: what copying a race (crowd on) and 24 updates cost.
+            data::GameFiles files(platform::utf8_path(argv[2]));
+            game::Race race(files, data::Course(std::stoi(argv[3])));
+            race.set_crowd(true);
+            for (int i = 0; i < 100; ++i) race.update({});
+            const auto t0 = std::chrono::steady_clock::now();
+            long sum = 0;
+            for (int i = 0; i < 1000; ++i) {
+                game::Race copy = race;
+                sum += copy.marbles[3].x;
+            }
+            const auto t1 = std::chrono::steady_clock::now();
+            for (int i = 0; i < 100; ++i) {
+                game::Race copy = race;
+                for (int k = 0; k < 24; ++k) copy.update({});
+                sum += copy.marbles[3].x;
+            }
+            const auto t2 = std::chrono::steady_clock::now();
+            std::printf("copy %.1f us, copy + 24 updates %.1f us (%ld) size %zu\n",
+                        std::chrono::duration<double, std::micro>(t1 - t0).count() / 1000,
+                        std::chrono::duration<double, std::micro>(t2 - t1).count() / 100, sum % 7, sizeof(game::Race));
+            return 0;
+        }
+        if (command == "crowdmap" && argc >= 8) {
+            // Research: the crowd's distance to go for a zone round a cell.
+            data::GameFiles files(platform::utf8_path(argv[2]));
+            game::Race race(files, data::Course(std::stoi(argv[3])));
+            race.set_crowd(true);
+            const int zone = std::stoi(argv[4]), cx = std::stoi(argv[5]), cy = std::stoi(argv[6]), r = std::stoi(argv[7]);
+            for (int y = cy - r; y <= cy + r; ++y) {
+                std::printf("y%3d", y);
+                for (int x = cx - r; x <= cx + r; ++x) {
+                    const auto v = race.crowd_map()->to_go(zone, x, y);
+                    const int f = race.crowd_map()->floor(x, y);
+                    std::printf(" %5s", v == game::CrowdMap::none ? (f ? "." : " ") : std::to_string(v).c_str());
+                }
+                std::printf("\n");
+            }
+            return 0;
+        }
+        if (command == "crowd" && argc >= 5) {
+            return crowd(argc, argv);
         }
         if (command == "fuzz" && argc >= 8) {
             return fuzz(argc, argv);

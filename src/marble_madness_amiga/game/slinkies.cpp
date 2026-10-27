@@ -462,7 +462,7 @@ bool Race::touch_slinkies(Marble& m) {
         if ((s.state == Slinky::hopping || s.state == Slinky::missed) && m.player == s.target) {
             return true; // its own prey: the hop decides
         }
-        if (m.mode != Marble::bumped && s.state != Slinky::eating) {
+        if (m.mode != Marble::bumped && s.state != Slinky::eating && !is_bot(m)) { // hunts players only
             s.target = m.player;
         }
         m.x = start_x_;

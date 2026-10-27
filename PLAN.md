@@ -580,6 +580,10 @@ same disk is used as a guide; claims are checked against the image's code.
    captures.
 13. **Quick save and load** — done (2026-10-27): a copy of the whole game
    flow; checked to play on identically from saves at every stage.
+14. **Crowd race** — done (2026-10-27, not the original game): seven
+   computer-steered marbles from the course data (zone lines, height map,
+   funnel portals from recordings), a look-ahead planner on race copies;
+   pause-menu mode, spawn/despawn mid-race. Open items in play.md.
    Next: two players, mouse input.
 
 ## Launcher visual exploration (2026-10-26)

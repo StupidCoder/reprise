@@ -148,7 +148,7 @@ private:
     int picture_row_{-1};
     // The shine dots each marble's sprite gets this frame (taken from the
     // marble's records, which drawing consumes: $10694C).
-    std::array<std::array<std::array<std::int16_t, 4>, 4>, 2> dots_{};
+    std::array<std::array<std::array<std::int16_t, 4>, 4>, Race::max_marbles> dots_{};
 };
 
 } // namespace marble_madness::game

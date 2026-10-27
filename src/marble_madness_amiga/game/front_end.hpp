@@ -96,7 +96,17 @@ public:
     // The steering the options screen's input device implies changed (the
     // module's Steering option follows it, and the other way round).
     void set_device(int device) { settings_.device[0] = device; }
+    // The crowd race (not the original game, crowd.hpp): on, the seven
+    // computer marbles join the race being run and every course after.
+    void set_crowd(bool on) {
+        crowd_ = on;
+        if (race_) {
+            race_->set_crowd(on);
+        }
+    }
     Race::Cheats cheats;
+    // Research: the race being run.
+    const Race* race() const { return race_.get(); }
 
 private:
     enum class Stage { options, loading, intro, race, finish, out_of_time, ending };
@@ -145,6 +155,7 @@ private:
     };
     std::vector<Ball> balls_;
     Random random_;
+    bool crowd_{};
 };
 
 } // namespace marble_madness::game

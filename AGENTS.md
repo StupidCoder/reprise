@@ -75,7 +75,9 @@ tools/               build, packaging and command-line tools
   (`~/Library/Application Support/NativeReconstruction/Joyport/`).
 - Exception (owner's decision, 2026-10-25): the 64 upper-case glyphs of the
   C64 character ROM that Bruce Lee copies for its text live in
-  `src/c64/character_rom.cpp`, marked as not covered by the MIT licence. Add
+  `src/c64/character_rom.cpp`, marked as not covered by the MIT licence.
+  Likewise (2026-10-27) the Kickstart 1.3 topaz 9 glyphs Marble Madness
+  draws with, in `src/amiga/topaz.cpp`. Add
   no other firmware or ROM contents without asking.
 - Real game titles appear only to name the game a dump belongs to
   (descriptive use). Don't use the original logos or box art in Joyport's own

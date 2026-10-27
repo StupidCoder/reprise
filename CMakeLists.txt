@@ -156,6 +156,7 @@ add_library(marble_madness_amiga
     src/marble_madness_amiga/game/pistons.cpp
     src/marble_madness_amiga/game/silly.cpp
     src/marble_madness_amiga/game/front_end.cpp
+    src/marble_madness_amiga/game/crowd.cpp
     src/marble_madness_amiga/sound/effects.cpp
     src/marble_madness_amiga/sound/music.cpp
     src/marble_madness_amiga/sound/sound_board.cpp

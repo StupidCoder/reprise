@@ -99,7 +99,7 @@ void Race::push(Marble& m) {
             }
         }
     } else {
-        const Push& p = push_[&m == &marbles[0] ? 0 : 1];
+        const Push& p = push_[m.player];
         std::int32_t ax = p.forward * 0x160;
         std::int32_t ay = -p.side * 0x160;
         if (m.mode == Marble::landing || m.mode == Marble::bumped) {
@@ -448,7 +448,7 @@ void Race::land(Marble& m, int impact) {
     }
     const auto& md = files_->marble_data();
     const int bounce = std::int8_t(m.bounce);
-    if (cheats.safe_falls && bounce + ((std::int8_t(m.delay) - bounce) >> 1) >= 0x20) {
+    if (cheats.safe_falls && !is_bot(m) && bounce + ((std::int8_t(m.delay) - bounce) >> 1) >= 0x20) {
         // Cheat: the hardest landing that still bounces.
         m.delay = std::int8_t(0x3E - bounce);
     }
@@ -580,9 +580,16 @@ void Race::choose_respawn_point(Marble& m) {
 // $116578: is something within `radius` of the point? 1 another marble,
 // 2/4 a creature (not rebuilt yet).
 int Race::occupied(const Marble* self, int x, int y, int radius) const {
-    for (int i = 0; i < players_; ++i) {
+    // (The crowd race: its marbles never keep a player or a steelie
+    // waiting; one of them waits only for the players' marbles and the
+    // crowd's rolling ones, so two never wait for each other.)
+    const bool bot = self != nullptr && is_bot(*self);
+    for (int i = 0; i < marble_count_; ++i) {
         const Marble& o = marbles[std::size_t(i)];
         if (&o == self || o.status == 0) {
+            continue;
+        }
+        if (i >= players_ && (!bot || o.mode == Marble::respawning)) {
             continue;
         }
         const std::int16_t dx = s16(s16(o.x >> 16) - x);
@@ -855,7 +862,7 @@ void Race::track_zones(Marble& m) {
 // The goal line ($1131xx): the first marble home gets the course's bonus;
 // the marble rolls on with the course's push and the timer stops.
 void Race::reach_goal(Marble& m, std::int8_t zone_before) {
-    if (first_home_ == -1 && m.status != 2) {
+    if (first_home_ == -1 && m.status != 2 && !is_bot(m)) { // the crowd races for fun
         first_home_ = m.player;
         colour_goal(m.player);
         award(m, int(course_) * 2 + 3);
