@@ -10,10 +10,13 @@
 #include "mindwalker_amiga/data/assets.hpp"
 #include <optional>
 #include "platform/files.hpp"
+#include "ui/vhs.hpp"
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdio>
+#include <map>
+#include <sstream>
 
 namespace mindwalker::game {
 namespace {
@@ -65,9 +68,10 @@ class MindWalker final : public app::GameModule {
 
 public:
     explicit MindWalker(const std::filesystem::path& content)
-        : files_(content), picture_(platform::read_file(content / "MindB")),
-          pointer_(platform::read_file(content / "system-configuration")), assets_(data::load_assets(content)),
-          title_(files_, picture_, clock_value()) {}
+        : content_(content), files_(content), picture_(platform::read_file(content / "MindB")),
+          pointer_(platform::read_file(content / "system-configuration")), assets_(data::load_assets(content)) {
+        title_.emplace(files_, picture_, clock_value(), true, session(0));
+    }
 
     // The stages wait for each vertical blank (PAL, 50 Hz, like the reference
     // machine; hypothesis until the release's video standard is settled).
@@ -75,6 +79,8 @@ public:
     double pixel_aspect() const override { return 1.0; }
 
     void tick(const app::GameInput& input) override {
+        ++frames_;
+        if (in_game() && !replaying_) record(input); // (for quick save)
         if (input.pointer) {
             mouse_x_ = input.pointer_x;
             mouse_y_ = input.pointer_y;
@@ -83,9 +89,13 @@ public:
         button_was_down_ = input.mouse_button;
         switch (phase_) {
         case Phase::title:
-            title_.frame({mouse_x_, mouse_y_, input.mouse_button});
-            if (title_.phase() == title::TitleStage::Phase::loading) {
-                const auto& game = *title_.new_game();
+            title_->frame({mouse_x_, mouse_y_, input.mouse_button});
+            if (title_->phase() == title::TitleStage::Phase::loading) {
+                if (title_->restarted()) { // the command screen set the game up
+                    load_next(restart_phase_);
+                    break;
+                }
+                const auto& game = *title_->new_game();
                 state_ = {game.seed, game.stage, game.lives, game.score, std::nullopt, 0, game.progress, game.bonus};
                 load_next(Phase::landscape);
             }
@@ -99,8 +109,11 @@ public:
         case Phase::landscape: {
             count_time(landscape_->paused());
             int gadget = press ? landscape_->gadget_at(mouse_x_, mouse_y_) : -1;
-            if (gadget == -2) { // Intuition's close gadget: CLOSEWINDOW quits the stage
-                stop("Left the landscape (score %u).", landscape_->score());
+            if (gadget == -2) { // Intuition's close gadget: CLOSEWINDOW: back to T (status 1)
+                state_.score = landscape_->score();
+                state_.lives = landscape_->lives();
+                state_.resume = landscape_->resume_state(); // ($20B056 keeps it on every exit)
+                to_title(2);
                 return;
             }
             landscape::LandscapeInput in{input.up, input.down, input.left, input.right, input.fire,
@@ -110,7 +123,8 @@ public:
             state_.score = landscape_->score();
             state_.lives = landscape_->lives();
             if (landscape_->out_of_lives()) {
-                stop("The creatures took every life (score %u). What follows is not rebuilt yet.", state_.score);
+                state_.resume = landscape_->resume_state();
+                to_title(2); // the game over: T, its Hall of Fame
             } else {
                 // The way on ($20B056 keeps the landscape, mode 9): the tunnel.
                 state_.resume = landscape_->resume_state();
@@ -129,7 +143,7 @@ public:
             switch (tunnel_->outcome()) {
             case tunnel::TunnelStage::Outcome::ran_out: load_next(Phase::landscape); break; // mode 1: the landscape again
             case tunnel::TunnelStage::Outcome::caught: load_next(Phase::arena); break; // mode 2
-            default: stop("Left the tunnel (score %u).", state_.score); break;
+            default: to_title(3); break;
             }
             break;
         }
@@ -151,10 +165,10 @@ public:
                 break;
             case arena::ArenaStage::Outcome::left: load_next(Phase::landscape); break; // mode 1
             case arena::ArenaStage::Outcome::died:
-                if (state_.lives < 1) stop("The arena took the last life (score %u). What follows is not rebuilt yet.", state_.score);
+                if (state_.lives < 1) to_title(4); // status 1: T
                 else load_next(Phase::landscape); // mode 1, a life less
                 break;
-            default: stop("Left the arena (score %u).", state_.score); break;
+            default: to_title(4); break;
             }
             break;
         }
@@ -172,15 +186,140 @@ public:
                 load_next(Phase::landscape);
                 loading_frames_ = -50;
             } else if (psyche_->whole()) {
-                stop("The last picture is whole: the game is done (score %u). The end screens are not rebuilt yet.",
-                     state_.score);
+                // The game finished and the window closed: MindF6, then T.
+                show_portrait(psyche_->portrait(), psyche_->portrait_colour());
+                to_title(5);
+                loading_frames_ = -50;
             } else {
-                stop("Left the psyche screen (score %u).", state_.score);
+                to_title(5);
             }
             break;
         }
         case Phase::stopped: break;
         }
+    }
+
+    // Status 1: the game left (closed, or the last life lost): the loading
+    // picture, then T again with the game in memory (its score for the Hall
+    // of Fame, saving it from the command screen).
+    void to_title(int where) {
+        ended_where_ = where;
+        ended_ = state_;
+        restore_ = stage_start_.state;
+        load_next(Phase::title);
+    }
+
+    // What T is handed: the Hall of Fame (our own file once changed, else
+    // the disk's MindHighs) and the saved worlds.
+    title::Session session(int where) {
+        title::Session s;
+        s.score = where ? ended_.score : 0;
+        s.where = where;
+        const auto own = content_ / "Hall of Fame";
+        s.fame = title::HallOfFame::from_file(platform::read_file(std::filesystem::exists(own) ? own : content_ / "MindHighs"));
+        s.fame_changed = [this](const title::HallOfFame& fame) { platform::write_file(content_ / "Hall of Fame", fame.to_file()); };
+        s.world_saved = [this](int world) { return std::filesystem::exists(world_file(world)); };
+        s.save_world = [this](int world) { return save_world(world); };
+        s.restart = [this](int world, bool same_world) { return restart(world, same_world); };
+        return s;
+    }
+
+    std::filesystem::path world_file(int world) const {
+        return content_ / ("World " + std::string(1, char('A' + world)) + ".save");
+    }
+
+    // $6026AE: the game in memory, with where it was and its stage's restore
+    // point (B, C and P copy the record on entry, +$2BC on), as text.
+    bool save_world(int world) {
+        std::string text = "Mind Walker saved world 1\n";
+        const auto put = [&](const char* name, long long value) { text += std::string(name) + " " + std::to_string(value) + "\n"; };
+        put("where", ended_where_);
+        const auto record = [&](const char* prefix, const GameState& g) {
+            const auto key = [&](const char* name) { return std::string(prefix) + name; };
+            put(key("seed").c_str(), g.seed);
+            put(key("stage").c_str(), g.stage);
+            put(key("lives").c_str(), g.lives);
+            put(key("score").c_str(), g.score);
+            put(key("tunnel_seed").c_str(), g.tunnel_seed);
+            put(key("time").c_str(), g.time);
+            put(key("bonus").c_str(), g.bonus);
+        };
+        record("", ended_);
+        record("restore_", restore_);
+        if (ended_.resume) {
+            const auto& r = *ended_.resume;
+            const long long values[] = {r.home_x, r.home_y, r.marked_u, r.marked_v, r.direction, r.cell_x, r.cell_y, r.x, r.level,
+                                        r.z, r.slow, r.found[0], r.found[1], r.form, r.view_x, r.view_y, r.damage, r.ramp_closed};
+            text += "resume";
+            for (const auto v : values) text += " " + std::to_string(v);
+            text += "\n";
+        }
+        try {
+            platform::write_text(world_file(world), text);
+        } catch (const std::exception&) {
+            return false;
+        }
+        return true;
+    }
+
+    // $602248: Continue Game: the saved game where it was (the landscape
+    // resumed; the tunnel, arena or psyche screen from their restore point;
+    // without lives a new game in its world); New Game, Same World: the
+    // world from the start.
+    bool restart(int world, bool same_world) {
+        std::map<std::string, std::vector<long long>> v;
+        try {
+            const auto bytes = platform::read_file(world_file(world));
+            std::istringstream in(std::string(bytes.begin(), bytes.end()));
+            std::string line;
+            std::getline(in, line);
+            if (line != "Mind Walker saved world 1") return false;
+            while (std::getline(in, line)) {
+                std::istringstream f(line);
+                std::string key;
+                f >> key;
+                for (long long x; f >> x;) v[key].push_back(x);
+            }
+        } catch (const std::exception&) {
+            return false;
+        }
+        const auto get = [&](const std::string& key) { return v.count(key) && !v[key].empty() ? v[key][0] : 0; };
+        const auto record = [&](const std::string& prefix) {
+            GameState g;
+            g.seed = std::uint32_t(get(prefix + "seed"));
+            g.stage = int(get(prefix + "stage"));
+            g.lives = int(get(prefix + "lives"));
+            g.score = std::uint32_t(get(prefix + "score"));
+            g.tunnel_seed = std::uint32_t(get(prefix + "tunnel_seed"));
+            g.time = std::uint32_t(get(prefix + "time"));
+            g.bonus = std::uint32_t(get(prefix + "bonus"));
+            return g;
+        };
+        const int where = int(get("where"));
+        GameState g = where >= 3 ? record("restore_") : record("");
+        g.seed = std::uint32_t(get("seed"));
+        g.tunnel_seed = std::uint32_t(get("tunnel_seed"));
+        if (v.count("resume") && v["resume"].size() == 18) {
+            const auto& r = v["resume"];
+            landscape::LandscapeStage::Resume s;
+            s.home_x = std::uint16_t(r[0]); s.home_y = std::uint16_t(r[1]); s.marked_u = std::uint16_t(r[2]);
+            s.marked_v = std::uint16_t(r[3]); s.direction = int(r[4]); s.cell_x = std::uint16_t(r[5]);
+            s.cell_y = std::uint16_t(r[6]); s.x = int(r[7]); s.level = int(r[8]); s.z = int(r[9]); s.slow = int(r[10]);
+            s.found = {r[11] != 0, r[12] != 0}; s.form = int(r[13]); s.view_x = std::uint16_t(r[14]);
+            s.view_y = std::uint16_t(r[15]); s.damage = int(r[16]); s.ramp_closed = r[17] != 0;
+            g.resume = s;
+        }
+        restart_phase_ = where == 2 ? Phase::landscape : where == 3 ? Phase::tunnel : where == 4 ? Phase::arena
+                       : where == 5 ? Phase::psyche : Phase::landscape;
+        if (where < 2) g.resume.reset(); // mode 0: the landscape from its start
+        if (same_world || g.lives <= 0) { // a new game in the saved world
+            GameState fresh;
+            fresh.seed = g.seed;
+            g = fresh;
+            restart_phase_ = Phase::landscape;
+        }
+        state_ = g;
+        return true;
     }
 
     // A, B and C add the seconds they ran (not paused) to +$62 (CurrentTime
@@ -194,7 +333,7 @@ public:
 
     // P's h32: MindF1-6 (rows 0-187) from row 12 on, colour 1 its own.
     void show_portrait(int index, screen::Rgb4 colour) {
-        loading_picture_ = title_.loading_picture(state_.stage);
+        loading_picture_ = title_->loading_picture(state_.stage);
         const auto& portrait = assets_.portraits[std::size_t(index)];
         for (int y = 0; y < 188 && y < portrait.height; ++y)
             for (int x = 0; x < 320; ++x) loading_picture_.plot(x, y + 12, portrait.at(x, y));
@@ -211,13 +350,16 @@ public:
         arena_.reset();
         psyche_.reset();
         if (!keep_picture_) {
-            loading_picture_ = title_.loading_picture(state_.stage);
+            loading_picture_ = title_->loading_picture(state_.stage);
             loading_colour_ = 0x0F0;
         }
         keep_picture_ = false;
     }
 
     void open(Phase next) {
+        // A quick save holds the stage's start and the inputs since.
+        stage_start_ = {next, state_, mouse_x_, mouse_y_, button_was_down_, {}};
+        inputs_.clear();
         phase_ = next;
         if (next == Phase::landscape) {
             landscape_.emplace(files_, assets_,
@@ -226,6 +368,8 @@ public:
         } else if (next == Phase::tunnel) {
             tunnel_.emplace(files_, assets_,
                             tunnel::TunnelStage::Start{state_.tunnel_seed, state_.stage, state_.lives, state_.score});
+        } else if (next == Phase::title) {
+            title_.emplace(files_, picture_, clock_value(), false, session(ended_where_));
         } else if (next == Phase::psyche) {
             psyche_.emplace(files_, assets_,
                             psyche::PsycheStage::Start{state_.seed, state_.stage, state_.lives, state_.score, state_.bonus,
@@ -258,22 +402,68 @@ public:
                                 : phase_ == Phase::arena   ? arena_->picture()
                                 : phase_ == Phase::psyche  ? psyche_->picture()
                                 : phase_ == Phase::loading ? loading_picture_.picture({0x000, loading_colour_})
-                                                           : title_.picture();
+                                                           : title_->picture();
         pointer_.draw(image, mouse_x_, mouse_y_);
-        return image;
+        return vhs_ ? ui::vhs(image, frames_, vhs_) : image;
+    }
+
+    // Quick save and load, in the landscape, the tunnel, the arena and the
+    // psyche screen: the stage's start (the game's record as the stage
+    // began) and the inputs since; loading builds the stage again and runs
+    // those inputs (every stage follows only its start and its inputs, the
+    // game's own random generators included).
+    bool save() override {
+        if (!in_game()) return false;
+        saved_ = stage_start_;
+        saved_->inputs = inputs_;
+        return true;
+    }
+    bool load() override {
+        if (!saved_ || stopped_by_end()) return false;
+        const Snapshot snapshot = *saved_;
+        state_ = snapshot.state;
+        mouse_x_ = snapshot.mouse_x;
+        mouse_y_ = snapshot.mouse_y;
+        button_was_down_ = snapshot.button_was_down;
+        landscape_.reset();
+        tunnel_.reset();
+        arena_.reset();
+        psyche_.reset();
+        open(snapshot.phase);
+        replaying_ = true;
+        for (const auto& run : snapshot.inputs)
+            for (std::uint32_t k = 0; k < run.frames; ++k) tick(run.input.to_game());
+        replaying_ = false;
+        inputs_ = snapshot.inputs;
+        return true;
+    }
+    bool has_save() const override { return saved_.has_value(); }
+
+    std::vector<app::GameOption> options() const override {
+        return {{"VHS look", {"Off", "Light", "Medium", "Heavy", "Broken"}, vhs_,
+                 "A worn video tape's colour bleed and noise."}};
+    }
+    void set_option(std::size_t index, int value) override {
+        if (index == 0) vhs_ = value;
     }
 
     std::string stopped() const override {
-        if (title_.phase() == title::TitleStage::Phase::quit) return "Mind Walker: QUIT.";
+        if (title_->phase() == title::TitleStage::Phase::quit) return "Mind Walker: QUIT.";
         return phase_ == Phase::stopped ? message_ : std::string();
     }
 
 private:
+    bool in_game() const {
+        return phase_ == Phase::landscape || phase_ == Phase::tunnel || phase_ == Phase::arena || phase_ == Phase::psyche;
+    }
+    bool stopped_by_end() const { return title_->phase() == title::TitleStage::Phase::quit; }
+
+    std::filesystem::path content_;
     data::GameFiles files_;
     std::vector<std::uint8_t> picture_;
     MousePointer pointer_;
     data::Assets assets_;
-    title::TitleStage title_;
+    std::optional<title::TitleStage> title_;
     int mouse_x_{160}, mouse_y_{100};
     int loading_frames_{};
     bool button_was_down_{};
@@ -297,6 +487,55 @@ private:
     std::optional<tunnel::TunnelStage> tunnel_;
     std::optional<arena::ArenaStage> arena_;
     std::optional<psyche::PsycheStage> psyche_;
+    // What Mind Walker reads of a frame's input, and how many frames it
+    // stayed so (quick save keeps only the changes).
+    struct Input {
+        bool up{}, down{}, left{}, right{}, fire{}, button{}, pointer{};
+        std::int16_t x{}, y{};
+        bool operator==(const Input&) const = default;
+        static Input of(const app::GameInput& in) {
+            return {in.up, in.down, in.left, in.right, in.fire, in.mouse_button, in.pointer,
+                    std::int16_t(in.pointer_x), std::int16_t(in.pointer_y)};
+        }
+        app::GameInput to_game() const {
+            app::GameInput in;
+            in.up = up;
+            in.down = down;
+            in.left = left;
+            in.right = right;
+            in.fire = fire;
+            in.mouse_button = button;
+            in.pointer = pointer;
+            in.pointer_x = x;
+            in.pointer_y = y;
+            return in;
+        }
+    };
+    struct Run {
+        Input input;
+        std::uint32_t frames{};
+    };
+    void record(const app::GameInput& in) {
+        const auto input = Input::of(in);
+        if (!inputs_.empty() && inputs_.back().input == input) ++inputs_.back().frames;
+        else inputs_.push_back({input, 1});
+    }
+    struct Snapshot {
+        Phase phase{};
+        GameState state;
+        int mouse_x{}, mouse_y{};
+        bool button_was_down{};
+        std::vector<Run> inputs;
+    };
+    Snapshot stage_start_;
+    GameState ended_, restore_;    // the game T was handed, and its stage's start
+    int ended_where_{};            // +$2BA
+    Phase restart_phase_{Phase::landscape};
+    std::vector<Run> inputs_;
+    std::optional<Snapshot> saved_;
+    bool replaying_{};
+    long frames_{};
+    int vhs_{};
 };
 
 } // namespace

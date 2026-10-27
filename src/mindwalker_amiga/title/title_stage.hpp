@@ -4,6 +4,8 @@
 #include "mindwalker_amiga/screen/gadget_bar.hpp"
 #include "mindwalker_amiga/world/random.hpp"
 #include <array>
+#include <functional>
+#include <string>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -27,6 +29,31 @@ struct NewGame {
     std::uint32_t bonus{42000};// self-development bonus (+$308, +$30C)
 };
 
+// The Hall of Fame (MindHighs): 32 entries of a score and three initials.
+struct HallOfFame {
+    struct Entry {
+        std::uint32_t score{};
+        std::string initials;
+    };
+    std::array<Entry, 32> entries{};
+    static HallOfFame from_file(std::span<const std::uint8_t> bytes); // 32 x (long score, 4 chars)
+    std::vector<std::uint8_t> to_file() const;
+};
+
+// What T is handed and what it may do with the game in memory: the score
+// and where the game was (shared +$66, +$2BA: 0 none, 2 the landscape, 3 the
+// tunnel, 4 the arena, 5 the psyche screen), the Hall of Fame, and the
+// saved worlds A-H (the module keeps them).
+struct Session {
+    std::uint32_t score{};
+    int where{};
+    HallOfFame fame;
+    std::function<bool(int world)> world_saved;            // MindWorldA-H exists
+    std::function<bool(int world)> save_world;             // $6026AE: the game in memory saved
+    std::function<bool(int world, bool same_world)> restart; // $602248: Continue Game / New Game, Same World
+    std::function<void(const HallOfFame&)> fame_changed;   // h11: MindHighs written
+};
+
 // The pointer and left button as the stage reads them each frame.
 struct Pointer {
     int x{}, y{};
@@ -35,12 +62,12 @@ struct Pointer {
 
 class TitleStage {
 public:
-    enum class Phase { title, pause, menu, loading, quit };
+    enum class Phase { title, pause, menu, initials, fame, command, loading, quit };
 
     // `clock_seed` stands for the value T mixes from CurrentTime ($600142);
     // `first` is true for the first title of a session (shared +$2BA = 0).
     TitleStage(const data::GameFiles&, std::span<const std::uint8_t> title_picture, std::uint32_t clock_seed,
-               bool first = true);
+               bool first = true, Session session = {});
 
     // One frame of the original (one vertical blank: every loop of the stage
     // waits for one).
@@ -69,6 +96,14 @@ public:
     // The loading picture for a progress (+$5C).
     screen::Canvas loading_picture(int stage) const;
     int frames_in_phase() const { return phase_frames_; }
+    // A game restarted from the command screen (the module set it up).
+    bool restarted() const { return restarted_; }
+    // For replays: whether the next frame reads the button (the original's
+    // waits and the Hall of Fame read none).
+    bool reading() const {
+        return phase_ == Phase::title || phase_ == Phase::menu || (phase_ == Phase::initials && wait_ == 0) ||
+               (phase_ == Phase::command && draw_items_ >= 15);
+    }
 
 private:
     void draw_title();
@@ -81,6 +116,27 @@ private:
     void start_game();
     void draw_loading_screen();
     void drag_slider(const Pointer&);
+    void gadget_clicked(int id);              // h5 / $600CB4
+    int gadget_at_pointer(const Pointer&) const;
+    void back_to_menu();                      // $6004F0
+    // The Hall of Fame (h17, $6035D4, $603714-$603AFC).
+    void check_high_score();                  // h17
+    void sort_fame();                         // $6035D4
+    void draw_initials_screen();              // $604526 / $6042B0
+    void draw_initials();                     // $604246
+    void initials_click(int x, int y);        // $60413A
+    void show_fame();                         // $603714
+    void animate_fame();                      // $603814
+    int print_number(std::uint32_t value, int x, int y, bool pad); // $603AFC
+    void print_itext(std::uint32_t at, int x, int y, const std::string* text = nullptr);
+    // The command screen (h8, $6016B6-$6027DE).
+    void open_command();                      // $601AB6
+    void draw_command_background();           // $601AE2
+    void draw_item(int item);                 // $6019A2
+    void select_command(int command);         // $6017E8
+    void message(int item);                   // $602754
+    void command_click(int x, int y);         // $6016B6
+    void world_clicked(int world);            // $601868
 
     const amiga::LoadedImage& t_;
     std::span<const std::uint8_t> picture_file_;
@@ -105,6 +161,19 @@ private:
     int slider_grab_{};                  // pointer x - knob x when grabbed
     int choice_{};                       // $600BDE
     std::optional<NewGame> new_game_;
+    Session session_;
+    // The Hall of Fame as sorted ($603F0C), each entry's rank ($60404C).
+    std::array<HallOfFame::Entry, 32> ranked_{};
+    std::array<int, 32> rank_{};
+    int new_entry_{}, typed_{}, wait_{}, fame_count_{}, fame_step_{};
+    std::vector<std::uint8_t> small_image_; // the Hall of Fame's creatures' data (S's +$2D0 frames)
+    std::string initials_ = "   ";              // $6048FA
+    bool forget_{};                              // $604910
+    // The command screen's items (texts change: the '>' and the world's letter).
+    std::array<std::string, 28> item_text_;
+    std::array<int, 28> item_back_{};
+    int command_{1}, confirm_world_{}, draw_items_{};
+    bool confirming_{}, restarted_{};
 };
 
 } // namespace mindwalker::title

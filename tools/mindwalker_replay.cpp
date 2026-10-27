@@ -18,6 +18,7 @@
 #include "mindwalker_amiga/tunnel/tunnel_stage.hpp"
 #include "mindwalker_amiga/arena/arena_stage.hpp"
 #include "mindwalker_amiga/psyche/psyche_stage.hpp"
+#include "mindwalker_amiga/game/module.hpp"
 #include "mindwalker_amiga/data/assets.hpp"
 #include "mindwalker_amiga/world/world.hpp"
 #include "platform/files.hpp"
@@ -1214,6 +1215,210 @@ int psyche(const std::filesystem::path& content, const std::filesystem::path& sc
     return differences == 0 ? 0 : 1;
 }
 
+// The game module's quick save and load: through the title (Preset 1) into
+// the landscape, walking; a save at frame `at`, `more` frames on, a load,
+// the same frames again: every picture must come back the same.
+int quicksave(const std::filesystem::path& content, int at, int more) {
+    auto module = mindwalker::game::start(content);
+    std::vector<app::GameInput> script;
+    const auto input_at = [](int f) {
+        app::GameInput in;
+        in.pointer = true;
+        in.pointer_x = 160;
+        in.pointer_y = f < 100 ? 150 : 20; // the title's button, then Preset 1
+        in.mouse_button = (f >= 40 && f < 44) || (f >= 120 && f < 124);
+        const int walk = f / 150 % 4;     // then the stick round the compass
+        in.up = walk == 0;
+        in.right = walk == 1;
+        in.down = walk == 2;
+        in.left = walk == 3;
+        in.fire = f % 300 > 280;
+        return in;
+    };
+    const auto hash = [](const platform::Image& image) {
+        std::uint64_t h = 1469598103934665603ull;
+        for (const auto p : image.pixels) h = (h ^ std::uint64_t(p.r | p.g << 8 | p.b << 16)) * 1099511628211ull;
+        return h;
+    };
+    int f = 0;
+    for (; f < at; ++f) module->tick(input_at(f));
+    if (!module->save()) {
+        std::printf("save refused at frame %d\n", at);
+        return 1;
+    }
+    std::vector<std::uint64_t> first;
+    for (int k = 0; k < more; ++k, ++f) {
+        module->tick(input_at(f));
+        first.push_back(hash(module->picture()));
+    }
+    if (!module->load()) {
+        std::printf("load refused\n");
+        return 1;
+    }
+    int differ = 0;
+    f = at;
+    for (int k = 0; k < more; ++k, ++f) {
+        module->tick(input_at(f));
+        differ += hash(module->picture()) != first[std::size_t(k)];
+    }
+    std::printf("quick save at frame %d, %d frames after it: %d pictures differ after the load%s\n", at, more, differ,
+                module->stopped().empty() ? "" : (" (stopped: " + module->stopped() + ")").c_str());
+    return differ == 0 ? 0 : 1;
+}
+
+// T's second run in a recording (after a game): our title stage handed the
+// game's score, stepped read by read (frames without reads run between),
+// gadget clicks as clicks on the gadgets (the Hall of Fame's hook: on its
+// first frame), our pictures saved at the dumps' reads (MW_SHOTS) and
+// compared with them by the caller.
+int title_again(const std::filesystem::path& content, const std::filesystem::path& script_path,
+                const std::filesystem::path& log_path) {
+    using namespace mindwalker;
+    const data::GameFiles files(content);
+    std::map<int, std::vector<std::vector<std::string>>> events;
+    bool fame_hook = false;
+    {
+        std::ifstream in(script_path);
+        std::string line;
+        while (std::getline(in, line)) {
+            line = line.substr(0, line.find('#'));
+            std::istringstream f(line);
+            std::vector<std::string> w;
+            for (std::string x; f >> x;) w.push_back(x);
+            if (w.size() >= 3 && w[0] == "T") events[std::stoi(w[1])].push_back({w.begin() + 2, w.end()});
+            if (w.size() >= 5 && w[0] == "hook" && w[1] == "T" && w[3] == "gadget") fame_hook = true;
+        }
+    }
+    std::vector<int> reads;
+    std::uint32_t score = 0;
+    {
+        std::ifstream in(log_path);
+        std::string line;
+        int t_runs = 0;
+        while (std::getline(in, line)) {
+            if (line.starts_with("# module T")) ++t_runs;
+            if (t_runs == 2 && line.starts_with("T ")) {
+                std::istringstream f(line);
+                std::string m;
+                int index;
+                f >> m >> index;
+                if (reads.empty()) {
+                    const auto fs = fields(line);
+                    score = std::uint32_t(std::stoul(fs.at("shared").substr((0x66 - 0x10) * 2, 8), nullptr, 16));
+                }
+                reads.push_back(index);
+            }
+        }
+    }
+    if (reads.empty()) throw std::runtime_error("no second T run in the log");
+    title::Session session;
+    session.score = score;
+    session.where = 2;
+    session.fame = title::HallOfFame::from_file(platform::read_file(content / "MindHighs"));
+    std::array<bool, 8> saved{};
+    session.world_saved = [&](int w) { return saved[std::size_t(w)]; };
+    session.save_world = [&](int w) { saved[std::size_t(w)] = true; return true; };
+    session.restart = [&](int, bool) { return true; };
+    const std::vector<std::uint8_t> picture = platform::read_file(content / "MindB");
+    title::TitleStage stage(files, picture, 0, false, session);
+    title::Pointer pointer;
+    std::map<int, std::string> shots;
+    if (const char* list = std::getenv("MW_SHOTS")) {
+        std::istringstream in(list);
+        for (std::string item; std::getline(in, item, ',');)
+            shots[std::stoi(item.substr(0, item.find(':')))] = item.substr(item.find(':') + 1);
+    }
+    int frames = 0, clicks_pending = 0;
+    bool fame_done = false;
+    const auto step = [&] {
+        stage.frame(pointer);
+        ++frames;
+        if (clicks_pending > 0 && --clicks_pending == 0) pointer.button = false;
+        if (fame_hook && !fame_done && stage.phase() == title::TitleStage::Phase::fame) {
+            fame_done = true; // the hook's click on Fame, after its first frame
+            pointer.button = false;
+            if (const char* shot = std::getenv("MW_FAME_SHOT")) platform::save_png(stage.picture(), shot); // (the hook's dump)
+            stage.frame(pointer);
+            pointer = {290, 5, true};
+            stage.frame(pointer);
+            pointer.button = false;
+            frames += 2;
+            if (std::getenv("MW_DEBUG")) std::printf("fame hook at frame %d: phase now %d\n", frames, int(stage.phase()));
+        }
+    };
+    std::printf("T again: score %u, %zu reads\n", score, reads.size());
+    for (const int r : reads) {
+        int guard = 0;
+        while (!stage.reading() && stage.phase() != title::TitleStage::Phase::loading && guard++ < 2000) step();
+        if (shots.count(r)) platform::save_png(stage.picture(), shots[r]);
+        if (events.count(r))
+            for (const auto& ev : events.at(r)) {
+                if (ev[0] == "mouse") {
+                    pointer.x = std::stoi(ev[1]);
+                    pointer.y = std::stoi(ev[2]);
+                }
+                if (ev[0] == "button") pointer.button = ev[1] == "1";
+                if (ev[0] == "gadget") {
+                    pointer = {ev[1] == "30" ? 260 : 290, 5, true};
+                    clicks_pending = 1;
+                }
+            }
+        if (stage.phase() == title::TitleStage::Phase::loading) break;
+        step();
+    }
+    const char* phases[] = {"title", "pause", "menu", "initials", "fame", "command", "loading", "quit"};
+    std::printf("%d frames; ends in %s%s\n", frames, phases[int(stage.phase())], stage.restarted() ? " (restarted)" : "");
+    return 0;
+}
+
+// The module's way through T after a game: into the landscape, its close
+// gadget (T again), the command screen: Save Game to world A, then Continue
+// Game from it (the landscape resumed). Pictures saved along the way.
+int flow(const std::filesystem::path& content, const std::filesystem::path& out_dir) {
+    auto module = mindwalker::game::start(content);
+    int f = 0;
+    const auto run = [&](int frames, int x, int y, bool button, bool up = false) {
+        for (int k = 0; k < frames; ++k, ++f) {
+            app::GameInput in;
+            in.pointer = true;
+            in.pointer_x = x;
+            in.pointer_y = y;
+            in.mouse_button = button && k < 2;
+            in.up = up;
+            module->tick(in);
+        }
+    };
+    const auto shot = [&](const char* name) { platform::save_png(module->picture(), out_dir / name); };
+    run(60, 160, 150, false);
+    run(20, 160, 150, true);   // the title's button
+    run(60, 160, 20, false);
+    run(20, 160, 20, true);    // Preset 1
+    run(400, 160, 100, false, true); // loading, then walking up
+    shot("flow1-landscape.png");
+    run(20, 4, 4, true);       // the close gadget
+    run(200, 160, 100, false); // loading, T: a score: the initials
+    run(20, 220, 173, true);   // Forget It
+    run(20, 160, 100, false);
+    shot("flow2-menu.png");
+    run(20, 260, 5, true);     // the disk gadget
+    run(40, 160, 100, false);
+    run(20, 40, 144, true);    // Save Game
+    run(10, 160, 100, false);
+    run(20, 228, 44, true);    // world A
+    run(10, 160, 100, false);
+    shot("flow3-confirm.png");
+    run(20, 40, 195, true);    // Yes, do it.
+    run(10, 160, 100, false);
+    shot("flow4-saved.png");
+    run(20, 40, 104, true);    // Continue Game
+    run(10, 160, 100, false);
+    run(20, 228, 44, true);    // world A
+    run(200, 160, 100, false);
+    shot("flow5-continued.png");
+    std::printf("%d frames; %s\n", f, module->stopped().empty() ? "running" : module->stopped().c_str());
+    return 0;
+}
+
 int main(int argc, char** argv) {
     const std::string command = argc > 1 ? argv[1] : "";
     try {
@@ -1237,6 +1442,15 @@ int main(int argc, char** argv) {
         if (command == "psyche" && argc >= 5 && argc <= 7) {
             return psyche(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]), platform::utf8_path(argv[4]),
                           argc >= 6 ? std::stoi(argv[5]) : 1 << 30, argc == 7 ? platform::utf8_path(argv[6]) : std::filesystem::path());
+        }
+        if (command == "flow" && argc == 4) {
+            return flow(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]));
+        }
+        if (command == "title-again" && argc == 5) {
+            return title_again(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]), platform::utf8_path(argv[4]));
+        }
+        if (command == "quicksave" && argc == 5) {
+            return quicksave(platform::utf8_path(argv[2]), std::stoi(argv[3]), std::stoi(argv[4]));
         }
         if (command == "sim" && argc >= 6 && argc <= 8) {
             return sim(platform::utf8_path(argv[2]), std::uint32_t(std::stoul(argv[3], nullptr, 16)), std::stoi(argv[4]),

@@ -25,7 +25,22 @@ constexpr std::uint32_t disk_image = 0x601338;      // copied to chip memory for
 // +$304 the slider's knob).
 constexpr std::uint32_t pause_box_icon = 0x700A40, knob_icon = 0x700A54;
 
-constexpr int playfield_top = 11; // BorderTop + 1 ($601628; hypothesis: the top-border gadgets make it 10)
+// The command screen ($601E96 on: texts, lengths, x, y, back pens; $6020C6
+// the commands' own back pens; $6020DA the items a click can hit).
+constexpr std::uint32_t item_texts_c = 0x601E96, item_lengths_c = 0x601F06, item_x = 0x601F76, item_y = 0x601FE6,
+                        item_backs = 0x602056, command_backs = 0x6020C6, clickable = 0x6020DA;
+constexpr std::uint32_t band_steps = 0x601C30, band_ham = 0x601CB0; // h9 and $601CB0: the screen's colour bands
+// The initials screen ($604652 on: 34 texts, lengths, x, y, pens; the letters).
+constexpr std::uint32_t entry_texts = 0x604652, entry_lengths = 0x6046DA, entry_x = 0x604762, entry_y = 0x6047EA,
+                        entry_pens = 0x604872, letters = 0x604617;
+// The Hall of Fame: IntuiTexts, images (S's +$2D0 frames as data), the
+// background's bands, the title's colour cycle, the number divisors.
+constexpr std::uint32_t number_text = 0x603C72, rank_mark = 0x603CF4, blank_initials = 0x603E22,
+                        initials_text = 0x603E08, fame_title = 0x603CBC, fame_title_cycle = 0x603CDE;
+constexpr std::uint32_t fame_images = 0x603E36, fame_rows = 0x603E72, fame_pens = 0x603EB6, fame_cycle = 0x603C18,
+                        divisors = 0x603C86;
+constexpr std::uint32_t s_small_frames = 0x702E48; // S's +$2D0 frames (the images' data, 4 planes of 14 rows)
+constexpr int playfield_top = 10; // BorderTop + 1 ($601628; the command screen's dump: from row 10)
 constexpr int menu_items = 5, pillars = 8;
 constexpr std::uint32_t zero_seed = 0xFED45123; // used instead of a zero shift register
 
@@ -51,17 +66,49 @@ std::string c_string(const amiga::LoadedImage& program, std::uint32_t at) {
 
 } // namespace
 
+HallOfFame HallOfFame::from_file(std::span<const std::uint8_t> bytes) {
+    HallOfFame fame;
+    for (std::size_t i = 0; i < 32 && i * 8 + 8 <= bytes.size(); ++i) {
+        const auto* e = &bytes[i * 8];
+        fame.entries[i].score = std::uint32_t(e[0]) << 24 | std::uint32_t(e[1]) << 16 | std::uint32_t(e[2]) << 8 | e[3];
+        for (int c = 4; c < 8 && e[c] != 0; ++c) fame.entries[i].initials.push_back(char(e[c]));
+    }
+    return fame;
+}
+
+std::vector<std::uint8_t> HallOfFame::to_file() const {
+    std::vector<std::uint8_t> bytes(256);
+    for (std::size_t i = 0; i < 32; ++i) {
+        const auto score = entries[i].score;
+        bytes[i * 8] = std::uint8_t(score >> 24);
+        bytes[i * 8 + 1] = std::uint8_t(score >> 16);
+        bytes[i * 8 + 2] = std::uint8_t(score >> 8);
+        bytes[i * 8 + 3] = std::uint8_t(score);
+        for (std::size_t c = 0; c < 3 && c < entries[i].initials.size(); ++c) bytes[i * 8 + 4 + c] = std::uint8_t(entries[i].initials[c]);
+    }
+    return bytes;
+}
+
 TitleStage::TitleStage(const data::GameFiles& files, std::span<const std::uint8_t> title_picture,
-                       std::uint32_t clock_seed, bool first)
-    : t_(files.program(data::Stage::title)), picture_file_(title_picture), clock_seed_(clock_seed), first_(first) {
+                       std::uint32_t clock_seed, bool first, Session session)
+    : t_(files.program(data::Stage::title)), picture_file_(title_picture), clock_seed_(clock_seed), first_(first),
+      session_(std::move(session)) {
     const auto& setup = files.program(data::Stage::setup);
     bar_ = screen::GadgetBar(t_, new_window,
                              {{0x6013A6, bytes_at(setup, pause_box_icon, 20)},
                               {0x601392, bytes_at(setup, knob_icon, 24)},
                               {0x6013CE, bytes_at(t_, disk_image, 80)}});
-    // $601082: the disk and Fame gadgets start disabled.
+    // $601082: the disk and Fame gadgets start disabled; selected, they are
+    // complemented on T's six-plane screen (GADGHCOMP).
     bar_.find(disk)->enabled = false;
     bar_.find(fame)->enabled = false;
+    bar_.find(disk)->complement = bar_.find(fame)->complement = 0x3F;
+    small_image_ = bytes_at(setup, s_small_frames, 112);
+    for (std::uint32_t i = 0; i < 28; ++i) {
+        for (std::uint32_t c = 0; c < std::uint32_t(t_.s32(item_lengths_c + i * 4)); ++c)
+            item_text_[i].push_back(char(t_.u8(t_.u32(item_texts_c + i * 4) + c)));
+        item_back_[i] = t_.s32(item_backs + i * 4);
+    }
     title_colours_ = colours_at(t_, title_colours, 16);
     twinkle_work_ = colours_at(t_, twinkle_colours, 16);
     twinkle_pick_.state = t_.u32(twinkle_random);
@@ -259,25 +306,88 @@ void TitleStage::frame(const Pointer& pointer) {
     case Phase::pause:
         if (++phase_frames_ == 10) {
             draw_menu_background();
-            draw_menu();
-            bar_.find(disk)->enabled = true;
-            bar_.find(fame)->enabled = true;
-            bar_.draw(canvas_);
             phase_ = Phase::menu;
             phase_frames_ = 0;
+            if (!first_) check_high_score(); // h17
+            if (phase_ == Phase::menu) {
+                draw_menu();
+                bar_.find(disk)->enabled = true;
+            }
+            bar_.find(fame)->enabled = phase_ != Phase::initials;
+            bar_.draw(canvas_);
         }
         break;
+    case Phase::initials: {
+        // $6043D2's loop: the button read again and again (h20); a letter,
+        // then ten frames' wait.
+        if (wait_ > 0) {
+            --wait_;
+            break;
+        }
+        const bool press = pointer.button && !button_was_down_;
+        button_was_down_ = pointer.button;
+        if (press && pointer.y < 10 && gadget_at_pointer(pointer) == quit) {
+            phase_ = Phase::quit;
+            return;
+        }
+        if (press) initials_click(pointer.x, pointer.y);
+        if (typed_ >= 3 || forget_) {
+            const bool keep = !forget_;
+            if (keep) {
+                session_.fame.entries[std::size_t(new_entry_)].initials = initials_;
+                if (session_.fame_changed) session_.fame_changed(session_.fame); // h11
+            }
+            bar_.find(disk)->enabled = true;
+            bar_.find(fame)->enabled = true;
+            draw_menu_background();
+            if (keep) { // h2: the Hall of Fame shown, the disk off (its bands reach into the bar's left column)
+                bar_.find(disk)->enabled = false;
+                bar_.find(fame)->selected = true;
+                bar_.draw(canvas_);
+                show_fame();
+            } else {
+                draw_menu();
+                phase_ = Phase::menu;
+                bar_.draw(canvas_);
+            }
+        }
+        break;
+    }
+    case Phase::fame: {
+        const bool press = pointer.button && !button_was_down_;
+        button_was_down_ = pointer.button;
+        if (press && pointer.y < 10) gadget_clicked(gadget_at_pointer(pointer));
+        if (phase_ == Phase::fame && (++fame_count_ & 1) == 0) animate_fame(); // two vertical blanks a step
+        break;
+    }
+    case Phase::command: {
+        if (draw_items_ < 15) { // $601976: one item a frame
+            draw_item(draw_items_++);
+            break;
+        }
+        const bool press = pointer.button && !button_was_down_;
+        button_was_down_ = pointer.button;
+        if (press && pointer.y < 10) {
+            gadget_clicked(gadget_at_pointer(pointer));
+        } else if (press) {
+            command_click(pointer.x, pointer.y); // h8
+        }
+        break;
+    }
     case Phase::menu: {
         // The main loop ($600276): gadget messages, one step of the "New
         // Game" seed, the menu click, one pillar's animation.
         const bool press = pointer.button && !button_was_down_;
         if (press && pointer.y < 10) {
-            for (const auto& gadget : bar_.gadgets()) {
-                if (gadget.enabled && pointer.x >= gadget.x() && pointer.x < gadget.x() + gadget.width &&
-                    gadget.id == quit) {
-                    phase_ = Phase::quit;
-                    return;
-                }
+            const int id = gadget_at_pointer(pointer);
+            if (id == quit) {
+                phase_ = Phase::quit;
+                return;
+            }
+            if (id == disk || id == fame) {
+                button_was_down_ = pointer.button;
+                gadget_clicked(id);
+                return;
             }
         }
         new_game_seed_.next();
@@ -349,6 +459,321 @@ screen::Canvas TitleStage::loading_picture(int stage) const {
             for (int x = 0; x < gadget.width; ++x) canvas_.plot(x0 + x, y, gadget.planes[0][std::size_t(y)] >> (31 - x) & 1);
     }
     return canvas_;
+}
+
+int TitleStage::gadget_at_pointer(const Pointer& pointer) const {
+    for (const auto& gadget : bar_.gadgets())
+        if (gadget.enabled && pointer.x >= gadget.x() && pointer.x < gadget.x() + gadget.width && pointer.y >= gadget.top &&
+            pointer.y < gadget.top + gadget.height)
+            return gadget.id;
+    return -1;
+}
+
+// h5 / $600CB4: a toggle's message: Fame ($600DA8) shows the Hall of Fame or
+// goes back to the menu; the disk ($600D5C) the command screen or back.
+void TitleStage::gadget_clicked(int id) {
+    if (id == quit) {
+        phase_ = Phase::quit;
+        return;
+    }
+    if (id != disk && id != fame) return;
+    auto& g = *bar_.find(id);
+    g.selected = !g.selected;
+    auto& other = *bar_.find(id == disk ? fame : disk);
+    other.enabled = !g.selected;
+    bar_.refresh(canvas_, disk);
+    bar_.refresh(canvas_, fame);
+    if (!g.selected) back_to_menu();
+    else if (id == fame) show_fame();
+    else open_command();
+}
+
+void TitleStage::back_to_menu() { // $6004F0
+    draw_menu_background();
+    draw_menu();
+    phase_ = Phase::menu;
+    phase_frames_ = 0;
+}
+
+void TitleStage::print_itext(std::uint32_t at, int x, int y, const std::string* text) {
+    for (; at != 0; at = t_.u32(at + 16)) {
+        std::string s = text ? *text : c_string(t_, t_.u32(at + 12));
+        canvas_.text(x + t_.s16(at + 4), y + t_.s16(at + 6) + 6, s, t_.u8(at), screen::TextFont::topaz8, screen::plain,
+                     t_.u8(at + 2) == 1, t_.u8(at + 1));
+        if (text) break;
+    }
+}
+
+// $603AFC: a number with commas between thousands (padded to 7 places).
+int TitleStage::print_number(std::uint32_t value, int x, int y, bool pad) {
+    std::string out;
+    bool leading = true;
+    for (std::uint32_t k = 0; k < 10; ++k) {
+        const std::uint32_t d = t_.u32(divisors + k * 4);
+        const std::uint32_t digit = value / d;
+        value -= digit * d;
+        if (leading) leading = digit == 0;
+        if (!leading) {
+            out.push_back(char('0' + digit));
+            if (k == 0 || k == 3 || k == 6) out.push_back(',');
+        }
+    }
+    int length = int(out.size());
+    if (pad && length < 7) {
+        x += (7 - length) * 8;
+        length = 7;
+    }
+    print_itext(number_text, x, y, &out);
+    return length;
+}
+
+// $6035D4: the entries ranked by score (ties: the later entry first).
+void TitleStage::sort_fame() {
+    std::array<bool, 32> left{};
+    left.fill(true);
+    rank_.fill(0x20);
+    for (int r = 0; r < 32; ++r) {
+        int best = 31;
+        std::uint32_t high = 0;
+        for (int c = 0; c < 32; ++c)
+            if (left[std::size_t(c)] && high <= session_.fame.entries[std::size_t(c)].score) {
+                high = session_.fame.entries[std::size_t(c)].score;
+                best = c;
+            }
+        left[std::size_t(best)] = false;
+        rank_[std::size_t(best)] = r + 1;
+        ranked_[std::size_t(r)] = session_.fame.entries[std::size_t(best)];
+        ranked_[std::size_t(r)].initials = ranked_[std::size_t(r)].initials.substr(0, 3);
+    }
+}
+
+// h17: a game's score at least the last entry's takes its place; then the
+// initials ($6043D2).
+void TitleStage::check_high_score() {
+    if (session_.where == 0 || session_.score == 0) return;
+    sort_fame();
+    int c = 0;
+    while (c < 0x1F && rank_[std::size_t(c)] != 0x20) ++c;
+    auto& entry = session_.fame.entries[std::size_t(c)];
+    if (entry.score > session_.score) return;
+    entry.score = session_.score;
+    entry.initials.clear();
+    sort_fame();
+    new_entry_ = c;
+    initials_ = "   ";
+    typed_ = 0;
+    forget_ = false;
+    bar_.find(disk)->enabled = false;
+    draw_initials_screen();
+    phase_ = Phase::initials;
+}
+
+void TitleStage::draw_initials_screen() { // $604526, $6042B0
+    canvas_.fill(0x1E, 0x19, 0x121, 0xBB, 0xF);
+    canvas_.fill(0x23, 0x1E, 0x11C, 0xB6, 0);
+    for (std::uint32_t k = 0; k < 0x22; ++k) {
+        std::string text;
+        for (std::uint32_t c = 0; c < std::uint32_t(t_.s32(entry_lengths + k * 4)); ++c) text.push_back(char(t_.u8(t_.u32(entry_texts + k * 4) + c)));
+        canvas_.text(t_.s32(entry_x + k * 4), t_.s32(entry_y + k * 4), text, t_.s32(entry_pens + k * 4), screen::TextFont::topaz8,
+                     screen::plain, true, 0);
+    }
+    print_number(session_.score, 0xA8, 0x27, false);
+    print_number(std::uint32_t(rank_[std::size_t(new_entry_)]), 0x108, 0x31, false);
+    draw_initials();
+}
+
+void TitleStage::draw_initials() { // $604246
+    canvas_.text(0x94, 0x4B, initials_, 0x3F, screen::TextFont::topaz8, screen::plain, true, 0);
+}
+
+// $60413A: a letter (or the space) typed, "Forget It", "Start Over".
+void TitleStage::initials_click(int x, int y) {
+    for (int k = 0; k < 0x1D; ++k) {
+        const std::uint32_t i = std::uint32_t(k + 5) * 4;
+        const int ix = t_.s32(entry_x + i), iy = t_.s32(entry_y + i);
+        if (iy - 6 < y && y < iy + 2 && ix < x && x < t_.s32(entry_lengths + i) * 8 + ix) {
+            if (k == 0x1B) {
+                forget_ = true;
+            } else if (k == 0x1C) {
+                initials_ = "   ";
+                typed_ = 0;
+                draw_initials();
+            } else {
+                initials_[std::size_t(typed_++)] = char(t_.u8(letters + std::uint32_t(k)));
+                draw_initials();
+                wait_ = 10;
+            }
+            return;
+        }
+    }
+}
+
+// $603714: the Hall of Fame: bands of colour down the left edge carried
+// across by hold-and-modify, the title, 32 places in two columns, three
+// creatures.
+void TitleStage::show_fame() {
+    for (std::uint32_t k = 0; k < 16; ++k)
+        canvas_.line(0, t_.s32(fame_rows + k * 4), 0, t_.s32(fame_rows + k * 4 + 4) - 1, t_.s32(fame_pens + k * 4));
+    canvas_.fill(1, playfield_top, 0x13F, 199, 0x20);
+    sort_fame();
+    fame_count_ = 0;
+    print_itext(fame_title, 0x70, 0xF);
+    int last = 1;
+    for (int k = 1; k <= 32; ++k) {
+        const int a = k - 1;
+        const int column = a < 16 ? 0 : 0xA0;
+        int x = column + (k < 10 ? 9 : 1);
+        const int y = a < 16 ? a * 10 + 0x23 : a * 10 - 0x7D;
+        x += print_number(std::uint32_t(k), x, y, false) * 8;
+        print_itext(rank_mark, x, y);
+        x += 0x10;
+        const auto& entry = ranked_[std::size_t(a)];
+        if (entry.score != 0) {
+            last = k;
+            x += print_number(entry.score, x, y, true) * 8 + 8;
+            const std::string blank = c_string(t_, t_.u32(blank_initials + 12));
+            print_itext(blank_initials, x, y, &blank);
+            print_itext(initials_text, x, y, &entry.initials);
+        }
+    }
+    (void)last;
+    const auto image = [&](int k, int x, int y) { // $603A4A
+        const std::uint32_t at = fame_images + std::uint32_t(k * 20);
+        const int on = t_.u8(at + 15);
+        for (int row = 0; row < 14; ++row)
+            for (int col = 0; col < 16; ++col) {
+                int v = 0;
+                for (int p = 0; p < 4; ++p) v |= (small_image_[std::size_t(p * 28 + row * 2 + col / 8)] >> (7 - col % 8) & 1) << p;
+                canvas_.plot(x + col, y + row, v | on);
+            }
+        canvas_.line(x + 16, y + 4, x + 16, y + 10, t_.u8(at + 15));
+    };
+    image(1, 0x23, 0xF);
+    image(0, 0xDC, 0xD);
+    image(0, 0x12E, 0x11);
+    image(2, 0x11F, 0x15);
+    phase_ = Phase::fame;
+}
+
+// $603814: the title's colours cycle (hold-and-modify red, then green).
+void TitleStage::animate_fame() {
+    ++fame_step_;
+    const int front = ((fame_step_ >> 2) & 0x10) + t_.s16(fame_cycle + std::uint32_t((fame_step_ >> 1 & 0x1F) * 2));
+    const std::string title = c_string(t_, t_.u32(fame_title_cycle + 12));
+    canvas_.text(0x70, 0xF + 6, title, front & 0xFF, screen::TextFont::topaz8, screen::plain, true, front & 0x30);
+}
+
+// $601AB6: the command screen: its colour bands ($601AE2), the saved
+// worlds looked for, the items drawn one a frame.
+void TitleStage::open_command() {
+    draw_command_background();
+    command_ = t_.s32(clickable - 4); // $6020D6's first value
+    for (int i = 1; i < 4; ++i) {
+        item_back_[std::size_t(i)] = t_.s32(command_backs + std::uint32_t(i * 4));
+        item_text_[std::size_t(i)][0] = ' ';
+    }
+    item_back_[std::size_t(command_)] = 0;
+    item_text_[std::size_t(command_)][0] = '>';
+    draw_items_ = 0;
+    confirming_ = false;
+    phase_ = Phase::command;
+}
+
+void TitleStage::draw_command_background() {
+    const auto band = [&](int y) { return t_.u16(menu_colours + std::uint32_t(t_.s32(band_steps + std::uint32_t((y >> 3 & 0x1F) * 4)) * 2)); };
+    for (int y = playfield_top; y < 200; ++y) canvas_.plot(0, y, band(y));
+    for (int x = 1; x < 0x140; ++x)
+        canvas_.line(x, playfield_top, x, 199,
+                     t_.s32(band_steps + std::uint32_t((x >> 3 & 0x1F) * 4)) + t_.s32(band_ham + std::uint32_t((x >> 8 & 1) * 4)));
+    canvas_.fill(0, 0xB6, 0x13F, 199, 7);
+}
+
+// $6019A2: an item in pen $3F on its back pen; the column after it set
+// back to the band's base colour (for the hold-and-modify after it).
+void TitleStage::draw_item(int item) {
+    const auto i = std::size_t(item);
+    const int x = t_.s32(item_x + std::uint32_t(item * 4)), y = t_.s32(item_y + std::uint32_t(item * 4));
+    canvas_.text(x, y, item_text_[i], 0x3F, screen::TextFont::topaz8, screen::plain, true, item_back_[i]);
+    if (y < 0xBC) {
+        const int end = x + int(item_text_[i].size()) * 8;
+        for (int row = y - 6; row < y + 2; ++row)
+            canvas_.plot(end, row, t_.u16(menu_colours + std::uint32_t(t_.s32(band_steps + std::uint32_t((row >> 3 & 0x1F) * 4)) * 2)));
+    }
+}
+
+void TitleStage::select_command(int command) { // $6017E8
+    command_ = command;
+    for (int i = 1; i < 4; ++i) {
+        item_back_[std::size_t(i)] = t_.s32(command_backs + std::uint32_t(i * 4));
+        item_text_[std::size_t(i)][0] = ' ';
+    }
+    item_back_[std::size_t(command)] = 0;
+    item_text_[std::size_t(command)][0] = '>';
+    for (int i = 1; i < 4; ++i) draw_item(i);
+    canvas_.fill(0, 0xB6, 0x13F, 199, 7);
+    if (command == 3) {
+        if (session_.where == 0) {
+            draw_item(0x19); // "There's no game to save."
+        } else {
+            draw_item(0x12);
+            draw_item(0x13);
+        }
+    } else {
+        draw_item(4);
+        draw_item(5);
+    }
+}
+
+void TitleStage::message(int item) { // $602754
+    canvas_.fill(0, 0xB6, 0x13F, 199, 7);
+    draw_item(item);
+}
+
+// $6016B6: a click on a command, a world, or (asked) yes or no.
+void TitleStage::command_click(int x, int y) {
+    const int count = confirming_ ? 13 : 11;
+    for (int k = 0; k < count; ++k) {
+        const int item = t_.s32(clickable + std::uint32_t(k * 4));
+        const int ix = t_.s32(item_x + std::uint32_t(item * 4)), iy = t_.s32(item_y + std::uint32_t(item * 4));
+        if (!(iy - 6 < y && y < iy + 2 && ix < x && x < int(item_text_[std::size_t(item)].size()) * 8 + ix)) continue;
+        if (!confirming_) {
+            if (item >= 1 && item <= 3) select_command(item);
+            else if (item > 6 && item < 15) world_clicked(item - 7);
+        } else if (item == 0x11) { // $6026AE: "Yes, do it."
+            confirming_ = false;
+            select_command(1);
+            const bool ok = session_.save_world && session_.save_world(confirm_world_);
+            message(ok ? 0x14 : 0x16);
+        } else {
+            confirming_ = false;
+            canvas_.fill(0, 0xB6, 0x13F, 199, 7);
+            draw_item(4);
+            draw_item(5);
+            select_command(1);
+        }
+        return;
+    }
+}
+
+// $601868: saving asks first; Continue Game and New Game, Same World need
+// a saved world, then the game restarts ($602248).
+void TitleStage::world_clicked(int world) {
+    if (command_ == 3) {
+        if (session_.where == 0) return;
+        confirming_ = true;
+        confirm_world_ = world;
+        item_text_[0xF][0x10] = char('A' + world);
+        canvas_.fill(0, 0xB6, 0x13F, 199, 7);
+        for (int i = 0xF; i < 0x12; ++i) draw_item(i);
+    } else if (!(session_.world_saved && session_.world_saved(world))) {
+        message(0x1B);
+    } else if (session_.restart && session_.restart(world, command_ == 2)) {
+        message(0x18); // "Restarting game..."
+        restarted_ = true;
+        phase_ = Phase::loading;
+    } else {
+        message(0x1A);
+    }
 }
 
 platform::Image TitleStage::picture() const {

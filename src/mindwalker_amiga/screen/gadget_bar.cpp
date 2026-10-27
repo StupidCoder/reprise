@@ -79,7 +79,19 @@ void GadgetBar::draw_image(Canvas& canvas, const GadgetImage& image, int x0, int
 void GadgetBar::draw(Canvas& canvas, int background) const {
     canvas.fill(0, 0, Canvas::width - 1, 9, background);
     canvas.fill(0, 10, Canvas::width - 1, 11, 0);
-    for (const auto& gadget : gadgets_) {
+    for (const auto& gadget : gadgets_) draw_gadget(canvas, gadget, background);
+}
+
+void GadgetBar::refresh(Canvas& canvas, int id, int background) const {
+    for (const auto& gadget : gadgets_)
+        if (gadget.id == id) {
+            canvas.fill(gadget.x(), gadget.top, gadget.x() + gadget.width - 1, gadget.top + gadget.height - 1, background);
+            draw_gadget(canvas, gadget, background);
+        }
+}
+
+void GadgetBar::draw_gadget(Canvas& canvas, const Gadget& gadget, int background) const {
+    {
         const int x = gadget.x(), y = gadget.top;
         if (gadget.proportional) {
             canvas.fill(x + 2, y + 1, x + gadget.width - 3, y + gadget.height - 2, 0);
@@ -97,6 +109,10 @@ void GadgetBar::draw(Canvas& canvas, int background) const {
         for (const auto& text : gadget.texts) {
             canvas.text(x + text.left, y + text.top + 6, text.text, text.front, TextFont::topaz8, plain, text.mode == 1,
                         text.back);
+        }
+        if (gadget.selected && gadget.complement != 0) { // GADGHCOMP: the select box complemented
+            for (int gy = y; gy < y + gadget.height; ++gy)
+                for (int gx = x; gx < x + gadget.width; ++gx) canvas.plot(gx, gy, canvas.pen(gx, gy) ^ gadget.complement);
         }
         if (!gadget.enabled) {
             for (int gy = y; gy < y + gadget.height; ++gy) {

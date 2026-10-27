@@ -43,7 +43,7 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
 | --- | --- | --- | --- |
 | Fort Apocalypse | C64 | `Fort_Apocalypse.tap` (MD5 `bec7409816865f3ad160af9984f127cd`) | playable from title to debrief, compared with the original in scripted runs; pause menu with the enemy-pilot option |
 | Bruce Lee | C64 | `Bruce_Lee_(Original).g64` (MD5 `8cbfd1595cdc18a8e68fe4d43eec6aa8`) | playable from the title to the end and the next round, with sound, the demo and both two-player modes; compared with the original pass by pass (actors, rooms, screen, SID); smooth motion, particle and VHS options |
-| Mindwalker | Amiga | `Mind Walker (1986)(Commodore).adf` (SHA-256 `2e83a67a…a8969c`) | disk import and decoded assets with launcher viewer; title, world menu and new game playable (mouse), matching the original frame for frame and pen for pen; world generator verified against the original; the landscape, the tunnel, the arena and the psyche screen playable and checked read for read against the original; T's end screens, high scores and saves not rebuilt yet |
+| Mindwalker | Amiga | `Mind Walker (1986)(Commodore).adf` (SHA-256 `2e83a67a…a8969c`) | disk import and decoded assets with launcher viewer; title, world menu and new game playable (mouse), matching the original frame for frame and pen for pen; world generator verified against the original; the whole game playable (landscape, tunnel, arena, psyche screen, Hall of Fame, saved worlds) and checked against the original; quick save and VHS look |
 | Marble Madness | Amiga | `Marble_Madness.adf` (MD5 `735dc697d64b3eeaa000778eb0b1153a`) | disk import (both encrypted programs decrypted, checked against the original's memory); asset previews; all six courses complete in play (physics, covers, creatures, special regions, music and effects; each compared with the original update for update from start to goal); front end for one player (options, introductions, bonus, game over, the end) |
 | Wizball | C64 | `Wizball.g64` (MD5 `73e1a136da4b6972d39f00817b86983e`) | disk import, asset decoding with launcher previews; play rebuilt and checked in lockstep (places, enemies, catellite, tunnels, lives, bonus wave, Wizlab, level flight, round end, sound and music); front end, high scores and keys rebuilt |
 | Cannon Fodder | Amiga | three ADFs, `Cannon Fodder (1993)(Virgin)(Disk N of 3)[cr CSL].adf` (SHA-256 `2b01cbc9…`, `9089815b…`, `87ea9c1d…`; a cracked copy) | import of all three disks (Sensible disk format, RNC unpacking) and decoded screens, sprite sheets, tile sets, colours and the 72 mission maps with launcher viewer; map view, camera, tile drawer, mission set-up, object drawing, panel, squad walking, shooting, deaths and enemy soldiers rebuilt and checked against the original; not yet playable in the shell |
@@ -712,8 +712,15 @@ seeds and a clock seed), not stored.
    hint) equal the original read for read in everything logged; dumps
    differ only in the kaleidoscope's thin-edge texture. The stages'
    loading pictures now follow the progress; sliders without FREEHORIZ
-   keep their knob left. Next: T's end screens (game over, the finished
-   game), high scores, the command screen and saves.
+   keep their knob left.
+9. **T after a game** — done (2026-10-27). A lost game or a closed
+   window returns to T with the game in memory: the Hall of Fame (initials
+   for a qualifying score, the table kept in a "Hall of Fame" file), the
+   Fame screen, the command screen (Save Game to worlds A-H, Continue
+   Game where it was, New Game in the same world). Recorded and replayed:
+   every dump pixel-exact (bar the recorder's gadget highlight).
+   Enhancements: quick save/load and the VHS look. Open: T's own pause
+   box; the finished game's ending not recorded.
 
 Open: what each shared image set and icon is used for and its colours;
 sample playback periods and triggers; A's world model beyond the generator;

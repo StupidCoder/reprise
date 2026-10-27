@@ -39,6 +39,8 @@ struct Gadget {
     std::vector<GadgetImage> images;    // GadgetRender's chain (the knob for a slider)
     std::vector<GadgetText> texts;
     bool enabled{true};
+    bool selected{};                    // a toggle gadget's SELECTED
+    int complement{};                   // GADGHCOMP: the screen's pen mask to complement with when selected (0: none)
     std::uint16_t horizontal_pot{};     // sliders: 0-$FFFF
     bool free_horizontal{};             // PropInfo FREEHORIZ: the knob follows HorizPot (else it stays left)
 
@@ -61,9 +63,12 @@ public:
     // Rows 0-9 start in `background` (T's screen bar: pen 15; A's window
     // title bar: its BlockPen, 18), rows 10-11 in pen 0.
     void draw(Canvas&, int background = 15) const;
+    // OnGadget / OffGadget / a toggle: only that gadget's box drawn again.
+    void refresh(Canvas&, int id, int background = 15) const;
 
 private:
     void draw_image(Canvas&, const GadgetImage&, int x, int y) const;
+    void draw_gadget(Canvas&, const Gadget&, int background) const;
     std::vector<Gadget> gadgets_;
     std::map<std::uint32_t, std::vector<std::uint8_t>> data_; // image data by its address
 };
