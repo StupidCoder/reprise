@@ -3,6 +3,7 @@
 #include "mindwalker_amiga/data/game_files.hpp"
 #include "mindwalker_amiga/landscape/creatures.hpp"
 #include "mindwalker_amiga/landscape/interlude.hpp"
+#include "mindwalker_amiga/landscape/map_view.hpp"
 #include "mindwalker_amiga/landscape/landscape_bar.hpp"
 #include "mindwalker_amiga/landscape/view_cells.hpp"
 #include "mindwalker_amiga/landscape/view_scene.hpp"
@@ -24,7 +25,8 @@
 // catch the walker; a catch costs damage and, at 1600, a life. The opening
 // reveal and the catch picture play as sequences (interlude.hpp).
 // The walker's sprite is masked by the scenery in front of it (h11).
-// Holding fire aims a lightning bolt at a cursor and zaps creatures.
+// Holding fire aims a lightning bolt at a cursor and zaps creatures. The
+// emblem opens the map (map_view.hpp).
 // Not rebuilt yet: the view's own creatures, finds,
 // pyramids ($1000 cells), the pause box.
 namespace mindwalker::landscape {
@@ -83,9 +85,10 @@ public:
     LandscapeStage(const data::GameFiles&, const data::Assets&, const Start&);
 
     // One frame of A's main loop (or of a picture sequence, which reads no
-    // input: the opening reveal, a catch); `gadget` is a gadget clicked this frame
-    // (compass N E S W = ids 0-3 turn the view, $204278; any gadget ends the
-    // wait a click started, $203FD0), or -1.
+    // input: the opening reveal, a catch; or of the map); `gadget` is a gadget clicked this frame
+    // (compass N E S W = ids 0-3 turn the view, $204278; the emblem, id 4,
+    // opens and closes the map; any gadget ends the wait a click started,
+    // $203FD0), or -1. The pointer comes with the button's read.
     void frame(const InputReader&, int gadget = -1);
     // Which of the bar's gadgets is under a pointer position, or -1.
     int gadget_at(int x, int y) const { return bar_.gadget_at(x, y); }
@@ -119,6 +122,7 @@ private:
     void follow_height(const InputReader&); // $209D8A
     void caught();          // $209D8A's branch after a catch
     void creatures_tick();  // $2003C0
+    void toggle_map();      // $2042A0
     Creatures::Scene creature_scene() const;
     Display current_display() const;
     void draw_walker(platform::Image&, const std::vector<screen::Rgb4>& colours) const;
@@ -170,6 +174,11 @@ private:
     std::array<ViewPainter::DepthMask, 3> masks_;
     Creatures creatures_;
     Interlude interlude_;
+    MapView map_view_{a_};
+    int map_frames_left_{};
+    int queued_gadget_{-1};               // a gadget message not yet read
+    int map_closing_{};                   // frames until the closed map's view shows
+    std::array<std::uint16_t, 32> map_palette_{}; // $2004AC as the map's view building leaves it
 };
 
 } // namespace mindwalker::landscape

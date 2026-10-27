@@ -1,0 +1,67 @@
+#pragma once
+#include "amiga/hunk.hpp"
+#include "mindwalker_amiga/landscape/view_cells.hpp"
+#include "mindwalker_amiga/screen/canvas.hpp"
+#include <array>
+#include <cstdint>
+#include <deque>
+#include <functional>
+
+// The landscape's map (the emblem gadget, id 4; A $20071C opens it, $200D92
+// runs each frame, $2005C2 takes clicks, $200D02 closes it): a 16 x 8 grid of
+// squares of 4 x 4 world cells each, centred on the view (north up), every
+// world cell a 5-pixel block in its surface's colour (the four kinds, named
+// Humans, Wizards, Spriggans and Nymphs on the map) plus its feature
+// (crystals, tubes, pyramids, the walker's path); beacons in the cycling
+// colour 16, the marked block in 29. Opening draws the middle 6 x 4 squares;
+// holding the button on the grid draws the square under the pointer; "Fill
+// In Entire Map" draws them all; the legend's words light their colours in
+// yellow while held. The map has its own 30 colours (h6, $200EA0).
+namespace mindwalker::landscape {
+
+class MapView {
+public:
+    // The view's cells at any position (the view builder, $2086B0).
+    using Builder = std::function<ViewCells(std::uint16_t x, std::uint16_t y)>;
+
+    explicit MapView(const amiga::LoadedImage& landscape);
+
+    bool open() const { return open_; }
+    // $20071C: the map over the display's planes 0-3 (`display` holds the
+    // bar, which stays), around the view at (view_x, view_y).
+    void show(const screen::Canvas& display, std::uint16_t view_x, std::uint16_t view_y, const Builder&);
+    void close() { open_ = false; fill_all_ = false; }
+    // $2005C2: the left button pressed or released at the pointer.
+    void button(bool down, int x, int y);
+    // $200D92: one turn of the map's loop. Returns the display frames it
+    // takes (two WaitTOFs while the colour cycles).
+    int turn(int x, int y);
+    // Squares are drawn one after another, about 3 frames each on the A500
+    // (measured: opening 79 frames, filling 102 squares 304); meanwhile the
+    // loop reads no input. One frame of that work.
+    bool busy() const { return wait_ > 0 || !pending_.empty(); }
+    void work();
+
+    const screen::Canvas& planes() const { return canvas_; }
+    // Colours 0-29 as the map has them (30 and 31 stay the view's).
+    const std::array<std::uint16_t, 30>& colours() const { return colours_; }
+
+private:
+    void draw_square(int column, int row); // $200A36
+    void queue_square(int column, int row);
+    void draw_box();
+    int pen(const ViewCells&, int x, int y) const; // $200BF0
+    void load_colours(); // LoadRGB4 of h6
+
+    const amiga::LoadedImage& a_;
+    screen::Canvas canvas_;
+    std::array<std::uint16_t, 30> colours_{};
+    Builder build_;
+    std::uint16_t origin_x_{}, origin_y_{};
+    bool open_{}, held_{}, fill_all_{}; // $204D6E, $20102E, $20101E
+    std::uint16_t cycle_{};             // h7: colour 16's value
+    std::deque<int> pending_;           // squares (column * 8 + row) to draw; -1: the view's box
+    int wait_{};                        // frames until the next
+};
+
+} // namespace mindwalker::landscape

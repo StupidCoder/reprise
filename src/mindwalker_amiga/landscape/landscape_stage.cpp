@@ -21,6 +21,8 @@ constexpr int speed_period = 5;                    // $206B70
 constexpr int water_speed = 4;                     // $206B74
 constexpr int click_wait = 300;                    // $203F58
 constexpr int view_top = 10;                       // the view is shown from display row 10
+constexpr int map_gadget = 4;                      // the emblem (GRELRIGHT, 32 wide, a toggle)
+constexpr int map_close_frames = 31;               // $200D02 on the A500 (measured)
 
 // The four forms' shared image sets (A $200040 keeps +$76, +$1C6, +$E6, +$156
 // for forms 0-3), as Assets::figures orders them (+$76, +$E6, +$156, +$1C6).
@@ -164,20 +166,46 @@ bool LandscapeStage::may_mark() const {
     return false;
 }
 
-void LandscapeStage::frame(const InputReader& read, int gadget) {
+void LandscapeStage::frame(const InputReader& read, int clicked) {
+    // Gadget messages wait in the window's port until the loop reads it.
+    if (clicked >= 0) queued_gadget_ = clicked;
     if (interlude_.active()) {
         interlude_.advance();
         return;
     }
     if (out_of_lives_ || finished_) return; // the main loop has ended
-    // $203F58: a new press of the left button makes the stage wait;
-    // $203FD0: a gadget message ends the wait and is handled.
-    const bool button = read(InputRead::button).button;
-    if (button != button_was_down_ && button && frozen_ == 0) frozen_ = click_wait;
+    if (map_view_.open() && map_view_.busy()) { // drawing squares: no input read
+        map_view_.work();
+        return;
+    }
+    if (map_view_.open() && map_frames_left_ > 1) { // the map's turn waits two frames
+        --map_frames_left_;
+        return;
+    }
+    if (map_closing_ > 0) { // $200D02's work: the map stays on screen
+        --map_closing_;
+        return;
+    }
+    // $203F58: a new press of the left button makes the stage wait (or, on
+    // the map, is the map's click, $204250); $203FD0: a gadget message ends
+    // the wait and is handled.
+    const auto input = read(InputRead::button);
+    const bool button = input.button;
+    if (button != button_was_down_) {
+        if (button && frozen_ == 0 && !map_view_.open()) frozen_ = click_wait;
+        if (map_view_.open()) map_view_.button(button, input.pointer_x, input.pointer_y);
+    }
     button_was_down_ = button;
+    const int gadget = queued_gadget_;
+    queued_gadget_ = -1;
     if (gadget >= 0) {
         frozen_ = 0;
-        if (gadget < 4) face(gadget);
+        if (gadget < 4 && !map_view_.open()) face(gadget);
+        if (gadget == map_gadget) toggle_map();
+    }
+    if (map_view_.open()) { // $200D92 instead of the walker's frame
+        map_frames_left_ = map_view_.turn(input.pointer_x, input.pointer_y);
+        return;
     }
     if (frozen_ > 0) {
         --frozen_;
@@ -185,6 +213,39 @@ void LandscapeStage::frame(const InputReader& read, int gadget) {
     }
     follow_height(read);
     creatures_tick();
+}
+
+// The emblem ($2042A0): $20071C shows the map (the walker and creatures
+// hidden, the cells' objects and creature places kept, $h5); $200D02
+// closes it: the view built again (from the colours the map's building
+// left), its objects and creature places restored, the tether layer
+// cleared, the view drawn and the creatures shown.
+void LandscapeStage::toggle_map() {
+    if (!map_view_.open()) {
+        map_palette_ = colours_;
+        map_view_.show(view_canvas_, view_x_, view_y_, [this](std::uint16_t x, std::uint16_t y) {
+            auto in = inputs_;
+            in.previous_x = view_x_;
+            in.previous_y = view_y_;
+            auto cells = build_view(world_, a_, x, y, in, map_palette_);
+            map_palette_ = cells.colours;
+            return cells;
+        });
+        creatures_.hide_all(creature_scene());
+        return;
+    }
+    map_view_.close();
+    map_closing_ = map_close_frames;
+    const auto objects = cells_.objects;
+    const int places = cells_.creature_places;
+    colours_ = map_palette_;
+    rebuild_view();
+    cells_.objects = objects;
+    cells_.creature_places = places;
+    std::fill(creatures_.layer().begin() + view_top * 320, creatures_.layer().end(), 0);
+    repaint();
+    creatures_.show_present(creature_scene());
+    place_sprite();
 }
 
 // $2003C0 (each frame the walker moves): colour 13 flashes while the view
@@ -574,6 +635,22 @@ const data::Bitmap& LandscapeStage::walker_bitmap() const {
 
 platform::Image LandscapeStage::picture() const {
     std::vector<screen::Rgb4> colours;
+    if (map_view_.open() || map_closing_ > 0) {
+        // The map: its colours 0-29, the frozen tether layer, no sprites;
+        // the emblem complemented (GADGHCOMP, selected).
+        for (const auto c : map_view_.colours()) colours.push_back(c & 0xFFF);
+        colours.push_back(colours_[30] & 0xFFF);
+        colours.push_back(colours_[31] & 0xFFF);
+        auto planes = map_view_.planes();
+        const auto& layer = creatures_.tethers();
+        for (int y = 0; y < 200; ++y)
+            for (int x = 0; x < 320; ++x)
+                if (y >= view_top && layer[std::size_t(y * 320 + x)]) planes.plot(x, y, planes.pen(x, y) | 16);
+        if (map_view_.open()) // (hypothesis: Intuition's GADGHCOMP; a dump cannot show it)
+            for (int y = 0; y < view_top; ++y)
+                for (int x = 288; x < 320; ++x) planes.plot(x, y, planes.pen(x, y) ^ 31);
+        return planes.picture(colours);
+    }
     if (interlude_.active()) {
         // A sequence: its display and the walker (the creatures are hidden).
         const auto& d = interlude_.display();

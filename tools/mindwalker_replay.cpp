@@ -267,11 +267,27 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
         }
     }
     landscape::LandscapeInput held;
+    int pending_gadget = -1, frame_first_read = -1;
+    // MW_SHOTS="read:file.png,...": our picture when the replay reaches a read
+    // (the state the recorder's dump at that read shows).
+    std::map<int, std::string> shots;
+    if (const char* list = std::getenv("MW_SHOTS")) {
+        std::istringstream in(list);
+        for (std::string item; std::getline(in, item, ',');)
+            shots[std::stoi(item.substr(0, item.find(':')))] = item.substr(item.find(':') + 1);
+    }
     const auto apply = [&](char module, int index) {
         if (!events.count({module, index})) return;
         for (const auto& ev : events.at({module, index})) {
             if (ev[0] == "button") held.button = ev[1] == "1";
             if (ev[0] == "fire") held.fire = ev[1] == "1";
+            if (ev[0] == "mouse" && ev.size() == 3) {
+                held.pointer_x = std::stoi(ev[1]);
+                held.pointer_y = std::stoi(ev[2]);
+            }
+            // A gadget message is read after the frame's button read: one
+            // posted at a later read waits for the next frame.
+            if (ev[0] == "gadget" && module == 'A' && index != frame_first_read) pending_gadget = std::stoi(ev[1], nullptr, 16);
             if (ev[0] == "joy") {
                 held.up = ev[1].find('U') != std::string::npos;
                 held.down = ev[1].find('D') != std::string::npos;
@@ -393,12 +409,19 @@ int walk(const std::filesystem::path& content, std::uint32_t seed, const std::fi
             for (const auto& ev : events.at({'A', r.index}))
                 if (ev.size() == 3 && ev[0] == "poke" && ev[1] == "20052E") stage.set_damage(int(std::stoul(ev[2], nullptr, 16)));
         if (kind == landscape::InputRead::button) compare(r);
+        if (shots.count(r.index)) platform::save_png(stage.picture(), shots.at(r.index));
         apply('A', r.index);
         ++next;
         return held;
     };
     while (next < reads.size() && !out_of_step && frames < frame_limit) {
-        stage.frame(reader);
+        int gadget = pending_gadget;
+        pending_gadget = -1;
+        frame_first_read = reads[next].index;
+        if (events.count({'A', frame_first_read}))
+            for (const auto& ev : events.at({'A', frame_first_read}))
+                if (ev[0] == "gadget") gadget = std::stoi(ev[1], nullptr, 16);
+        stage.frame(reader, gadget);
         ++frames;
     }
     // A picture sequence the last read started plays on without reads.
