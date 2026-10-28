@@ -1266,9 +1266,12 @@ rule of the original-width view.
    after leaving one). Thirteen runs, 1,819 updates, all equal; $23,
    $24/$26, speed shops and bought balls checked against the instructions
    only (not in level 1).
-7. Next: the remaining cells ($DA, $29-$2E, $38-$3A, …), repair sets on
-   the abyss, energy losses, objects from the level header (small balls,
-   moving things), then drawing and a playable level in the shell.
+7. In progress (read, not rebuilt; notes in `game.md` "Remaining cells,
+   clock, switches"): the exit $3B, two-cell shops $45-$47, breakable walls,
+   energy cells and the once-per-two-seconds rule, pushable blocks $C0,
+   crumbling floor $38-$3A, switches $29-$2E with the header's cell-change
+   lists (+$218 ff., the "object lists"), the clock and out of time. Next:
+   rebuild these with recordings, then drawing and a playable level.
 
 Open items:
 - Level header fields +$000..+$3E7 (object lists, settings).
