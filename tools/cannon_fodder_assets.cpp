@@ -73,7 +73,9 @@
 #include "cannon_fodder_amiga/import/disk_import.hpp"
 #include "platform/files.hpp"
 #include "platform/host.hpp"
+#include "platform/sha256.hpp"
 #include <algorithm>
+#include <set>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -813,6 +815,86 @@ int run(int argc, char** argv) {
         std::printf("%d walk orders checked, %d shots made on one side only (by chance)\n", walk_orders, chance_shots);
         return bad == 0 ? 0 : 1;
     }
+    if (command == "debrief" && argc >= 5) {
+        // The debrief of mission 1 headless, for harness/debriefrec.py: the
+        // recruits 0 and 1 back at rank 0 after a phase (and, with
+        // `fallen NAME RANK`, one fallen); at each listed round the screen's
+        // colour indices go to <out>-<round>.idx (320 x 256 bytes).
+        //   debrief <content> <out> [fallen NAME RANK] rounds...
+        using namespace fodder;
+        const data::Content content(argv[2]);
+        const auto program = content.read("fodderc", 1);
+        const game::PanelArt panel(program, amiga::read_ilbm(content.read("pstuff.lbm", 1)));
+        game::FrontEnd front(content, program, panel);
+        game::Campaign campaign;
+        campaign.missions_started = 1;
+        for (int k = 0; k < 2; ++k) {
+            auto& r = campaign.roster[std::size_t(k)];
+            r.name = k;
+            r.rank = 0;
+            r.served = 1;
+            r.on_map = true;
+        }
+        int a = 4;
+        if (std::string(argv[a]) == "fallen" && argc >= a + 3) {
+            campaign.heroes.push_back({std::stoi(argv[a + 1]), std::stoi(argv[a + 2])});
+            a += 3;
+        }
+        std::set<int> rounds;
+        for (; a < argc; ++a) rounds.insert(std::stoi(argv[a]));
+        front.start_debrief(campaign);
+        app::GameInput input;
+        int last = -1;
+        for (int f = 0; f < 100000 && front.active(); ++f) {
+            const int round = front.debrief_state().round;
+            const bool in_rounds = front.debrief_state().mode == game::FrontEnd::DebriefState::Mode::rounds &&
+                                   front.debrief_state().frames == 0;
+            if (in_rounds && round != last && rounds.count(round)) {
+                last = round;
+                // (the colour indices: the picture's pixels back to indices)
+                platform::write_file(std::string(argv[3]) + "-" + std::to_string(round) + ".idx", front.indices());
+                platform::save_png(front.picture(), std::string(argv[3]) + "-" + std::to_string(round) + ".png");
+            }
+            front.tick(input);
+        }
+        std::printf("rounds %d\n", front.debrief_state().round);
+        return 0;
+    }
+    if (command == "parallax" && argc >= 5) {
+        // The parallax screen headless: per frame the state in the words of
+        // the reference's $826B0-$826EA and $85BE4/$85BE6 (harness/paratrace.py),
+        // after the frame (the reference's line n is the state before frame n).
+        //   parallax <content> <mission> <frames> [png] [landscape: jun, des, ice, mor, int]
+        using namespace fodder;
+        const data::Content content(argv[2]);
+        const auto program = content.read("fodderc", 1);
+        const game::PanelArt panel(program, amiga::read_ilbm(content.read("pstuff.lbm", 1)));
+        game::FrontEnd front(content, program, panel);
+        game::Campaign campaign;
+        campaign.missions_started = std::stoi(argv[3]);
+        const auto map = data::read_map(content.read("mapm1.map", 1));
+        front.start_parallax(campaign, argc >= 7 ? std::string(argv[6]) : map.base_set.substr(0, 3));
+        const int frames = std::stoi(argv[4]);
+        const auto line = [&](int n) {
+            const auto& st = front.parallax_state();
+            const auto hi = [](std::int32_t v) { return int(std::int16_t(std::uint32_t(v) >> 16)); };
+            const auto lo = [](std::int32_t v) { return int(std::int16_t(v & 0xffff)); };
+            std::printf("%d %d 0 %d %d %d %d %d %d %d %d %d 0 0 %d %d %d %d %d %d 0 %d 0 %d %d %d %d %d %d %d 0 %d %d\n", n, st.name_x,
+                        hi(st.scroll[0]), lo(st.scroll[0]), hi(st.scroll[1]), lo(st.scroll[1]), hi(st.scroll[2]), lo(st.scroll[2]),
+                        hi(st.scroll[3]), lo(st.scroll[3]), 0x158 - st.name_x, n == 0 ? 0 : -32768, hi(st.heli_x), lo(st.heli_x),
+                        hi(st.heli_y), lo(st.heli_y), st.speed, st.wanted_speed, st.heading, st.wanted, st.leg * 6, st.leg_left,
+                        st.fade, st.rotor, st.ended ? -1 : 0, st.sprite_x - 0x20, st.sprite_y);
+        };
+        line(0);
+        app::GameInput input;
+        for (int n = 1; n <= frames && front.active(); ++n) {
+            front.tick(input);
+            line(n);
+        }
+        if (argc >= 6) platform::save_png(front.picture(), argv[5]);
+        if (std::getenv("CF_IDX")) platform::write_file(std::getenv("CF_IDX"), front.indices());
+        return 0;
+    }
     if (command == "play" && argc >= 5) {
         // The launcher's game module, headless: frames with scripted mouse
         // input (picture pixels; l, r or b buttons), the last picture saved.
@@ -1080,8 +1162,21 @@ int run(int argc, char** argv) {
         }
         else if (which == "debrief") { campaign.roster[0].on_map = campaign.roster[1].on_map = true; front.start_debrief(campaign); }
         else if (which == "ending") front.start_ending();
+        else if (which == "diskrequest") {
+            for (const auto& a : front.draw_disk_request()) std::printf("area %d %d %d %d\n", a[0], a[1], a[2], a[3]);
+            platform::write_file(std::string(argv[5]) + ".idx", front.indices());
+            return 0;
+        }
+        else if (which == "saves") {
+            std::vector<std::string> names;
+            for (int k = 1; k <= 7; ++k) names.push_back("MISSION " + std::to_string(k) + " PHASE 1");
+            front.start_save_list(names);
+        }
         else front.start_briefing(campaign, tables);
         app::GameInput input;
+        input.pointer = true;
+        input.pointer_x = 150;
+        input.pointer_y = 100;
         const int frames = std::stoi(argv[4]);
         for (int f = 0; f < frames && front.active(); ++f) front.tick(input);
         platform::save_png(front.picture(), argv[5]);

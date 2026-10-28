@@ -56,6 +56,7 @@ public:
     // tile sets' .swp files, a word per tile, $FFFF none).
     void set_swaps(std::span<const std::uint8_t> base_swp, std::span<const std::uint8_t> sub_swp);
     int swap(int tile) const;
+    int cells() const { return int(cells_.size()); }
     int cell(int index) const { return index >= 0 && std::size_t(index) < cells_.size() ? cells_[std::size_t(index)] : 0; }
     void set_cell(int index, int value) {
         if (index >= 0 && std::size_t(index) < cells_.size()) cells_[std::size_t(index)] = std::uint16_t(value);

@@ -31,9 +31,13 @@ public:
 
     struct Point {
         int x{}, y{}, song{};
+        template <class A> void persist(A& a) { a(x, y, song); }
     };
     const std::vector<Point>& points() const { return points_; }
     int song() const { return song_; }
+    template <class A> void persist(A& a) {
+        a(points_, song_, wanted_, target_volume_);
+    }
 
 private:
     void request(int song, int volume, Rjp1& player, bool engine_sound);

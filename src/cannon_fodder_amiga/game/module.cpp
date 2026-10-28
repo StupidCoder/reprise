@@ -88,7 +88,10 @@ public:
                kinds() + ", music points " + std::to_string(director_.points().size()) + ", song " +
                std::to_string(jon_playing_ ? -1 : director_.song()) + ", volumes " +
                (music_ ? std::to_string(music_->channel_volume(0)) + "/" + std::to_string(music_->channel_volume(1)) : "-") +
-               ", pointer " + std::to_string(pointer_image_);
+               ", pointer " + std::to_string(pointer_image_) + ", screen " +
+               std::to_string(front_ && front_->active() ? int(front_->screen()) : 0) + ", overview " +
+               std::to_string(int(overview_.mode)) +
+               (overview_.requested ? " requested" : "");
     }
 
     double step_seconds() const override { return 1.0 / 50.0; } // a PAL frame
@@ -100,9 +103,21 @@ public:
             front_frame(input);
             return;
         }
+        if (overview_.mode != Overview::Mode::off) {
+            overview_frame(input);
+            return;
+        }
         frame(input);
         if (++frames_since_tick_ >= 3) { // the mission loop waits for 3 vertical blanks ($86292)
             frames_since_tick_ = 0;
+            // $862BA: the globe was clicked: the map's overview first, the
+            // tick after it.
+            if (overview_.requested) {
+                overview_.requested = false;
+                overview_.mode = Overview::Mode::entering;
+                overview_.frames = 0;
+                return;
+            }
             game_tick();
         }
     }
@@ -129,7 +144,14 @@ private:
     void finish_phase();
     void end_music(EndText started);
     void start_jon(int song, bool warx = false);
-    void draw_pointer(platform::Image& image) const;
+    void draw_pointer(platform::Image& image) const {
+        draw_pointer(image, pointer_image_, world_.pointer_x, world_.pointer_y, pointer_offset_);
+    }
+    void draw_pointer(platform::Image& image, int piece_number, int x, int y, int offset) const;
+    void open_music(int source);
+    void build_overview();
+    void overview_frame(const app::GameInput& input);
+    template <class A> void persist(A& a);
     void set_pointer(int image, int offset) {
         pointer_image_ = image;
         pointer_offset_ = offset;
@@ -149,7 +171,21 @@ private:
     enum class AfterFront { hill, parallax, briefing, mission, loaded, next_phase, new_game, stop } after_front_{AfterFront::mission};
     CameraMotion motion_;
     Point target_{};
+    // The map's overview ($A68CE), behind the panel's globe: the whole map
+    // scaled down when the phase starts (`$A50AC`, `$A6D28`), shown until a
+    // click with the leader blinking on it; the game waits meanwhile.
+    struct Overview {
+        std::vector<std::uint8_t> pixels; // 320 x 256 (the buffer it is built in)
+        int left{}, top{}, width{}, height{}; // $82A86, $82A88, $8273A, $8273C
+        bool requested{};                    // $82A7C
+        enum class Mode { off, entering, showing, leaving } mode{Mode::off};
+        int frames{};
+        int blink{};                         // $82B88
+        int marker_x{}, marker_y{};          // $82B84, $82B86 (-1: no leader)
+        template <class A> void persist(A& a) { a(requested, mode, frames, blink, marker_x, marker_y); }
+    } overview_;
     std::optional<sound::Rjp1> music_;
+    int music_source_{-1}; // music_'s files: 0 the landscape's, 1 jon, 2 warx (-1 none)
     sound::MusicDirector director_;
     bool jon_playing_{};   // $A3C5C: the end songs (jon.sng) replaced the landscape's
     int end_song_delay_{}; // $A3C5A: ticks until the lost phase's song
@@ -220,9 +256,7 @@ void Module::start_phase(int number) {
 
     // The landscape's music ($A39A4): song 2 with all channel volumes 0;
     // the director fades the first two channels in from there ($87774).
-    music_.emplace(content_.read(base + ".sng", disk), content_.read(base + ".ins", disk), program_);
-    paula_ = amiga::PaulaChannels{};
-    paula_.set_memory(music_->samples());
+    open_music(0);
     music_->start_song(2);
     for (int c = 0; c < 4; ++c) music_->set_channel_volume_raw(c, 0);
     director_.start_phase(phase_.map);
@@ -231,6 +265,156 @@ void Module::start_phase(int number) {
     end_song_delay_ = 0;
     board_ = sound::SoundBoard{};
     frames_since_tick_ = 0;
+    build_overview();
+}
+
+// $A50AC: 280 pixels wide by the map's shape (at most 208 high, $A5090);
+// $A2092 steps through the map's pixels by its size over the overview's in
+// 16.16 (two divisions); $A6D28 centres it on ($90, $68) in a cleared
+// buffer.
+void Module::build_overview() {
+    auto& o = overview_;
+    o = Overview{};
+    o.pixels.assign(std::size_t(FrontScreen::width * FrontScreen::height), 0);
+    const int map_w = phase_.picture->width(), map_h = phase_.picture->height();
+    if (map_w <= 0 || map_h <= 0) return;
+    int w = 0x118, h = int((std::uint32_t(0x118) * std::uint32_t(map_h)) / std::uint32_t(map_w) & 0xffff);
+    if (std::int16_t(h - 0xd0) >= 0) {
+        h = 0xd0;
+        w = int((std::uint32_t(0xd0) * std::uint32_t(map_w)) / std::uint32_t(map_h) & 0xffff);
+    }
+    o.width = w;
+    o.height = h;
+    if (w <= 0 || h <= 0) return;
+    const auto step = [](int size, int over) {
+        const std::uint32_t whole = std::uint32_t(size & 0xfff) / std::uint32_t(over),
+                            rest = std::uint32_t(size & 0xfff) % std::uint32_t(over);
+        return (whole << 16) | ((rest << 16) / std::uint32_t(over) & 0xffff);
+    };
+    const std::uint32_t sx = step(map_w, w), sy = step(map_h, h);
+    o.left = 0xb0 - int(unsigned(w) >> 1) - 0x20;
+    o.top = 0x68 - int(unsigned(h) >> 1);
+    std::uint32_t y = 0;
+    for (int j = 0; j < h; ++j, y += sy) {
+        std::uint32_t x = 0;
+        for (int i = 0; i < w; ++i, x += sx) {
+            const int dx = o.left + i, dy = o.top + j;
+            if (dx < 0 || dy < 0 || dx >= FrontScreen::width || dy >= FrontScreen::height) continue;
+            o.pixels[std::size_t(dy * FrontScreen::width + dx)] = phase_.picture->at(int(x >> 16), int(y >> 16)) & 15;
+        }
+    }
+}
+
+// $A68CE: a frame of the overview: dark while the screens change (3 frames
+// each way), then the overview with the leader's marker (the pointer's
+// picture $28, shown 24 frames of every 32) until a new press.
+void Module::overview_frame(const app::GameInput& input) {
+    auto& o = overview_;
+    if (music_) music_->frame(paula_); // (the music goes on in the vertical blank)
+    const bool press = (input.mouse_button && !left_was_down_) || (input.mouse_right && !right_was_down_);
+    left_was_down_ = input.mouse_button;
+    right_was_down_ = input.mouse_right;
+    switch (o.mode) {
+    case Overview::Mode::entering:
+        if (++o.frames >= 3) {
+            o.mode = Overview::Mode::showing;
+            o.blink = 0;
+            // $A6928: the leader's place on the overview.
+            o.marker_x = o.marker_y = -1;
+            if (world_.leader_slot >= 0) {
+                const auto& l = world_.objects.slots[std::size_t(world_.leader_slot)];
+                const int map_w = phase_.picture->width(), map_h = phase_.picture->height();
+                o.marker_x = int(std::uint16_t(whole(l.x)) * std::uint32_t(o.width) / std::uint32_t(map_w)) + o.left + 0x10;
+                o.marker_y = int(std::uint16_t(whole(l.y)) * std::uint32_t(o.height) / std::uint32_t(map_h)) + o.top;
+            }
+        }
+        return;
+    case Overview::Mode::showing:
+        ++o.blink;
+        if (press) {
+            o.mode = Overview::Mode::leaving;
+            o.frames = 0;
+        }
+        return;
+    case Overview::Mode::leaving:
+        if (++o.frames >= 3) {
+            o.mode = Overview::Mode::off;
+            game_tick(); // (the mission loop goes on with its tick)
+        }
+        return;
+    case Overview::Mode::off:
+        return;
+    }
+}
+
+// The player on a song's files, from the start.
+void Module::open_music(int source) {
+    if (source == 0) {
+        const int disk = data::map_disk(phase_.number + 1);
+        const auto base = phase_.map.base_set.substr(0, phase_.map.base_set.size() - 4);
+        music_.emplace(content_.read(base + ".sng", disk), content_.read(base + ".ins", disk), program_);
+    } else {
+        music_.emplace(content_.read(source == 2 ? "warx4.sng" : "jon.sng", 1),
+                       content_.read(source == 2 ? "warx1.ins" : "jon.ins", 1), program_);
+    }
+    music_source_ = source;
+    paula_ = amiga::PaulaChannels{};
+    paula_.set_memory(music_->samples());
+}
+
+// The quick save: everything that changes while the game runs. The phase's
+// map, tiles and sheets are read again from the files by its number (only
+// the cells map damage changed are kept), the music from its files.
+template <class A> void Module::persist(A& a) {
+    int version = 1;
+    a(version);
+    if (version != 1) A::fail();
+    bool in_phase = phase_.terrain.has_value();
+    int number = phase_.number;
+    a(in_phase, number);
+    if constexpr (A::reading) {
+        if (number < 0 || number >= MissionTables::phases) A::fail();
+        if (in_phase) start_phase(number);
+    }
+    if (in_phase) {
+        std::vector<std::uint16_t> cells(std::size_t(phase_.terrain->cells()));
+        for (std::size_t i = 0; i < cells.size(); ++i) cells[i] = std::uint16_t(phase_.terrain->cell(int(i)));
+        a(cells);
+        if constexpr (A::reading) {
+            if (int(cells.size()) != phase_.terrain->cells()) A::fail();
+            const int width = phase_.terrain->width_tiles();
+            for (int i = 0; i < int(cells.size()); ++i) {
+                if (phase_.terrain->cell(i) == cells[std::size_t(i)]) continue;
+                phase_.terrain->set_cell(i, cells[std::size_t(i)]);
+                phase_.picture->set_tile(i % width, i / width, cells[std::size_t(i)], phase_.base_tiles, phase_.sub_tiles);
+            }
+        }
+    }
+    a(overview_);
+    a(world_, campaign_, called_up_, save_names_, after_front_, motion_, target_, director_, jon_playing_,
+      end_song_delay_, end_song_, engine_.volume, engine_.effect, engine_.param, engine_.phase, engine_.last, board_,
+      frames_since_tick_, snapshot_tick_, left_was_down_, right_was_down_, pointer_image_, pointer_offset_,
+      phases_played_, won_, lost_, unhandled_, unhandled_kinds_, stopped_);
+    int source = music_ ? music_source_ : -1;
+    a(source);
+    if constexpr (A::reading) {
+        if (source < -1 || source > 2 || (source == 0 && !in_phase)) A::fail();
+        if (source < 0) {
+            music_.reset();
+            music_source_ = -1;
+        } else {
+            open_music(source);
+        }
+    }
+    if (music_) a(*music_);
+    a(paula_);
+    bool front = front_.has_value();
+    a(front);
+    if constexpr (A::reading) {
+        if (front && !front_) front_.emplace(content_, program_, panel_art_);
+        if (!front) front_.reset();
+    }
+    if (front_) front_->persist(a, tables_.mission);
 }
 
 void Module::end_music(EndText started) {
@@ -251,10 +435,7 @@ void Module::end_music(EndText started) {
 void Module::start_jon(int song, bool warx) {
     // $A3C60 + $A3CEC: jon.sng/jon.ins from disk 1, the song, all channels
     // at volume 64.
-    music_.emplace(content_.read(warx ? "warx4.sng" : "jon.sng", 1), content_.read(warx ? "warx1.ins" : "jon.ins", 1),
-                   program_);
-    paula_ = amiga::PaulaChannels{};
-    paula_.set_memory(music_->samples());
+    open_music(warx ? 2 : 1);
     music_->start_song(song);
     for (int c = 0; c < 4; ++c) music_->set_channel_volume_raw(c, 0x40);
     jon_playing_ = true;
@@ -428,6 +609,14 @@ void Module::front_frame(const app::GameInput& input) {
 // the selected one), its weapon icons, its names (pick a recruit, while a
 // squad is free for the split).
 void Module::panel_click(int x, int y) {
+    // $88482: the globe's area (x 0-$2F, y $D5-$E0 from the panel sprites'
+    // place $85BE4/$85BE6 = (0, 4), $9EA10: the picture's lines $D5-$E0; not
+    // in the last phase): the map's overview at the next tick ($884B0), not
+    // once the phase has ended ($82A92).
+    if (phase_.number != 0x47 && x >= 0 && x <= 0x2f && y >= 0xd5 && y <= 0xe0) {
+        if (world_.outcome == World::Outcome::playing) overview_.requested = true;
+        return;
+    }
     int end = 0;
     for (int n = 0; n < 3; ++n) {
         const auto& squad = world_.squads[std::size_t(n)];
@@ -767,8 +956,22 @@ platform::Image Module::picture() const {
     draw_objects(view, world_.camera, world_.objects, order, frames_, phase_.sheets);
     platform::Image image(view_width, view_height);
     for (std::size_t i = 0; i < view.size(); ++i) image.pixels[i] = data::to_color(phase_.palette[view[i] & 15]);
+    if (overview_.mode != Overview::Mode::off) {
+        // $A6A34: the overview's buffer shown from byte $26 with BPLCON1
+        // $FF: column x of its line y + 1 at x + 31 on line y; dark (colours
+        // 0-15 at level 0) while the screens change.
+        const bool shown = overview_.mode == Overview::Mode::showing;
+        for (int y = 0; y < view_height; ++y)
+            for (int x = 0; x < view_width; ++x) {
+                int c = 0;
+                if (shown && x >= 31 && y + 1 < FrontScreen::height)
+                    c = overview_.pixels[std::size_t((y + 1) * FrontScreen::width + x - 31)];
+                image.pixels[std::size_t(y * view_width + x)] = shown ? data::to_color(phase_.palette[c]) : platform::Color{0, 0, 0, 255};
+            }
+    }
     // The panel (sprites, colours 16-31 from pstuff).
     PanelState state;
+    state.globe = phase_.number != 0x47; // $88454: not in the last phase
     state.selected_squad = std::max(world_.selected_squad, 0);
     for (int n = 0; n < 3; ++n) {
         const auto& s = world_.squads[std::size_t(n)];
@@ -793,18 +996,22 @@ platform::Image Module::picture() const {
             if (c != 0) image.put(x - 1, y, data::to_color(pstuff.palette[c])); // sprites start one pixel left
         }
     }
-    draw_pointer(image);
+    if (overview_.mode == Overview::Mode::off) {
+        draw_pointer(image);
+    } else if (overview_.mode == Overview::Mode::showing && overview_.marker_x >= 0 && (overview_.blink & 0x1f) < 0x18) {
+        draw_pointer(image, 0x28, overview_.marker_x, overview_.marker_y, 0);
+    }
     return image;
 }
 
-void Module::draw_pointer(platform::Image& image) const {
+void Module::draw_pointer(platform::Image& image, int piece_number, int px, int py, int offset) const {
     // $895BC: the piece's first 16 columns on the attached sprites 0/1 in
     // pstuff's colours (0 transparent), at column pointer x + offset + 15,
     // line pointer y + offset - 4: with offset 0 its top-left corner sits
     // at the mouse position.
-    const auto piece = panel_art_.piece(pointer_image_);
+    const auto piece = panel_art_.piece(piece_number);
     const auto& pstuff = panel_art_.pstuff();
-    const int left = world_.pointer_x + 16 + pointer_offset_, top = world_.pointer_y - 4 + pointer_offset_;
+    const int left = px + 16 + offset, top = py - 4 + offset;
     for (int y = 0; y < piece.lines; ++y) {
         for (int x = 0; x < std::min(piece.width, 16); ++x) {
             const int px = piece.x + x, py = piece.y + y;

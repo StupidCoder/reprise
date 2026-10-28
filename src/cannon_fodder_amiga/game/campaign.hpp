@@ -22,14 +22,17 @@ struct Recruit {
     int weapon{3};     // +6
     bool marked{};     // +9 bit 0: picked on the panel
     int kills{};       // +$A
+    template <class A> void persist(A& a) { a(name, rank, served, on_map, weapon, marked, kills); }
 };
 
 struct Hero {          // a fallen recruit ($80A16 list)
     int name{}, rank{};
+    template <class A> void persist(A& a) { a(name, rank); }
 };
 
 struct FameEntry {     // $80CF8: the five best
     int rank{}, name{-1}, kills{};
+    template <class A> void persist(A& a) { a(rank, name, kills); }
 };
 
 struct Campaign {
@@ -51,6 +54,10 @@ struct Campaign {
     int joining{};             // $80D48
     int returning{};           // $80D4A
     int soldiers{};            // $80D4C
+    template <class A> void persist(A& a) {
+        a(phase, missions_started, phase_in_mission, phases_left, phases_in_mission, roster, pool, pool_at_mission,
+          next_name, new_recruits, heroes, heroes_this_mission, fame, home, away, joining, returning, soldiers);
+    }
 
     // $85E62: a new game.
     void start(const MissionTables& tables);

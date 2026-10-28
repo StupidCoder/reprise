@@ -1,6 +1,7 @@
 #pragma once
 #include "amiga/paula_channels.hpp"
 #include <array>
+#include <algorithm>
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -62,11 +63,19 @@ public:
         std::int32_t slide_step{}, slide{}; // $42, $46
         int pattern{-1};       // $52: offset into the pattern section, -1 none
         int note_length{6}, note_count{}, rows{}, row_count{}; // $56-$59
+        template <class A> void persist(A& a) {
+            a(instrument, sample, period_table, volume_table, envelope, attack_length, loop_start, loop_length,
+              period_loop, period_end, period_position, volume_loop, volume_end, volume_position, volume_scale, volume,
+              base_period, period, key_on, loop_next, envelope_stage, envelope_delta, envelope_count, envelope_length,
+              envelope_target, envelope_value, slide_count, slide_step, slide, pattern, note_length, note_count, rows,
+              row_count);
+        }
     };
     struct Channel {
         Voice music, effect;
         int sequence{-1};      // $4E: offset into the sequence section
         bool active{};         // $5B
+        template <class A> void persist(A& a) { a(music, effect, sequence, active); }
     };
     // Verification access (tools/cannon_fodder_assets sndreplay).
     std::array<Channel, 4>& channels() { return channels_; }
@@ -78,6 +87,18 @@ public:
     bool& on() { return on_; }
     struct Sections { int instruments, envelopes, songs, sequence_table, pattern_table, sequences, patterns; };
     const Sections& sections() const { return sections_; }
+    // The playing state (the song and instruments come from the files; the
+    // sample data is kept too, since the player writes into it). Loading
+    // keeps the samples' storage, which Paula reads through a span.
+    template <class A> void persist(A& a) {
+        auto samples = samples_;
+        a(samples);
+        if constexpr (A::reading) {
+            if (samples.size() != samples_.size()) A::fail();
+            std::copy(samples.begin(), samples.end(), samples_.begin());
+        }
+        a(channels_, channel_volume_, mode_, half_step_, music_on_, effects_on_, on_, busy_);
+    }
 
 private:
     struct Instrument {

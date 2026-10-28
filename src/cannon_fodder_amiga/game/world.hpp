@@ -81,6 +81,16 @@ struct Walker {
     std::int32_t thrust{}; // [$6A] a missile's acceleration (16.16)
     bool wall_check{};    // [$32] a missile explodes on walls
     int flags75{};        // [$75] byte
+
+    template <class A> void persist(A& a) {
+        a(heading, speed, facing, facing_timer, waypoint_x, waypoint_y, route_index, took_waypoint, idle, wait, pause,
+          fire_delay, stopped, wading, slow_target, animation_state, animation_step, squeeze, animation_timer,
+          aim_override, entering, terrain, sinking, state, aim_x, aim_y, step_counter, carried, skill, target, building,
+          roster_index, roster_weapon, rank, recruit, state_timer, hit_timer, hit_from_behind, shot_by_roster,
+          shot_by_mark, vertical_speed, height_fraction, spin, fall_count, shadowed, hits, idle_frame, vehicle_type,
+          is_vehicle, rest_x, rest_y, patrol, fire_held, fire_request, barrel, gun_toggle, sink, land, crashing,
+          boarding, vehicle, homing_target, thrust, wall_check, flags75);
+    }
 };
 
 struct Squad {
@@ -92,6 +102,10 @@ struct Squad {
     int weapon{};                          // $821CC[n]: what the leader's both-button fire uses (1 grenade, 3 rocket)
     int grenades{}, rockets{};             // $81F4C[n], $81F52[n]
     bool ammunition_changed{};             // $821C0[n] / $821C6[n]: the panel redraws the counts
+
+    template <class A> void persist(A& a) {
+        a(route, members, mode, merged_into, route_end, weapon, grenades, rockets, ammunition_changed);
+    }
 };
 
 // The three walk-frame counters ($94B54, once per tick before the objects):
@@ -100,6 +114,7 @@ struct AnimationClock {
     std::array<int, 3> value{0, 0, 0};    // $81578, $8157C, $81580
     std::array<int, 3> direction{1, 1, 1}; // $85BDC, $85BDE, $85BE0
     int slow_timer{3}, fast_timer{1};      // $8157A, $8157E
+    template <class A> void persist(A& a) { a(value, direction, slow_timer, fast_timer); }
     void tick();
 };
 
@@ -120,6 +135,11 @@ struct BulletState {
     int ending{};        // [$43] byte: 0 flying, 1 hit, $FF spent
     int owner_roster{};  // [$5E]
     int owner_mark{};    // [$5D] byte
+
+    template <class A> void persist(A& a) {
+        a(owner, muzzle_ticks, offset_x, offset_y, lifetime, age, flown, cruise_speed, spread, spread_done,
+          first_heading, past_target, ending, owner_roster, owner_mark);
+    }
 };
 
 // What a shadow (kind $16) follows: its body, as long as that slot still
@@ -127,6 +147,7 @@ struct BulletState {
 struct Attachment {
     int owner{-1};       // [$1A]/[$6A]
     int owner_kind{};    // [$62]
+    template <class A> void persist(A& a) { a(owner, owner_kind); }
 };
 
 // One row of the program's weapon table ($9E826), chosen by rank.
@@ -135,6 +156,7 @@ struct WeaponStats {
     int bullet_lifetime{}; // $82148
     int interval{};      // $8214A: frames between the squad's shots
     int spread_mask{};   // $8214C: the leader's spread
+    template <class A> void persist(A& a) { a(bullet_speed, bullet_lifetime, interval, spread_mask); }
 };
 
 // The selected squad's fire control while the right button is held.
@@ -145,12 +167,16 @@ struct SquadFire {
     int order_index{};   // $82142: position in the firing order
     int leader_shots{};  // $82738: the leader aims every 4th shot exactly
     int lifetime_bonus{}, speed_bonus{}; // $82150, $82152: a lone veteran's bullets
+    template <class A> void persist(A& a) {
+        a(stats, hold_timer, countdown, order_index, leader_shots, lifetime_bonus, speed_bonus);
+    }
 };
 
 // A sound the rules ask for ($A3A30: an effect pattern of the landscape's
 // song and a priority); the sound board plays it (sound/board.hpp).
 struct SoundRequest {
     int effect{}, priority{}, slot{};
+    template <class A> void persist(A& a) { a(effect, priority, slot); }
 };
 
 struct World {
@@ -245,9 +271,25 @@ struct World {
     struct Engine {
         bool locked{};            // $82A00: the driven vehicle's engine has the channel
         int volume{}, effect{}, param{}; // $829EE, $829F0, $829F2
+        template <class A> void persist(A& a) { a(locked, volume, effect, param); }
     } engine;                     // the loudest engine this tick ($A3B60)
     std::vector<SoundRequest> sounds; // this tick's, in order
     std::mt19937 random{0x43464f44};
+
+    // Every field, for the quick saves (game/module.cpp).
+    template <class A> void persist(A& a) {
+        a(objects, walkers, squads, selected_squad, leader_slot, driven_vehicle, clock, camera, pointer_x, pointer_y,
+          firing, both_buttons, frame_counter, tick_counter, right_held, left_held, vehicle_click_latched, roster_slots,
+          bullets, attachments, bullets_alive, hit_flag, fire, phase, casualties, enemies_killed, kills, recruit_lists,
+          fallen, grenades_in_air, rockets_in_air, blast_points, blast_write, blast_read, blast_count,
+          map_damage_drawing, landscape, snapshot, drawn_objects, jitter_next_effect, route_window, last_click, jolt);
+        a(outcome, failed_objective, end_count, objectives, civilian_home, civilian_house, rescue_tent, hostage_held,
+          markers, markers_taken, last_marker_recruit, time_left, time_step, doom_count, panel_dirty, buildings_left,
+          skill_min, skill_max, skill_next, skill_step, spawns, saved_frame, keep_frame, target_distance,
+          civilians_angry, other_squad, walked, last_mode);
+        a(skill_average, launch_offset, homing_ready, homing_target, target_height, enemy_helicopter, rescue_x,
+          rescue_y, target_distance2, boarding_count, marked, grenade_split, rocket_split, engine, sounds, random);
+    }
 };
 
 // $81DD2: a phase objective has failed (a civilian or hostage killed, …).

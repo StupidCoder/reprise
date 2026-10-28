@@ -52,6 +52,7 @@ private:
 
 struct Point {
     int x{}, y{};
+    template <class A> void persist(A& a) { a(x, y); }
 };
 
 // The look-ahead point ($87360-$873EE) while the pointer is over the play
@@ -68,6 +69,7 @@ std::optional<Point> look_ahead_target(const GeometryTables& tables, Point leade
 struct FollowAxis {
     bool active{};
     int step{}; // -2, 0 or 2 pixels per frame
+    template <class A> void persist(A& a) { a(active, step); }
 };
 FollowAxis follow_x(FollowAxis state, int leader_minus_camera);
 FollowAxis follow_y(FollowAxis state, int leader_minus_camera);
@@ -88,6 +90,10 @@ struct CameraMotion {
     // $81532/$81534 ring column/line it last started from).
     int drawer_direction_x{1}, drawer_direction_y{1};
     int drawer_ring_x{}, drawer_ring_line{};
+    template <class A> void persist(A& a) {
+        a(x, y, velocity_x, velocity_y, speed, max_speed, follow_x_axis, follow_y_axis, hold_x, hold_y, sign_x, sign_y,
+          drawer_direction_x, drawer_direction_y, drawer_ring_x, drawer_ring_line);
+    }
 
     Camera camera() const { return {x >> 16, y >> 16}; }
 };

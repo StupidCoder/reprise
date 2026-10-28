@@ -21,6 +21,7 @@ namespace fodder::game {
 // $814B2 (y).
 struct Camera {
     int x{}, y{};
+    template <class A> void persist(A& a) { a(x, y); }
 };
 
 constexpr int view_width = 320;

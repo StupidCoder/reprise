@@ -34,6 +34,11 @@ struct GameObject {
     int layer{};           // +$2C: < 0 drawn first, 0 sorted by y, > 0 drawn last
     bool removed{};        // +$24: freed when the next draw list is built
     bool on_screen{};      // +$5C: in the last draw list
+
+    template <class A> void persist(A& a) {
+        a(used, x, y, graphic, frame, height, kind, side, home_x, home_y, squad, start_delay, hidden_lines, layer,
+          removed, on_screen);
+    }
 };
 
 struct MissionObjects {
@@ -44,6 +49,7 @@ struct MissionObjects {
     // its kind until an object is removed through +$24 ($AB8B4 clears both).
     bool full{};          // $826EA: all 43 slots ($98104)
     bool full_below_30{}; // $826EC: slots 0-29 ($9819A)
+    template <class A> void persist(A& a) { a(slots, enemies, kind_6a_48, full, full_below_30); }
 };
 
 // The spawner ($8A594): one slot per placement, in file order. Every slot

@@ -25,6 +25,7 @@ public:
     std::array<int, 4> priority{};     // $81DF8
     std::array<int, 4> busy{};         // $81DFC
     bool silenced{};                   // $81DCE (meaning open)
+    template <class A> void persist(A& a) { a(last_channel, priority, busy, silenced); }
 };
 
 } // namespace fodder::sound

@@ -72,8 +72,10 @@ std::vector<std::uint8_t> compose_panel(const PanelArt& art, const PanelState& s
 struct HillColumn {
     struct Entry {
         int recruit{}, rank{}, kills{};
+        template <class A> void persist(A& a) { a(recruit, rank, kills); }
     };
     std::vector<Entry> fame, squad;
+    template <class A> void persist(A& a) { a(fame, squad); }
 };
 std::vector<std::uint8_t> compose_hill_column(const PanelArt& art, const HillColumn& column);
 

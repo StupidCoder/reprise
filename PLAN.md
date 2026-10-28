@@ -1055,11 +1055,38 @@ files RNC-packed. The image set is a cracked copy (CSL intro loaded by disk
    19: both power-ups) replay without rule differences after the fixes
    they found (slot latches `$826EA`/`$826EC`, turret aim `$A0B8E` from−to,
    the enemy tank's search, the hostage's picture, scans wrapping at 43,
-   the end pose); `tools/replay_all.py` replays every recording. Open: the
-   parallax bands and the debrief's scrolling are laid out
-   from captures; saves are named by mission/phase (the original lets the
-   player type a name; the shell has no text entry); joining squads not
-   tried headless.
+   the end pose); `tools/replay_all.py` replays every recording.
+   Quick save/load (2026-10-28): the launcher's persistent saves with a
+   screenshot (the module's state codec: the phase rebuilt from its number
+   and the damaged map cells, the world, the campaign, the music player and
+   Paula, the front end's screen restarted from its recorded arguments and
+   its progress put back); `cannon_fodder_assets savecheck` restores
+   identically at screens and in phases 0, 20, 34, 71, and the shared
+   persistence check passes. The registration line sits in
+   `src/app/quick_save.cpp`, which belongs to the uncommitted shared save
+   work (and so does `game_module.hpp`'s `write_state`), so the commit of
+   2026-10-28 leaves out the module's `write_state`/`read_state` and the
+   tool's `savecheck`/`frontcheck` until that work is committed.
+   Nothing laid out from captures any more (2026-10-28): the parallax
+   from `$A766C` (copper bands, the program's blit table, the header
+   routine's names, the helicopter's three sprites): 328 frames of state
+   identical, the sprites equal to the reference's sprite memory (the extra
+   pixels were the rotor copied one line too far); the debrief from
+   `$A8AF6` (the scrolled names column, the fallen then the heroes with a
+   fade and the banner change, new ranks drawn where the lines pass $80,
+   the timers): screen memory identical to two recordings (525 and 301
+   rounds); the load screen from `$A9E56` (SELECT FILE, UP/DOWN by 4, five
+   names, CONTINUE GAME; boxes and click areas from the drawn text): the
+   same routines draw the reference's save-disk request identically. New
+   from the same reading: the arrow pointer on the hill and the load
+   screen; the map's overview behind the panel's globe (`$A68CE`, built
+   from the map by `$A50AC`/`$A2092`/`$A6D28`, the leader's blinking
+   marker; size, place and marker equal to the reference); the globe gone
+   in the last phase. Open: the save-disk request itself (no disk swaps
+   here), the vertical blank's parity at the parallax's start (a
+   recording began one frame later: same states a frame apart), parallax
+   recordings of the other four landscapes, save names (skipped by
+   decision, 2026-10-28), joining squads not tried headless.
 
 Open: the panel's ammunition counts, lit-box condition, vehicle icons and
 mini-map; object drawing with hidden lines, negative/positive layers and y
