@@ -280,8 +280,11 @@ add_library(tower_of_babel_amiga
     src/tower_of_babel_amiga/entry.cpp
     src/tower_of_babel_amiga/data/assets.cpp
     src/tower_of_babel_amiga/data/preview.cpp
+    src/tower_of_babel_amiga/game/tower_map.cpp
     src/tower_of_babel_amiga/import/decruncher.cpp
-    src/tower_of_babel_amiga/import/disk_import.cpp)
+    src/tower_of_babel_amiga/import/disk_import.cpp
+    src/tower_of_babel_amiga/view/polygon.cpp
+    src/tower_of_babel_amiga/view/tower_view.cpp)
 target_include_directories(tower_of_babel_amiga PUBLIC ${SOURCE_ROOT})
 target_link_libraries(tower_of_babel_amiga PUBLIC amiga platform ui)
 target_compile_options(tower_of_babel_amiga PRIVATE ${PROJECT_WARNINGS})

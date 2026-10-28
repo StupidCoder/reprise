@@ -1,4 +1,6 @@
 #include "tower_of_babel_amiga/data/preview.hpp"
+#include "tower_of_babel_amiga/game/tower_map.hpp"
+#include "tower_of_babel_amiga/view/tower_view.hpp"
 #include "ui/draw.hpp"
 #include <string>
 
@@ -82,6 +84,36 @@ platform::Image tower_image(const Tower& tower, const Memory& program) {
     for (std::size_t i = 0; i < tower.colours.size(); ++i) {
         ui::rect(image, margin + int(i) * 20, y, 18, 14, to_color(tower.colours[i]));
     }
+    return image;
+}
+
+std::optional<platform::Image> start_view_image(const Tower& tower, const Memory& program) {
+    // $1362A: the selected spider is the first one the tower does not leave out.
+    int kind = -1;
+    for (int spider = 0; spider < 3 && kind < 0; ++spider)
+        if (tower.spider_available(spider)) kind = 4 + spider;
+    const TowerObject* spider = nullptr;
+    for (const auto& object : tower.objects)
+        if (object.kind == kind) spider = &object;
+    if (spider == nullptr) return std::nullopt;
+
+    const game::TowerMap map(tower, program);
+    // Objects stand at their cell's centre on their floor ($13498).
+    const auto place = [](int cell) { return cell * 0x200 - 0x700; };
+    // Default options: offset 0, height $58, distance -16 ($9F84, table $9F7C).
+    const auto camera = view::spider_camera(place(spider->x), spider->floor * 0x200, place(spider->z), 0, 0, 0x58, -16);
+    const view::LiftHeight lift_height = [&](int floor, int x, int z) -> std::optional<int> {
+        for (const auto& object : tower.objects)
+            if (object.floor == floor && object.x == x && object.z == z) return floor * 0x200;
+        return std::nullopt;
+    };
+    view::Canvas canvas(320, 200);
+    const view::Window window{16, 303, 16, 127};
+    view::TowerView(view::read_pens(program)).draw(canvas, window, 160, 72, map, camera, lift_height);
+    platform::Image image(window.right - window.left + 1, window.bottom - window.top + 1);
+    for (int y = 0; y < image.height; ++y)
+        for (int x = 0; x < image.width; ++x)
+            image.put(x, y, to_color(tower.colours[canvas.at(window.left + x, window.top + y)]));
     return image;
 }
 
