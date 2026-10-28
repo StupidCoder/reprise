@@ -34,7 +34,7 @@ void put(IndexedCanvas& canvas, const data::Assets& assets, const EffectView& vi
     const int origin = std::int16_t(view.camera + std::int16_t(0xFF60 << shift));
     const int sx = std::int16_t(x - origin) >> shift;
     const int sy = std::int16_t(-y + 0xB + view.ground_line) >> shift;
-    if (shape == nullptr || sx < -0x80 || sx > 0x1C0) return;
+    if (shape == nullptr || canvas.beyond(sx)) return;
     canvas.draw(*shape, sx - shape->offset_x, sy - shape->offset_y);
 }
 
@@ -44,7 +44,7 @@ void put_weapon(IndexedCanvas& canvas, const data::Assets& assets, const EffectV
     const int origin = std::int16_t(view.camera + std::int16_t(0xFF60));
     const int sx = std::int16_t(x - origin);
     const int sy = std::int16_t(-y + 0xB + view.ground_line);
-    if (shape == nullptr || sx < -0x80 || sx > 0x1C0) return;
+    if (shape == nullptr || canvas.beyond(sx)) return;
     canvas.draw(*shape, sx - shape->offset_x, sy - shape->offset_y);
 }
 

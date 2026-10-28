@@ -24,9 +24,20 @@ struct IndexedCanvas {
     int height{};
     std::vector<std::uint8_t> pixels;
     Clip clip;
+    // Where x 0 lies in `pixels`: a widescreen view is the original's view
+    // with `margin` more columns on each side, so the game still draws in
+    // its own x (0 .. 319) and what lies beyond reaches into the margins.
+    int origin_x{};
 
-    IndexedCanvas(int w, int h) : width(w), height(h), pixels(std::size_t(w * h)), clip{0, 0, w, h} {}
+    IndexedCanvas(int w, int h, int margin = 0)
+        : width(w + 2 * margin), height(h), pixels(std::size_t((w + 2 * margin) * h)), clip{-margin, 0, w + margin, h},
+          origin_x(margin) {}
+    // (In pixels, from the canvas's left edge.)
     std::uint8_t at(int x, int y) const { return pixels[std::size_t(y * width + x)]; }
+    // $105174 and the other object drawers skip a picture whose screen x is
+    // outside -$80..$1C0, the view's width + $A0; here as far beyond the
+    // clip window's sides.
+    bool beyond(int x) const { return x < clip.left - 0x80 || x > clip.right + 0xA0; }
     void fill(int x0, int y0, int x1, int y1, std::uint8_t colour); // inclusive, clipped
     void draw(const data::Shape&, int x, int y);                     // top-left corner, clipped
     // The shape mirrored left to right, as `wings` $105B58 leaves it in
@@ -63,6 +74,7 @@ std::vector<Island> islands(const data::MissionMap&);
 // What the backdrop needs from the running game.
 struct BackdropState {
     int camera{};       // world x at the screen's x 160 (-$41A2)
+    int margin{};       // widescreen columns on each side of the original's 320
     // The scenery line and the sea's surface (-$5C5E = -$60CC): $97, or
     // $97 + altitude - $83 while the plane is above $83 ($100286), so the
     // world scrolls down under a high plane. See ground_line_for.

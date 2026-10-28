@@ -12,6 +12,7 @@
 #include "wings_of_fury_amiga/game/frontend.hpp"
 #include "wings_of_fury_amiga/game/music.hpp"
 #include "wings_of_fury_amiga/game/saved_game.hpp"
+#include "wings_of_fury_amiga/game/smooth_motion.hpp"
 #include "platform/files.hpp"
 #include "ui/vhs.hpp"
 #include <optional>
@@ -52,6 +53,7 @@ public:
     double pixel_aspect() const override { return 0.5; }         // lowres view doubled to the hires dashboard
 
     void tick(const app::GameInput& input) override {
+        moved_ = false;
         if (mission_over_) return;
         if (front_end_.screen() != FrontEnd::Screen::none) {
             // $1023DC / $102470: a new song (or none) waits for the playing
@@ -183,7 +185,15 @@ public:
             return;
         }
         sample_fire(input.fire);
+        moved_ = true;
         if (++vblank_ % vblanks_per_tick != 0) return;
+        // (Smooth motion draws between the state the last tick left and the
+        // one this tick makes.)
+        if (smooth_) {
+            before_world_ = world_;
+            before_plane_ = plane_;
+            have_before_ = true;
+        }
         int command = 0;
         // ($10520E: with Ctrl-f's switch up and down change places.)
         const bool up = inverted_ && input.up != input.down ? input.down : input.up;
@@ -246,6 +256,8 @@ public:
             view.camera = backdrop.camera;
             view.ground_line = backdrop.eighth_scale ? 0x4B8 : backdrop.ground_line;
             view.eighth_scale = backdrop.eighth_scale;
+            view.margin = margin_;
+            step_gun_flashes(world_.enemies, tables_.enemies, assets_, view);
             enemy_sprites_ = enemy_sprites(world_.enemies, tables_.enemies, assets_, view);
         }
         // $10012A (the main loop): mission accomplished and the plane below
@@ -286,12 +298,20 @@ public:
         return "";
     }
 
-    platform::Image picture() const override { return game_picture(); }
+    platform::Image picture() const override {
+        if (!smooth_now()) return game_picture(world_, plane_);
+        FlightWorld world = world_;
+        PlayerFlight plane = plane_;
+        place_between(world, plane, before_world_, before_plane_, motion_time());
+        return game_picture(world, plane, true);
+    }
+    void set_frame_fraction(double fraction) override { frame_fraction_ = std::clamp(fraction, 0.0, 1.0); }
     int vhs_level() const override { return vhs_; }
 
     // Quick save and load: the game where it is (front-end screen, mission,
     // flight, effects, ticker); the sound effects start again from the next
     // tick, a front-end song from its start.
+
     bool save() override {
         saved_.emplace(Snapshot{world_, plane_, map_, blackout_, random_, vblank_, press_start_, fire_down_, tapped_, held_,
                                 gear_offset_, us_flag_step_, flash_, flash_counter_, enemy_sprites_, front_end_,
@@ -301,6 +321,7 @@ public:
     }
     bool load() override {
         if (!saved_) return false;
+        have_before_ = false;
         const auto& s = *saved_;
         world_ = s.world;
         world_.map = &world_.mission_map; // (the copy's own map, not the snapshot's)
@@ -342,7 +363,13 @@ public:
     bool has_save() const override { return saved_.has_value(); }
 
     std::vector<app::GameOption> options() const override {
-        return {{"VHS look", {"Off", "Light", "Medium", "Heavy", "Broken"}, vhs_,
+        return {{"Widescreen", {"Off", "On"}, widescreen_ ? 1 : 0,
+                 "Fills the window to its edges and shows more of the sea and sky left and right, up to "
+                 "21:9. The game plays the same."},
+                {"Smooth motion", {"Off", "On"}, smooth_ ? 1 : 0,
+                 "Planes, weapons, soldiers and the landscape glide at the display's own rate instead "
+                 "of stepping 12.5 times a second. The game plays the same."},
+                {"VHS look", {"Off", "Light", "Medium", "Heavy", "Broken"}, vhs_,
                  "A worn video tape's colour bleed and noise."},
                 {"Infinite lives", {"Off", "On"}, cheats_.infinite_lives ? 1 : 0,
                  "A lost plane uses no spare: the game never ends for want of planes.", "Cheats"},
@@ -357,21 +384,43 @@ public:
                  "The enemy bombers' torpedoes are duds and leave the carrier unharmed.", "Cheats"}};
     }
     void set_option(std::size_t index, int value) override {
-        if (index == 0) vhs_ = std::clamp(value, 0, ui::vhs_levels - 1);
-        if (index == 1) cheats_.infinite_lives = value != 0;
-        if (index == 2) cheats_.infinite_fuel = value != 0;
-        if (index == 3) cheats_.bullet_proof = value != 0;
-        if (index == 4) cheats_.infinite_ammo = value != 0;
-        if (index == 5) cheats_.enemy_duds = value != 0;
+        if (index == 0) {
+            widescreen_ = value != 0;
+            set_canvas(canvas_width_, canvas_height_);
+        }
+        if (index == 1) {
+            smooth_ = value != 0;
+            have_before_ = false;
+        }
+        if (index == 2) vhs_ = std::clamp(value, 0, ui::vhs_levels - 1);
+        if (index == 3) cheats_.infinite_lives = value != 0;
+        if (index == 4) cheats_.infinite_fuel = value != 0;
+        if (index == 5) cheats_.bullet_proof = value != 0;
+        if (index == 6) cheats_.infinite_ammo = value != 0;
+        if (index == 7) cheats_.enemy_duds = value != 0;
+    }
+    // Widescreen: the view as wide as the window's shape allows, from the
+    // original's 320 columns up to 21:9 (the dashboard, the ticker and the
+    // other screens stay their own width, in the middle).
+    void set_canvas(int width, int height) override {
+        canvas_width_ = width;
+        canvas_height_ = height;
+        margin_ = 0;
+        if (!widescreen_ || width <= 0 || height <= 0) return;
+        const double tall = picture_height();
+        const double wide = std::clamp(tall * width / height, double(view_width), tall * 21 / 9);
+        margin_ = std::max(0, int(wide - view_width) / 2);
     }
 
 private:
-    platform::Image game_picture() const {
-        if (front_end_.screen() != FrontEnd::Screen::none) return front_end_.picture(picture_height());
+    // The picture of `world` and `plane`: the game's own, or (smooth motion)
+    // copies with the moving things placed between two ticks.
+    platform::Image game_picture(const FlightWorld& world, const PlayerFlight& plane, bool blended = false) const {
+        if (front_end_.screen() != FrontEnd::Screen::none) return widened(front_end_.picture(picture_height()));
         if (briefing_ > 0) {
             // The briefing's hires screen, 147 lines from the top, black below.
-            const auto screen = draw_briefing(assets_, ticker_font_, briefing_tables_, world_.rank, world_.mission,
-                                              world_.islands.islands_left, world_.islands.ships_left);
+            const auto screen = draw_briefing(assets_, ticker_font_, briefing_tables_, world.rank, world.mission,
+                                              world.islands.islands_left, world.islands.ships_left);
             platform::Image image(640, picture_height());
             for (int y = 0; y < screen.height; ++y) {
                 for (int x = 0; x < screen.width; ++x) {
@@ -380,33 +429,33 @@ private:
                     image.put(x, y, data::to_color(briefing_out_ ? fade_colour(step, c, 0) : fade_colour(step, 0, c)));
                 }
             }
-            return image;
+            return widened(image);
         }
         if (blackout_ > 0) {
-            IndexedCanvas black(view_width, view_height);
-            return compose(black, draw_dashboard(assets_, dash_tables_, world_.gauges, dashboard_input()));
+            IndexedCanvas black(view_width, view_height, margin_);
+            return compose(black, draw_dashboard(assets_, dash_tables_, world.gauges, dashboard_input()));
         }
-        const auto backdrop = backdrop_state();
-        auto canvas = draw_sky_and_scenery(assets_, *world_.map, backdrop);
+        const auto backdrop = backdrop_state(world, plane);
+        auto canvas = draw_sky_and_scenery(assets_, *world.map, backdrop);
 
         CarrierDeckPicture deck;
         deck.camera = backdrop.camera;
         deck.ground_line = backdrop.eighth_scale ? 0x4B8 : backdrop.ground_line;
         deck.vertical_scroll = backdrop.vertical_scroll;
-        deck.carrier_x = world_.carrier_x;
-        deck.afloat = world_.ships[4].afloat;
-        deck.deck = world_.ships[4].deck;
-        deck.bob = world_.ships[4].bob;
-        deck.spare_planes = world_.spare_planes;
-        deck.elevator_state = world_.elevator;
-        deck.lift = world_.lift;
+        deck.carrier_x = world.carrier_x;
+        deck.afloat = world.ships[4].afloat;
+        deck.deck = world.ships[4].deck;
+        deck.bob = world.ships[4].bob;
+        deck.spare_planes = world.spare_planes;
+        deck.elevator_state = world.elevator;
+        deck.lift = world.lift;
         deck.eighth_scale = backdrop.eighth_scale;
         draw_carrier_deck(canvas, assets_, deck);
 
         PlayerPicture player;
-        player.hidden = world_.elevator == 1;
-        player.clip_at_deck = world_.elevator != 0;
-        player.altitude = plane_.altitude;
+        player.hidden = world.elevator == 1;
+        player.clip_at_deck = world.elevator != 0;
+        player.altitude = plane.altitude;
         player.ground_line = deck.ground_line;
         player.vertical_scroll = backdrop.vertical_scroll;
         player.carrier_deck = deck.deck;
@@ -414,37 +463,46 @@ private:
         player.eighth_scale = backdrop.eighth_scale;
         if (backdrop.eighth_scale) {
             // -$4086 is the turn step, -$4082 the vertical speed ($101274).
-            player.plane = eighth_scale_plane(assets_, plane_.turn, plane_.speed_y, plane_.facing < 0);
+            player.plane = eighth_scale_plane(assets_, plane.turn, plane.speed_y, plane.facing < 0);
         } else {
             // Shapes from the pitch tables are mirrored in place for facing
             // left ($10ABDE); the turn shapes have one set per direction.
             // The turn shapes have one set per direction and the burning wreck
             // ($10C88C) one name per direction: neither is mirrored.
-            const bool turning = plane_.turn != 0 && (plane_.mode == 0 || plane_.mode == 4);
-            player.plane = hellcat(plane_.shape);
-            player.plane_mirrored = !turning && plane_.mode != 8 && plane_.facing < 0;
-            player.gear = plane_.wheels.empty() ? nullptr : hellcat(plane_.wheels);
-            player.gear_shown = player.gear != nullptr && (plane_.mode == 0 || plane_.mode == 7 || plane_.lift);
+            const bool turning = plane.turn != 0 && (plane.mode == 0 || plane.mode == 4);
+            player.plane = hellcat(plane.shape);
+            player.plane_mirrored = !turning && plane.mode != 8 && plane.facing < 0;
+            player.gear = plane.wheels.empty() ? nullptr : hellcat(plane.wheels);
+            player.gear_shown = player.gear != nullptr && (plane.mode == 0 || plane.mode == 7 || plane.lift);
             player.gear_offset = gear_offset_;
-            player.upset = plane_.turn != 0;
-            player.gun_flash = gun_flash_shape(assets_, world_.guns, player.upset, flash_counter_, plane_.attitude,
+            player.upset = plane.turn != 0;
+            player.gun_flash = gun_flash_shape(assets_, world.guns, player.upset, flash_counter_, plane.attitude,
                                                frame_facing_ < 0);
         }
-        if (plane_.mode == 7 && !backdrop.eighth_scale) {
+        if (plane.mode == 7 && !backdrop.eighth_scale) {
             // -$42C4: the caught wire's x, on the screen relative to the camera.
             player.caught = true;
-            player.wire_screen_x = world_.caught_wire_x - backdrop.camera + 0xA0;
-            player.facing_left = plane_.facing < 0;
+            player.wire_screen_x = world.caught_wire_x - backdrop.camera + 0xA0;
+            player.facing_left = plane.facing < 0;
         }
         draw_player(canvas, player);
-        draw_enemies(canvas, enemy_sprites_);
+        if (blended) {
+            EnemyView view;
+            view.camera = backdrop.camera;
+            view.ground_line = backdrop.eighth_scale ? 0x4B8 : backdrop.ground_line;
+            view.eighth_scale = backdrop.eighth_scale;
+            view.margin = margin_;
+            draw_enemies(canvas, enemy_sprites(world.enemies, tables_.enemies, assets_, view));
+        } else {
+            draw_enemies(canvas, enemy_sprites_);
+        }
         // The dugouts' guns ($103D78, with the scenery objects), then the sea.
         EffectView effects;
         effects.camera = backdrop.camera;
         effects.ground_line = deck.ground_line;
         effects.eighth_scale = backdrop.eighth_scale;
         std::vector<WorldSprite> soldiers;
-        for (const auto& sprite : world_.islands.sprites) {
+        for (const auto& sprite : world.islands.sprites) {
             if (sprite.gun) draw_world_sprite(canvas, assets_, effects, {sprite.entry, sprite.x, sprite.y});
             else soldiers.push_back({sprite.entry, sprite.x, sprite.y});
         }
@@ -454,24 +512,25 @@ private:
             view.camera = backdrop.camera;
             view.ground_line = deck.ground_line;
             view.eighth_scale = backdrop.eighth_scale;
-            draw_enemies(canvas, airfield_sprites(world_.enemies, tables_.enemies, assets_, view));
+            view.margin = margin_;
+            draw_enemies(canvas, airfield_sprites(world.enemies, tables_.enemies, assets_, view));
             // $10391E: the planes parked on the enemy ships.
             draw_enemies(canvas, ship_plane_sprites(world_, tables_.enemies, assets_, view, backdrop.vertical_scroll));
         }
-        draw_sea_and_sand(canvas, assets_, *world_.map, backdrop);
+        draw_sea_and_sand(canvas, assets_, *world.map, backdrop);
 
-        if (world_.elevator != 0) effects.smoke_clip_bottom = smoke_clip_line + backdrop.vertical_scroll + deck.bob;
-        draw_effects(canvas, assets_, world_.effects, effects, soldiers);
-        if (world_.celebration && !backdrop.eighth_scale) draw_sparks(canvas, assets_, world_.effects, effects);
-        if (world_.menu) draw_weapon_menu(canvas, assets_, world_.weapon);
+        if (world.elevator != 0) effects.smoke_clip_bottom = smoke_clip_line + backdrop.vertical_scroll + deck.bob;
+        draw_effects(canvas, assets_, world.effects, effects, soldiers);
+        if (world.celebration && !backdrop.eighth_scale) draw_sparks(canvas, assets_, world.effects, effects);
+        if (world.menu) draw_weapon_menu(canvas, assets_, world.weapon);
         // $1010C2: the last plane lost, `gmov` (THE END) over the view.
-        if (world_.the_end) {
+        if (world.the_end) {
             for (const auto& l : assets_.libraries) {
                 if (l.name != "world.shp") continue;
                 if (const auto* s = l.library.find("gmov")) canvas.draw(*s, 0xA0 - s->offset_x, 0x51 - s->offset_y);
             }
         }
-        return compose(canvas, draw_dashboard(assets_, dash_tables_, world_.gauges, dashboard_input()));
+        return compose(canvas, draw_dashboard(assets_, dash_tables_, world.gauges, dashboard_input()));
     }
 
 private:
@@ -533,22 +592,24 @@ private:
         return in;
     }
 
-    BackdropState backdrop_state() const {
+    BackdropState backdrop_state() const { return backdrop_state(world_, plane_); }
+    BackdropState backdrop_state(const FlightWorld& world, const PlayerFlight& plane) const {
         BackdropState backdrop;
-        backdrop.camera = plane_.x;
-        backdrop.eighth_scale = plane_.eighth_scale;
-        backdrop.ground_line = plane_.eighth_scale ? 0x4B8 : ground_line_for(plane_.altitude);
-        backdrop.vertical_scroll = plane_.sea;
+        backdrop.camera = plane.x;
+        backdrop.margin = margin_;
+        backdrop.eighth_scale = plane.eighth_scale;
+        backdrop.ground_line = plane.eighth_scale ? 0x4B8 : ground_line_for(plane.altitude);
+        backdrop.vertical_scroll = plane.sea;
         backdrop.wave_frame = wave_frame();
         // ($104A4E: the enemy ships on this map, then the US carrier.)
         for (std::size_t i = 0; i < 4; ++i) {
-            const auto& s = world_.ships[i];
+            const auto& s = world.ships[i];
             if (s.present) backdrop.ships.push_back({s.first, s.last, s.bob});
         }
-        backdrop.ships.push_back({world_.ships[4].first, world_.ships[4].last, world_.ships[4].bob});
+        backdrop.ships.push_back({world.ships[4].first, world.ships[4].last, world.ships[4].bob});
         backdrop.us_flag_step = us_flag_step_;
-        backdrop.crew_pose_a = world_.crew.pose_a;
-        backdrop.crew_pose_b = world_.crew.pose_b;
+        backdrop.crew_pose_a = world.crew.pose_a;
+        backdrop.crew_pose_b = world.crew.pose_b;
         backdrop.enemy_flag_counter = enemy_flag_counter_;
         return backdrop;
     }
@@ -811,9 +872,34 @@ private:
     }
 
     // The view (lowres, doubled) above the dashboard (hires).
+    bool smooth_now() const {
+        return smooth_ && have_before_ && front_end_.screen() == FrontEnd::Screen::none && briefing_ == 0 &&
+               blackout_ == 0 && !world_.game_over;
+    }
+    // Where the picture shown lies between the last two ticks (0 .. 1): the
+    // vertical blanks since the last tick and the time into the next.
+    double motion_time() const {
+        const double blanks = vblank_ % vblanks_per_tick + (moved_ ? frame_fraction_ : 0.0);
+        return std::min(1.0, blanks / vblanks_per_tick);
+    }
+
+    // A hires screen of the original's width in the middle of a widescreen
+    // picture, black at the sides.
+    platform::Image widened(const platform::Image& screen) const {
+        if (margin_ == 0) return screen;
+        platform::Image image(screen.width + 4 * margin_, screen.height);
+        for (int y = 0; y < screen.height; ++y) {
+            for (int x = 0; x < screen.width; ++x) {
+                image.put(2 * margin_ + x, y, screen.pixels[std::size_t(y * screen.width + x)]);
+            }
+        }
+        return image;
+    }
+
     platform::Image compose(const IndexedCanvas& canvas, const IndexedCanvas& dash) const {
         const int dash_height = dashboard_ ? dash.height : 0;
-        platform::Image image(640, picture_height());
+        const int side = 2 * margin_; // (hires pixels)
+        platform::Image image(640 + 2 * side, picture_height());
         // (After the game the colours fade to black, $1073E6.)
         const auto col = [&](std::uint16_t c) { return data::to_color(end_fade_ >= 0 ? fade_colour(end_fade_, c, 0) : c); };
         for (int y = 0; y < canvas.height; ++y) {
@@ -832,7 +918,7 @@ private:
             for (int y = 0; y < dash.height; ++y) {
                 for (int x = 0; x < dash.width; ++x) {
                     const auto index = dash.at(x, y);
-                    image.put(x, canvas.height + y, col(dashboard_->palette[index % dashboard_->palette.size()]));
+                    image.put(side + x, canvas.height + y, col(dashboard_->palette[index % dashboard_->palette.size()]));
                 }
             }
         }
@@ -841,7 +927,7 @@ private:
         for (int y = 0; y < Ticker::rows; ++y) {
             const auto colour = col(ticker_colours_[std::min<std::size_t>(std::size_t(y), ticker_colours_.size() - 1)]);
             for (int x = 0; x < 640; ++x) {
-                if (ticker_.pixel(x, y)) image.put(x, ticker_top + y, colour);
+                if (ticker_.pixel(x, y)) image.put(side + x, ticker_top + y, colour);
             }
         }
         return image;
@@ -893,6 +979,18 @@ private:
     bool ranks_after_briefing_ = false; // Ctrl-r at a briefing
     int playing_song_ = -1;   // the song the front end plays (for quick load)
     int vhs_ = 0;
+    bool smooth_ = false;
+    // Smooth motion: the state the last tick started from, the shell's time
+    // since its last call to tick (a fraction of a vertical blank), and
+    // whether that call ran the game on (not while it waits, paused).
+    FlightWorld before_world_;
+    PlayerFlight before_plane_;
+    bool have_before_ = false;
+    double frame_fraction_ = 0;
+    bool moved_ = false;
+    bool widescreen_ = false;
+    int margin_ = 0; // widescreen columns on each side of the view
+    int canvas_width_ = 0, canvas_height_ = 0;
     struct Cheats {
         bool infinite_lives{}, infinite_fuel{}, bullet_proof{}, infinite_ammo{}, enemy_duds{};
     } cheats_;

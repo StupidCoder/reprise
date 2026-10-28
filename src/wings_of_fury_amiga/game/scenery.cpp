@@ -57,7 +57,7 @@ int screen_x(int world_x, int camera, bool eighth) {
 // (before the handle) is outside -$80 .. $1C0.
 void draw_at_world(IndexedCanvas& canvas, const data::Shape* shape, int world_x, int camera, bool eighth, int y) {
     const int x = screen_x(world_x, camera, eighth);
-    if (shape == nullptr || x < -0x80 || x > 0x1C0) return;
+    if (shape == nullptr || canvas.beyond(x)) return;
     canvas.draw(*shape, x - shape->offset_x, y - shape->offset_y);
 }
 
@@ -71,7 +71,7 @@ void IndexedCanvas::fill(int x0, int y0, int x1, int y1, std::uint8_t colour) {
     y1 = std::min(y1, clip.bottom - 1);
     for (int y = y0; y <= y1; ++y) {
         for (int x = x0; x <= x1; ++x) {
-            pixels[std::size_t(y * width + x)] = colour;
+            pixels[std::size_t(y * width + origin_x + x)] = colour;
         }
     }
 }
@@ -80,7 +80,7 @@ void IndexedCanvas::draw(const data::Shape& shape, int x0, int y0) {
     for (int y = 0; y < shape.height; ++y) {
         for (int x = 0; x < shape.width(); ++x) {
             if (!inside(x0 + x, y0 + y) || !shape.covers(x, y)) continue;
-            auto& pixel = pixels[std::size_t((y0 + y) * width + x0 + x)];
+            auto& pixel = pixels[std::size_t((y0 + y) * width + origin_x + x0 + x)];
             pixel = std::uint8_t(shape.colour(x, y, pixel));
         }
     }
@@ -91,7 +91,7 @@ void IndexedCanvas::draw_mirrored(const data::Shape& shape, int x0, int y0) {
     for (int y = 0; y < shape.height; ++y) {
         for (int x = 0; x < shape.width(); ++x) {
             if (!inside(x0 + x, y0 + y) || !shape.covers(last - x, y)) continue;
-            auto& pixel = pixels[std::size_t((y0 + y) * width + x0 + x)];
+            auto& pixel = pixels[std::size_t((y0 + y) * width + origin_x + x0 + x)];
             pixel = std::uint8_t(shape.colour(last - x, y, pixel));
         }
     }
@@ -101,7 +101,7 @@ void IndexedCanvas::draw_opaque(const data::Shape& shape, int x0, int y0) {
     for (int y = 0; y < shape.height; ++y) {
         for (int x = 0; x < shape.width(); ++x) {
             if (!inside(x0 + x, y0 + y)) continue;
-            auto& pixel = pixels[std::size_t((y0 + y) * width + x0 + x)];
+            auto& pixel = pixels[std::size_t((y0 + y) * width + origin_x + x0 + x)];
             pixel = std::uint8_t(shape.colour(x, y, pixel));
         }
     }
@@ -144,7 +144,7 @@ void IndexedCanvas::line(int x0, int y0, int x1, int y1, std::uint8_t colour) {
     int error = 2 * minor - major;
     int x = x0, y = y0;
     for (int i = 0; i <= major; ++i) {
-        if (inside(x, y)) pixels[std::size_t(y * width + x)] = colour;
+        if (inside(x, y)) pixels[std::size_t(y * width + origin_x + x)] = colour;
         if (error >= 0) {
             if (steep) x += sx;
             else y += sy;
@@ -161,7 +161,7 @@ void IndexedCanvas::draw_xor(const data::Shape& shape, int x0, int y0) {
     for (int y = 0; y < shape.height; ++y) {
         for (int x = 0; x < shape.width(); ++x) {
             if (!inside(x0 + x, y0 + y)) continue;
-            auto& pixel = pixels[std::size_t((y0 + y) * width + x0 + x)];
+            auto& pixel = pixels[std::size_t((y0 + y) * width + origin_x + x0 + x)];
             int value = pixel ^ shape.set_planes;
             for (const auto& plane : shape.planes) {
                 if (plane.bits[std::size_t(y * shape.bytes_per_row + x / 8)] >> (7 - x % 8) & 1) {
@@ -196,10 +196,19 @@ std::vector<Island> islands(const data::MissionMap& map) {
 template <typename Visit>
 void for_each_column(const data::MissionMap& map, const BackdropState& state, Visit visit) {
     const bool eighth = state.eighth_scale;
-    const int view_camera = eighth ? state.camera & 0xFFF8 : state.camera;
+    // (A signed word: left of the map's start the camera is below 0.)
+    const int camera = std::int16_t(state.camera);
+    const int view_camera = eighth ? camera & ~7 : camera;
     const int step = eighth ? 1 : column_width;
+    // (So column c lies at x = 8c - camera + $A8, or c - camera / 8 + $A8 in
+    // the 1/8 view; a widescreen view starts and ends `margin` further out.)
+    const int m = state.margin;
+    int c = (view_camera - (eighth ? 0x900 : 0x120)) >> 3;
     int x = column_width - (view_camera & 7) - 0x80;
-    for (int c = (view_camera - (eighth ? 0x900 : 0x120)) >> 3; x < 0x1D0; ++c, x += step) {
+    const int extra = eighth ? m : (m + 7) / 8;
+    c -= extra;
+    x -= extra * step;
+    for (; x < 0x1D0 + m; ++c, x += step) {
         if (c < 0 || std::size_t(c) >= map.words.size()) continue;
         visit(c, x);
     }
@@ -212,13 +221,13 @@ IndexedCanvas draw_backdrop(const data::Assets& assets, const data::MissionMap& 
 }
 
 IndexedCanvas draw_sky_and_scenery(const data::Assets& assets, const data::MissionMap& map, const BackdropState& state) {
-    IndexedCanvas canvas(view_width, view_height);
+    IndexedCanvas canvas(view_width, view_height, state.margin);
     const int camera = state.camera;
     const int ground_line = state.ground_line;
     int enemy_flag_counter = state.enemy_flag_counter;
 
     // $103784: the sky down to the ground line + 1 (at most row $A1).
-    canvas.fill(0, 0, view_width - 1, std::min(ground_line + 1, 0xA1), sky_colour);
+    canvas.fill(canvas.clip.left, 0, canvas.clip.right - 1, std::min(ground_line + 1, 0xA1), sky_colour);
 
     const bool eighth = state.eighth_scale;
     for_each_column(map, state, [&](int c, int x) {
@@ -249,7 +258,7 @@ IndexedCanvas draw_sky_and_scenery(const data::Assets& assets, const data::Missi
             // whose right edge (in 4-pixel units) is at or left of camera / 4.
             const auto all = islands(map);
             std::size_t island = 0;
-            while (island < all.size() && all[island].right_column * 2 <= (camera >> 2)) ++island;
+            while (island < all.size() && all[island].right_column * 2 <= (std::int16_t(camera) >> 2)) ++island;
             // Past the last island the lookup reads zeroed table words: a bare
             // pole (hypothesis; a flag column is always on an island).
             const bool up = island < all.size() &&
@@ -284,7 +293,7 @@ void draw_sea_and_sand(IndexedCanvas& canvas, const data::Assets& assets, const 
     if (state.eighth_scale) {
         // $103E7A: a plain sea band; $1040E8: per island its small beach ends
         // (at the line $97 = ground $4B8 / 8) and one row of sand.
-        canvas.fill(0, eighth_line, view_width - 1, 0xA2, eighth_sea_colour);
+        canvas.fill(canvas.clip.left, eighth_line, canvas.clip.right - 1, 0xA2, eighth_sea_colour);
         const auto* left_end = data::eighth_scale_shape(assets, beach_left_index);
         const auto* right_end = data::eighth_scale_shape(assets, beach_right_index);
         for (const auto& island : islands(map)) {
@@ -300,7 +309,9 @@ void draw_sea_and_sand(IndexedCanvas& canvas, const data::Assets& assets, const 
     // $103E6C: the waves, from x = $3F - (camera & $3F) - $50.
     if (const auto* wave = data::scenery_shape(assets, first_wave_index + state.wave_frame)) {
         int wave_x = 0x3F - (camera & 0x3F) - 0x50;
-        for (int i = 0; i < wave_copies; ++i, wave_x += wave_spacing) {
+        const int extra = (state.margin + wave_spacing - 1) / wave_spacing;
+        wave_x -= extra * wave_spacing;
+        for (int i = 0; i < wave_copies + 2 * extra; ++i, wave_x += wave_spacing) {
             canvas.draw(*wave, wave_x - wave->offset_x, ground_line + 0xA - wave->offset_y);
         }
     }

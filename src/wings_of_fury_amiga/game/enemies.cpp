@@ -722,41 +722,61 @@ std::vector<EnemySprite> ship_plane_sprites(const FlightWorld& w, const EnemyTab
             // objects are placed.)
             const int sx = word(plane.x - origin) >> shift;
             const int sy = word(-word(plane.altitude - drop) + 0xB + view.ground_line) >> shift;
-            if (sx < -0x80 || sx > 0x1C0) continue;
+            if (!view.shown(sx)) continue;
             out.push_back({shape, sx - shape->offset_x, sy - shape->offset_y, false});
         }
     }
     return out;
 }
 
-std::vector<EnemySprite> enemy_sprites(Enemies& e, const EnemyTables& t, const data::Assets& assets, const EnemyView& view) {
+namespace {
+
+// The enemy pictures' lookup ($100DA6): by the plane's picture entry.
+const data::Shape* enemy_picture(const EnemyTables& t, const data::Assets& assets, const EnemyView& view, int entry) {
+    const auto& names = view.eighth_scale ? t.eighth_names : t.names;
+    if (entry < 0 || std::size_t(entry) >= names.size()) return nullptr;
+    return find_shape(assets, view.eighth_scale ? "8thscale.shp" : "japplane.shp", names[std::size_t(entry)]);
+}
+
+int enemy_screen_x(const EnemyView& view, int x) {
+    const int shift = view.eighth_scale ? 3 : 0;
+    return word(x - word(view.camera + word(0xFF60 << shift))) >> shift;
+}
+
+} // namespace
+
+void step_gun_flashes(Enemies& e, const EnemyTables& t, const data::Assets& assets, const EnemyView& view) {
+    // The gun flash steps as the plane is drawn firing in the view.
+    for (auto& o : e.planes) {
+        if (o.state == 0 || !o.firing || view.eighth_scale) continue;
+        if (!view.shown(enemy_screen_x(view, o.x), true) || enemy_picture(t, assets, view, o.picture) == nullptr) continue;
+        ++o.flash;
+    }
+}
+
+std::vector<EnemySprite> enemy_sprites(const Enemies& e, const EnemyTables& t, const data::Assets& assets,
+                                       const EnemyView& view) {
     std::vector<EnemySprite> out;
     const int shift = view.eighth_scale ? 3 : 0;
-    const int origin = word(view.camera + word(0xFF60 << shift));
-    const auto picture = [&](int entry) {
-        const auto& names = view.eighth_scale ? t.eighth_names : t.names;
-        if (entry < 0 || std::size_t(entry) >= names.size()) return static_cast<const data::Shape*>(nullptr);
-        return find_shape(assets, view.eighth_scale ? "8thscale.shp" : "japplane.shp", names[std::size_t(entry)]);
-    };
     // The wrecks on the islands, then the planes ($100DA6).
     for (const int wreck : e.wrecks) {
-        const int sx = word(std::abs(wreck) - origin) >> shift;
+        const int sx = enemy_screen_x(view, std::abs(wreck));
         const int sy = word(view.ground_line - 4) >> shift;
-        if (sx < -0x80 || sx > 0x1C0) continue;
-        const auto* shape = picture(wreck < 0 ? wreck_left : wreck_right);
+        if (!view.shown(sx)) continue;
+        const auto* shape = enemy_picture(t, assets, view, wreck < 0 ? wreck_left : wreck_right);
         if (shape != nullptr) out.push_back({shape, sx - shape->offset_x, sy - shape->offset_y, false});
     }
-    for (auto& o : e.planes) {
+    for (const auto& o : e.planes) {
         if (o.state == 0) continue;
-        const int sx = word(o.x - origin) >> shift;
+        const int sx = enemy_screen_x(view, o.x);
         const int sy = word(view.ground_line - o.altitude - 7) >> shift;
-        if (sx < -0x80 || sx > 0x1C0) continue;
-        const auto* shape = picture(o.picture);
+        if (!view.shown(sx)) continue;
+        const auto* shape = enemy_picture(t, assets, view, o.picture);
         if (shape == nullptr) continue;
         out.push_back({shape, sx - shape->offset_x, sy - shape->offset_y, false});
-        // The gun flash, XORed on every second frame while it fires.
-        if (!o.firing || view.eighth_scale) continue;
-        ++o.flash;
+        // The gun flash, XORed on every second frame while it fires (only
+        // within the original's view, where it steps).
+        if (!o.firing || view.eighth_scale || !view.shown(sx, true)) continue;
         if ((o.flash & 1) == 0) continue;
         const int entry = ((o.flash & 3) >> 1) + (o.facing < 0 ? 2 : 0);
         const auto* flash = find_shape(assets, "japplane.shp", t.flash_names[std::size_t(entry)]);

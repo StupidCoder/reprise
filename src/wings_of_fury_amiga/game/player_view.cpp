@@ -31,7 +31,7 @@ void draw_at_world(IndexedCanvas& canvas, const data::Shape* shape, int world_x,
         x >>= 3;
         y = std::int16_t(y) >> 3;
     }
-    if (shape == nullptr || x < -0x80 || x > 0x1C0) return;
+    if (shape == nullptr || canvas.beyond(x)) return;
     canvas.draw(*shape, x - shape->offset_x, y - shape->offset_y);
 }
 

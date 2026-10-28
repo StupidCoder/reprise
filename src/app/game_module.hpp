@@ -70,6 +70,10 @@ public:
     virtual double pixel_aspect() const = 0;
     // The window's drawing area, for a game whose view can widen to it.
     virtual void set_canvas(int /*width*/, int /*height*/) {}
+    // How far the time shown lies past the last tick, as a fraction of a
+    // tick (0 .. 1), set before picture(): a game that draws motion between
+    // its own frames (smooth motion) can show it at the display's rate.
+    virtual void set_frame_fraction(double /*fraction*/) {}
 
     // Interleaved stereo samples for the time of the last tick.
     virtual void audio(std::span<float> stereo, int sample_rate) {

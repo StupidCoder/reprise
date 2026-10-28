@@ -90,6 +90,14 @@ struct EnemyView {
     int camera{};       // -$60CE
     int ground_line{};  // -$60CC
     bool eighth_scale{};
+    int margin{};       // widescreen columns on each side (IndexedCanvas)
+
+    // Whether a picture at screen x is drawn: -$80..$1C0, and as far beyond
+    // a widescreen view's sides. `original` keeps to the original's view.
+    bool shown(int x, bool original = false) const {
+        const int m = original ? 0 : margin;
+        return x >= -0x80 - m && x <= 0x1C0 + m;
+    }
 };
 // $102C84: the map's airfields (the $114/$115 column pairs) with the
 // parked planes and the limit for this rank and mission (`row`: the bonus
@@ -97,8 +105,12 @@ struct EnemyView {
 void find_airfields(Enemies&, const data::MissionMap&, const EnemyTables&, int row);
 // $103A18 (after the islands' guns): the parked planes and the one taking off.
 std::vector<EnemySprite> airfield_sprites(const Enemies&, const EnemyTables&, const data::Assets&, const EnemyView&);
-// Steps the gun flashes' counters as the original's drawing does.
-std::vector<EnemySprite> enemy_sprites(Enemies&, const EnemyTables&, const data::Assets&, const EnemyView&);
+// $100DA6 steps the firing planes' gun flashes as it draws them (in the
+// original's view): a rule of the game, run once per tick before the
+// pictures are taken.
+void step_gun_flashes(Enemies&, const EnemyTables&, const data::Assets&, const EnemyView&);
+// The wrecks, the enemy planes and their gun flashes.
+std::vector<EnemySprite> enemy_sprites(const Enemies&, const EnemyTables&, const data::Assets&, const EnemyView&);
 void draw_enemies(IndexedCanvas&, const std::vector<EnemySprite>&);
 
 } // namespace wings::game

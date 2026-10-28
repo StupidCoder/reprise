@@ -225,6 +225,7 @@ add_library(wings_of_fury_amiga
     src/wings_of_fury_amiga/game/music.cpp
     src/wings_of_fury_amiga/game/ships.cpp
     src/wings_of_fury_amiga/game/saved_game.cpp
+    src/wings_of_fury_amiga/game/smooth_motion.cpp
     src/wings_of_fury_amiga/import/disk_import.cpp)
 target_include_directories(wings_of_fury_amiga PUBLIC ${SOURCE_ROOT})
 target_link_libraries(wings_of_fury_amiga PUBLIC amiga platform ui)

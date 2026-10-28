@@ -48,7 +48,7 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
 | Wizball | C64 | `Wizball.g64` (MD5 `73e1a136da4b6972d39f00817b86983e`) | disk import, asset decoding with launcher previews; play rebuilt and checked in lockstep (places, enemies, catellite, tunnels, lives, bonus wave, Wizlab, level flight, round end, sound and music); front end, high scores and keys rebuilt |
 | Cannon Fodder | Amiga | three ADFs, `Cannon Fodder (1993)(Virgin)(Disk N of 3)[cr CSL].adf` (SHA-256 `2b01cbc9…`, `9089815b…`, `87ea9c1d…`; a cracked copy) | import of all three disks (Sensible disk format, RNC unpacking) and decoded screens, sprite sheets, tile sets, colours and the 72 mission maps with launcher viewer; map view, camera, tile drawer, mission set-up, object drawing, panel, squad walking, shooting, deaths, enemy soldiers, grenades, rockets, huts, civilians, mission objectives, music and sound effects rebuilt and checked against the original; the whole game plays in the shell (mouse): all 72 phases with vehicles, the campaign and the front end (some screens laid out from captures; see milestones) |
 | Rock 'n Roll | Amiga | — | planned |
-| Wings of Fury | Amiga | `Wings_of_Fury_v1.0_1990_Broderbund_cr_Hysteria.adf` (SHA-256 `638d9a9d…4620044`, a cracked copy) | disk import and decoded assets with launcher viewer (pictures, all 12 shape libraries, palettes, sounds, texts); the whole game playable and checked against the original: front end, all fifteen missions (islands, airfields, all four enemy ships, night), the promotion fireworks, game over and hall of fame, music, saved games (R&R), the original's keys and debug mode; cheats and VHS look |
+| Wings of Fury | Amiga | `Wings_of_Fury_v1.0_1990_Broderbund_cr_Hysteria.adf` (SHA-256 `638d9a9d…4620044`, a cracked copy) | disk import and decoded assets with launcher viewer (pictures, all 12 shape libraries, palettes, sounds, texts); the whole game playable and checked against the original: front end, all fifteen missions (islands, airfields, all four enemy ships, night), the promotion fireworks, game over and hall of fame, music, saved games (R&R), the original's keys and debug mode; cheats, widescreen, smooth motion and VHS look |
 | Tower of Babel | Amiga | — | planned; original interpretive shell cover added, importer and gameplay not implemented |
 
 ## Fort Apocalypse (C64) milestones
@@ -889,6 +889,23 @@ and songs `wofsongs` (both with their symbols), IFF pictures, "Rpck"-packed
    Ctrl-f, Return in the weapon menu) and its debug mode (`colin`). The
    host passes Ctrl+letters to games (GameInput::ctrl_keys). 45 recordings
    and 15 set-up checks equal.
+18. **Done 2026-10-28: widescreen and smooth motion.** Widescreen (an
+   option): the view from the original's 320 columns up to 21:9, as wide as
+   the window allows; the game draws in its own x with the canvas reaching
+   further on each side (IndexedCanvas::origin_x), the scenery columns,
+   waves and object limits (-$80..$1C0) widened alike; the dashboard,
+   ticker, briefing and front-end screens stay in the middle. Smooth motion
+   (an option): each shown picture places the moving things between the
+   last two ticks at the time it is shown (`game/smooth_motion`; the shell
+   passes the time since the last tick, GameModule::set_frame_fraction), so
+   they glide at the display's rate instead of 12.5 Hz. Both draw only: the
+   gun flashes' step is split from the drawing (step_gun_flashes, on the
+   original's view limits); a smoke puff or spark glides only when it moved
+   as one does in a tick (else it is a new one in a freed slot). Fixed: the
+   scenery columns took the camera as
+   unsigned, so left of a map's start (x below 0) no column was drawn (the
+   1/8 view's island showed bare until the camera crossed 0). 45 recordings
+   and 15 set-up checks equal.
 
 Open: the elevator's tie to the draw rate (the port draws once per tick;
 effects, crew and flags step per drawn frame too); shape-mirroring first
@@ -921,7 +938,13 @@ the player's −$5BE0/−$5BE4 parts, upset and facing right not yet seen;
 stick direction codes; the `army` font's use; sample periods; the shape
 offset/sheet fields (hypotheses); where the retail game called the manual
 check; a second (retail) release entry for the importer; video standard
-(PAL assumed).
+(PAL assumed). Widescreen: what the original shows past a map's ends (the
+view now reaches up to 96 pixels further) not checked; an island's enemy
+flag is chosen by the island the camera is over, so a wider view can show
+a neighbour's pole; enemy gun flashes are not drawn in the widened margins
+(they step only in the original's view). Smooth motion: up to one tick
+(80 ms) behind the game, as it draws between ticks; the scenery-column
+fix not compared with the original left of a map's start.
 
 ## Cannon Fodder (Amiga) milestones
 

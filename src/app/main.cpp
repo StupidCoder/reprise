@@ -255,6 +255,7 @@ int run(const Options& options) {
                     game.reset();
                     continue;
                 }
+                game->set_frame_fraction((now - game_clock) / game->step_seconds());
                 shown = app::shown_picture(*game, frames_run);
                 host.set_game_draws_pointer(game->draws_pointer());
                 host.present_game(shown.image, game->pixel_aspect());
