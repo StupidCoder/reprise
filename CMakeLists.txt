@@ -288,7 +288,9 @@ add_library(tower_of_babel_amiga
     src/tower_of_babel_amiga/game/tower_map.cpp
     src/tower_of_babel_amiga/import/decruncher.cpp
     src/tower_of_babel_amiga/import/disk_import.cpp
+    src/tower_of_babel_amiga/view/overlay.cpp
     src/tower_of_babel_amiga/view/polygon.cpp
+    src/tower_of_babel_amiga/view/sky.cpp
     src/tower_of_babel_amiga/view/tower_view.cpp)
 target_include_directories(tower_of_babel_amiga PUBLIC ${SOURCE_ROOT})
 target_link_libraries(tower_of_babel_amiga PUBLIC amiga platform ui)

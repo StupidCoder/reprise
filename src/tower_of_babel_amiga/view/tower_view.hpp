@@ -54,6 +54,10 @@ struct SceneObject {
     const data::Shape* shape{};
     int x{}, y{}, z{}; // tower units
     bool moving{};   // between cells: clipped at the cell's boundary ($13934)
+    // Particles (type $1A): the remaining count (+$1A, 32 down to 0) and
+    // which of the two clouds (+$12 bit 1).
+    int particle_count{};
+    bool second_cloud{};
 };
 // The object a cell holds (the original's object map beside the cells).
 using ObjectAt = std::function<const SceneObject*(int floor, int x, int z)>;
@@ -65,14 +69,20 @@ using LiftHeight = std::function<std::optional<int>(int floor, int x, int z)>;
 class TowerView {
 public:
     explicit TowerView(const Pens& pens) : pens_(pens) {}
+    // With the program and main data, particles are drawn too.
+    TowerView(const Pens& pens, const data::Memory& program, const data::Memory& main)
+        : pens_(pens), program_(&program), main_(&main) {}
 
     // Draws the view of `map` into `window` of `canvas`, centred at
     // (centre_x, centre_y) (160, 72 in the original's 320-pixel screen).
     void draw(Canvas&, const Window&, int centre_x, int centre_y, const game::TowerMap&, const Camera&,
-              const LiftHeight& lift_height = {}, const ObjectAt& objects = {}) const;
+              const LiftHeight& lift_height = {}, const ObjectAt& objects = {},
+              const std::function<void(Canvas&)>& sky = {}) const; // sky: drawn after the ground shadows
 
 private:
     Pens pens_;
+    const data::Memory* program_{};
+    const data::Memory* main_{};
 };
 
 } // namespace babel::view

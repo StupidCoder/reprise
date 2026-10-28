@@ -24,13 +24,17 @@
 #include "ui/draw.hpp"
 #include "tower_of_babel_amiga/game/animation.hpp"
 #include "tower_of_babel_amiga/game/tower_map.hpp"
+#include "tower_of_babel_amiga/view/overlay.hpp"
 #include "tower_of_babel_amiga/view/polygon.hpp"
+#include "tower_of_babel_amiga/view/sky.hpp"
 #include "tower_of_babel_amiga/view/tower_view.hpp"
 #include "tower_of_babel_amiga/import/disk_import.hpp"
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <functional>
 #include <map>
+#include <tuple>
 #include <sstream>
 #include <exception>
 #include <string>
@@ -60,8 +64,24 @@ struct Dump {
     int var(std::uint32_t offset) const { return s16(0x806 + offset); } // A6-relative word
 };
 
-int view_check(const babel::data::Assets& assets, const Dump& d, int group, int index, const std::filesystem::path& out) {
+// Research: the group and tower whose name the original has in memory ($D22).
+std::pair<int, int> find_tower(const babel::data::Assets& assets, const Dump& d) {
+    std::string name;
+    for (std::uint32_t a = 0x806 + 0xD22; d.u8(a) >= 0x20 && name.size() < 62; ++a) name.push_back(char(d.u8(a)));
+    for (std::size_t g = 0; g < assets.groups.size(); ++g)
+        for (std::size_t t = 0; t < assets.groups[g].towers.size(); ++t)
+            if (assets.groups[g].towers[t].name == name) return {int(g), int(t)};
+    std::printf("no tower named \"%s\"\n", name.c_str());
+    return {-1, -1};
+}
+
+int view_check(const babel::data::Assets& assets, const Dump& d, int group, int index, const std::filesystem::path& out,
+               const Dump* drawn = nullptr) {
     using namespace babel;
+    if (group < 0) { // group -1: the tower whose name is in memory
+        std::tie(group, index) = find_tower(assets, d);
+        if (group < 0) return 1;
+    }
     const auto& tower = assets.groups.at(std::size_t(group)).towers.at(std::size_t(index));
     const game::TowerMap map(tower, assets.program);
     int cell_diffs = 0;
@@ -106,6 +126,8 @@ int view_check(const babel::data::Assets& assets, const Dump& d, int group, int 
         o.type = d.s16(r);
         o.x = d.s16(r + 6); o.y = d.s16(r + 8); o.z = d.s16(r + 10);
         o.moving = d.s16(r + 0x10) != 0;
+        o.particle_count = d.s16(r + 0x1A);
+        o.second_cloud = (d.u8(r + 0x12) & 2) != 0;
         const std::uint32_t shape = d.u32(r + 2);
         if (o.type < 0x1A && assets.main.contains(shape, 2)) {
             try {
@@ -123,16 +145,61 @@ int view_check(const babel::data::Assets& assets, const Dump& d, int group, int 
     const bool with_objects = std::getenv("TOB_NO_OBJECTS") == nullptr;
     // Pens as they are in the dump's memory (some object pens change at run time).
     const data::Memory memory(0, d.m);
-    view::TowerView(view::read_pens(memory)).draw(canvas, window, 160, 72, map, cam, lift_height,
-                                                  with_objects ? object_at : view::ObjectAt{});
+    const auto pens = view::read_pens(memory);
+    const bool full = std::getenv("TOB_FULL") != nullptr; // research: also sky, particles, overlays (framecheck)
+    view::SkyState sky_state;
+    auto sky = view::sky_settings(tower);
+    if (std::getenv("TOB_FULL")) { // research: the settings as the reference has them (pokes)
+        sky.stars = d.var(0xE34); sky.sky_type = d.var(0xE38); sky.moon_heading = d.var(0xE3A);
+        sky.moon_type = d.var(0xE3C); sky.moon_x = d.var(0xE3E); sky.moon_y = d.var(0xE40);
+        sky.moon_rotation = d.var(0xE42); sky.lightning = d.var(0xE26) >= 0; sky.meteors = d.var(0xE28) >= 0;
+    }
+    std::function<void(view::Canvas&)> draw_sky;
+    if (full) {
+        const auto v = [&](std::uint32_t o) { return d.var(o); };
+        sky_state.moon_frame = v(0xE44);
+        sky_state.lightning_wait = v(0xFC4); sky_state.thunder_wait = v(0xFCA); sky_state.lightning_heading = v(0xFC6);
+        sky_state.meteor_wait = v(0xFCC); sky_state.meteor_heading = v(0xFCE);
+        sky_state.meteor_x = v(0xFD0); sky_state.meteor_y = v(0xFD2); sky_state.meteor_frame = v(0xFD4);
+        sky_state.random = std::uint16_t(v(0x890));
+        view::SkyEffects::advance(sky_state, sky, cam.heading, v(0x20) == 0);
+        draw_sky = [&](view::Canvas& c) { view::draw_sky(c, sky, sky_state, cam.heading, assets.program, assets.main, pens.object); };
+    }
+    const view::TowerView renderer = full ? view::TowerView(pens, assets.program, assets.main) : view::TowerView(pens);
+    renderer.draw(canvas, window, 160, 72, map, cam, lift_height, with_objects ? object_at : view::ObjectAt{}, draw_sky);
+    if (full) {
+        view::OverlayState o;
+        o.ready = d.var(0x11E6) < 0;
+        o.blink = d.var(0xFC0); // counted down at the loop's start, before $D468
+        const int info = d.var(0x1112), timer = d.var(0x1114);
+        o.info = info == 0 ? view::Corner::off : info == 1 ? view::Corner::bottom : view::Corner::top;
+        o.timer = timer == 0 ? view::Corner::off : timer == 2 ? view::Corner::top : view::Corner::bottom;
+        o.sights = d.var(0x111C) >= 0;
+        o.spider = d.var(0x1568) - 4;
+        o.heading = cam.heading;
+        o.klondikes = d.var(0x11D8); o.klondikes_needed = d.var(0xE30);
+        o.destroyed = d.var(0x11DA); o.destroy_needed = d.var(0xE32);
+        o.time_limit = d.var(0xE24) >= 0;
+        o.time_left = d.var(0x121A) & 0xFFFF;
+        // $D7EC: the overlays only for game types below 4 (not in demonstrations).
+        if (d.var(0x11DE) < 4) view::draw_overlay(canvas, o, assets.program, assets.main);
+        int clouds = 0;
+        for (int n = 4; n < 64 && d.s16(0x806 + 0x15DA + std::uint32_t(n) * 32) >= 0; ++n)
+            clouds += d.s16(0x806 + 0x15DA + std::uint32_t(n) * 32) == 0x1A;
+        std::printf("particle clouds %d\n", clouds);
+        std::printf("sky: moon %d meteor %s (%d, %d) bolt %s flash %d random %04X\n", sky_state.moon_frame,
+                    sky_state.meteor_visible ? "shown" : "-", sky_state.meteor_x, sky_state.meteor_y,
+                    sky_state.bolt_column ? "yes" : "-", sky_state.flash, sky_state.random);
+    }
 
-    const std::uint32_t buffer = d.u32(0x806 + 0x1A);
+    const Dump& result = drawn != nullptr ? *drawn : d;
+    const std::uint32_t buffer = result.u32(0x806 + 0x1A);
     platform::Image image(3 * 320, 200);
     int differ = 0;
     for (int y = window.top; y <= window.bottom; ++y) {
         for (int x = window.left; x <= window.right; ++x) {
             int original = 0;
-            for (int p = 0; p < 4; ++p) original |= (d.u8(buffer + std::uint32_t(p * 0x1F40 + y * 40 + x / 8)) >> (7 - x % 8) & 1) << p;
+            for (int p = 0; p < 4; ++p) original |= (result.u8(buffer + std::uint32_t(p * 0x1F40 + y * 40 + x / 8)) >> (7 - x % 8) & 1) << p;
             const int native = canvas.at(x, y);
             const auto colour = [&](int c) { return data::to_color(tower.colours[std::size_t(c)]); };
             image.put(x, y, colour(original));
@@ -259,6 +326,42 @@ int main(int argc, char** argv) {
             for (const auto& [type, count] : per_type)
                 std::printf("type %2d: %d of %d frames differ\n", type, count.second, count.first);
             return 0;
+        }
+        if (command == "framecheck" && argc == 8) { // research: before.bin after.bin (harness/framegrab.py)
+            setenv("TOB_FULL", "1", 1);
+            const auto assets = load_assets(platform::utf8_path(argv[2]));
+            const Dump before{platform::read_file(platform::utf8_path(argv[3]))};
+            const Dump after{platform::read_file(platform::utf8_path(argv[4]))};
+            const int r = view_check(assets, before, std::atoi(argv[5]), std::atoi(argv[6]), platform::utf8_path(argv[7]), &after);
+            // The copper: the frame's palette plan against the list the swap selects.
+            int group = std::atoi(argv[5]), index = std::atoi(argv[6]);
+            if (group < 0) std::tie(group, index) = find_tower(assets, before);
+            if (group < 0) return 1;
+            const auto& tower = assets.groups.at(std::size_t(group)).towers.at(std::size_t(index));
+            const bool flash = after.var(0xFC8) != 0;
+            const auto plan = babel::view::frame_palette(tower, assets.program, flash);
+            const int list = flash ? 2 : 0; // lists 0 and 1 differ only in their bitplanes
+            std::uint32_t at = 0x806 + 0x3356 + std::uint32_t(list) * 0x168;
+            int line = -1, mismatches = 0, top = after.var(0x2);
+            std::size_t next7 = 0;
+            for (int guard = 0; guard < 200; ++guard, at += 4) {
+                const int a = after.s16(at) & 0xFFFF, b = after.s16(at + 2) & 0xFFFF;
+                if (a == 0xFFFF && b == 0xFFFE) break;
+                if (a & 1) { line = (a >> 8) - top; continue; }
+                if (a >= 0x180 && a < 0x1A0 && line < 0) {
+                    const int reg = (a - 0x180) / 2;
+                    if (plan.colours[std::size_t(reg)] != b) { ++mismatches; std::printf("colour %d: copper %03X native %03X\n", reg, b, plan.colours[std::size_t(reg)]); }
+                } else if (a == 0x18E && line >= 0 && line < 0x82) {
+                    if (next7 >= plan.colour7.size() || plan.colour7[next7].first != line || plan.colour7[next7].second != b) {
+                        ++mismatches;
+                        std::printf("line %d colour 7: copper %03X native %s\n", line, b,
+                                    next7 < plan.colour7.size() ? (std::to_string(plan.colour7[next7].first) + " " + std::to_string(plan.colour7[next7].second)).c_str() : "-");
+                    }
+                    ++next7;
+                }
+            }
+            std::printf("copper list %d: %d mismatches, %zu of %zu colour-7 changes seen\n", list, mismatches, next7, plan.colour7.size());
+            return r;
         }
         if (command == "viewcheck" && argc == 7) {
             const auto assets = load_assets(platform::utf8_path(argv[2]));

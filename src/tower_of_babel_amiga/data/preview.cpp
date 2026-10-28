@@ -2,6 +2,7 @@
 #include "tower_of_babel_amiga/data/model.hpp"
 #include "tower_of_babel_amiga/data/shape.hpp"
 #include "tower_of_babel_amiga/game/tower_map.hpp"
+#include "tower_of_babel_amiga/view/sky.hpp"
 #include "tower_of_babel_amiga/view/tower_view.hpp"
 #include "ui/draw.hpp"
 #include <string>
@@ -143,11 +144,20 @@ std::optional<platform::Image> start_view_image(const Tower& tower, const Memory
     };
     view::Canvas canvas(320, 200);
     const view::Window window{16, 303, 16, 127};
-    view::TowerView(view::read_pens(program)).draw(canvas, window, 160, 72, map, camera, lift_height, object_at);
+    const auto pens = view::read_pens(program);
+    const auto sky = view::sky_settings(tower);
+    view::SkyState sky_state; // a quiet sky: stars and the moon, no meteor or lightning yet
+    const auto draw_sky = [&](view::Canvas& c) { view::draw_sky(c, sky, sky_state, 0, program, main, pens.object); };
+    view::TowerView(pens, program, main).draw(canvas, window, 160, 72, map, camera, lift_height, object_at, draw_sky);
+    // The copper's colours: colour 7 changes line by line (sky bands, ground).
+    const auto palette = view::frame_palette(tower, program, false);
     platform::Image image(window.right - window.left + 1, window.bottom - window.top + 1);
-    for (int y = 0; y < image.height; ++y)
-        for (int x = 0; x < image.width; ++x)
-            image.put(x, y, to_color(tower.colours[canvas.at(window.left + x, window.top + y)]));
+    for (int y = 0; y < image.height; ++y) {
+        auto colours = palette.colours;
+        for (const auto& [line, colour] : palette.colour7)
+            if (line <= window.top + y) colours[7] = colour;
+        for (int x = 0; x < image.width; ++x) image.put(x, y, to_color(colours[canvas.at(window.left + x, window.top + y)]));
+    }
     return image;
 }
 

@@ -68,7 +68,7 @@ clicks during scrolling, and the asset backdrop.
 | Cannon Fodder | Amiga | three ADFs, `Cannon Fodder (1993)(Virgin)(Disk N of 3)[cr CSL].adf` (SHA-256 `2b01cbc9…`, `9089815b…`, `87ea9c1d…`; a cracked copy) | import of all three disks (Sensible disk format, RNC unpacking) and decoded screens, sprite sheets, tile sets, colours and the 72 mission maps with launcher viewer; map view, camera, tile drawer, mission set-up, object drawing, panel, squad walking, shooting, deaths, enemy soldiers, grenades, rockets, huts, civilians, mission objectives, music and sound effects rebuilt and checked against the original; the whole game plays in the shell (mouse): all 72 phases with vehicles, the campaign and the front end (all screens rebuilt from the program); persistent quick saves, widescreen, smooth motion, VHS look, trackpad keys (Command fires, Command + click walks, Option throws), cheats (top rank, bullet proof, infinite ammo) |
 | Rock 'n Roll | Amiga | `Rock'n Roll (1989)(Rainbow Arts)[cr PNA].adf` (SHA-256 `1d89a8e7…228615e60`, a one-disk cracked copy) | disk import (program and all files unpacked and checked) and decoded data with launcher viewer: 33 level maps drawn from their worlds' tiles (checked against the original's drawn view), seven worlds' graphics banks and palettes, title and ending pictures; not playable yet |
 | Wings of Fury | Amiga | `Wings_of_Fury_v1.0_1990_Broderbund_cr_Hysteria.adf` (SHA-256 `638d9a9d…4620044`, a cracked copy) | disk import and decoded assets with launcher viewer (pictures, all 12 shape libraries, palettes, sounds, texts); the whole game playable and checked against the original: front end, all fifteen missions (islands, airfields, all four enemy ships, night), the promotion fireworks, game over and hall of fame, music, saved games (R&R), the original's keys and debug mode; cheats, widescreen, smooth motion and VHS look |
-| Tower of Babel | Amiga | `Tower of Babel v1.0 (1990)(Rainbird)[cr MAD].adf` (SHA-256 `0a8dff1a…8c8785c71`, a cracked copy) | disk import (packed program unpacked, every block range checked) and decoded data with launcher viewer: title screen, all 153 towers (maps, objects, colours, rules), sampled music and effect waveforms; the 3D tower view rebuilt and identical to the original (objects not yet); not playable yet |
+| Tower of Babel | Amiga | `Tower of Babel v1.0 (1990)(Rainbird)[cr MAD].adf` (SHA-256 `0a8dff1a…8c8785c71`, a cracked copy) | disk import (packed program unpacked, every block range checked) and decoded data with launcher viewer: title screen, all 153 towers (maps, objects, colours, rules), sampled music and effect waveforms; the whole 3D view rebuilt and identical to the original (tower, objects, animation frames, sky, effects, overlays); not playable yet |
 | F/A-18 Interceptor | Amiga | `FA-18 Interceptor (1988)(Electronic Arts)[cr A-Ha].adf` (SHA-256 `e28e9469…6f93bfa2`, a cracked copy) | disk import (program and 20 data files checked) and decoded data with launcher viewer: title and instrument pictures, menu and briefing screen texts (main menu identical to the original's screen), cockpit messages, both fonts, palettes, sampled sounds; not playable yet |
 
 ## Fort Apocalypse (C64) milestones
@@ -1348,10 +1348,22 @@ apart from drawing, so spiders and camera can be interpolated between ticks.
    frames for the spiders (walking, turning, standing), Zapper, Rotating
    Zapper, Worm, Hopper, Proximity Mine, Lizard, Klondike and Wiper.
    Launcher start views now show the objects in their first shapes.
-5. Next: particles ($14C18, type $1A), stars, moon, lightning, meteors,
-   copper sky bands, overlays; then spider movement and programs, object
-   behaviour (incl. the handlers' counters and decisions), panel, front
-   end, designer, sound effects.
+5. **Done 2026-10-28: sky, effects, particles and overlays.** `view/sky`
+   (stars, moon, meteors, lightning with the original's random number
+   recurrence, the copper's colours per line: sky gradient bands by sky
+   type, ground at the horizon, lightning's flash palette), particles in
+   `view/tower_view`, `view/overlay` (READY, compass and counters, timer,
+   sights). Checked with harness/framegrab.py and `tower_of_babel_assets
+   framecheck` (whole view window and the copper list, state taken before
+   the frame's effects): identical in all 255 frames on towers A-C (sky
+   types 0, 1 and 2; lightning and meteors switched on by poke; 80 meteor
+   frames), in 3 lightning frames with the flash palette, and in 60 demo
+   frames (18 with particle clouds; overlays off in demonstrations, game
+   type >= 4). Kept bug: the meteor's first partial word takes plane 3
+   from plane 0 ($D2B4). Launcher start views show the sky.
+6. Next: spider movement and programs (Write/Run), object behaviour (incl.
+   the display handlers' counters and decisions), panel, front end,
+   designer, sound effects; widescreen and smooth motion on top.
 
 Open items:
 - Tower record fields $E2E, $E34–$E42, flags 3, 4, 6–9, the last 4 bits
@@ -1366,6 +1378,9 @@ Open items:
   Watcher (only its walk is in the frame choice), Time Bomb, Bonus Flag,
   Convertor, both Forcers, Freezer; the spiders' $1218 turn variant.
 - Object pens 23 and 24 ($892(a6)) change at run time.
+- Sky type 3 (no line list) and the sights overlay not yet seen in a
+  check; towers with lightning/meteors of their own are locked in the
+  chooser (checked by poking tower A's flags).
 - READY state: the original copies whole buffers ($87A6) around its draws;
   the native module only needs the drawn picture, but check what the
   player sees there.

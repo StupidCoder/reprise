@@ -64,9 +64,10 @@ struct Turn {
 class Frame {
 public:
     Frame(Canvas& canvas, const Window& window, const Pens& pens, const game::TowerMap& map, const Camera& cam, int cx,
-          int cy, const LiftHeight& lift_height, const ObjectAt& objects)
+          int cy, const LiftHeight& lift_height, const ObjectAt& objects, const data::Memory* program,
+          const data::Memory* main)
         : canvas_(canvas), window_(window), pens_(pens), map_(map), cam_(cam), cx_(cx), cy_(cy), turn_{cam.heading},
-          lift_height_(lift_height), objects_(objects), p_(project_rows(cam, cx, cy)) {}
+          lift_height_(lift_height), objects_(objects), program_(program), main_(main), p_(project_rows(cam, cx, cy)) {}
 
     std::uint8_t at(int f, int c, int v) const {
         if (c < 0 || c > 7 || v < 0 || v > 7) return 0;
@@ -287,7 +288,9 @@ private:
         int tx, tz;
         turn_.cell(c, v, tx, tz);
         const SceneObject* o = objects_(f, tx, tz);
-        if (o == nullptr || o->slot >= 0x3F || o->type >= 0x1A || o->shape == nullptr) return; // $E0AC (type $1A: particles, later)
+        if (o == nullptr || o->slot >= 0x3F || o->type > 0x1A) return; // $E0AC
+        if (o->type == 0x1A) { particles(*o); return; }
+        if (o->shape == nullptr) return;
         const int cell_x = c * cell_size - 0x700 - cam_.x;                       // $FA6
         const int cell_z = (7 - k) * cell_size - 0x700 - cam_.z;                 // $FAA
         // $13934: which side of this cell a moving object lies on.
@@ -337,6 +340,43 @@ private:
                 face_style(face.style, cell, o->slot, std::move(points), keep, cell_x, cell_z);
             }
         }
+    }
+
+    // $14C18: a particle cloud: 2n big dots, then 2n small ones (n the
+    // remaining count), offsets from the cloud table (not turned with the
+    // camera), colours 8-15 in turn.
+    void particles(const SceneObject& o) {
+        if (program_ == nullptr || main_ == nullptr) return;
+        int ox = o.x, oz = o.z;
+        turn(ox, oz);
+        const int rx = std::int16_t(ox - cam_.x), ry = std::int16_t(o.y - cam_.y), rz = std::int16_t(oz - cam_.z);
+        const int step = 0x20 - o.particle_count;
+        std::uint32_t at = 0x34C80 + std::uint32_t(std::int16_t(program_->u16(0x14D58 + std::uint32_t(step) * 2))) +
+                           (o.second_cloud ? 0x18C0 : 0);
+        const int count = 2 * o.particle_count; // DBRA over 63 - 2 * step
+        int colour = count > 0 ? 0 : -1;        // the counter's high word (EXT.L of the count)
+        const auto dot = [&](bool big) {
+            const int dx = std::int8_t(main_->u8(at)), dy = main_->u8(at + 1), dz = std::int8_t(main_->u8(at + 2));
+            at += 3;
+            const int z = std::int16_t(dz + rz);
+            if (z <= 0x100) return;
+            const int x = project(dx + rx, z) + cx_;
+            if (unsigned(std::uint16_t(x)) < unsigned(window_.left) || unsigned(std::uint16_t(x)) >= unsigned(window_.right)) return;
+            const int y = cy_ - project(dy + ry, z);
+            if (unsigned(std::uint16_t(y)) < unsigned(window_.top) || unsigned(std::uint16_t(y)) >= unsigned(window_.bottom)) return;
+            ++colour;
+            const auto& pen = pens_.object[std::size_t((colour & 7) + 8)];
+            if (big) { // $14FEA: 2 x 2 at an even x, rows y and y + 1
+                const int x0 = x & ~1;
+                for (int r = 0; r < 2; ++r)
+                    for (int b = 0; b < 2; ++b)
+                        if (y + r < canvas_.height) canvas_.set(x0 + b, y + r, pen.colour(x0 + b, r));
+            } else { // $14F88
+                canvas_.set(x, y, pen.colour(x, 0));
+            }
+        };
+        for (int i = 0; i < count; ++i) dot(true);
+        for (int i = 0; i < count; ++i) dot(false);
     }
 
     // $13D12: the style byte picks pen and fill.
@@ -434,6 +474,8 @@ private:
     Turn turn_;
     const LiftHeight& lift_height_;
     const ObjectAt& objects_;
+    const data::Memory* program_;
+    const data::Memory* main_;
     Projection p_;
 };
 
@@ -469,13 +511,15 @@ Camera spider_camera(int x, int y, int z, int heading, int offset, int height, i
 }
 
 void TowerView::draw(Canvas& canvas, const Window& window, int centre_x, int centre_y, const game::TowerMap& map,
-                     const Camera& camera, const LiftHeight& lift_height, const ObjectAt& objects) const {
+                     const Camera& camera, const LiftHeight& lift_height, const ObjectAt& objects,
+                     const std::function<void(Canvas&)>& sky) const {
     // $1191C: the view is cleared to colour 7, the sky and ground colour the
     // copper changes line by line.
     for (int y = window.top; y <= window.bottom; ++y)
         for (int x = window.left; x <= window.right; ++x) canvas.set(x, y, 7);
-    Frame frame(canvas, window, pens_, map, camera, centre_x, centre_y, lift_height, objects);
+    Frame frame(canvas, window, pens_, map, camera, centre_x, centre_y, lift_height, objects, program_, main_);
     frame.ground_shadows();
+    if (sky) sky(canvas);
     frame.cells();
 }
 

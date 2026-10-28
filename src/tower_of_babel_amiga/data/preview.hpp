@@ -19,9 +19,8 @@ platform::Image tower_image(const Tower&, const Memory& program);
 
 // The 3D view a tower opens with: from the first spider available, facing
 // north, with the default view options and the objects in their first
-// shapes (288 x 112, the original's window).
-// Colour 7, which the original's copper turns into sky and ground bands,
-// shows as the tower's colour 7. Empty when the tower has no such spider.
+// shapes, the sky's stars, moon and colour bands (288 x 112, the original's
+// window). Empty when the tower has no such spider.
 std::optional<platform::Image> start_view_image(const Tower&, const Memory& program, const Memory& main);
 
 } // namespace babel::data
