@@ -283,6 +283,7 @@ int main(int argc, char** argv) {
             in.altitude = s16(0x419E);
             in.facing = s16(0x5F72);
             in.eighth_scale = s16(0x60C8) == 1;
+            in.night = s16(0x5C6E) != 0; // (-$5C6E: nightdash.shp, the nightdash picture)
             // The ships $104A52 searches: active enemy slots, then the carrier.
             const std::pair<int, int> slots[] = {{0x5B9E, 0x5C84}, {0x5B80, 0x5C87}, {0x5B62, 0x5C83}, {0x5B44, 0x5C86}};
             for (const auto& [ship, flag] : slots) {

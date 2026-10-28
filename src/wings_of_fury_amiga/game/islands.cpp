@@ -218,10 +218,7 @@ public:
         if (--is.islands_left > 0 || is.ships_left != 0) {
             w.say(format(t.messages.island_taken, bonus)); // ($105624: only when no message runs)
         } else {
-            // ($105694 appends over the first message's last character.)
-            std::string text = format(t.messages.island_taken, bonus);
-            if (!text.empty()) text.pop_back();
-            mission_accomplished(text);
+            mission_accomplished(format(t.messages.island_taken, bonus));
         }
     }
 
@@ -231,8 +228,10 @@ public:
         return buffer;
     }
 
-    // $105694: the next mission is set; the plane is sent home.
+    // $105694: the next mission is set; the plane is sent home. Its text
+    // goes after the first message, over that one's last character.
     void mission_accomplished(std::string text) {
+        if (!text.empty()) text.pop_back();
         ++w.mission;
         if (w.mission > t.islands.missions_per_rank[std::size_t(std::clamp(w.rank, 0, 6))]) {
             w.mission = 1;
@@ -250,13 +249,13 @@ public:
     // $104986: in the water or on a ship: the ship whose columns cover x
     // ($104A4E: the enemy ships, then the US carrier). A running torpedo
     // flashes the screen red and takes one of the ship's torpedo hits; the
-    // last starts it sinking. Rockets (and crashes) knock out a ship's guns
-    // (none on the ships rebuilt so far); bombs do nothing.
+    // last starts it sinking. Rockets (and crashes) knock out a ship's guns;
+    // bombs do nothing.
     void ship_hit(int x, int weapon, bool running) {
         const int offset = (std::uint16_t(x) >> 3) * 2;
         ShipState* ship = nullptr;
         for (auto& s : w.ships) {
-            if (offset >= s.first && offset <= s.last && (&s == &w.ships[4] || s.afloat)) {
+            if (offset >= s.first && offset <= s.last && (&s == &w.ships[4] || s.present)) {
                 ship = &s;
                 break;
             }
@@ -264,11 +263,92 @@ public:
         if (ship == nullptr || weapon == 1) return;
         is.flash_frames = 5;
         is.flash_colour = 0xFFF;
-        if (weapon != 2 || !running) return;
-        is.flash_colour = 0xF00;
-        if (ship->ready <= 0) return;
-        if (--ship->ready == 0) ship->sink_delay = 0x14;
+        if (weapon == 2 && running) {
+            is.flash_colour = 0xF00;
+            if (ship->ready <= 0) return;
+            if (--ship->ready == 0) ship->sink_delay = 0x14;
+            return;
+        }
+        // $1049DC: the first standing gun within $10 of x is knocked out.
+        for (auto& g : ship->guns) {
+            if (g.destroyed || std::abs(word(x - g.x)) >= 0x10) continue;
+            g.destroyed = true;
+            g.smoke_left = 0x32;
+            g.smoke_timer = 1;
+            w.score += 0xC8;
+            is.flash_colour = 0xF00;
+            return;
+        }
     }
+
+    // $104C3E (each frame, the plane flying): the enemy ships' guns, as the
+    // dugouts' but fired at random (beam bit 15), with shell splashes near
+    // the plane; knocked-out guns smoke.
+    void ship_guns() {
+        if (p.mode != 0) return;
+        static constexpr int order[4] = {0, 1, 2, 3}; // (-$5AA4 without the US carrier)
+        for (const int slot : order) {
+            auto& s = w.ships[std::size_t(slot)];
+            if (!s.afloat || !s.present || s.ready <= 0) continue;
+            const int deck = word(s.deck - s.bob);
+            for (auto& g : s.guns) {
+                if (g.destroyed) {
+                    if (g.smoke_left == 0 || --g.smoke_timer > 0 || --g.smoke_left == 0) continue;
+                    g.smoke_timer = 0x32 - g.smoke_left;
+                    w.effects.start_puff(std::int32_t(std::uint32_t(std::uint16_t(g.x)) << 16),
+                                         std::int32_t(std::uint32_t(std::uint16_t(deck)) << 16 | 0xD), 5, w.beam);
+                    continue;
+                }
+                shell_splash(g.x);
+                int entry = gun_angle_entry(g.x);
+                if (entry < 0) continue;
+                const int y = word(deck - p.sea + g.lift + 0xD);
+                entry += 0x81;
+                if (w.beam.next() & 0x8000) entry += 7;
+                bool shown = true;
+                if (w.frame_eighth) {
+                    entry = 0x5A;
+                    shown = (w.beam.next() & 0x8000) == 0;
+                }
+                if (shown) is.sprites.push_back({entry, g.x, y, true});
+                flak(g.x);
+            }
+        }
+    }
+
+    // $104DB8: the gun's angle picture toward the plane (-1 out of reach;
+    // in the 1/8 view 0).
+    int gun_angle_entry(int x) const {
+        if (w.frame_eighth) return 0;
+        const int dx = word(w.frame_camera - x);
+        if (dx > 0 ? dx > 0x200 : dx < -0x200) return -1;
+        const int row = word(((std::int16_t(w.frame_altitude) >> 5) - 1) << 3);
+        return t.gun_angle(row + word(dx / 0x28 + 3));
+    }
+
+    // $104EFC: a shell lands in the sea near the plane, the nearer the gun
+    // and the lower the plane the likelier.
+    void shell_splash(int x) {
+        const int distance = std::abs(word(x - p.x));
+        if (distance >= (w.beam.next() & 0x1FF)) return;
+        if (p.altitude > 0xC8) return;
+        if ((w.beam.next() & 0xF) - 6 >= 0) return;
+        const int at = word((w.beam.next() & 0x3F) - 0x20 + w.frame_camera);
+        w.effects.start_splash(at, surface_at(at));
+        w.effects.set_off_torpedoes(at, 0xA);
+    }
+    // $101D0E: a ship's last step under: its value, the message, and the
+    // mission accomplished with the last target.
+    void ship_sunk(const ShipState& s) {
+        if (s.value == 0) return;
+        const int which = s.value == 0x1194 ? 0 : s.value == 0x1770 ? 1 : s.value == 0x9C4 ? 2 : 3;
+        char text[256];
+        std::snprintf(text, sizeof text, t.ships.sunk.c_str(), t.ships.names[std::size_t(which)].c_str(), long(s.value));
+        w.score += s.value;
+        if (--is.ships_left > 0 || is.islands_left != 0) w.say(text);
+        else mission_accomplished(text);
+    }
+
 
     void hit(int x, int weapon, bool running) {
         const int surface = surface_at(x);
@@ -412,7 +492,7 @@ public:
     }
 
     // $104F5C: flak near the plane; every hit counts down +$10, and at 0 the
-    // oil and fuel suffer.
+    // oil and fuel suffer (not with the debugging switch -$408C on).
     void flak(int x) {
         int d = std::abs(word(x - w.frame_camera));
         if (d > 0x1C0) return;
@@ -422,6 +502,7 @@ public:
         int a = d, b = p.altitude;
         if (a <= b) std::swap(a, b);
         const int reach = word(a + (std::uint16_t(b) >> 2));
+        if (w.enemies.invulnerable) return; // ($104F96: the debugging switch)
         if ((w.beam.next() & 0x1FF) < reach) return;
         if ((w.beam.next() & 0x7FF) > 0x199) return;
         smoke_at_plane(6);
@@ -533,6 +614,10 @@ void damaged_plane_smoke(PlayerFlight& p, FlightWorld& w, const FlightTables& t)
     IslandWork(p, w, t).damage_smoke(w.smoke_tick);
 }
 
+void ship_sunk(PlayerFlight& p, FlightWorld& w, const FlightTables& t, const ShipState& s) {
+    IslandWork(p, w, t).ship_sunk(s);
+}
+
 void island_hit(PlayerFlight& p, FlightWorld& w, const FlightTables& t, int x, int weapon, bool running) {
     IslandWork(p, w, t).hit(x, weapon, running);
 }
@@ -549,6 +634,7 @@ void islands_frame(PlayerFlight& p, FlightWorld& w, const FlightTables& t, const
     for (int offset : wrecked_huts) work.hut_smoke(offset);
     work.dugout_guns();
     work.pillboxes();
+    work.ship_guns();
     work.soldiers();
     // $1038EA (the view's end): the guns' sound for the next tick.
     w.islands.gun_sound = w.islands.guns_heard;

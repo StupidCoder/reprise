@@ -48,7 +48,7 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
 | Wizball | C64 | `Wizball.g64` (MD5 `73e1a136da4b6972d39f00817b86983e`) | disk import, asset decoding with launcher previews; play rebuilt and checked in lockstep (places, enemies, catellite, tunnels, lives, bonus wave, Wizlab, level flight, round end, sound and music); front end, high scores and keys rebuilt |
 | Cannon Fodder | Amiga | three ADFs, `Cannon Fodder (1993)(Virgin)(Disk N of 3)[cr CSL].adf` (SHA-256 `2b01cbc9…`, `9089815b…`, `87ea9c1d…`; a cracked copy) | import of all three disks (Sensible disk format, RNC unpacking) and decoded screens, sprite sheets, tile sets, colours and the 72 mission maps with launcher viewer; map view, camera, tile drawer, mission set-up, object drawing, panel, squad walking, shooting, deaths, enemy soldiers, grenades, rockets, huts, mission objectives, music and sound effects rebuilt and checked against the original; the phases play in the shell from map 1 on (mouse); no front end, recruits or vehicles yet |
 | Rock 'n Roll | Amiga | — | planned |
-| Wings of Fury | Amiga | `Wings_of_Fury_v1.0_1990_Broderbund_cr_Hysteria.adf` (SHA-256 `638d9a9d…4620044`, a cracked copy) | disk import and decoded assets with launcher viewer (pictures, all 12 shape libraries, palettes, sounds, texts); missions 1-3 playable with the original's front end (story, pictures, rank selection, briefings, hall of fame) and music; later maps not yet |
+| Wings of Fury | Amiga | `Wings_of_Fury_v1.0_1990_Broderbund_cr_Hysteria.adf` (SHA-256 `638d9a9d…4620044`, a cracked copy) | disk import and decoded assets with launcher viewer (pictures, all 12 shape libraries, palettes, sounds, texts); missions 1-10 (maps a-j: islands, airfields, destroyer, battleship, cruise ship, night) playable with the original's front end (story, pictures, rank selection, briefings, hall of fame) and music; maps k-o not yet |
 | Tower of Babel | Amiga | — | planned; original interpretive shell cover added, importer and gameplay not implemented |
 
 ## Fort Apocalypse (C64) milestones
@@ -844,9 +844,22 @@ and songs `wofsongs` (both with their symbols), IFF pictures, "Rpck"-packed
    interrupt); equal to the original's player tick for tick. Quick save
    and load (the whole game where it is; checked: the same picture and the
    same play after loading) and the shared VHS look in the pause menu.
-15. Next: RETURN FROM R&R and saving (`$108B96`, keys `g`/`l`), the other
-   in-game keys (`s` sound, `f`, pause), the later maps (index $B and the
-   $114 places, enemy ships, airfields, balloons, fighters, night).
+15. **Done 2026-10-27: maps 4-10 (d-j).** Airfields (`$102C84`, parked
+   fighters taking off as lone fighters), the enemy destroyer, battleship
+   and cruise ship (`game/ships`: set-up by kind and row, guns with shell
+   splashes, flak and rocket hits, torpedo hits, sinking with its bonus and
+   message, the last target ending the mission, parked planes launched as
+   fighters), night missions (rows > 6: night palettes and dashboard), the
+   new plane clearing the object table (`$103756`). Checked: the set-up of
+   every map a-j against the original's first tick (`wings_of_fury_replay
+   setup`), 12 new recordings equal tick for tick (f: cruise ship sunk; j at
+   night: destroyer and battleship sunk, a gun knocked out, the mission
+   accomplished; e, g, h, i flights; 38 in all), the night dashboard exact,
+   the night view's colours sampled from the original's screen.
+16. Next: maps k-o (k: battleship and airfield; l: two airfields; m/o: the
+   Japanese carrier with its deck roll), RETURN FROM R&R and saving
+   (`$108B96`, keys `g`/`l`), the other in-game keys (`s` sound, `f`,
+   pause).
 
 Open: the elevator's tie to the draw rate (the port draws once per tick;
 effects, crew and flags step per drawn frame too), shape-mirroring first
@@ -857,15 +870,15 @@ eye against grabs, not pixel-compared; the 8 bytes past a map's columns
 (uninitialised in the original, read as 0); the misplaced crash blast's x
 depends on the map's address (reference machine's $FE04 taken); dashboard:
 the sticky −$3902 flag, enemy ships in the forward view; weapons: balloons
-(−$5D04), ship guns as rocket targets, gun posts' standing flag taken as cleared memory, the atan
+ship guns as rocket targets checked on the destroyer only, gun posts' standing flag taken as cleared memory, the atan
 division's low word and the camera's low word (−$41A0) taken as 0; sound:
-the enemy ships' guns (they share channel 3 with the islands' guns), the
-music; the island
-guns' muzzle flashes (with the islands); enemy planes: the lone fighters (modes 1 and 2, launched by enemy carriers
-and airfields `$101510`/`$101622`) are rebuilt but not met on map a, the
+the enemy ships' guns (they share channel 3 with the islands' guns: only
+heard with them so far), the music; the island
+guns' muzzle flashes (with the islands); enemy planes: the lone fighters (modes 1 and 2) from airfields and ships
+(`$101510`/`$101622`) met on d, f and j; the Japanese carrier's deck roll
+(not on maps a-j) not rebuilt, the
 skid counter (-$4368) is not recorded, the hit timer's and new heights'
-beam-random draws are taken as recorded; enemy ships' sinking score and
-message (`$101D0E`), -$5A3D, -$5C8E; the briefing's `r` key (back to the title);
+beam-random draws are taken as recorded; -$5A3D, -$5C8E; the briefing's `r` key (back to the title);
 briefings of missions 2 and 3 not grabbed (the same text routine as mission
 1's); the front end: RETURN FROM R&R (saved games), the demo playback
 (`wofdemo`, not on the disk), the line editor's timeout, a fire press
@@ -877,9 +890,13 @@ original's lost audio interrupts (a one-shot playing twice) not reproduced; the 
 calls; the meaning of -$5C94 (drawn as the propeller, 0 throughout a real
 flight); the player's -$5BE0/-$5BE4 parts, upset
 and facing right not yet seen; the
-debug key mode; index-5 special ($104E18), the `$114/$115` pairs; ship bob other than 0 not compared; night maps,
-the 1/8-scale view and the copper palette split (rows 151+); maps other than
-a, d and k not compared; stick direction codes;
+debug key mode (−$50E6 = 5; key $64 toggles the switch −$408C: recordings
+made with it marked `!`), shell splashes and the torpedoes they set off
+taken as recorded (the frame they fall in is not recorded), the
+battleship's sixth parked plane read past its template (kept, as the
+original); index-5 special ($104E18); ship bob other than 0 not compared;
+the 1/8-scale view and the copper palette split (rows 151+) at night
+sampled once (map i); maps k-o not compared; stick direction codes;
 the `army` font's use; sample periods; the shape
 offset/sheet fields (hypotheses); eighth rank-menu option (`$108B96`);
 where the retail game called the manual check; a second (retail) release

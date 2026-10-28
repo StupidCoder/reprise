@@ -56,6 +56,7 @@ struct DashboardInput {
     int facing{};        // -$5F72
     bool eighth_scale{}; // -$60C8 = 1
     const data::MissionMap* map{};
+    bool night{};        // -$5C6E: `nightdash.shp` and the `nightdash` picture ($10653C)
     // The enemy planes up (-$5DD4): the map byte offset of their column
     // (+$2E, from the frame start), their picture (+$30) and height.
     struct Enemy {

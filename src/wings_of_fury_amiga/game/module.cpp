@@ -158,6 +158,11 @@ public:
         frame_facing_ = plane_.facing;
         world_.effects.frame_start();
         for (auto& ship : world_.ships) ship.bob = ship.sunk; // ($10101A)
+        for (auto& ship : world_.ships) ship.planes.shown_count = ship.planes.count; // ($10102C)
+        for (auto& a : world_.enemies.airfields) { // ($101008)
+            a.shown_parked = a.parked;
+            a.shown_takeoff = a.takeoff_x;
+        }
         flight_tick(plane_, world_, tables_, command);
         // What drawing the frame steps: the effects, the tower flag, the
         // deck crew and the islands' flags.
@@ -237,6 +242,7 @@ public:
         if (!saved_) return false;
         const auto& s = *saved_;
         world_ = s.world;
+        set_lighting();
         plane_ = s.plane;
         map_ = s.map;
         blackout_ = s.blackout;
@@ -364,6 +370,16 @@ private:
             if (sprite.gun) draw_world_sprite(canvas, assets_, effects, {sprite.entry, sprite.x, sprite.y});
             else soldiers.push_back({sprite.entry, sprite.x, sprite.y});
         }
+        {
+            // $103A18: the airfields' parked planes and the one taking off.
+            EnemyView view;
+            view.camera = backdrop.camera;
+            view.ground_line = deck.ground_line;
+            view.eighth_scale = backdrop.eighth_scale;
+            draw_enemies(canvas, airfield_sprites(world_.enemies, tables_.enemies, assets_, view));
+            // $10391E: the planes parked on the enemy ships.
+            draw_enemies(canvas, ship_plane_sprites(world_, tables_.enemies, assets_, view, backdrop.vertical_scroll));
+        }
         draw_sea_and_sand(canvas, assets_, *world_.map, backdrop);
 
         if (world_.elevator != 0) effects.smoke_clip_bottom = smoke_clip_line + backdrop.vertical_scroll + deck.bob;
@@ -426,8 +442,11 @@ private:
         in.facing = plane_.facing;
         in.eighth_scale = plane_.eighth_scale;
         in.map = world_.map;
+        in.night = world_.night;
         for (const auto& ship : world_.ships) {
-            if (&ship == &world_.ships.back() || ship.afloat) in.ships.push_back({ship.first, ship.last, 0, 0});
+            if (&ship == &world_.ships.back() || (ship.present && ship.afloat)) {
+                in.ships.push_back({ship.first, ship.last, ship.overlay, ship.value});
+            }
         }
         for (const auto& e : world_.enemies.planes) {
             if (e.state != 0) in.enemies.push_back({(std::int16_t(e.x) >> 3) * 2, e.picture, e.altitude, e.x, e.mode}); // ($100FEC)
@@ -442,6 +461,11 @@ private:
         backdrop.ground_line = plane_.eighth_scale ? 0x4B8 : ground_line_for(plane_.altitude);
         backdrop.vertical_scroll = plane_.sea;
         backdrop.wave_frame = wave_frame();
+        // ($104A4E: the enemy ships on this map, then the US carrier.)
+        for (std::size_t i = 0; i < 4; ++i) {
+            const auto& s = world_.ships[i];
+            if (s.present) backdrop.ships.push_back({s.first, s.last, s.bob});
+        }
         backdrop.ships.push_back({world_.ships[4].first, world_.ships[4].last, world_.ships[4].bob});
         backdrop.us_flag_step = us_flag_step_;
         backdrop.crew_pose_a = world_.crew.pose_a;
@@ -509,10 +533,24 @@ private:
         start_mission();
     }
 
-    // The maps rebuilt so far need nothing more than islands with huts,
-    // dugouts and pillboxes, the US carrier and torpedo bombers (d.map on
-    // adds index $B and the $114 places, later maps ships, airfields, ...).
-    static bool map_supported(const std::string& name) { return name == "a.map" || name == "b.map" || name == "c.map"; }
+    // Day or night: the view's and the sea's palettes and the dashboard.
+    void set_lighting() {
+        day_ = data::find_palette(assets_, world_.night ? "night.p" : "wingspalette");
+        sea_ = data::find_palette(assets_, world_.night ? "nightocean.p" : "ocean.palette");
+        for (const auto& picture : assets_.pictures) {
+            if (picture.name == (world_.night ? "nightdash" : "iff-dash")) dashboard_ = &picture.picture;
+        }
+    }
+
+    // The maps rebuilt so far: islands (huts, dugouts, pillboxes), the US
+    // carrier, torpedo bombers, airfields and the destroyer, battleship and
+    // cruise ship (k.map on: checked against the original not yet; m.map
+    // and o.map add the Japanese carrier, whose deck roll is not rebuilt).
+    static bool map_supported(const std::string& name) {
+        static constexpr const char* rebuilt[] = {"a.map", "b.map", "c.map", "d.map", "e.map",
+                                                  "f.map", "g.map", "h.map", "i.map", "j.map"};
+        return std::find(std::begin(rebuilt), std::end(rebuilt), name) != std::end(rebuilt);
+    }
 
     // $102ADC and $1035A8 for the mission (rank -$5C40, mission -$5C3E): the
     // map is the sum of the missions of the ranks below plus the mission
@@ -555,6 +593,22 @@ private:
     void set_up_carrier() {
         world_.set_map(*map_);
         world_.islands = find_islands(*map_);
+        {
+            const std::size_t at = std::size_t(world_.rank * 4 + world_.mission);
+            const int row = at < tables_.islands.bonus_row.size() ? tables_.islands.bonus_row[at] : 0;
+            find_airfields(world_.enemies, *map_, tables_.enemies, row);
+            find_ships(world_, *map_, tables_, row);
+            // $1011FC: from row 7 on a mission may be flown at night (the
+            // fourth of four beam draws, bit 15): its palettes and dashboard
+            // ($10653C, $108892).
+            world_.night = false;
+            if (row > 6) {
+                int r = 0;
+                for (int i = 0; i < 4; ++i) r = world_.beam.next();
+                world_.night = (r & 0x8000) != 0;
+            }
+            set_lighting();
+        }
         set_up_sounds(world_, sample_lengths(assets_));
         world_.carrier_x = map_->carrier_x();
         auto& carrier = world_.ships[4];

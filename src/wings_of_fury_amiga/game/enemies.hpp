@@ -43,13 +43,28 @@ struct EnemyPlane {
     int turn_delay{};    // +$32: a turn steps every third call
 };
 
+// An enemy airfield (list -$5D04, $14 bytes; `cama` columns between a $114
+// and a $115 marker column, $102C84): parked fighters take off one at a
+// time while the player is near.
+struct Airfield {
+    int left{}, right{};   // +0, +2: the markers' x (the first and the second on the map)
+    int limit{};           // +4: no take-off while this many fighters are up
+    int parked{};          // +6
+    int takeoff_x{};       // +8: the plane taking off (0: none)
+    int speed{};           // +$C: its speed x 8
+    int direction{};       // +$E: the second marker's: $114 -1 (to the left), $115 +1
+    int shown_parked{}, shown_takeoff{}; // +$10, +$12: the frame start's copies ($101008)
+};
+
 struct Enemies {
     std::array<EnemyPlane, 4> planes{}; // -$5DD4
+    std::array<Airfield, 4> airfields{};
+    int launch_cooldown{};     // -$3CB6: ticks before another take-off
     int fighters_out{};        // -$5E28: lone fighters in the air
     std::vector<int> wrecks;   // -$5E24 (-$5E26 counts): burnt-out planes on the islands (x, sign = facing)
     int attacker_step{};       // -$3198: how many attackers ahead were spaced out this tick
     int skid_counter{};        // -$4368: a falling plane skidding on the water loses height every second tick
-    bool invulnerable{};       // -$408C: a debugging key's switch (enemy guns do not hurt)
+    bool invulnerable{};       // -$408C: the debug mode key $64 toggles it ($10D184): fighters ($10DE36) and flak ($104F96) do not hurt
 };
 
 // `wings` data the enemy planes read.
@@ -59,6 +74,8 @@ struct EnemyTables {
     std::array<std::string, 56> names{}; // $115EAC, $115F1C: japplane.shp by picture (left, then right)
     std::array<std::string, 56> eighth_names{}; // $115F8C, $115FFC: 8thscale.shp
     std::array<std::string, 4> flash_names{};   // $114520 + $40: fc10, fd10, fc1a, fd1a
+    std::array<std::string, 2> parked_names{};  // $114520 + $50: jp21 (taking off to the left), jp22
+    std::vector<int> airfield_bytes;            // -$7B0A: per bonus row 4 bytes (parked, limit for two airfields)
 };
 EnemyTables read_enemy_tables(const amiga::LoadedImage& wings);
 
@@ -73,6 +90,12 @@ struct EnemyView {
     int ground_line{};  // -$60CC
     bool eighth_scale{};
 };
+// $102C84: the map's airfields (the $114/$115 column pairs) with the
+// parked planes and the limit for this rank and mission (`row`: the bonus
+// table's row).
+void find_airfields(Enemies&, const data::MissionMap&, const EnemyTables&, int row);
+// $103A18 (after the islands' guns): the parked planes and the one taking off.
+std::vector<EnemySprite> airfield_sprites(const Enemies&, const EnemyTables&, const data::Assets&, const EnemyView&);
 // Steps the gun flashes' counters as the original's drawing does.
 std::vector<EnemySprite> enemy_sprites(Enemies&, const EnemyTables&, const data::Assets&, const EnemyView&);
 void draw_enemies(IndexedCanvas&, const std::vector<EnemySprite>&);

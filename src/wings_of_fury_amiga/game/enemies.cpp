@@ -86,6 +86,60 @@ public:
         else launch(true, word(p.x + 0x1800), 0, -1);
     }
 
+    // $101622: the airfields. A plane taking off gains speed (to 7 a tick)
+    // along the strip; past its end it becomes a lone fighter. With none
+    // taking off and the cooldown out, the first airfield within $1E0 of the
+    // plane starts the innermost parked one (while fewer fighters than its
+    // limit are up).
+    void airfields() {
+        for (auto& a : e.airfields) {
+            if (a.takeoff_x == 0) continue;
+            a.speed = std::min(a.speed + 1, 0x38);
+            const int step = a.speed >> 3;
+            if (a.direction != -1) {
+                a.takeoff_x = word(a.takeoff_x + step);
+                if (a.takeoff_x <= a.right) return;
+            } else {
+                a.takeoff_x = word(a.takeoff_x - step);
+                if (a.takeoff_x >= a.left) return;
+            }
+            launch(false, a.takeoff_x, 0, a.direction);
+            a.takeoff_x = 0;
+            return;
+        }
+        if (e.launch_cooldown != 0) return;
+        const int x = w.last.x;
+        for (auto& a : e.airfields) {
+            if (x < word(a.left - 0x1E0) || x > word(a.right + 0x1E0)) continue;
+            if (e.fighters_out >= a.limit || a.parked <= 0) return;
+            --a.parked;
+            e.launch_cooldown = 0x64;
+            const int spacing = a.parked << 6;
+            a.takeoff_x = a.direction == -1 ? word(a.right - 0x20 - spacing) : word(a.left + 0x20 + spacing);
+            a.speed = 0;
+        }
+    }
+
+    // $101510: the planes parked on enemy ships take off (facing left) while
+    // the plane is in the ship's range and fewer fighters than its limit are
+    // up. (The Japanese carrier's roll along its deck first: not rebuilt,
+    // no such ship on the maps played so far.)
+    void ship_planes() {
+        if (e.launch_cooldown != 0) return;
+        static constexpr int order[4] = {0, 1, 2, 3};
+        for (const int slot : order) {
+            auto& s = w.ships[std::size_t(slot)];
+            if (!s.present || !s.afloat || s.value == 0 || s.ready <= 0) continue;
+            auto& planes = s.planes;
+            if (w.last.x < planes.low || w.last.x > planes.high) continue;
+            if (e.fighters_out >= planes.limit || planes.count == 0) continue;
+            if (slot == 3) return; // (the carrier's deck roll)
+            const auto& plane = planes.planes[std::size_t(--planes.count)];
+            launch(false, plane.x, plane.altitude, -1);
+            e.launch_cooldown = 0x64;
+        }
+    }
+
     // $10E7D6: each plane's tick.
     void tick() {
         e.attacker_step = 0;
@@ -541,7 +595,66 @@ EnemyTables read_enemy_tables(const amiga::LoadedImage& wings) {
         t.eighth_names[i + 28] = name(0x115FFC + i * 4);
     }
     for (std::uint32_t i = 0; i < 4; ++i) t.flash_names[i] = name(0x114520 + (0x10 + i) * 4);
+    for (std::uint32_t i = 0; i < 2; ++i) t.parked_names[i] = name(0x114520 + (0x14 + i) * 4);
+    for (std::uint32_t i = 0; i < 16 * 4; ++i) t.airfield_bytes.push_back(wings.u8(0x11AF52 - 0x7B0A + i));
     return t;
+}
+
+const data::Shape* find_shape(const data::Assets& assets, std::string_view library, const std::string& name);
+
+void airfields_tick(PlayerFlight& p, FlightWorld& w, const FlightTables& t) {
+    if (--w.enemies.launch_cooldown < 0) w.enemies.launch_cooldown = 0; // ($10143E)
+    EnemyWork(p, w, t).airfields();
+    EnemyWork(p, w, t).ship_planes(); // $101510
+}
+
+void find_airfields(Enemies& e, const data::MissionMap& map, const EnemyTables& t, int row) {
+    e.airfields = {};
+    std::size_t next = std::size_t(row) * 4, slot = 0;
+    int markers = 0;
+    for (std::size_t c = 0; c < map.words.size() && slot < e.airfields.size(); ++c) {
+        const int index = map.words[c] >> 2 & 0x1FF;
+        if (index != 0x114 && index != 0x115) continue;
+        auto& a = e.airfields[slot];
+        const int x = int(c) * 8;
+        if (++markers & 1) {
+            a.left = x;
+            continue;
+        }
+        a.right = x;
+        a.direction = index == 0x114 ? -1 : 1;
+        a.parked = next < t.airfield_bytes.size() ? t.airfield_bytes[next] : 0;
+        a.limit = next + 1 < t.airfield_bytes.size() ? t.airfield_bytes[next + 1] : 0;
+        next += 2;
+        ++slot;
+    }
+}
+
+std::vector<EnemySprite> airfield_sprites(const Enemies& e, const EnemyTables& t, const data::Assets& assets, const EnemyView& view) {
+    std::vector<EnemySprite> out;
+    const int shift = view.eighth_scale ? 3 : 0;
+    const int origin = word(view.camera + word(0xFF60 << shift));
+    for (const auto& a : e.airfields) {
+        if (a.right == 0) continue;
+        const bool left = a.direction == -1;
+        const data::Shape* shape = view.eighth_scale ? data::eighth_scale_shape(assets, left ? 160 : 163)
+                                                      : find_shape(assets, "japplane.shp", t.parked_names[left ? 0 : 1]);
+        if (shape == nullptr) continue;
+        int step = left ? 0x20 : -0x20;
+        int x = word((left ? a.right : a.left) - origin) >> shift;
+        step >>= shift;
+        const int y = view.eighth_scale ? (view.ground_line >> 3) - 1 : view.ground_line;
+        x -= step;
+        step *= 2;
+        for (int i = 0; i < a.shown_parked; ++i, x -= step) {
+            out.push_back({shape, x - shape->offset_x, y - shape->offset_y, false});
+        }
+        if (a.shown_takeoff != 0) {
+            const int tx = word(a.shown_takeoff - origin) >> shift;
+            out.push_back({shape, tx - shape->offset_x, y - shape->offset_y, false});
+        }
+    }
+    return out;
 }
 
 void enemy_timer(PlayerFlight& p, FlightWorld& w, const FlightTables& t, int command) {
@@ -557,14 +670,40 @@ void launch_enemy(PlayerFlight& p, FlightWorld& w, const FlightTables& t, bool f
     EnemyWork(p, w, t).launch(formation, x, altitude, facing);
 }
 
-namespace {
 const data::Shape* find_shape(const data::Assets& assets, std::string_view library, const std::string& name) {
     for (const auto& l : assets.libraries) {
         if (l.name == library) return l.library.find(name);
     }
     return nullptr;
 }
-} // namespace
+
+std::vector<EnemySprite> ship_plane_sprites(const FlightWorld& w, const EnemyTables& t, const data::Assets& assets,
+                                           const EnemyView& view, int vertical_scroll) {
+    std::vector<EnemySprite> out;
+    const int shift = view.eighth_scale ? 3 : 0;
+    const int origin = word(view.camera + word(0xFF60 << shift));
+    static constexpr int order[4] = {0, 1, 2, 3};
+    for (const int slot : order) {
+        const auto& s = w.ships[std::size_t(slot)];
+        if (!s.present || !s.afloat) continue;
+        const int drop = view.eighth_scale ? s.bob : word(s.bob + vertical_scroll);
+        for (int i = 0; i < s.planes.shown_count && std::size_t(i) < s.planes.planes.size(); ++i) {
+            const auto& plane = s.planes.planes[std::size_t(i)];
+            if (plane.flag == 0) continue;
+            const bool left = plane.facing < 0;
+            const data::Shape* shape = view.eighth_scale ? data::eighth_scale_shape(assets, left ? 0xA0 : 0xA3)
+                                                          : find_shape(assets, "japplane.shp", t.parked_names[left ? 0 : 1]);
+            if (shape == nullptr) continue;
+            // (-$7EEA: an entry at a world x and height, as the scenery's
+            // objects are placed.)
+            const int sx = word(plane.x - origin) >> shift;
+            const int sy = word(-word(plane.altitude - drop) + 0xB + view.ground_line) >> shift;
+            if (sx < -0x80 || sx > 0x1C0) continue;
+            out.push_back({shape, sx - shape->offset_x, sy - shape->offset_y, false});
+        }
+    }
+    return out;
+}
 
 std::vector<EnemySprite> enemy_sprites(Enemies& e, const EnemyTables& t, const data::Assets& assets, const EnemyView& view) {
     std::vector<EnemySprite> out;

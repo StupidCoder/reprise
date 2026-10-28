@@ -108,6 +108,9 @@ struct Effects {
     bool start_blast_at(int x, int height, bool water);
     // $1052AC: a splash at world x; `surface` is the map's under x ($1050C8).
     void start_splash(int x, int surface);
+    // $101AE2: the player's torpedoes (and the enemy's, any weapon in its
+    // slot) listed within `reach` of x go off.
+    void set_off_torpedoes(int x, int reach);
     // $10CAE0: a puff of smoke of `size` at world (x, y), nudged 0..7 to the
     // right and 6 up; $105460 gives it a drift of 1..2 right and up.
     void start_smoke(int x, int y, int size, BeamRandom&);

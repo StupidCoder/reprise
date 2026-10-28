@@ -38,7 +38,7 @@ public:
     Dash(IndexedCanvas& canvas, const data::Assets& assets, const DashboardTables& t, const DashboardInput& in)
         : canvas(canvas), assets(assets), t(t), in(in) {
         for (const auto& library : assets.libraries) {
-            if (library.name == "dash.shp") parts = &library.library;
+            if (library.name == (in.night ? "nightdash.shp" : "dash.shp")) parts = &library.library;
         }
     }
 
@@ -361,7 +361,7 @@ IndexedCanvas draw_dashboard(const data::Assets& assets, const DashboardTables& 
                              const DashboardInput& in) {
     const amiga::IlbmPicture* picture = nullptr;
     for (const auto& p : assets.pictures) {
-        if (p.name == "iff-dash") picture = &p.picture;
+        if (p.name == (in.night ? "nightdash" : "iff-dash")) picture = &p.picture;
     }
     IndexedCanvas canvas(640, 37);
     if (picture != nullptr) {

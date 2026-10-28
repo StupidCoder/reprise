@@ -6,6 +6,7 @@
 #include "wings_of_fury_amiga/game/enemies.hpp"
 #include "wings_of_fury_amiga/game/ffp.hpp"
 #include "wings_of_fury_amiga/game/islands.hpp"
+#include "wings_of_fury_amiga/game/ships.hpp"
 #include <array>
 #include <cstdint>
 #include <string>
@@ -97,6 +98,7 @@ struct FlightTables {
     std::array<int, 257> arctangent{};
     IslandTables islands;
     EnemyTables enemies;
+    ShipTables ships;
     std::vector<int> gun_angles;   // -$63E2 - 32 ..: the guns' picture by row and column ($104DB8)
     int gun_angle(int index) const {
         const auto at = std::size_t(index + 32);
@@ -113,8 +115,32 @@ FlightTables read_flight_tables(const amiga::LoadedImage& wings);
 
 // A ship the plane can land on or hit (the five object slots $105710 and
 // $104A4E know: four enemy slots and the US carrier, last).
+// An enemy ship's anti-aircraft gun (+6 list, $E bytes each, $10350E).
+struct ShipGun {
+    int x{};              // +4: world x
+    int lift{};           // +6: drawn this much higher
+    bool destroyed{};     // +8
+    int smoke_left{};     // +$A
+    int smoke_timer{};    // +$C
+};
+// A ship's parked planes (lists -$5F68 + $40 n, $10252C): they take off
+// as lone fighters while the player is between `low` and `high`.
+struct ShipPlanes {
+    int count{};          // +0: parked
+    int limit{};          // +2: no take-off while this many fighters are up
+    int low{}, high{};    // +4, +6
+    struct Plane {
+        int flag{};       // +0 ($8000 parked; the carrier's: 1 rolling)
+        int x{}, altitude{}; // +2, +4
+        int facing{};     // +6
+    };
+    std::vector<Plane> planes;
+    int shown_count{};    // the frame start's copy ($10102C)
+};
+
 struct ShipState {
     int first{}, last{};  // byte offsets of the map columns it covers
+    bool present{};       // -$5C84.. (enemy ships): on this map
     bool afloat{};        // +4
     int ready{};          // +$C: torpedo hits it can still take (the carrier: 4); 0: sinking
     int deck{};           // +$E
@@ -123,6 +149,9 @@ struct ShipState {
     int sink_timer{};     // +$16: ticks to the next step down
     int sink_delay{};     // +$18: the timer's next start ($14 when hit for the last time; shrinks)
     int bob{};            // +$1A: the frame's copy of +$14
+    int overlay{};        // +$1C: its library's first scenery index
+    std::vector<ShipGun> guns; // +6, +$A
+    ShipPlanes planes;
 };
 
 struct PlayerFlight {
@@ -177,6 +206,7 @@ struct FlightWorld {
     }
     Islands islands;
     Enemies enemies;
+    bool night{};                    // -$5C6E: a night mission ($1011FC)
     int rank{};                      // -$5C40
     int mission{1};                  // -$5C3E
     bool mission_accomplished{};     // -$5C42: back below deck, the debriefing
@@ -275,12 +305,21 @@ void islands_frame(PlayerFlight&, FlightWorld&, const FlightTables&, const std::
 // $101A8C with $101AE2: a blast at x kills the soldiers within reach and
 // sets off the torpedoes near it.
 void set_off_near(PlayerFlight&, FlightWorld&, const FlightTables&, int x, int reach);
+// $102DE8 (ship markers), $103252, $10252C: the enemy ships of a map, for
+// the rank and mission (`row`: the bonus table's row).
+void find_ships(FlightWorld&, const data::MissionMap&, const FlightTables&, int row);
+// $10391E (enemies.cpp): the planes parked on the enemy ships.
+std::vector<EnemySprite> ship_plane_sprites(const FlightWorld&, const EnemyTables&, const data::Assets&, const EnemyView&,
+                                           int vertical_scroll);
+// $101D0E (islands.cpp): an enemy ship's sinking reaches step 10.
+void ship_sunk(PlayerFlight&, FlightWorld&, const FlightTables&, const ShipState&);
 // $101CAE: the ships hit for the last time sink a step at a time.
 void ships_sinking(PlayerFlight&, FlightWorld&, const FlightTables&);
 
 // The enemy planes (enemies.cpp).
 void enemy_timer(PlayerFlight&, FlightWorld&, const FlightTables&, int command); // $10BC02
 void enemies_tick(PlayerFlight&, FlightWorld&, const FlightTables&);             // $10E7D6
+void airfields_tick(PlayerFlight&, FlightWorld&, const FlightTables&);           // $10143E, $101622
 void guns_at_planes(PlayerFlight&, FlightWorld&, const FlightTables&);           // $10B682
 void launch_enemy(PlayerFlight&, FlightWorld&, const FlightTables&, bool formation, int x, int altitude,
                   int facing);                                                    // $10E4D0

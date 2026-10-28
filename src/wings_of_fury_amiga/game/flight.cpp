@@ -52,8 +52,8 @@ public:
         damaged_plane_smoke(p, w, t); // $101BFC
         fly_objects();
         strafe();
-        // ($101622 / $101510, the enemy carriers and airfields: none on
-        // the maps rebuilt so far.)
+        airfields_tick(p, w, t);      // $10143E, $101622
+        // ($101510, the enemy carrier's fighters: not rebuilt yet.)
         ships_sinking(p, w, t);       // $101CAE
         soldiers_come_out(p, w, t);   // $101DE4
     }
@@ -677,9 +677,23 @@ private:
         return word(w.frame_camera - (p.facing < 0 ? along : -along));
     }
 
+    // $1011A6: the first standing gun of an enemy ship still afloat with lo
+    // <= x <= hi (world x); 0 when none.
+    int ship_gun_between(int a, int b) const {
+        const int lo = std::min(a, b), hi = std::max(a, b);
+        static constexpr int order[4] = {0, 1, 2, 3}; // (-$5AA4: the US carrier has no value)
+        for (const int slot : order) {
+            const auto& s = w.ships[std::size_t(slot)];
+            if (!s.present || !s.afloat || (s.value == 0 && s.sunk == 0)) continue;
+            for (const auto& g : s.guns) {
+                if (!g.destroyed && lo <= g.x && g.x <= hi) return g.x;
+            }
+        }
+        return 0;
+    }
+
     // $10115C: the first standing pillbox (list -$5AFA) with lo <= offset <
-    // hi (map byte offsets); 0 when none. ($1011A6 first searches the guns
-    // on enemy ships: none are rebuilt yet.)
+    // hi (map byte offsets); 0 when none.
     int gun_post_between(int a, int b) const {
         const int lo = std::min(a, b), hi = std::max(a, b);
         for (const auto& g : w.islands.pillboxes) {
@@ -734,7 +748,11 @@ private:
         if (angle >= 0) return;
         const int mid = ground_point(angle), steep = ground_point(angle + 0x14), shallow = ground_point(angle - 0x14);
         if (mid == 0 || steep == 0 || shallow == 0) return;
-        int target = gun_post_between(mid >> 2, steep >> 2) * 4;
+        // The ships' guns first ($1011A6, in world x), then the pillboxes
+        // ($10115C, in map offsets).
+        int target = ship_gun_between(mid, steep);
+        if (target == 0) target = ship_gun_between(mid, shallow);
+        if (target == 0) target = gun_post_between(mid >> 2, steep >> 2) * 4;
         if (target == 0) target = gun_post_between(mid >> 2, shallow >> 2) * 4;
         if (target == 0) return;
         int heading = arctangent(o.pixel_y(), std::abs(word(target - o.pixel_x())));
@@ -1273,6 +1291,10 @@ public:
     // $103684 / $10B7EC.
     void new_plane(int random_load) {
         w.input_delay = 0xF;
+        // $103756: every object in the table is gone (+$20 cleared: weapons
+        // and blasts), the enemy's torpedo too.
+        for (auto& o : w.effects.objects) o.kind = FlyingObject::Kind::none;
+        w.effects.enemy_torpedo.kind = FlyingObject::Kind::none;
         w.weapon = 1;
         p.signal = 3;
         w.crew.phase = 0; // ($1036A8)
@@ -1347,6 +1369,7 @@ FlightTables read_flight_tables(const amiga::LoadedImage& wings) {
     t.wreck_names = {"hcr5", "hcrf"};
     t.islands = read_island_tables(wings);
     t.enemies = read_enemy_tables(wings);
+    t.ships = read_ship_tables(wings);
     for (std::uint32_t at = 0x11AF52 - 0x63E2 - 32; at < 0x11AF52 - 0x63E2 + 288; ++at) t.gun_angles.push_back(wings.u8(at));
     const auto text = [&](std::uint32_t at) {
         std::string s;
@@ -1378,7 +1401,7 @@ void set_off_near(PlayerFlight& p, FlightWorld& w, const FlightTables& t, int x,
     }
 }
 
-void ships_sinking(PlayerFlight& p, FlightWorld& w, const FlightTables&) {
+void ships_sinking(PlayerFlight& p, FlightWorld& w, const FlightTables& t) {
     for (auto& ship : w.ships) {
         if (!ship.afloat || ship.ready != 0) continue;
         // $101CD8: a step down when the timer runs out; each step comes
@@ -1408,8 +1431,8 @@ void ships_sinking(PlayerFlight& p, FlightWorld& w, const FlightTables&) {
             if (ship.sunk < 0x78) continue;
             ship.afloat = false; // (and -$5A3D is set: nothing rebuilt reads it)
         } else {
-            // (Enemy ships: their score and message at step 10 ($101D0E)
-            // are not rebuilt; none on the maps rebuilt so far.)
+            // An enemy ship: its value and the message at step 10.
+            if (ship.sunk == 0xA) ship_sunk(p, w, t, ship);
             if (ship.sunk < 0x78) continue;
             ship.ready = -1;
         }

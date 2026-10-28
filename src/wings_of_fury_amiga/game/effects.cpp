@@ -1,5 +1,6 @@
 #include "wings_of_fury_amiga/game/effects.hpp"
 #include <algorithm>
+#include <cstdlib>
 #include <cstdint>
 
 namespace wings::game {
@@ -64,6 +65,17 @@ bool Effects::start_blast_at(int x, int height, bool water) {
         return true;
     }
     return false;
+}
+
+void Effects::set_off_torpedoes(int x, int reach) {
+    const auto off = [&](FlyingObject& o, bool any) {
+        if (o.listed == FlyingObject::Kind::none || (!any && o.weapon != 2)) return;
+        if (std::uint16_t(std::abs(std::int16_t(o.shown_x - x))) > reach) return;
+        o.kind = FlyingObject::Kind::blast;
+        o.frame = 1;
+    };
+    for (auto& o : objects) off(o, false);
+    off(enemy_torpedo, true);
 }
 
 void Effects::start_splash(int x, int surface) {
