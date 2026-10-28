@@ -10,7 +10,6 @@
 #include "mindwalker_amiga/data/assets.hpp"
 #include <optional>
 #include "platform/files.hpp"
-#include "ui/vhs.hpp"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -80,13 +79,12 @@ public:
     double pixel_aspect() const override { return 1.0; }
 
     void tick(const app::GameInput& input) override {
-        ++frames_;
         if (input.pointer) {
             // The launcher gives the pointer in pixels of the picture we
             // returned last, which the VHS look doubles: back to the
             // screen's 320 x 200.
-            mouse_x_ = input.pointer_x * screen::Canvas::width / shown_width_;
-            mouse_y_ = input.pointer_y * screen::Canvas::height / shown_height_;
+            mouse_x_ = input.pointer_x;
+            mouse_y_ = input.pointer_y;
         }
         const bool press = input.mouse_button && !button_was_down_;
         button_was_down_ = input.mouse_button;
@@ -406,11 +404,10 @@ public:
                                 : phase_ == Phase::loading ? loading_picture_.picture({0x000, loading_colour_})
                                                            : title_->picture();
         pointer_.draw(image, mouse_x_, mouse_y_);
-        auto shown = vhs_ ? ui::vhs(image, frames_, vhs_) : image;
-        shown_width_ = std::max(shown.width, 1);
-        shown_height_ = std::max(shown.height, 1);
-        return shown;
+        return image;
     }
+    int vhs_level() const override { return vhs_; }
+    bool draws_pointer() const override { return true; } // the pointer sprite
 
     // Quick save and load, in the landscape, the tunnel, the arena and the
     // psyche screen: a copy of the running stage and of the game's record
@@ -538,9 +535,7 @@ private:
     int ended_where_{};            // +$2BA
     Phase restart_phase_{Phase::landscape};
     std::unique_ptr<Snapshot> saved_;
-    long frames_{};
     int vhs_{};
-    mutable int shown_width_{screen::Canvas::width}, shown_height_{screen::Canvas::height}; // the last picture's size
     Cheats cheats_;
 };
 

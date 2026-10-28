@@ -1,7 +1,6 @@
 #include "fort_apocalypse_c64/game/module.hpp"
 #include "c64/program.hpp"
 #include "platform/files.hpp"
-#include "ui/vhs.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -140,7 +139,7 @@ platform::Image Module::picture() const {
             }
         }
     }
-    return vhs_ ? ui::vhs(picture, frames_, vhs_) : picture;
+    return picture;
 }
 
 void Module::audio(std::span<float> stereo, int sample_rate) {

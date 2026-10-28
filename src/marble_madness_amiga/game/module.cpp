@@ -5,7 +5,6 @@
 #include "marble_madness_amiga/game/race.hpp"
 #include "marble_madness_amiga/game/view.hpp"
 #include "marble_madness_amiga/sound/sound_board.hpp"
-#include "ui/vhs.hpp"
 #include <chrono>
 #include <memory>
 #include <optional>
@@ -34,7 +33,6 @@ public:
         flow_.tick({in.up, in.down, in.left, in.right, in.fire, next_push_});
         // The controls are read at the end of an update for the next one.
         next_push_ = read_push(in);
-        ++frames_;
         // The options screen's input device sets the steering.
         if (const int device = flow_.settings().device[0]; device != device_) {
             device_ = device;
@@ -43,9 +41,9 @@ public:
     }
 
     platform::Image picture() const override {
-        auto image = flow_.picture();
-        return vhs_ ? ui::vhs(image, frames_, vhs_) : image;
+        return flow_.picture();
     }
+    int vhs_level() const override { return vhs_; }
 
     void audio(std::span<float> stereo, int sample_rate) override { flow_.audio(stereo, sample_rate); }
 
@@ -172,7 +170,6 @@ private:
     bool crowd_{};
     bool crowd_close_{true};
     int crowd_skill_{Race::normal};
-    long frames_{};
     std::optional<GameFlow> saved_;
     Push saved_push_{};
 };

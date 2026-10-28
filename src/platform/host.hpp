@@ -83,6 +83,9 @@ public:
     // darkens the frame under it.
     void present_game(const Image& frame, double pixel_aspect, const Image* overlay = nullptr,
                       bool dim = false);
+    // Whether the game shown draws its own mouse pointer; the system's is
+    // then hidden while over the game frame (not over an overlay).
+    void set_game_draws_pointer(bool draws);
 
     // Queues stereo samples; clear_audio() drops queued audio.
     void audio(std::span<const float> stereo_samples);

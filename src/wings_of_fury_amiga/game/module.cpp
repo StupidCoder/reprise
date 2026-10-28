@@ -51,7 +51,6 @@ public:
     double pixel_aspect() const override { return 0.5; }         // lowres view doubled to the hires dashboard
 
     void tick(const app::GameInput& input) override {
-        ++frames_;
         if (mission_over_) return;
         if (front_end_.screen() != FrontEnd::Screen::none) {
             // $1023DC / $102470: a new song (or none) waits for the playing
@@ -223,10 +222,8 @@ public:
         return "";
     }
 
-    platform::Image picture() const override {
-        const auto image = game_picture();
-        return vhs_ ? ui::vhs(image, frames_, vhs_) : image;
-    }
+    platform::Image picture() const override { return game_picture(); }
+    int vhs_level() const override { return vhs_; }
 
     // Quick save and load: the game where it is (front-end screen, mission,
     // flight, effects, ticker); the sound effects start again from the next
@@ -713,7 +710,6 @@ private:
     int end_fade_ = -1;       // $1073E6 after the game: the step of the fade to black
     bool quit_ = false, r_was_ = false;
     int playing_song_ = -1;   // the song the front end plays (for quick load)
-    long frames_ = 0;         // vertical blanks (the VHS look follows them)
     int vhs_ = 0;
     struct Snapshot {
         FlightWorld world;

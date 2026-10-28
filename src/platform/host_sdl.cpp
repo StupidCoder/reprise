@@ -22,6 +22,8 @@ struct Host::Implementation {
     SDL_FRect overlay_box{}; // where the last game overlay was shown (device pixels)
     SDL_FRect game_box{};    // where the last game frame was shown (device pixels)
     int game_width{}, game_height{}; // that frame's size in pixels
+    bool game_draws_pointer{};       // the game shows its own pointer
+    bool cursor_hidden{};
     SDL_Gamepad* gamepad{};
     SDL_Gamepad* gamepad2{}; // a second one: the second joystick
     SDL_AudioStream* audio{};
@@ -268,7 +270,17 @@ Controls Host::poll() {
             input.game_pointer = std::array<int, 2>{int(fx), int(fy)};
         }
     }
+    // Only one pointer: the system's hidden over a game drawing its own.
+    const bool hide = input.game_pointer && i.game_draws_pointer && i.overlay_box.w <= 0;
+    if (hide != i.cursor_hidden) {
+        hide ? SDL_HideCursor() : SDL_ShowCursor();
+        i.cursor_hidden = hide;
+    }
     return input;
+}
+
+void Host::set_game_draws_pointer(bool draws) {
+    impl_->game_draws_pointer = draws;
 }
 
 double Host::seconds() const {

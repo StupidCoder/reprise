@@ -89,6 +89,7 @@ public:
     }
 
     platform::Image picture() const override;
+    bool draws_pointer() const override { return true; }
 
     void audio(std::span<float> stereo, int rate) override {
         std::fill(stereo.begin(), stereo.end(), 0.0f);

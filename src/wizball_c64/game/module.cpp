@@ -1,5 +1,4 @@
 #include "wizball_c64/game/module.hpp"
-#include "ui/vhs.hpp"
 #include "wizball_c64/enhanced/effects.hpp"
 #include "wizball_c64/data/assets.hpp"
 #include "wizball_c64/game/front_end.hpp"
@@ -107,8 +106,9 @@ public:
                 }
             image = std::move(moved);
         }
-        return vhs_ ? ui::vhs(image, frames_, vhs_) : image;
+        return image;
     }
+    int vhs_level() const override { return vhs_; }
 
     void audio(std::span<float> stereo, int sample_rate) override {
         mono_.resize(stereo.size() / 2);

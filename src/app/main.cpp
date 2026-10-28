@@ -96,7 +96,7 @@ int run(const Options& options) {
         }
         const auto overlay = menu.draw(*game, entry.title, 10, entry.id);
         platform::Image out(overlay.width, overlay.height);
-        const auto& frame = game->picture();
+        const auto frame = app::shown_picture(*game, 0).image;
         const int h = overlay.height, w = int(h * frame.width * game->pixel_aspect() / frame.height);
         ui::picture(out, frame, (overlay.width - w) / 2, 0, w, h);
         ui::blend_rect(out, 0, 0, out.width, out.height, {0, 0, 0}, 140);
@@ -128,6 +128,10 @@ int run(const Options& options) {
     std::size_t playing = 0;
     app::PauseMenu menu;
     double game_clock = 0, sample_credit = 0;
+    // The frames run (for the VHS look's noise) and the picture last shown,
+    // over which the host reports the mouse.
+    long frames_run = 0;
+    app::ShownPicture shown;
     std::vector<float> audio;
     // A game's options stay as the player set them, also for the next
     // launch: written to the data folder when they change.
@@ -195,7 +199,8 @@ int run(const Options& options) {
                     if (game) {
                         remember_options(*game);
                         const auto overlay = menu.draw(*game, entry.title, now, entry.id);
-                        host.present_game(game->picture(), game->pixel_aspect(), &overlay, true);
+                        shown = app::shown_picture(*game, frames_run);
+                        host.present_game(shown.image, game->pixel_aspect(), &overlay, true);
                     }
                     continue;
                 }
@@ -223,8 +228,9 @@ int run(const Options& options) {
                                      controls.left2, controls.right2, controls.fire2, controls.c64_keys};
                 input.pointer = controls.game_pointer.has_value();
                 if (controls.game_pointer) {
-                    input.pointer_x = (*controls.game_pointer)[0];
-                    input.pointer_y = (*controls.game_pointer)[1];
+                    const auto at = shown.to_picture(*controls.game_pointer);
+                    input.pointer_x = at[0];
+                    input.pointer_y = at[1];
                 }
                 input.mouse_button = controls.mouse_held;
                 input.mouse_right = controls.mouse_right_held;
@@ -233,6 +239,7 @@ int run(const Options& options) {
                 game_clock = std::max(game_clock, now - 4 * game->step_seconds());
                 while (game_clock + game->step_seconds() <= now && game->stopped().empty()) {
                     game->tick(input);
+                    ++frames_run;
                     game_clock += game->step_seconds();
                     // The sound of this frame.
                     sample_credit += game->step_seconds() * platform::Host::audio_sample_rate;
@@ -247,7 +254,9 @@ int run(const Options& options) {
                     game.reset();
                     continue;
                 }
-                host.present_game(game->picture(), game->pixel_aspect());
+                shown = app::shown_picture(*game, frames_run);
+                host.set_game_draws_pointer(game->draws_pointer());
+                host.present_game(shown.image, game->pixel_aspect());
             } catch (const std::exception& e) {
                 game.reset();
                 menu.hide();

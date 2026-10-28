@@ -1483,21 +1483,25 @@ int flow(const std::filesystem::path& content, const std::filesystem::path& out_
     return 0;
 }
 
-// The pointer with the VHS look on: the launcher reports it in pixels of the
-// (doubled) picture shown; the game's pointer must land on the same spot.
+// The pointer with the VHS look on: the host reports the mouse over the
+// (doubled) picture shown; the launcher maps it to the game's own picture,
+// where the game's pointer must land on the same spot.
 int pointer_check(const std::filesystem::path& content, const std::filesystem::path& out) {
     auto module = mindwalker::game::start(content);
     module->set_option(0, 2); // VHS medium
     app::GameInput in;
     module->tick(in);
-    auto shown = module->picture();
+    auto shown = app::shown_picture(*module, 1);
+    const std::array<int, 2> mouse{shown.image.width / 2, shown.image.height / 2};
+    const auto at = shown.to_picture(mouse);
     in.pointer = true;
-    in.pointer_x = shown.width / 2;
-    in.pointer_y = shown.height / 2;
+    in.pointer_x = at[0];
+    in.pointer_y = at[1];
     module->tick(in);
-    shown = module->picture();
-    platform::save_png(shown, out);
-    std::printf("picture %d x %d; pointer reported at %d, %d\n", shown.width, shown.height, in.pointer_x, in.pointer_y);
+    shown = app::shown_picture(*module, 2);
+    platform::save_png(shown.image, out);
+    std::printf("shown %d x %d, mouse at %d, %d; game picture %d x %d, pointer at %d, %d\n", shown.image.width,
+                shown.image.height, mouse[0], mouse[1], shown.picture_width, shown.picture_height, at[0], at[1]);
     return 0;
 }
 

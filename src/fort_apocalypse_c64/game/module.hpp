@@ -19,6 +19,7 @@ public:
     double step_seconds() const override { return 312.0 * 63.0 / 985248.0; }
     void tick(const app::GameInput&) override;
     platform::Image picture() const override;
+    int vhs_level() const override { return vhs_; }
     // A PAL C64 pixel is slightly narrower than tall.
     double pixel_aspect() const override { return 0.9365; }
     void set_canvas(int width, int height) override;

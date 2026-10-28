@@ -2,7 +2,6 @@
 #include "bruce_lee_c64/enhanced/effects.hpp"
 #include "bruce_lee_c64/enhanced/wide_view.hpp"
 #include "bruce_lee_c64/game/game.hpp"
-#include "ui/vhs.hpp"
 #include <algorithm>
 #include <cmath>
 #include <memory>
@@ -50,8 +49,9 @@ public:
         // and below only in windows narrower than the display window).
         const auto& shown = shaken_.pixels.empty() ? this->shown() : shaken_;
         auto image = widescreen_ ? shown.to_image(0, wide_.margin_y) : shown.to_image(32, 35);
-        return vhs_ ? ui::vhs(image, frames_, vhs_) : image;
+        return image;
     }
+    int vhs_level() const override { return vhs_; }
 
     void audio(std::span<float> stereo, int sample_rate) override {
         mono_.resize(stereo.size() / 2);
