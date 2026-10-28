@@ -452,8 +452,30 @@ void FrontEnd::start_hill(const Campaign& campaign) {
     hill_.queue = campaign.pool_at_mission;
     hill_.grave_variety = (int(campaign.heroes.size()) & 0x1e) >> 1; // ($80A0E - $8073C) / 2 & $1E
     hill_.background = screen_buffer_;
+    // $A5972: the door's pictures: with recruits joining ($80D48) it opens
+    // (table $A59C2), the officer waves each further one in ($A59E2), then
+    // once more ($A59D8) and it closes ($A5A0A); then shut (0).
+    {
+        const auto copy = [&](std::uint32_t table) {
+            for (auto at = file_offset(table); at + 2 <= program_.size(); at += 2) {
+                const int v = std::int16_t(amiga::read_be16(program_, at));
+                if (v < 0) break;
+                hill_.door.push_back(v);
+            }
+        };
+        if (campaign.joining > 0) {
+            copy(0xa59c2);
+            for (int k = 0; k <= campaign.joining - 2; ++k) copy(0xa59e2);
+            copy(0xa59d8);
+            copy(0xa5a0a);
+        }
+        hill_.door.push_back(0);
+        hill_.door_step = hill_.door_frame = 0; // (hypothesis: cleared before each hill with the mission's variables)
+    }
     // Twice before the colours come up ($A5A64 x 2), then a frame each.
+    hill_door();
     hill_walk();
+    hill_door();
     hill_walk();
     draw_hill();
     song_ = -1;
@@ -465,6 +487,7 @@ void FrontEnd::start_hill(const Campaign& campaign) {
     hill_choice_ = HillChoice::go_on;
     save_allowed_ = save == 0;
     steps.push_back([this](const app::GameInput& input) {
+        hill_door();
         if (hill_walk() && !hill_.arriving.empty()) { // $A60A4: his name comes up
             hill_.column.squad.push_back(hill_.arriving.front());
             hill_.arriving.erase(hill_.arriving.begin());
@@ -496,11 +519,13 @@ void FrontEnd::draw_hill() {
     screen_buffer_.palette = palette;
     screen_buffer_.fade_low = low;
     screen_buffer_.fade_high = high;
-    // $A5FBC: every path point with a recruit: the picture by his look
-    // and step and the road's turn, the size by how far down the road.
     loaded_.clear();
     loaded_.emplace(at_sheet, sheet_);
     const FrontFrames sheet(program_, 0x90f10);
+    // $A5A24: the door (group $22) under the recruits.
+    draw_frame(sheet, 0x22, hill_.door_shown, 0x31, 0xbe);
+    // $A5FBC: every path point with a recruit: the picture by his look
+    // and step and the road's turn, the size by how far down the road.
     for (std::size_t k = 0; k < hill_.path.size(); ++k) {
         const auto& p = hill_.path[k];
         if (p[2] == 0) continue;
@@ -519,6 +544,14 @@ void FrontEnd::draw_hill() {
             if (c != 0) screen_buffer_.pixels[std::size_t((y + 26) * FrontScreen::width + x)] = std::uint8_t(16 + c);
         }
     }
+}
+
+// $A5A24: the door shows its picture; once the recruits have closed up
+// ($8277C) it takes the next one each frame until the list ends.
+void FrontEnd::hill_door() {
+    hill_.door_shown = hill_.door_frame;
+    if (!hill_.queued || hill_.door_step >= int(hill_.door.size())) return;
+    hill_.door_frame = hill_.door[std::size_t(hill_.door_step++)];
 }
 
 // One frame of the recruits walking down the road; true when one reached

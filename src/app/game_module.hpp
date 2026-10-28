@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <optional>
 #include <span>
 #include <string>
 #include <stdexcept>
@@ -78,6 +79,10 @@ public:
     // tick (0 .. 1), set before picture(): a game that draws motion between
     // its own frames (smooth motion) can show it at the display's rate.
     virtual void set_frame_fraction(double /*fraction*/) {}
+    // The mouse over the picture now (in pixels of picture(), like
+    // GameInput), set before picture(): a game drawing its own pointer can
+    // show it where the mouse is at the display's rate. Empty: not over it.
+    virtual void set_display_pointer(std::optional<std::array<int, 2>> /*at*/) {}
 
     // Interleaved stereo samples for the time of the last tick.
     virtual void audio(std::span<float> stereo, int sample_rate) {

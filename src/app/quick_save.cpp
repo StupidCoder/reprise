@@ -158,6 +158,7 @@ class SavedGame final : public GameModule {
     void tick(const GameInput &in) override { game_->tick(in); }
     platform::Image picture() const override { return game_->picture(); }
     void set_frame_fraction(double fraction) override { game_->set_frame_fraction(fraction); }
+    void set_display_pointer(std::optional<std::array<int, 2>> at) override { game_->set_display_pointer(at); }
     double pixel_aspect() const override { return game_->pixel_aspect(); }
     int vhs_level() const override { return game_->vhs_level(); }
     bool draws_pointer() const override { return game_->draws_pointer(); }

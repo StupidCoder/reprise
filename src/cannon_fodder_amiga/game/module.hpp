@@ -15,5 +15,7 @@ namespace fodder::game {
 std::unique_ptr<app::GameModule> start_game(const std::filesystem::path& content, int first_phase = -1);
 // For tools: the phase, the outcome and the counts, in one line.
 std::string describe(const app::GameModule& game);
+// For tools: the running phase won at once (its objectives met).
+void win_phase(app::GameModule& game);
 
 } // namespace fodder::game

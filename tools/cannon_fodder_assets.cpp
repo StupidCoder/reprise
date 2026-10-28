@@ -76,6 +76,8 @@
 #include "platform/sha256.hpp"
 #include "state/archive.hpp"
 #include <algorithm>
+#include <thread>
+#include <chrono>
 #include <set>
 #include <cstdio>
 #include <cstdlib>
@@ -1036,6 +1038,66 @@ int run(int argc, char** argv) {
         }
         return failures == 0 ? 0 : 1;
     }
+    if (command == "realtime" && argc >= 4) {
+        // The shell's loop against the wall clock (research): pictures at
+        // 120 Hz, ticks when due, a new game clicked through, the phase won
+        // after `win` seconds; per second the ticks, samples and the slowest
+        // picture.
+        //   realtime <content> <seconds> [smooth] [wide=W,H] [win=S]
+        using clock = std::chrono::steady_clock;
+        auto game = fodder::game::start_game(argv[2], -1);
+        double win_at = -1;
+        for (int a = 4; a < argc; ++a) {
+            int w = 0, h = 0;
+            if (std::string(argv[a]) == "smooth") game->set_option(1, 1);
+            else if (std::sscanf(argv[a], "wide=%d,%d", &w, &h) == 2) { game->set_option(0, 1); game->set_canvas(w, h); }
+            else std::sscanf(argv[a], "win=%lf", &win_at);
+        }
+        const double seconds = std::stod(argv[3]);
+        const auto start = clock::now();
+        const auto since = [&] { return std::chrono::duration<double>(clock::now() - start).count(); };
+        double game_clock = 0, sample_credit = 0, slowest = 0;
+        int ticks = 0, samples_total = 0, second = 0, frames = 0;
+        bool won = false;
+        std::vector<float> audio;
+        app::GameInput input;
+        input.pointer = true;
+        input.pointer_x = 150;
+        input.pointer_y = 100;
+        for (int display = 0;; ++display) {
+            const double now = since();
+            if (now >= seconds) break;
+            if (!won && win_at >= 0 && now >= win_at) { fodder::game::win_phase(*game); won = true; }
+            game_clock = std::max(game_clock, now - 4 * game->step_seconds());
+            while (game_clock + game->step_seconds() <= now) {
+                input.mouse_button = frames % 100 < 3;
+                game->tick(input);
+                ++frames;
+                ++ticks;
+                game_clock += game->step_seconds();
+                sample_credit += game->step_seconds() * 44100;
+                const int samples = int(sample_credit);
+                sample_credit -= samples;
+                samples_total += samples;
+                audio.resize(std::size_t(samples) * 2);
+                game->audio(audio, 44100);
+            }
+            game->set_frame_fraction((now - game_clock) / game->step_seconds());
+            const auto t0 = clock::now();
+            (void)game->picture();
+            slowest = std::max(slowest, std::chrono::duration<double>(clock::now() - t0).count());
+            if (int(now) != second) {
+                std::printf("second %d: %d ticks, %d samples, slowest picture %.2f ms | %s\n", second, ticks, samples_total,
+                            slowest * 1000, fodder::game::describe(*game).substr(0, 40).c_str());
+                second = int(now);
+                ticks = samples_total = 0;
+                slowest = 0;
+            }
+            std::this_thread::sleep_until(start + std::chrono::duration_cast<clock::duration>(
+                                                       std::chrono::duration<double>((display + 1) / 120.0)));
+        }
+        return 0;
+    }
     if (command == "play" && argc >= 5) {
         // The launcher's game module, headless: frames with scripted mouse
         // input (picture pixels; l, r or b buttons), the last picture saved.
@@ -1069,7 +1131,23 @@ int run(int argc, char** argv) {
         input.pointer = true;
         input.pointer_x = 200;
         input.pointer_y = 100;
+        // display=N: as the shell does, N pictures a second between the
+        // frames (with the time since the last frame), the sound's hash at
+        // the end.
+        int display = 0, win_at = -1; // win=F: the phase won at frame F
+        for (int a = 5; a < argc; ++a) {
+            std::sscanf(argv[a], "display=%d", &display);
+            std::sscanf(argv[a], "win=%d", &win_at);
+        }
+        std::vector<std::uint8_t> heard;
         for (int f = 0; f < frames && game->stopped().empty(); ++f) {
+            if (display > 0) {
+                for (int k = 0; k * 50 < display; ++k) {
+                    game->set_frame_fraction(double(k * 50 % display) / display);
+                    (void)game->picture();
+                }
+            }
+            if (f == win_at) fodder::game::win_phase(*game);
             input.mouse_button = input.mouse_right = input.modifier = false;
             for (const auto& h : holds) {
                 if (f < h.from || f > h.to) continue;
@@ -1082,12 +1160,15 @@ int run(int argc, char** argv) {
             game->tick(input);
             game->audio(audio, 44100);
             for (const float v : audio) peak = std::max(peak, double(std::abs(v)));
+            const auto* bytes = reinterpret_cast<const std::uint8_t*>(audio.data());
+            heard.insert(heard.end(), bytes, bytes + audio.size() * sizeof(float));
         }
         platform::save_png(game->picture(), argv[4]);
         std::printf("%s\n", fodder::game::describe(*game).c_str());
         {
             const auto state = game->write_state();
-            std::printf("state %s\n", platform::sha256(state).substr(0, 16).c_str());
+            std::printf("state %s sound %s\n", platform::sha256(state).substr(0, 16).c_str(),
+                        platform::sha256(heard).substr(0, 16).c_str());
         }
         std::printf("%d frames, audio peak %.3f%s%s\n", frames, peak, game->stopped().empty() ? "" : ", stopped: ",
                     game->stopped().c_str());

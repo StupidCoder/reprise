@@ -276,6 +276,9 @@ int run(const Options& options) {
                     continue;
                 }
                 game->set_frame_fraction((now - game_clock) / game->step_seconds());
+                game->set_display_pointer(controls.game_pointer
+                                              ? std::optional(shown.to_picture(*controls.game_pointer))
+                                              : std::nullopt);
                 shown = app::shown_picture(*game, frames_run);
                 host.set_game_draws_pointer(game->draws_pointer());
                 // The app's note, above the game picture (and its VHS

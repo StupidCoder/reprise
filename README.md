@@ -17,7 +17,7 @@ not affiliated with or endorsed by the games' publishers.
 | Mindwalker | Amiga | Planned |
 | Marble Madness | Amiga | All six courses complete in play: the original's marble physics, ground, course scripts, wall covers, bonuses, steelies, slinkies, acid, vacuums, pistons, critters, birds, Ultimate's moving goal area, music and sound effects (each compared update for update with the original from start to goal); the front end for one player: options screen, course introductions, finish bonus, game over and the end; the original's topaz font; quick save and load; a crowd race (seven computer-steered marbles, pause menu); not yet: two players |
 | Wizball | C64 | Whole game rebuilt from the title: menu, wiztips, play through levels, bonus waves, the Wizlab and round ends (compared pass by pass with the original), game over, high scores, pause and volume keys; widescreen option |
-| Cannon Fodder | Amiga | Whole game playable from the presentation to the ending: all 72 phases with vehicles, the campaign (recruits, ranks, heroes, hall of fame), the hill, the parallax, the briefing, the debrief, the load screen and the map overview, compared with the original; persistent quick saves; widescreen and smooth motion options; Control, Option or Command as the right mouse button |
+| Cannon Fodder | Amiga | Whole game playable from the presentation to the ending: all 72 phases with vehicles, the campaign (recruits, ranks, heroes, hall of fame), the hill, the parallax, the briefing, the debrief, the load screen and the map overview, compared with the original; persistent quick saves; widescreen, smooth motion and VHS options; Control, Option or Command as the right mouse button |
 | Rock 'n Roll | Amiga | Planned |
 | Wings of Fury | Amiga | Planned |
 
@@ -100,6 +100,7 @@ The pause menu reports success, session-only storage or failure explicitly.
 - **Smooth motion** — soldiers, vehicles, shots and the scrolling map glide
   at the display's own rate instead of stepping about 17 times a second.
   Drawing only: the game plays the same.
+- **VHS look** — a worn video tape's colour bleed and noise.
 - **Controls** — the original's: click to walk, hold the right button to
   fire, both buttons to throw a grenade or rocket. In addition, holding
   Control, Option or Command acts as the right button: hold it to fire,

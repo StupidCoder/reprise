@@ -89,12 +89,13 @@ public:
                kinds() + ", music points " + std::to_string(director_.points().size()) + ", song " +
                std::to_string(jon_playing_ ? -1 : director_.song()) + ", volumes " +
                (music_ ? std::to_string(music_->channel_volume(0)) + "/" + std::to_string(music_->channel_volume(1)) : "-") +
-               ", pointer " + std::to_string(pointer_image_) + ", screen " +
+               ", camera " + std::to_string(motion_.x) + "/" + std::to_string(motion_.y) + ", pointer " + std::to_string(pointer_image_) + ", screen " +
                std::to_string(front_ && front_->active() ? int(front_->screen()) : 0) + ", overview " +
                std::to_string(int(overview_.mode)) +
                (overview_.requested ? " requested" : "");
     }
 
+    void win() { world_.outcome = World::Outcome::won; } // (tools)
     double step_seconds() const override { return 1.0 / 50.0; } // a PAL frame
     double pixel_aspect() const override { return 1.0; }
     std::string stopped() const override { return stopped_; }
@@ -143,16 +144,21 @@ public:
                  "panel stays at the left edge and the map's edges can be clicked. The game plays the same."},
                 {"Smooth motion", {"Off", "On"}, smooth_ ? 1 : 0,
                  "Soldiers, vehicles, shots and the scrolling map glide at the display's own rate instead of "
-                 "stepping about 17 times a second. The game plays the same."}};
+                 "stepping about 17 times a second. The game plays the same."},
+                {"VHS look", {"Off", "Light", "Medium", "Heavy", "Broken"}, vhs_,
+                 "A worn video tape's colour bleed and noise."}};
     }
+    int vhs_level() const override { return vhs_; }
     void set_option(std::size_t index, int value) override {
         if (index == 0) widescreen_ = value != 0;
         if (index == 1) {
             smooth_ = value != 0;
             motion_state_.have_before = motion_state_.have_camera = false;
         }
+        if (index == 2) vhs_ = std::clamp(value, 0, ui::vhs_levels - 1);
     }
     void set_frame_fraction(double fraction) override { frame_fraction_ = std::clamp(fraction, 0.0, 1.0); }
+    void set_display_pointer(std::optional<std::array<int, 2>> at) override { display_pointer_ = at; }
     void set_canvas(int width, int height) override {
         canvas_width_ = width;
         canvas_height_ = height;
@@ -189,6 +195,16 @@ private:
     void end_music(EndText started);
     void start_jon(int song, bool warx = false);
     void draw_pointer(platform::Image& image) const {
+        if (smooth_ && display_pointer_) {
+            // Smooth motion: where the mouse is now, placed as tick() and
+            // frame() place the game's pointer (the picture only).
+            const int x = (*display_pointer_)[0], y = (*display_pointer_)[1];
+            const bool panel = x < panel_width;
+            const int m = margin(view_height), shift = panel ? 0 : m - slide();
+            const int px = std::clamp(x - shift - 16, panel ? -16 : -16 - m, 0x12d + m);
+            draw_pointer(image, pointer_image_, px + shift, std::clamp(y + 4, 4, 0xe3), pointer_offset_);
+            return;
+        }
         const int shift = pointer_on_panel_ ? 0 : margin(view_height) - slide(); // (widescreen: the map's columns)
         draw_pointer(image, pointer_image_, world_.pointer_x + shift, world_.pointer_y, pointer_offset_);
     }
@@ -263,11 +279,16 @@ private:
         };
         std::array<Place, object_slots> before{}; // the objects a tick earlier
         bool have_before{};
-        std::int32_t camera_x{}, camera_y{};      // the camera (16.16) a frame earlier
+        std::int32_t camera_x{}, camera_y{};      // the camera (16.16) at the tick before the last
+        std::int32_t camera_now_x{}, camera_now_y{}; // and at the last tick
         bool have_camera{};
-        template <class A> void persist(A& a) { a(before, have_before, camera_x, camera_y, have_camera); }
+        template <class A> void persist(A& a) {
+            a(before, have_before, camera_x, camera_y, camera_now_x, camera_now_y, have_camera);
+        }
     } motion_state_;
+    std::optional<std::array<int, 2>> display_pointer_; // (smooth motion: the mouse when the picture is drawn)
     bool smooth_{};
+    int vhs_{}; // the VHS look (drawn by the launcher)
     double frame_fraction_{}; // the time since the last frame, in frames (the host's)
     bool smooth_now() const { return smooth_ && !(front_ && front_->active()) && overview_.mode == Overview::Mode::off; }
     void smooth_view(Camera& camera, MissionObjects& objects) const;
@@ -457,9 +478,9 @@ void Module::open_music(int source) {
 // map, tiles and sheets are read again from the files by its number (only
 // the cells map damage changed are kept), the music from its files.
 template <class A> void Module::persist(A& a) {
-    int version = 3; // 2: the pointer over the panel; 3: smooth motion's places
+    int version = 4; // 2: the pointer over the panel; 3: smooth motion's places; 4: its camera by ticks
     a(version);
-    if (version < 1 || version > 3) A::fail();
+    if (version < 1 || version > 4) A::fail();
     bool in_phase = phase_.terrain.has_value();
     int number = phase_.number;
     a(in_phase, number);
@@ -483,7 +504,14 @@ template <class A> void Module::persist(A& a) {
     }
     a(overview_);
     if (version >= 2) a(pointer_on_panel_);
-    if (version >= 3) a(motion_state_);
+    if (version >= 4) {
+        a(motion_state_);
+    } else if (version == 3) {
+        auto& st = motion_state_;
+        a(st.before, st.have_before, st.camera_x, st.camera_y, st.have_camera);
+        st.camera_now_x = st.camera_x;
+        st.camera_now_y = st.camera_y;
+    }
     a(world_, campaign_, called_up_, save_names_, after_front_, motion_, target_, director_, jon_playing_,
       end_song_delay_, end_song_, engine_.volume, engine_.effect, engine_.param, engine_.phase, engine_.last, board_,
       frames_since_tick_, snapshot_tick_, left_was_down_, right_was_down_, pointer_image_, pointer_offset_,
@@ -946,9 +974,6 @@ void Module::frame(const app::GameInput& input) {
     cf.frozen = map_fits_screen(phase_.map);
     cf.tick_overdue = frames_since_tick_ == 2;
     cf.target = target_;
-    motion_state_.camera_x = motion_.x; // (smooth motion: the camera a frame earlier)
-    motion_state_.camera_y = motion_.y;
-    motion_state_.have_camera = true;
     step_camera(motion_, tables_.geometry, cf);
     world_.camera = motion_.camera();
     if (music_) {
@@ -979,6 +1004,13 @@ void Module::game_tick() {
         motion_state_.before[std::size_t(i)] = {o.used && !o.removed && whole(o.x) >= 0, o.kind, o.height, o.x, o.y};
     }
     motion_state_.have_before = true;
+    // (and the camera's at the last two ticks: it moves on two frames of
+    // three, so it glides evenly only between ticks)
+    motion_state_.camera_x = motion_state_.have_camera ? motion_state_.camera_now_x : motion_.x;
+    motion_state_.camera_y = motion_state_.have_camera ? motion_state_.camera_now_y : motion_.y;
+    motion_state_.camera_now_x = motion_.x;
+    motion_state_.camera_now_y = motion_.y;
+    motion_state_.have_camera = true;
     auto& w = world_;
     ++w.tick_counter; // $8061A
     w.engine = World::Engine{}; // $A3AD0
@@ -1043,8 +1075,8 @@ void Module::game_tick() {
     if (ended) finish_phase();
 }
 
-// Smooth motion: the camera between its last two frames' places by the
-// time since the last frame; each object that was in the same slot with the
+// Smooth motion: the camera between its places at the last two ticks and
+// each object that was in the same slot with the
 // same kind a tick ago, and moved no further than a tick's reach (32 pixels
 // each way), between its two places by the time since the tick (the game
 // ticks every third frame). Anything that appeared, went or jumped is drawn
@@ -1054,12 +1086,12 @@ void Module::smooth_view(Camera& camera, MissionObjects& objects) const {
     const auto between = [](std::int32_t a, std::int32_t b, double t) {
         return std::int32_t(std::llround(double(a) + (double(b) - double(a)) * t));
     };
+    const double t = std::clamp((frames_since_tick_ + frame_fraction_) / 3.0, 0.0, 1.0);
     if (st.have_camera && !map_fits_screen(phase_.map)) {
-        camera.x = int(between(st.camera_x, motion_.x, frame_fraction_) >> 16);
-        camera.y = int(between(st.camera_y, motion_.y, frame_fraction_) >> 16);
+        camera.x = int(between(st.camera_x, st.camera_now_x, t) >> 16);
+        camera.y = int(between(st.camera_y, st.camera_now_y, t) >> 16);
     }
     if (!st.have_before) return;
-    const double t = std::clamp((frames_since_tick_ + frame_fraction_) / 3.0, 0.0, 1.0);
     for (int i = 0; i < object_slots; ++i) {
         auto& o = objects.slots[std::size_t(i)];
         const auto& was = st.before[std::size_t(i)];
@@ -1114,9 +1146,18 @@ platform::Image Module::picture() const {
         return m > 0 && x >= origin - 32 && x <= origin + width + 16 && y >= std::max(world_.snapshot.y - 4, 0) &&
                y <= world_.snapshot.y + 331;
     };
+    // Birds ($42 left, $43 right) come back 0-63 pixels outside the
+    // original's window ($99808): in the margins they are drawn only while
+    // flying away from it, so they do not pop up there.
+    const auto bird_coming = [&](const GameObject& o) {
+        if (o.kind != 0x42 && o.kind != 0x43) return false;
+        const bool left_side = whole(o.x) < world_.camera.x + view_width / 2 - view_column_of_camera;
+        return o.kind == 0x43 ? left_side : !left_side;
+    };
     for (int i = 0; i < object_slots; ++i) {
         const auto& o = objs->slots[std::size_t(i)];
-        if (o.used && !o.removed && (o.on_screen || (whole(o.x) >= 0 && in_margin(o)))) order.push_back(i);
+        if (o.used && !o.removed && (o.on_screen || (whole(o.x) >= 0 && in_margin(o) && !bird_coming(o))))
+            order.push_back(i);
     }
     // The draw list's layers: below, sorted by y, above.
     std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
@@ -1126,10 +1167,19 @@ platform::Image Module::picture() const {
         if (la != lb) return la < lb;
         return la == 1 && whole(oa.y) < whole(ob.y);
     });
-    if (m == 0) draw_objects(view, cam, *objs, order, frames_, phase_.sheets);
-    else
-        draw_objects({view, width, view_height, origin, cam.y, 0},
-                     *objs, order, frames_, phase_.sheets);
+    if (m == 0) {
+        draw_objects(view, cam, *objs, order, frames_, phase_.sheets);
+    } else {
+        draw_objects({view, width, view_height, origin, cam.y, 0}, *objs, order, frames_, phase_.sheets);
+        // Nothing past the map's edges (a map narrower than the view, birds
+        // beyond its ends): those columns and lines stay black.
+        const int map_w = phase_.picture->width(), map_h = phase_.picture->height();
+        for (int line = 0; line < view_height; ++line)
+            for (int column = 0; column < width; ++column) {
+                const int x = origin + column, y = cam.y + line;
+                if (x < 0 || x >= map_w || y < 0 || y >= map_h) view[std::size_t(line * width + column)] = 0;
+            }
+    }
     platform::Image image(width, view_height);
     for (std::size_t i = 0; i < view.size(); ++i) image.pixels[i] = data::to_color(phase_.palette[view[i] & 15]);
     if (overview_.mode != Overview::Mode::off) {
@@ -1208,6 +1258,10 @@ std::unique_ptr<app::GameModule> start_game(const std::filesystem::path& content
 std::string describe(const app::GameModule& game) {
     const auto* m = dynamic_cast<const Module*>(&game);
     return m ? m->describe() : std::string();
+}
+
+void win_phase(app::GameModule& game) {
+    if (auto* m = dynamic_cast<Module*>(&game)) m->win();
 }
 
 } // namespace fodder::game

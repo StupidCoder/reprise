@@ -1148,6 +1148,24 @@ files RNC-packed. The image set is a cracked copy (CSL intro loaded by disk
    list and on_screen are untouched. Checked: the game state equal with
    and without it, pictures change every frame on a fixed map (every third
    without), saves equal with both options on, between ticks too.
+   Since: the camera glides between its places at the last two ticks (it
+   moves on two frames of three, so frame-to-frame interpolation stalled
+   every third frame); the pointer is drawn where the mouse is at the
+   display's rate (GameModule::set_display_pointer); save format 4.
+   Widescreen birds: they come back 0-63 pixels outside the original's
+   window ($99808, random place), inside the margins: drawn there only while
+   flying away from the window; nothing is drawn past the map's edges
+   (fixed maps narrower than the view). The hill's door ($A5A24): group $22
+   of the sheet at ($31, $BE) under the recruits, its pictures from
+   $A5972 (opening, the officer waving each joining recruit in, closing),
+   a step a frame once the queue has closed up (the step's reset before a
+   hill: hypothesis, the mission variables' clear). VHS look (option).
+   Open: music reported to run about 2.2x fast at a mission's end in the
+   app with smooth motion on (120 Hz display); not reproduced: the module's
+   sound is identical with and without the option at 120 pictures a
+   second through a won mission, the debrief and the hill, a wall-clock
+   loop gives 50 ticks and 44100 samples a second, and the victory song's
+   player state equals the original's for 700 frames (work/snd_win.trace).
 
 Open: the panel's ammunition counts, lit-box condition, vehicle icons and
 mini-map; object drawing with hidden lines, negative/positive layers and y

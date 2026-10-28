@@ -248,11 +248,17 @@ private:
         std::uint32_t toggle{};                // $82758 (its high word the walking frame)
         int queue{};                           // $80652: recruits waiting from before
         int grave_variety{};                   // $80A0E - $8073C
+        // The door at the road's end ($A5A24): its pictures in order
+        // ($A5972, $BB29A), the step, the picture shown and the next.
+        std::vector<int> door;
+        int door_step{}, door_frame{}, door_shown{}; // $8205C, $8205A
         template <class A> void persist(A& a) {
-            a(background, column, arriving, path, walkers, joining, queued, toggle, queue, grave_variety);
+            a(background, column, arriving, path, walkers, joining, queued, toggle, queue, grave_variety, door, door_step,
+              door_frame, door_shown);
         }
     };
     bool hill_walk();
+    void hill_door();
     void draw_hill();
     void helicopter_leg(); // $A7924
     void parallax_frame(bool click);
