@@ -68,7 +68,7 @@ clicks during scrolling, and the asset backdrop.
 | Cannon Fodder | Amiga | three ADFs, `Cannon Fodder (1993)(Virgin)(Disk N of 3)[cr CSL].adf` (SHA-256 `2b01cbc9…`, `9089815b…`, `87ea9c1d…`; a cracked copy) | import of all three disks (Sensible disk format, RNC unpacking) and decoded screens, sprite sheets, tile sets, colours and the 72 mission maps with launcher viewer; map view, camera, tile drawer, mission set-up, object drawing, panel, squad walking, shooting, deaths, enemy soldiers, grenades, rockets, huts, civilians, mission objectives, music and sound effects rebuilt and checked against the original; the whole game plays in the shell (mouse): all 72 phases with vehicles, the campaign and the front end (all screens rebuilt from the program); persistent quick saves, widescreen, smooth motion, VHS look, trackpad keys (Command fires, Command + click walks, Option throws), cheats (top rank, bullet proof, infinite ammo) |
 | Rock 'n Roll | Amiga | `Rock'n Roll (1989)(Rainbow Arts)[cr PNA].adf` (SHA-256 `1d89a8e7…228615e60`, a one-disk cracked copy) | disk import (program and all files unpacked and checked) and decoded data with launcher viewer: 33 level maps drawn from their worlds' tiles (checked against the original's drawn view), seven worlds' graphics banks and palettes, title and ending pictures; not playable yet |
 | Wings of Fury | Amiga | `Wings_of_Fury_v1.0_1990_Broderbund_cr_Hysteria.adf` (SHA-256 `638d9a9d…4620044`, a cracked copy) | disk import and decoded assets with launcher viewer (pictures, all 12 shape libraries, palettes, sounds, texts); the whole game playable and checked against the original: front end, all fifteen missions (islands, airfields, all four enemy ships, night), the promotion fireworks, game over and hall of fame, music, saved games (R&R), the original's keys and debug mode; cheats, widescreen, smooth motion and VHS look |
-| Tower of Babel | Amiga | — | planned; original interpretive shell cover added, importer and gameplay not implemented |
+| Tower of Babel | Amiga | `Tower of Babel v1.0 (1990)(Rainbird)[cr MAD].adf` (SHA-256 `0a8dff1a…8c8785c71`, a cracked copy) | disk import (packed program unpacked, every block range checked) and decoded data with launcher viewer: title screen, all 153 towers (maps, objects, colours, rules), sampled music and effect waveforms; not playable yet |
 
 ## Fort Apocalypse (C64) milestones
 
@@ -1243,6 +1243,47 @@ Open items:
 - Level 28's map runs past its file (stale memory behind it); check what the
   view shows there.
 - Graphics bank extent below row 615 observed, not read from a routine.
+
+## Tower of Babel (Amiga) milestones
+
+Notes: `.analysis/tower_of_babel_amiga/` (`disk.md` disk layout, boot chain,
+decruncher, harness; `formats.md` pictures, towers, sound; `game.md`
+program structure). No outside material on this game was used.
+
+No file system: the boot block loads a packed program, which reads raw
+blocks with its own MFM loader. Hand-written 68000, A6 = $806 for all
+variables. Real-time filled-polygon 3D view of a tower of 4 × 8 × 8 cells,
+three programmable robot spiders, a tower designer, 117 standard towers.
+
+Design notes (owner, 2026-10-28): widescreen and smooth motion up to 120 Hz
+are planned, so the 3D view is drawn from game state by our own renderer (a
+wider frustum for widescreen) and rules run at the original's tick rate
+apart from drawing, so spiders and camera can be interpolated between ticks.
+
+1. **Done 2026-10-28: import and assets.** `src/tower_of_babel_amiga`
+   (namespace `babel`): decruncher (LZ + RLE, equal to the machine's memory
+   at the entry $7A5E), importer (release by the loader's SHA-256, program
+   and six block ranges by SHA-256), decoders for the title screen (matches
+   the reference capture), the 288-byte bit-packed tower records (153
+   towers), sampled pieces and effect waveforms; launcher previews;
+   `tower_of_babel_assets import|export`. Reference machine on port 6866
+   (`harness/run.sh`, `tob.py`: keys, mouse clicks, screen grabs), up to
+   the game screen of Standard tower A.
+2. Next: tower state at start (unpacked records → cells and objects),
+   the 3D view (camera, cell and object geometry, shapes $4C3A0+, sky,
+   copper bands) checked against screen grabs, then spider movement and
+   the program strip (Write/Run), objects' behaviour, panel, front end,
+   designer, sound effects (envelopes).
+
+Open items:
+- Tower record fields $E2E, $E34–$E42, flags 3, 4, 6–9, the last 4 bits
+  ($A4–$A8(a6)); object kind → designer name mapping in full.
+- Main data ranges $1C7D0, $238C8/$23A58, $283C0/$2CDC0/$2D3C0 and the
+  panel set layout ($23BC0); shapes $4C3A0–$5D4F2.
+- Effect record envelopes; which events start which effects.
+- Disk blocks $538–$6DF are not referenced (noise from $540).
+- Ghidra seeds: add the jump table entries $E2CC–$E310.
+- Demonstrations: where the demo spiders' programs come from.
 
 ## Launcher visual exploration (2026-10-26)
 
