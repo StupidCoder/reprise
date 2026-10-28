@@ -73,6 +73,8 @@ public:
     // $207EAC: nobody present, all hidden.
     void clear_presence(const Scene&);
     bool quiet() const { return quiet_; }
+    // Cheat (not the original's): no creature attaches a tether.
+    void set_peaceful(bool on) { peaceful_ = on; }
 
     int attached() const { return attached_; }          // $2083AE
     int score_bonus() const { return score_bonus_; }    // $208132: creature places x 25
@@ -130,6 +132,7 @@ private:
     std::uint16_t kind_mask_{}; // $20812C
     int score_bonus_{};
     bool quiet_{};              // $208130
+    bool peaceful_{};           // (cheat)
     struct ViewMemory {
         std::uint16_t x{0xFFFF}, y{};
         std::array<int, 5> kinds{};

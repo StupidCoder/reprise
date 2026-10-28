@@ -721,6 +721,11 @@ seeds and a clock seed), not stored.
    every dump pixel-exact (bar the recorder's gadget highlight).
    Enhancements: quick save/load and the VHS look. Open: T's own pause
    box; the finished game's ending not recorded.
+10. **Cheats** — 2026-10-28: god mode (no tethers in the landscape; no
+   strength lost and no wall deaths in the arena), a minimap (landscape:
+   zoomed to the next beacon or the way on's ramps, flashing; arena: the
+   whole maze, the exit flashing), auto transform (the walker takes each
+   cell's form on entering it). All off by default.
 
 Open: what each shared image set and icon is used for and its colours;
 sample playback periods and triggers; A's world model beyond the generator;

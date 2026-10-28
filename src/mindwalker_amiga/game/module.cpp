@@ -377,6 +377,7 @@ public:
                            arena::ArenaStage::Start{state_.tunnel_seed, state_.stage, state_.lives, state_.score,
                                                     state_.resume ? state_.resume->form : 0});
         }
+        apply_cheats();
     }
 
     void stop(const char* format, std::uint32_t score) {
@@ -442,16 +443,38 @@ public:
         if (s.tunnel) tunnel_.emplace(*s.tunnel);
         if (s.arena) arena_.emplace(*s.arena);
         if (s.psyche) psyche_.emplace(*s.psyche);
+        apply_cheats(); // (the options as they are now)
         return true;
     }
     bool has_save() const override { return saved_ != nullptr; }
 
     std::vector<app::GameOption> options() const override {
         return {{"VHS look", {"Off", "Light", "Medium", "Heavy", "Broken"}, vhs_,
-                 "A worn video tape's colour bleed and noise."}};
+                 "A worn video tape's colour bleed and noise."},
+                {"God mode", {"Off", "On"}, cheats_.god ? 1 : 0,
+                 "Landscape: no creature tethers the walker. Arena: creatures cost no strength and the walls' "
+                 "pulse does not kill.",
+                 "Cheats"},
+                {"Minimap", {"Off", "On"}, cheats_.minimap ? 1 : 0,
+                 "Landscape: a small map in the corner, zoomed out to the nearest unlit beacon (once lit, the "
+                 "way on's ramps), flashing. Arena: the whole maze with the exit flashing.",
+                 "Cheats"},
+                {"Auto transform", {"Off", "On"}, cheats_.auto_transform ? 1 : 0,
+                 "Landscape: the walker takes the form of each cell's surface on entering it, so every cell "
+                 "joins the trail.",
+                 "Cheats"}};
     }
     void set_option(std::size_t index, int value) override {
         if (index == 0) vhs_ = value;
+        if (index == 1) cheats_.god = value != 0;
+        if (index == 2) cheats_.minimap = value != 0;
+        if (index == 3) cheats_.auto_transform = value != 0;
+        apply_cheats();
+    }
+
+    void apply_cheats() {
+        if (landscape_) landscape_->set_cheats(cheats_);
+        if (arena_) arena_->set_cheats(cheats_);
     }
 
     std::string stopped() const override {
@@ -511,6 +534,7 @@ private:
     std::unique_ptr<Snapshot> saved_;
     long frames_{};
     int vhs_{};
+    Cheats cheats_;
 };
 
 } // namespace

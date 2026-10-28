@@ -2,6 +2,7 @@
 #include "amiga/intuition_imagery.hpp"
 #include <algorithm>
 #include <cstdlib>
+#include <cstdlib>
 
 namespace mindwalker::landscape {
 namespace {
@@ -550,7 +551,22 @@ void LandscapeStage::step(const InputReader& read) {
         colours_[17] = inputs_.colour17; // $2004CE/$2004D0, loaded at once
         colours_[18] = inputs_.colour18;
     }
-    if (walker_.column != walker_.last_column || walker_.row != walker_.last_row) cell_events();
+    if (walker_.column != walker_.last_column || walker_.row != walker_.last_row) {
+        if (cheats_.auto_transform) {
+            // (Cheat) the form whose surface kind the new cell has, at once.
+            const int kind = walker_.terrain & 0xC000;
+            if (kind != a_.u16(form_kinds + std::uint32_t(walker_.form * 2)))
+                for (int f = 0; f < 4; ++f)
+                    if (a_.u16(form_kinds + std::uint32_t(f * 2)) == kind) {
+                        set_form(f);
+                        sound_.request(a_.u8(form_sounds + std::uint32_t(f)));
+                        colours_[17] = inputs_.colour17;
+                        colours_[18] = inputs_.colour18;
+                        break;
+                    }
+        }
+        cell_events();
+    }
     const auto stick = read(InputRead::stick);
     stick_held_ = stick.up || stick.down || stick.left || stick.right;
     const bool fire = read(InputRead::fire).fire;
@@ -918,7 +934,7 @@ const data::Bitmap& LandscapeStage::walker_bitmap() const {
     return set.frames[std::size_t(set.sequence[std::size_t(walker_.frame)])];
 }
 
-platform::Image LandscapeStage::picture() const {
+platform::Image LandscapeStage::picture_of_stage() const {
     std::vector<screen::Rgb4> colours;
     if (paused_ || resume_wait_ > 0) {
         // Paused: the screen's title bar in rows 0-9 (text at (2, 7), the
@@ -1042,6 +1058,131 @@ std::vector<std::uint32_t> LandscapeStage::walker_sprite() const {
         out.push_back(std::uint32_t(a) << 16 | b);
     }
     return out;
+}
+
+} // namespace mindwalker::landscape
+
+namespace mindwalker::landscape {
+
+platform::Image LandscapeStage::picture() const {
+    auto image = picture_of_stage();
+    if (cheats_.minimap && !paused_ && !map_view_.open()) draw_minimap(image);
+    return image;
+}
+
+// (Cheat) a 4 x 4 block of cells as the view builder makes them (the
+// trail left out: it is drawn from the visited map), kept until the marked
+// block or the finds change.
+const LandscapeStage::MiniBlock& LandscapeStage::mini_block(std::uint16_t x, std::uint16_t y) const {
+    const std::uint32_t key = std::uint32_t(world_.marked_u) << 16 ^ world_.marked_v ^ std::uint32_t(inputs_.found[0]) << 30 ^
+                              std::uint32_t(inputs_.found[1]) << 31;
+    if (key != mini_key_) {
+        mini_blocks_.clear();
+        mini_key_ = key;
+    }
+    const std::uint32_t at = std::uint32_t(x) << 12 | y;
+    auto found = mini_blocks_.find(at);
+    if (found != mini_blocks_.end()) return found->second;
+    auto in = inputs_;
+    in.previous_x = x;
+    in.previous_y = y;
+    const auto cells = build_view(world_, a_, x, y, in, colours_);
+    MiniBlock block;
+    block.terrain = cells.terrain;
+    block.objects = cells.objects;
+    if (mini_blocks_.size() > 4096) mini_blocks_.clear();
+    return mini_blocks_.emplace(at, block).first->second;
+}
+
+void LandscapeStage::mini_cell(std::uint16_t x, std::uint16_t y, std::uint16_t& terrain, std::uint16_t& objects) const {
+    const auto bx = std::uint16_t(x & 0xFFC), by = std::uint16_t(y & 0xFFC);
+    const auto& block = mini_block(bx, by);
+    terrain = block.terrain[std::size_t(x - bx)][std::size_t(y - by)];
+    objects = block.objects[std::size_t(x - bx)][std::size_t(y - by)] & 0xFFFE;
+    if (visited(x, y)) objects |= 1;
+}
+
+// (Cheat) a 64 x 64 map in the bottom-right corner, north up, in the map's
+// colours: the trail, the walker (red), and the way on's target flashing:
+// the nearest unlit beacon, or with the way open the marked block's ramps;
+// zoomed out until the target fits.
+void LandscapeStage::draw_minimap(platform::Image& image) const {
+    constexpr int size = 64, left = 319 - size, top = 199 - size, search = 48;
+    const int wx = walker_.cell_x, wy = walker_.cell_y;
+    if (wx != mini_cell_x_ || wy != mini_cell_y_) { // the nearest target, looked for again on a new cell
+        mini_cell_x_ = wx;
+        mini_cell_y_ = wy;
+        mini_target_ = false;
+        int best = 1 << 30;
+        const bool way_open = !ramp_closed_ && world_.marked_u != 0xFFFF;
+        for (int dy = -search; dy <= search; ++dy)
+            for (int dx = -search; dx <= search; ++dx) {
+                const int d = std::max(std::abs(dx), std::abs(dy));
+                if (d >= best) continue;
+                std::uint16_t t = 0, o = 0;
+                mini_cell(std::uint16_t((wx + dx) & 0xFFF), std::uint16_t((wy + dy) & 0xFFF), t, o);
+                const bool target = way_open ? (t & 0x900) == 0x900 : (o & 2) && !(t & 0x100);
+                if (target) {
+                    best = d;
+                    mini_target_dx_ = dx;
+                    mini_target_dy_ = dy;
+                    mini_target_ = true;
+                }
+            }
+    }
+    // Cells of `zoom` pixels (near targets) or `scale` cells a pixel (far ones).
+    const int reach = mini_target_ ? std::max(std::abs(mini_target_dx_), std::abs(mini_target_dy_)) + 2 : 12;
+    const int zoom = std::clamp((size / 2 - 1) / reach, 1, 4);
+    const int scale = std::max(1, (reach + size / 2 - 2) / (size / 2 - 1));
+    const auto palette = MapView::palette(a_);
+    const bool flash = (clock_frames_ >> 3 & 1) != 0;
+    const bool way_open = !ramp_closed_ && world_.marked_u != 0xFFFF;
+    const auto put = [&](int x, int y, std::uint16_t rgb) {
+        if (x >= left && x < left + size && y >= top && y < top + size) image.put(x, y, screen::to_color(rgb));
+    };
+    const auto frame = [&](int x, int y, std::uint16_t rgb) { image.put(x, y, screen::to_color(rgb)); };
+    for (int i = -1; i <= size; ++i) {
+        frame(left + i, top - 1, 0xFFF);
+        frame(left - 1, top + i, 0xFFF);
+        frame(left + size, top + i, 0xFFF);
+    }
+    // A cell's place on the minimap (its top-left pixel), north up.
+    const auto at = [&](int dx, int dy, int& x, int& y) {
+        x = left + size / 2 + (zoom > 1 ? dx * zoom : dx / scale);
+        y = top + size / 2 - 1 - (zoom > 1 ? dy * zoom : dy / scale);
+    };
+    const int cells = zoom > 1 ? size / zoom / 2 + 1 : size / 2 * scale;
+    for (int dy = -cells; dy <= cells; ++dy)
+        for (int dx = -cells; dx <= cells; ++dx) {
+            std::uint16_t t = 0, o = 0;
+            mini_cell(std::uint16_t((wx + dx) & 0xFFF), std::uint16_t((wy + dy) & 0xFFF), t, o);
+            // The surface's colour on the map (its plain shade), the trail
+            // in the map's path shade.
+            const int base = (t & 0xC000) == 0x4000 ? 6 : (t & 0xC000) == 0x8000 ? 11 : (t & 0xC000) == 0xC000 ? 20 : 1;
+            const int pen = (o & 1) ? base + 4 : base;
+            int x = 0, y = 0;
+            at(dx, dy, x, y);
+            for (int j = 0; j < zoom; ++j)
+                for (int i = 0; i < zoom; ++i) put(x + i, y + j, palette[std::size_t(pen)]);
+        }
+    // Markers over the cells: other beacons, the target (flashing), the walker.
+    const auto marker = [&](int dx, int dy, std::uint16_t rgb) {
+        int x = 0, y = 0;
+        at(dx, dy, x, y);
+        x += zoom / 2;
+        y += zoom / 2;
+        for (int j = -1; j <= 1; ++j)
+            for (int i = -1; i <= 1; ++i) put(x + i, y + j, rgb);
+    };
+    for (int dy = -cells; dy <= cells; ++dy)
+        for (int dx = -cells; dx <= cells; ++dx) {
+            std::uint16_t t = 0, o = 0;
+            mini_cell(std::uint16_t((wx + dx) & 0xFFF), std::uint16_t((wy + dy) & 0xFFF), t, o);
+            const bool target = way_open ? (t & 0x900) == 0x900 : (o & 2) && !(t & 0x100);
+            if (target) marker(dx, dy, flash ? 0xFFF : 0xFF0);
+            else if (o & 2) marker(dx, dy, 0x880);
+        }
+    marker(0, 0, 0xF00);
 }
 
 } // namespace mindwalker::landscape

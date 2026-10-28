@@ -50,11 +50,16 @@ public:
     // Colours 0-29 as the map has them (30 and 31 stay the view's).
     const std::array<std::uint16_t, 30>& colours() const { return colours_; }
 
+    // A cell's pen on the map ($200BF0; also the minimap's) and the map's
+    // 30 colours (h6).
+    static int pen(const ViewCells&, int x, int y);
+    static int pen(std::uint16_t terrain, std::uint16_t objects);
+    static std::array<std::uint16_t, 30> palette(const amiga::LoadedImage& landscape);
+
 private:
     void draw_square(int column, int row, const Builder&); // $200A36
     void queue_square(int column, int row);
     void draw_box();
-    int pen(const ViewCells&, int x, int y) const; // $200BF0
     void load_colours(); // LoadRGB4 of h6
 
     const amiga::LoadedImage& a_;

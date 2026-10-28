@@ -257,7 +257,7 @@ void Creatures::move_free(int i, const Scene& scene) {
     c.y += c.dy * c.speed_y;
     if (attached_ < 3) {
         const int r = random_b_.next();
-        if ((a_.u16(attach_masks + std::uint32_t(attached_ * 2)) & (r ^ i)) == 0 && c.x > 0 && c.x < 0x12F &&
+        if (!peaceful_ && (a_.u16(attach_masks + std::uint32_t(attached_ * 2)) & (r ^ i)) == 0 && c.x > 0 && c.x < 0x12F &&
             (c.visible_row & 0x7E0) != 0 && !near(scene.walker_x, scene.walker_y, c.x, c.y, 0x3C)) {
             c.tether_x = c.x;
             c.tether_y = c.y;

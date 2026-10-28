@@ -258,6 +258,7 @@ int ArenaStage::gadget_at(int x, int y) const {
 }
 
 void ArenaStage::frame(const ArenaReader& read, int gadget) {
+    ++frame_count_;
     if (!sequence_.empty()) {
         const Action action = sequence_.front();
         sequence_.erase(sequence_.begin());
@@ -334,7 +335,8 @@ void ArenaStage::finish_tick() {
     // $4028C0: the pulse; standing on a wall while it runs kills.
     if ((pulse_runs_ & 2) < ++pulse_wait_) {
         pulse_wait_ = 0;
-        if (pulse_step() && map_.at(player_.x / 32 + player_.room_x * 8, player_.y / 32 + player_.room_y * 6) == Cell::wall)
+        if (pulse_step() && map_.at(player_.x / 32 + player_.room_x * 8, player_.y / 32 + player_.room_y * 6) == Cell::wall &&
+            !cheats_.god) // (cheat: the walls' pulse harmless)
             wall_death();
     }
 }
@@ -804,7 +806,7 @@ void ArenaStage::creature_step(int slot) {
 // (pot / $666 + 1), a lightning bolt round the player, the noise.
 void ArenaStage::hit_player() {
     if (player_.strength <= 0) return;
-    player_.strength -= (stage_ * 0x618 & 0xFFFF) / 0x666 + 1;
+    if (!cheats_.god) player_.strength -= (stage_ * 0x618 & 0xFFFF) / 0x666 + 1; // (cheat: no strength lost)
     if (player_.strength < 0) {
         bolt_frames_ = 0;
         player_.strength = 0;
@@ -1069,6 +1071,7 @@ platform::Image ArenaStage::picture(bool sprites) const {
     for (int y = 0; y < top; ++y)
         for (int x = 0; x < 320; ++x) canvas.plot(x, y, bar.pen(x, y));
     auto image = canvas.picture(colours);
+    if (cheats_.minimap && outcome_ == Outcome::playing) draw_minimap(image);
     if (!sprites) return image;
     // Sprites: the player (sprite 7, colours 29-31) behind the creatures
     // (sprites 1-6, lower in front).
@@ -1093,6 +1096,44 @@ platform::Image ArenaStage::picture(bool sprites) const {
             }
     }
     return image;
+}
+
+} // namespace mindwalker::arena
+
+namespace mindwalker::arena {
+
+// (Cheat) the whole maze in the room's bottom-right corner, a pixel a cell:
+// walls grey, the exit flashing, the target (until taken) cyan, the player
+// red, the room the player is in outlined.
+void ArenaStage::draw_minimap(platform::Image& image) const {
+    constexpr int left = 0xFF - ArenaMap::width, top_row = 199 - ArenaMap::height + 1;
+    const auto put = [&](int x, int y, std::uint16_t rgb) {
+        if (x >= 0 && x < 320 && y >= 0 && y < 200) image.put(x, y, screen::to_color(rgb));
+    };
+    const bool flash = (frame_count_ >> 3 & 1) != 0;
+    for (int i = -1; i <= ArenaMap::width; ++i) put(left + i, top_row - 1, 0xFFF);
+    for (int j = 0; j < ArenaMap::height; ++j) put(left - 1, top_row + j, 0xFFF);
+    for (int y = 0; y < ArenaMap::height; ++y)
+        for (int x = 0; x < ArenaMap::width; ++x) {
+            std::uint16_t rgb = 0x000;
+            switch (map_.at(x, y)) {
+            case Cell::wall: rgb = 0x666; break;
+            case Cell::exit: rgb = flash ? 0xFFF : 0xF80; break;
+            case Cell::target: rgb = 0x0FF; break;
+            default: break;
+            }
+            put(left + x, top_row + y, rgb);
+        }
+    const int rx = left + player_.room_x * ArenaMap::room_width, ry = top_row + player_.room_y * ArenaMap::room_height;
+    for (int i = 0; i < ArenaMap::room_width; ++i) {
+        put(rx + i, ry, 0xFFF);
+        put(rx + i, ry + ArenaMap::room_height - 1, 0xFFF);
+    }
+    for (int j = 0; j < ArenaMap::room_height; ++j) {
+        put(rx, ry + j, 0xFFF);
+        put(rx + ArenaMap::room_width - 1, ry + j, 0xFFF);
+    }
+    put(rx + player_.x / 32, ry + player_.y / 32, 0xF00);
 }
 
 } // namespace mindwalker::arena

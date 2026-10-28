@@ -611,6 +611,11 @@ int sim(const std::filesystem::path& content, std::uint32_t seed, int stage_numb
         }
     }
     landscape::LandscapeStage stage(files, assets, {seed, stage_number, 3, 0, {}});
+    if (const char* c = std::getenv("MW_CHEATS")) { // research: god,minimap,auto
+        const std::string list = c;
+        stage.set_cheats({list.find("god") != std::string::npos, list.find("minimap") != std::string::npos,
+                          list.find("auto") != std::string::npos});
+    }
     landscape::LandscapeInput held;
     int reads = 0, pending_gadget = -1;
     bool stop = false;
@@ -676,6 +681,12 @@ int sim(const std::filesystem::path& content, std::uint32_t seed, int stage_numb
                     std::fprintf(emit, "\n");
                 }
             }
+        if (const char* list = std::getenv("MW_SHOTS")) { // research: read:file.png,...
+            std::istringstream in(list);
+            for (std::string item; std::getline(in, item, ',');)
+                if (std::stoi(item.substr(0, item.find(':'))) == reads)
+                    platform::save_png(stage.picture(), item.substr(item.find(':') + 1));
+        }
         if (reads % every == 0) {
             const auto& w = stage.walker();
             std::printf("read %5d cell %03x %03x view %03x %03x level %3d x %3d z %3d score %u lives %d damage %d "
@@ -944,6 +955,10 @@ int arena(const std::filesystem::path& content, const std::filesystem::path& scr
     arena::ArenaStage::Start start{at(0x4C), int(at(0x5C)), int(at(0x6E)), at(0x66), int(at(0x48))};
     auto stage_owner = std::make_unique<arena::ArenaStage>(files, assets, start);
     auto* stage = stage_owner.get();
+    if (const char* c = std::getenv("MW_CHEATS")) { // research: god,minimap
+        const std::string list = c;
+        stage->set_cheats({list.find("god") != std::string::npos, list.find("minimap") != std::string::npos, false});
+    }
     // MW_COPY_AT=n (research): at frame n the stage replaced by a copy of itself (the
     // original destroyed): a copy must carry the whole state (quick save).
     const int copy_at = std::getenv("MW_COPY_AT") ? std::atoi(std::getenv("MW_COPY_AT")) : -1;

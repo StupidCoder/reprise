@@ -1,5 +1,7 @@
 #pragma once
 #include "mindwalker_amiga/data/assets.hpp"
+#include "mindwalker_amiga/game/cheats.hpp"
+#include <unordered_map>
 #include "mindwalker_amiga/data/game_files.hpp"
 #include "mindwalker_amiga/landscape/creatures.hpp"
 #include "mindwalker_amiga/landscape/interlude.hpp"
@@ -113,7 +115,7 @@ public:
     void frame(const InputReader&, int gadget = -1);
     // Which of the bar's gadgets is under a pointer position, or -1.
     int gadget_at(int x, int y) const { return bar_.gadget_at(x, y); }
-    platform::Image picture() const;
+    platform::Image picture() const;           // (with the minimap when that cheat is on)
 
     const Walker& walker() const { return walker_; }
     int direction() const { return direction_; }
@@ -141,6 +143,10 @@ public:
     void set_damage(int damage) { damage_ = damage; }
     // For replays: the stage clock from the original's own frames (its
     // seconds pass at its pace, slowdown included).
+    void set_cheats(const Cheats& cheats) {
+        cheats_ = cheats;
+        creatures_.set_peaceful(cheats.god);
+    }
     void set_clock(int frames) { clock_frames_ = frames; }
     int clock() const { return clock_frames_; }
     const Creatures& creatures() const { return creatures_; }
@@ -197,6 +203,19 @@ private:
     int direction_{};                     // $203070
     ViewInputs inputs_;                   // (its visited lookup bound per call: view_inputs())
     ViewInputs view_inputs() const;
+    // The minimap (a cheat): cells cached by 4 x 4 block, the nearest target.
+    struct MiniBlock {
+        std::array<std::array<std::uint16_t, 4>, 4> terrain{}, objects{};
+    };
+    const MiniBlock& mini_block(std::uint16_t x, std::uint16_t y) const;
+    void mini_cell(std::uint16_t x, std::uint16_t y, std::uint16_t& terrain, std::uint16_t& objects) const;
+    void draw_minimap(platform::Image&) const;
+    platform::Image picture_of_stage() const;
+    Cheats cheats_;
+    mutable std::unordered_map<std::uint32_t, MiniBlock> mini_blocks_;
+    mutable std::uint32_t mini_key_{0xFFFFFFFF};   // what the cache was built for (marked block, finds)
+    mutable int mini_cell_x_{-1}, mini_cell_y_{-1}, mini_target_dx_{}, mini_target_dy_{};
+    mutable bool mini_target_{};
     MapView::Builder map_builder();
     Interlude::Grid grid_painter() const;
     ViewCells cells_;

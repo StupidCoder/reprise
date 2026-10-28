@@ -17,6 +17,12 @@ constexpr int square_frames = 3, open_frames = 7; // measured (see busy())
 
 MapView::MapView(const amiga::LoadedImage& a) : a_(a) {}
 
+std::array<std::uint16_t, 30> MapView::palette(const amiga::LoadedImage& a) {
+    std::array<std::uint16_t, 30> out{};
+    for (std::uint32_t i = 0; i < 30; ++i) out[i] = a.u16(map_colours + i * 2);
+    return out;
+}
+
 void MapView::load_colours() {
     for (std::uint32_t i = 0; i < 30; ++i) colours_[i] = a_.u16(map_colours + i * 2);
 }
@@ -87,9 +93,11 @@ void MapView::draw_box() {
 }
 
 // $200BF0: a world cell's block colour.
-int MapView::pen(const ViewCells& v, int x, int y) const {
-    const auto terrain = v.terrain[std::size_t(x)][std::size_t(y)];
-    const auto objects = v.objects[std::size_t(x)][std::size_t(y)];
+int MapView::pen(const ViewCells& v, int x, int y) {
+    return pen(v.terrain[std::size_t(x)][std::size_t(y)], v.objects[std::size_t(x)][std::size_t(y)]);
+}
+
+int MapView::pen(std::uint16_t terrain, std::uint16_t objects) {
     if (objects & 2) return 0x10;                            // a beacon
     if ((terrain & 0x100) && !(terrain & 0x800)) return 0x1D; // the marked block
     int pen = 0;

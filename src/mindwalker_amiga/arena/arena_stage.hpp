@@ -3,6 +3,7 @@
 #include "mindwalker_amiga/arena/arena_map.hpp"
 #include "mindwalker_amiga/data/assets.hpp"
 #include "mindwalker_amiga/data/game_files.hpp"
+#include "mindwalker_amiga/game/cheats.hpp"
 #include "mindwalker_amiga/screen/canvas.hpp"
 #include "mindwalker_amiga/screen/gadget_bar.hpp"
 #include <array>
@@ -81,6 +82,7 @@ public:
     int pulse() const { return pulse_; }
     int frozen() const { return frozen_; }
     bool paused() const { return paused_; }
+    void set_cheats(const Cheats& cheats) { cheats_ = cheats; }
     int sound_period() const { return period_history_[3]; }
     void set_pulse(int counter) { pulse_ = counter; } // (a poke in a recording)
     // For replays: the state the recorder logs, by name (`report(name, value)`).
@@ -105,6 +107,7 @@ private:
     };
 
     void tick(const ArenaReader&);
+    void draw_minimap(platform::Image&) const;
     void finish_tick();
     void run(const Action&);
     std::pair<int, int> scroll_step() const;
@@ -184,6 +187,8 @@ private:
     int frozen_{};                                         // $4010FA
     bool button_was_down_{}, paused_{};
     Outcome outcome_{Outcome::playing};
+    Cheats cheats_;
+    long frame_count_{};           // display frames (the minimap's flashing)
     std::vector<Action> sequence_; // frames of a sequence (room transition, death, victory, resume)
     int victory_fall_{}, victory_left_{}, victory_wait_{}; // $406802, $406806, $40680A
     amiga::PaulaVoices voices_;
