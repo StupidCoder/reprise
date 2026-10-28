@@ -65,7 +65,7 @@ clicks during scrolling, and the asset backdrop.
 | Mindwalker | Amiga | `Mind Walker (1986)(Commodore).adf` (SHA-256 `2e83a67a…a8969c`) | disk import and decoded assets with launcher viewer; title, world menu and new game playable (mouse), matching the original frame for frame and pen for pen; world generator verified against the original; the whole game playable (landscape, tunnel, arena, psyche screen, Hall of Fame, saved worlds) and checked against the original; quick save and VHS look |
 | Marble Madness | Amiga | `Marble_Madness.adf` (MD5 `735dc697d64b3eeaa000778eb0b1153a`) | disk import (both encrypted programs decrypted, checked against the original's memory); asset previews; all six courses complete in play (physics, covers, creatures, special regions, music and effects; each compared with the original update for update from start to goal); front end for one player (options, introductions, bonus, game over, the end) |
 | Wizball | C64 | `Wizball.g64` (MD5 `73e1a136da4b6972d39f00817b86983e`) | disk import, asset decoding with launcher previews; play rebuilt and checked in lockstep (places, enemies, catellite, tunnels, lives, bonus wave, Wizlab, level flight, round end, sound and music); front end, high scores and keys rebuilt |
-| Cannon Fodder | Amiga | three ADFs, `Cannon Fodder (1993)(Virgin)(Disk N of 3)[cr CSL].adf` (SHA-256 `2b01cbc9…`, `9089815b…`, `87ea9c1d…`; a cracked copy) | import of all three disks (Sensible disk format, RNC unpacking) and decoded screens, sprite sheets, tile sets, colours and the 72 mission maps with launcher viewer; map view, camera, tile drawer, mission set-up, object drawing, panel, squad walking, shooting, deaths, enemy soldiers, grenades, rockets, huts, civilians, mission objectives, music and sound effects rebuilt and checked against the original; the whole game plays in the shell (mouse): all 72 phases with vehicles, the campaign and the front end (some screens laid out from captures; see milestones) |
+| Cannon Fodder | Amiga | three ADFs, `Cannon Fodder (1993)(Virgin)(Disk N of 3)[cr CSL].adf` (SHA-256 `2b01cbc9…`, `9089815b…`, `87ea9c1d…`; a cracked copy) | import of all three disks (Sensible disk format, RNC unpacking) and decoded screens, sprite sheets, tile sets, colours and the 72 mission maps with launcher viewer; map view, camera, tile drawer, mission set-up, object drawing, panel, squad walking, shooting, deaths, enemy soldiers, grenades, rockets, huts, civilians, mission objectives, music and sound effects rebuilt and checked against the original; the whole game plays in the shell (mouse): all 72 phases with vehicles, the campaign and the front end (all screens rebuilt from the program); persistent quick saves, widescreen, Control/Option/Command as the right button |
 | Rock 'n Roll | Amiga | — | planned |
 | Wings of Fury | Amiga | `Wings_of_Fury_v1.0_1990_Broderbund_cr_Hysteria.adf` (SHA-256 `638d9a9d…4620044`, a cracked copy) | disk import and decoded assets with launcher viewer (pictures, all 12 shape libraries, palettes, sounds, texts); the whole game playable and checked against the original: front end, all fifteen missions (islands, airfields, all four enemy ships, night), the promotion fireworks, game over and hall of fame, music, saved games (R&R), the original's keys and debug mode; cheats, widescreen, smooth motion and VHS look |
 | Tower of Babel | Amiga | — | planned; original interpretive shell cover added, importer and gameplay not implemented |
@@ -1129,6 +1129,22 @@ files RNC-packed. The image set is a cracked copy (CSL intro loaded by disk
    recording began one frame later: same states a frame apart), parallax
    recordings of the other four landscapes, save names (skipped by
    decision, 2026-10-28), joining squads not tried headless.
+   Widescreen (2026-10-28, an option): the map up to 21:9, the panel at the
+   picture's left edge, objects in the margins drawn from their own list
+   (the draw list the rules read is untouched), the map's own pixels where
+   the original's ring quirk hid columns under the panel, and the view
+   sliding inside the map near its edges (the camera stays the rules'); the
+   pointer over the map reaches into the margins (walk, fire, throw), the
+   camera's look-ahead keeps the original range; front-end screens in the
+   middle. Controls: Control, Option or Command held is the right button
+   (GameInput::modifier from the host). Smooth motion evaluated, not built
+   (the game moves objects every third frame, 16.7 Hz, while the camera
+   scrolls every frame): a drawing-only copy of the objects' places one
+   tick earlier, each placed between the two by the time since the tick
+   (frames since the tick + GameModule::set_frame_fraction, as Wings), the
+   camera between its last two frames; identity by slot, kind and a tick's
+   reach (bullets, vehicles, boarding, freed slots jump); frames, map damage
+   and the panel stay stepped; the draw list and on_screen untouched.
 
 Open: the panel's ammunition counts, lit-box condition, vehicle icons and
 mini-map; object drawing with hidden lines, negative/positive layers and y

@@ -1033,12 +1033,19 @@ int run(int argc, char** argv) {
                 first_phase = v == "new" ? -1 : std::stoi(v); // new: the whole game with its screens
             }
         auto game = fodder::game::start_game(argv[2], first_phase);
-        struct Hold { int from, to, x, y; bool left, right; };
+        for (int a = 5; a < argc; ++a) // wide=W,H: widescreen in a window of that shape
+            if (int w = 0, h = 0; std::sscanf(argv[a], "wide=%d,%d", &w, &h) == 2) {
+                game->set_option(0, 1);
+                game->set_canvas(w, h);
+            }
+        struct Hold { int from, to, x, y; bool left, right, modifier; };
         std::vector<Hold> holds;
         for (int a = 5; a < argc; ++a) {
             int f0 = 0, f1 = 0, x = 0, y = 0;
             char b = 'l';
-            if (std::sscanf(argv[a], "%d-%d:%d,%d,%c", &f0, &f1, &x, &y, &b) >= 4) holds.push_back({f0, f1, x, y, b == 'l' || b == 'b', b == 'r' || b == 'b'});
+            // l left, r right, b both, m a modifier key (Control), M the left button with it
+            if (std::sscanf(argv[a], "%d-%d:%d,%d,%c", &f0, &f1, &x, &y, &b) >= 4)
+                holds.push_back({f0, f1, x, y, b == 'l' || b == 'b' || b == 'M', b == 'r' || b == 'b', b == 'm' || b == 'M'});
         }
         const int frames = std::stoi(argv[3]);
         std::vector<float> audio(2 * 882);
@@ -1048,13 +1055,14 @@ int run(int argc, char** argv) {
         input.pointer_x = 200;
         input.pointer_y = 100;
         for (int f = 0; f < frames && game->stopped().empty(); ++f) {
-            input.mouse_button = input.mouse_right = false;
+            input.mouse_button = input.mouse_right = input.modifier = false;
             for (const auto& h : holds) {
                 if (f < h.from || f > h.to) continue;
                 input.pointer_x = h.x;
                 input.pointer_y = h.y;
                 input.mouse_button = h.left;
                 input.mouse_right = h.right;
+                input.modifier = h.modifier;
             }
             game->tick(input);
             game->audio(audio, 44100);

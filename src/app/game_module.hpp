@@ -36,6 +36,9 @@ struct GameInput {
     int pointer_x{}, pointer_y{};
     bool mouse_button{};
     bool mouse_right{}; // the right button
+    // Control, Option/Alt or Command held on its own (no key with it
+    // needed): for mouse games, a second button on a one-button trackpad.
+    bool modifier{};
 };
 
 // A setting the player can change in the pause menu (a fix or an

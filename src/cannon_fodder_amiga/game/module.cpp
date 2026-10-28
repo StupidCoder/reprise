@@ -99,10 +99,21 @@ public:
     double pixel_aspect() const override { return 1.0; }
     std::string stopped() const override { return stopped_; }
 
-    void tick(const app::GameInput& input) override {
+    void tick(const app::GameInput& original) override {
+        // A modifier key (Control, Option, Command) held is the right
+        // button: held, the squad fires; with a click, the leader throws.
+        app::GameInput input = original;
+        input.mouse_right = input.mouse_right || input.modifier;
         if (front_ && front_->active()) {
+            input.pointer_x -= margin(FrontScreen::height); // (the screens in the middle)
             front_frame(input);
             return;
+        }
+        // Widescreen: the panel at the picture's left edge; elsewhere the
+        // map's own columns (those of the original's 320 from the margin on).
+        if (input.pointer) {
+            pointer_on_panel_ = input.pointer_x < panel_width;
+            if (!pointer_on_panel_) input.pointer_x -= margin(view_height) - slide();
         }
         if (overview_.mode != Overview::Mode::off) {
             overview_frame(input);
@@ -125,6 +136,19 @@ public:
 
     platform::Image picture() const override;
     bool draws_pointer() const override { return true; }
+
+    std::vector<app::GameOption> options() const override {
+        return {{"Widescreen", {"Off", "On"}, widescreen_ ? 1 : 0,
+                 "Fills the window to its edges and shows more of the map left and right, up to 21:9; the "
+                 "panel stays at the left edge and the map's edges can be clicked. The game plays the same."}};
+    }
+    void set_option(std::size_t index, int value) override {
+        if (index == 0) widescreen_ = value != 0;
+    }
+    void set_canvas(int width, int height) override {
+        canvas_width_ = width;
+        canvas_height_ = height;
+    }
 
     void audio(std::span<float> stereo, int rate) override {
         std::fill(stereo.begin(), stereo.end(), 0.0f);
@@ -157,10 +181,32 @@ private:
     void end_music(EndText started);
     void start_jon(int song, bool warx = false);
     void draw_pointer(platform::Image& image) const {
-        draw_pointer(image, pointer_image_, world_.pointer_x, world_.pointer_y, pointer_offset_);
+        const int shift = pointer_on_panel_ ? 0 : margin(view_height) - slide(); // (widescreen: the map's columns)
+        draw_pointer(image, pointer_image_, world_.pointer_x + shift, world_.pointer_y, pointer_offset_);
     }
     void draw_pointer(platform::Image& image, int piece_number, int x, int y, int offset) const;
     void open_music(int source);
+    // Widescreen: the columns added on each side of a picture `height` tall
+    // (as wide as the window's shape allows, from 320 columns up to 21:9).
+    int margin(int height) const {
+        if (!widescreen_ || canvas_width_ <= 0 || canvas_height_ <= 0) return 0;
+        const double wide = std::clamp(double(height) * canvas_width_ / canvas_height_, double(view_width),
+                                       double(height) * 21 / 9);
+        return std::max(0, int(wide - view_width) / 2);
+    }
+    platform::Image widened(const platform::Image& middle, int height) const;
+    // Widescreen in a mission: the columns the view slides in from the
+    // camera's place near a map's edge, so the map fills it beside the
+    // panel (the camera, which the rules read, stays where it is): the
+    // picture's column 0 shows map column camera.x - 31 - margin + slide.
+    int slide() const {
+        const int m = margin(view_height);
+        if (m == 0 || !phase_.picture) return 0;
+        const int width = view_width + 2 * m, origin = world_.camera.x - view_column_of_camera - m;
+        const int low = -panel_width - origin, high = phase_.picture->width() - width - origin;
+        if (low > high) return (low + high) / 2;
+        return std::clamp(0, low, high);
+    }
     void build_overview();
     void overview_frame(const app::GameInput& input);
     template <class A> void persist(A& a);
@@ -196,6 +242,9 @@ private:
         int marker_x{}, marker_y{};          // $82B84, $82B86 (-1: no leader)
         template <class A> void persist(A& a) { a(requested, mode, frames, blink, marker_x, marker_y); }
     } overview_;
+    bool widescreen_{};
+    int canvas_width_{}, canvas_height_{};
+    bool pointer_on_panel_{}; // the pointer over the panel (widescreen: the picture's left edge)
     std::optional<sound::Rjp1> music_;
     int music_source_{-1}; // music_'s files: 0 the landscape's, 1 jon, 2 warx (-1 none)
     sound::MusicDirector director_;
@@ -378,9 +427,9 @@ void Module::open_music(int source) {
 // map, tiles and sheets are read again from the files by its number (only
 // the cells map damage changed are kept), the music from its files.
 template <class A> void Module::persist(A& a) {
-    int version = 1;
+    int version = 2; // 2: the pointer over the panel
     a(version);
-    if (version != 1) A::fail();
+    if (version != 1 && version != 2) A::fail();
     bool in_phase = phase_.terrain.has_value();
     int number = phase_.number;
     a(in_phase, number);
@@ -403,6 +452,7 @@ template <class A> void Module::persist(A& a) {
         }
     }
     a(overview_);
+    if (version >= 2) a(pointer_on_panel_);
     a(world_, campaign_, called_up_, save_names_, after_front_, motion_, target_, director_, jon_playing_,
       end_song_delay_, end_song_, engine_.volume, engine_.effect, engine_.param, engine_.phase, engine_.last, board_,
       frames_since_tick_, snapshot_tick_, left_was_down_, right_was_down_, pointer_image_, pointer_offset_,
@@ -801,12 +851,14 @@ void Module::set_up_squad() {
 void Module::frame(const app::GameInput& input) {
     // The pointer in the game's units ($8CABA -16…301, $8CABC 4…227) from
     // the picture's pixels (hypothesis: column − 16, line + 4).
+    // (Widescreen: over the map the pointer reaches into the margins.)
+    const int m = margin(view_height);
     if (input.pointer) {
-        world_.pointer_x = std::clamp(input.pointer_x - 16, -16, 0x12d);
+        world_.pointer_x = std::clamp(input.pointer_x - 16, pointer_on_panel_ ? -16 : -16 - m, 0x12d + m);
         world_.pointer_y = std::clamp(input.pointer_y + 4, 4, 0xe3);
     }
-    const bool over_map = input.pointer && input.pointer_x >= panel_width;
-    if (world_.pointer_x < 0x20) set_pointer(0x23, 0); // $9EC80: over the panel, the arrow
+    const bool over_map = input.pointer && !pointer_on_panel_;
+    if (m == 0 ? world_.pointer_x < 0x20 : pointer_on_panel_) set_pointer(0x23, 0); // $9EC80: over the panel, the arrow
     const bool left_press = input.mouse_button && !left_was_down_;
     const bool right_press = input.mouse_right && !right_was_down_;
     left_was_down_ = input.mouse_button;
@@ -848,8 +900,10 @@ void Module::frame(const app::GameInput& input) {
         const auto& l = world_.objects.slots[std::size_t(world_.leader_slot)];
         const Point leader{whole(l.x), whole(l.y)};
         if (over_map) {
+            // (the original's pointer range: a widescreen view scrolls alike)
             if (const auto t = look_ahead_target(tables_.geometry, leader,
-                                                 {world_.camera.x + world_.pointer_x, world_.camera.y + world_.pointer_y},
+                                                 {world_.camera.x + std::clamp(world_.pointer_x, -16, 0x12d),
+                                                  world_.camera.y + world_.pointer_y},
                                                  false)) {
                 target_ = *t;
             }
@@ -949,13 +1003,43 @@ void Module::game_tick() {
     if (ended) finish_phase();
 }
 
+// Widescreen: a screen of the original's width in the middle, black on
+// both sides.
+platform::Image Module::widened(const platform::Image& middle, int height) const {
+    const int m = margin(height);
+    if (m == 0) return middle;
+    platform::Image image(middle.width + 2 * m, middle.height);
+    std::fill(image.pixels.begin(), image.pixels.end(), platform::Color{0, 0, 0, 255});
+    for (int y = 0; y < middle.height; ++y)
+        std::copy_n(&middle.pixels[std::size_t(y * middle.width)], middle.width, &image.pixels[std::size_t(y * image.width + m)]);
+    return image;
+}
+
 platform::Image Module::picture() const {
-    if (front_ && front_->active()) return front_->picture();
-    auto view = view_indices(*phase_.picture, world_.camera);
+    if (front_ && front_->active()) return widened(front_->picture(), FrontScreen::height);
+    // Widescreen: `m` more columns of the map on each side; the original's
+    // ring quirk (columns left of 31 show the line above, under the panel)
+    // gives way to the map's own pixels, and objects in the margins (not in
+    // the draw list, which the rules read) are drawn as well.
+    const int m = margin(view_height), width = view_width + 2 * m, origin = world_.camera.x - view_column_of_camera - m + slide();
+    std::vector<std::uint8_t> view;
+    if (m == 0) {
+        view = view_indices(*phase_.picture, world_.camera);
+    } else {
+        view.assign(std::size_t(width * view_height), 0);
+        for (int line = 0; line < view_height; ++line)
+            for (int column = 0; column < width; ++column)
+                view[std::size_t(line * width + column)] = phase_.picture->at(origin + column, world_.camera.y + line);
+    }
     std::vector<int> order;
+    const auto in_margin = [&](const GameObject& o) { // the view's columns (and the draw list's lines, $AB828)
+        const int x = whole(o.x), y = whole(o.y);
+        return m > 0 && x >= origin - 32 && x <= origin + width + 16 && y >= std::max(world_.snapshot.y - 4, 0) &&
+               y <= world_.snapshot.y + 331;
+    };
     for (int i = 0; i < object_slots; ++i) {
         const auto& o = world_.objects.slots[std::size_t(i)];
-        if (o.used && !o.removed && o.on_screen) order.push_back(i);
+        if (o.used && !o.removed && (o.on_screen || (whole(o.x) >= 0 && in_margin(o)))) order.push_back(i);
     }
     // The draw list's layers: below, sorted by y, above.
     std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
@@ -965,8 +1049,11 @@ platform::Image Module::picture() const {
         if (la != lb) return la < lb;
         return la == 1 && whole(oa.y) < whole(ob.y);
     });
-    draw_objects(view, world_.camera, world_.objects, order, frames_, phase_.sheets);
-    platform::Image image(view_width, view_height);
+    if (m == 0) draw_objects(view, world_.camera, world_.objects, order, frames_, phase_.sheets);
+    else
+        draw_objects({view, width, view_height, origin, world_.camera.y, 0},
+                     world_.objects, order, frames_, phase_.sheets);
+    platform::Image image(width, view_height);
     for (std::size_t i = 0; i < view.size(); ++i) image.pixels[i] = data::to_color(phase_.palette[view[i] & 15]);
     if (overview_.mode != Overview::Mode::off) {
         // $A6A34: the overview's buffer shown from byte $26 with BPLCON1
@@ -974,11 +1061,12 @@ platform::Image Module::picture() const {
         // 0-15 at level 0) while the screens change.
         const bool shown = overview_.mode == Overview::Mode::showing;
         for (int y = 0; y < view_height; ++y)
-            for (int x = 0; x < view_width; ++x) {
+            for (int x = 0; x < width; ++x) {
                 int c = 0;
-                if (shown && x >= 31 && y + 1 < FrontScreen::height)
-                    c = overview_.pixels[std::size_t((y + 1) * FrontScreen::width + x - 31)];
-                image.pixels[std::size_t(y * view_width + x)] = shown ? data::to_color(phase_.palette[c]) : platform::Color{0, 0, 0, 255};
+                const int column = x - m; // (widescreen: in the middle)
+                if (shown && column >= 31 && column - 31 < FrontScreen::width && y + 1 < FrontScreen::height)
+                    c = overview_.pixels[std::size_t((y + 1) * FrontScreen::width + column - 31)];
+                image.pixels[std::size_t(y * width + x)] = shown ? data::to_color(phase_.palette[c]) : platform::Color{0, 0, 0, 255};
             }
     }
     // The panel (sprites, colours 16-31 from pstuff).
@@ -1011,7 +1099,7 @@ platform::Image Module::picture() const {
     if (overview_.mode == Overview::Mode::off) {
         draw_pointer(image);
     } else if (overview_.mode == Overview::Mode::showing && overview_.marker_x >= 0 && (overview_.blink & 0x1f) < 0x18) {
-        draw_pointer(image, 0x28, overview_.marker_x, overview_.marker_y, 0);
+        draw_pointer(image, 0x28, overview_.marker_x + m, overview_.marker_y, 0);
     }
     return image;
 }
