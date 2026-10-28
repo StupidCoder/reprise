@@ -53,9 +53,9 @@ public:
         fly_objects();
         strafe();
         airfields_tick(p, w, t);      // $10143E, $101622
-        // ($101510, the enemy carrier's fighters: not rebuilt yet.)
         ships_sinking(p, w, t);       // $101CAE
         soldiers_come_out(p, w, t);   // $101DE4
+        if (w.celebration) w.effects.step_sparks(); // $101C5E
     }
 
 private:
@@ -66,6 +66,9 @@ private:
     int cmd;
 
     ShipState& carrier() { return w.ships[4]; }
+    // -$50E8: how fast the climb changes ($258), as the debug mode's keys
+    // `i` and `k` leave it.
+    int pitch_rate() const { return t.pitch_rate + w.pitch_adjust; }
     int map_columns() const { return int(w.map->words.size()); }
 
     // $101386 before the command is used: oil and fuel run down only while
@@ -388,7 +391,7 @@ private:
                 }
             }
         } else {
-            p.climb = std::max(p.climb - t.pitch_rate, -0xC1C);
+            p.climb = std::max(p.climb - pitch_rate(), -0xC1C);
             falling_on = true;
         }
         if (falling_on) {
@@ -997,11 +1000,11 @@ private:
         p.pulling_up = false;
         const int pushed = (cmd & command::left) ? -1 : 1;
         p.climb_kick = 0;
-        const int quarter = div16(t.pitch_rate, 4);
+        const int quarter = div16(pitch_rate(), 4);
         const auto level_off = [&] {
             if (p.turn == 0) {
                 if (p.climb > 0) {
-                    p.climb = std::max(p.climb - t.pitch_rate, 0);
+                    p.climb = std::max(p.climb - pitch_rate(), 0);
                     if (p.climb < 0x1F5) p.climb_kick = -p.climb;
                 }
             } else {
@@ -1012,7 +1015,7 @@ private:
         if ((cmd & 0xF) == 0) {
             if (p.turn == 0) {
                 if (p.climb > 0) {
-                    p.climb = std::max(p.climb - t.pitch_rate, 0);
+                    p.climb = std::max(p.climb - pitch_rate(), 0);
                     if (p.climb < 0x1F5) p.climb_kick = -p.climb;
                 }
             } else {
@@ -1030,18 +1033,18 @@ private:
             if ((cmd & command::down) == 0) {
                 if (cmd & command::up) {
                     if (p.facing == -1) {
-                        if (p.climb == 0 || p.climb < 600) p.climb = std::min(p.climb + t.pitch_rate, 600);
-                        else p.climb = std::max(p.climb - t.pitch_rate, 600);
+                        if (p.climb == 0 || p.climb < 600) p.climb = std::min(p.climb + pitch_rate(), 600);
+                        else p.climb = std::max(p.climb - pitch_rate(), 600);
                         p.pulling_up = true;
                     } else {
-                        p.climb -= t.pitch_rate;
+                        p.climb -= pitch_rate();
                         if (p.climb < -600) p.climb -= div16(p.climb + 600, 2);
                     }
                 }
             } else {
                 p.engine_loud = true;
                 engine_sound(true);
-                p.climb = std::max(p.climb - t.pitch_rate * 2, climb_floor);
+                p.climb = std::max(p.climb - pitch_rate() * 2, climb_floor);
             }
             p.climb_kick = 0;
             unwind_turn(false);
@@ -1059,15 +1062,15 @@ private:
                 level_off();
             } else if ((cmd & command::down) == 0) {
                 if (p.speed <= stall_speed) {
-                    p.climb += p.facing < 1 ? div16(t.pitch_rate, 8) : quarter;
+                    p.climb += p.facing < 1 ? div16(pitch_rate(), 8) : quarter;
                 } else {
-                    p.climb += t.pitch_rate;
+                    p.climb += pitch_rate();
                 }
                 p.climb = std::min(p.climb, 3000);
             } else if (p.turn == 0) {
-                p.climb = std::max(p.climb - t.pitch_rate, climb_floor);
+                p.climb = std::max(p.climb - pitch_rate(), climb_floor);
             } else {
-                p.climb = std::max(p.climb - div16(t.pitch_rate, 2), climb_floor);
+                p.climb = std::max(p.climb - div16(pitch_rate(), 2), climb_floor);
             }
         }
     }
@@ -1088,7 +1091,7 @@ private:
         p.x = word(p.x + word(p.speed_x * p.facing));
         p.speed_y = word(ffp::to_int(ffp::divide(ffp::multiply(ffp::from_int(p.speed), sine), hundred)));
         if (p.speed < stall_speed && p.mode == flying) {
-            if ((cmd & command::up) == 0) p.climb = std::max(p.climb - div16(t.pitch_rate, 2), climb_floor);
+            if ((cmd & command::up) == 0) p.climb = std::max(p.climb - div16(pitch_rate(), 2), climb_floor);
             p.speed_y = word(p.speed_y - div16(stall_speed - p.speed, 100));
         }
         p.altitude = word(p.altitude + p.speed_y);

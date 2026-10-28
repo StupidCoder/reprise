@@ -45,6 +45,9 @@ struct Controls {
     // ] = the up arrow.
     // (The C64 space bar stays on c64_space.)
     std::array<bool, 64> c64_keys{};
+    // The same matrix while Ctrl (not Cmd) is held, without the shortcut
+    // letters Q, S and L (GameInput::ctrl_keys).
+    std::array<bool, 64> ctrl_keys{};
     // Pressed this frame (menus and shortcuts).
     bool accept{}, back{}, menu{}, remove{}, info{}, click{};
     bool nav_left{}, nav_right{}, nav_up{}, nav_down{};

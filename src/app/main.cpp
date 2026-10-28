@@ -226,6 +226,7 @@ int run(const Options& options) {
                                      controls.fire,  controls.f1,    controls.f3,    controls.f5,
                                      controls.f7,    controls.c64_space, controls.up2, controls.down2,
                                      controls.left2, controls.right2, controls.fire2, controls.c64_keys};
+                input.ctrl_keys = controls.ctrl_keys;
                 input.pointer = controls.game_pointer.has_value();
                 if (controls.game_pointer) {
                     const auto at = shown.to_picture(*controls.game_pointer);

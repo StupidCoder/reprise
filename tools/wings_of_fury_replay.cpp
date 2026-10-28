@@ -11,6 +11,7 @@
 //       With "resync" the player is also reloaded from the recording before
 //       each tick (lists every tick that differs, not only the first).
 //   wings_of_fury_replay maps <content>   (what each map holds for its rank and mission)
+//   wings_of_fury_replay sparks <content> <ticks> <out.png>   (the fireworks over map a's carrier)
 //   wings_of_fury_replay setup <content> <map> <recording>   (the set-up's scans against the first tick)
 //   wings_of_fury_replay simulate <content> <map> <recording> <script> [every]
 //       runs the rebuilt flight from the recording's first tick on a command
@@ -20,7 +21,8 @@
 //       drives the game module (game/module) with the script as joystick
 //       input (stick bits per tick, four vertical blanks each) and saves the
 //       picture at the listed ticks as PNG. WOF_OPTIONS="1=1,..." sets
-//       options first (1-5: the cheats).
+//       options first (1-5: the cheats). WOF_KEYS="tick:k<n>,tick:c<n>"
+//       holds C64-matrix key n (c: with Ctrl) for that tick.
 
 #include "platform/files.hpp"
 #include "platform/host.hpp"
@@ -441,6 +443,7 @@ void load_enemies(const Recording& r, std::size_t k, FlightWorld& w) {
         a.direction = r.s16(k, at + 0xE);
     }
     e.launch_cooldown = r.s16(k, 0x11729C);
+    e.deck_roll = r.s16(k, 0x11729E); // (-$3CB4)
 }
 
 // The planes' fields the tick drives, compared; an altitude a step off
@@ -523,6 +526,7 @@ std::vector<std::string> enemy_differences(FlightWorld& a, const FlightWorld& b,
         }
     }
     if (a.enemies.launch_cooldown != b.enemies.launch_cooldown) out.push_back("cooldown");
+    if (a.enemies.deck_roll != b.enemies.deck_roll) out.push_back("deck_roll");
     if (a.enemies.wrecks != b.enemies.wrecks) out.push_back("wrecks");
     if (a.kills != b.kills) out.push_back("kills " + std::to_string(a.kills) + "/" + std::to_string(b.kills));
     return out;
@@ -682,6 +686,13 @@ std::vector<std::string> world_differences(const FlightWorld& a, const FlightWor
         check((n + "ready").c_str(), x.ready, y.ready);
         check((n + "sunk").c_str(), x.sunk, y.sunk);
         check((n + "planes").c_str(), x.planes.count, y.planes.count);
+        // (The Japanese carrier's rolling plane: its place and flag.)
+        for (int q = 0; q < std::min(x.planes.count, y.planes.count); ++q) {
+            const auto &u = x.planes.planes[std::size_t(q)], &v = y.planes.planes[std::size_t(q)];
+            check((n + "plane.flag").c_str(), u.flag, v.flag);
+            check((n + "plane.x").c_str(), u.x, v.x);
+            check((n + "plane.altitude").c_str(), u.altitude, v.altitude);
+        }
     }
     return out;
 }
@@ -775,7 +786,7 @@ int check_flight(const std::string& content, const std::string& map_name, const 
     int carrier_frames = 0, carrier_bad = 0, hidden_frames = 0, hidden_bad = 0;
     int gauge_gaps = 0, gauge_bad = 0, gauge_unchecked = 0;
     int weapon_checks = 0, beam_inputs = 0, damage_inputs = 0, island_ticks = 0, messages = 0;
-    int effects_started = 0, unchecked = 0, random_draws = 0, misplaced_blasts = 0, shell_splashes = 0, set_off = 0;
+    int effects_started = 0, unchecked = 0, random_draws = 0, misplaced_blasts = 0, shell_splashes = 0, set_off = 0, eighth_guns = 0;
     // The guns' sound request the last frame left (-$3E9A, -$3E98).
     w.islands.gun_sound = rec.s16(0, 0x1170B8) != 0;
     w.islands.gun_volume = rec.s16(0, 0x1170BA);
@@ -942,6 +953,16 @@ int check_flight(const std::string& content, const std::string& map_name, const 
             p.spare = before_frames.spare;
             FlightWorld recorded_islands = w;
             load_islands(rec, k + 1, recorded_islands);
+            // In the 1/8 view a gun fires (and is heard) on a beam-random
+            // bit: the guns' sound request the frames leave is taken as
+            // recorded there.
+            if (frames > 0 && w.frame_eighth) {
+                const bool sound = rec.s16(k + 1, 0x1170B8) != 0;
+                const int volume = rec.s16(k + 1, 0x1170BA);
+                if (sound != w.islands.gun_sound || (sound && volume != w.islands.gun_volume)) ++eighth_guns;
+                w.islands.gun_sound = sound;
+                w.islands.gun_volume = volume;
+            }
             // A dugout's soldier runs a way chosen by the beam position:
             // taken as recorded.
             for (std::size_t i = 0; i < w.islands.soldiers.size(); ++i) {
@@ -1256,6 +1277,7 @@ int check_flight(const std::string& content, const std::string& map_name, const 
     }
     std::printf("islands: %d ticks compared, %d messages; %d wreck-blast delays (random) checked by rule; %d misplaced crash "
                 "blasts (placed by the map's address) not compared\n", island_ticks, messages, random_draws, misplaced_blasts);
+    if (eighth_guns > 0) std::printf("guns in the 1/8 view: %d sound requests (beam-random) taken as recorded\n", eighth_guns);
     if (shell_splashes > 0) std::printf("ship guns: %d shell splashes (placed by the beam) checked by rule, %d torpedoes set off by them taken as recorded\n", shell_splashes, set_off);
     std::printf("sound: %d ticks compared, %d differ\n", sound_ticks, sound_bad);
     std::printf("weapons: %d slot ticks compared (%d beam-random values - rocket ignitions, dugout soldiers' ways - and %d hits taken as recorded)\n",
@@ -1416,6 +1438,16 @@ int maps(const std::string& content) {
                 if (a.right > a.left) std::printf(", airfield %d..%d (%d parked, limit %d)", a.left, a.right, a.parked, a.limit);
             }
             std::printf("\n");
+            if (std::getenv("WOF_INDEXES")) {
+                std::set<int> drawn;
+                for (std::size_t c = 0; c < map.words.size(); ++c) {
+                    const auto column = map.column(c);
+                    if (column.draw) drawn.insert(column.index);
+                }
+                std::printf("  drawn:");
+                for (int i : drawn) std::printf(" %x", i);
+                std::printf("\n");
+            }
         }
     }
     return 0;
@@ -1497,6 +1529,18 @@ int play(const std::string& content, const std::string& script, const std::strin
         input.right = commands[k] & 4;
         input.left = commands[k] & 8;
         input.fire = (commands[k] & 0x30) != 0; // held for the tick: released within 10 blanks = a tap
+        // WOF_KEYS="tick:k1,tick:c26,...": a C64-matrix key (k) or that key
+        // with Ctrl (c) held for the tick.
+        if (const char* keys = std::getenv("WOF_KEYS")) {
+            std::istringstream list(keys);
+            for (std::string item; std::getline(list, item, ',');) {
+                const auto colon = item.find(':');
+                if (colon == std::string::npos || std::stoi(item.substr(0, colon)) != int(k)) continue;
+                const int key = std::stoi(item.substr(colon + 2));
+                if (item[colon + 1] == 'c') input.ctrl_keys[std::size_t(key)] = true;
+                else input.c64_keys[std::size_t(key)] = true;
+            }
+        }
         for (int v = 0; v < 4; ++v) {
             module->tick(input);
             // (1/50 s at 44,100 Hz, reused, as the app does: the music's
@@ -1580,6 +1624,39 @@ int frontend(const std::string& content, const std::string& screen, int frames, 
     app::GameInput none;
     for (int i = 0; i < frames; ++i) fe.step(none);
     platform::save_png(fe.picture(221), platform::utf8_path(out));
+    return 0;
+}
+
+// The victory ceremony's fireworks (game/effects) over map a's carrier,
+// after `ticks` ticks of rising and starting again, as a picture (research:
+// against a screen of the original after a promotion).
+int sparks(const std::string& content, int ticks, const std::string& out) {
+    const auto assets = wings::data::load_assets(platform::utf8_path(content));
+    const auto& map = assets.maps.front();
+    wings::game::Effects effects;
+    wings::game::BeamRandom random;
+    for (int k = 0; k < ticks; ++k) {
+        effects.step_sparks();
+        effects.start_sparks(map.carrier_x(), random);
+    }
+    wings::game::BackdropState backdrop;
+    backdrop.camera = map.carrier_x(); // (the plane on the elevator spot)
+    auto canvas = wings::game::draw_sky_and_scenery(assets, map, backdrop);
+    wings::game::draw_sea_and_sand(canvas, assets, map, backdrop);
+    wings::game::EffectView view;
+    view.camera = backdrop.camera;
+    view.ground_line = backdrop.ground_line;
+    wings::game::draw_sparks(canvas, assets, effects, view);
+    const auto& palette = wings::data::find_palette(assets, "wingspalette");
+    platform::Image image(canvas.width * 2, canvas.height);
+    for (int y = 0; y < canvas.height; ++y) {
+        for (int x = 0; x < canvas.width; ++x) {
+            const auto c = wings::data::to_color(palette[std::size_t(canvas.at(x, y)) % palette.size()]);
+            image.put(2 * x, y, c);
+            image.put(2 * x + 1, y, c);
+        }
+    }
+    platform::save_png(image, platform::utf8_path(out));
     return 0;
 }
 
@@ -1676,6 +1753,7 @@ int main(int argc, char** argv) {
         if (command == "briefing" && argc == 8) {
             return briefing(argv[2], std::stoi(argv[3]), std::stoi(argv[4]), std::stoi(argv[5]), std::stoi(argv[6]), argv[7]);
         }
+        if (command == "sparks" && argc == 5) return sparks(argv[2], std::stoi(argv[3]), argv[4]);
         if (command == "frontend" && argc == 7) return frontend(argv[2], argv[3], std::stoi(argv[4]), argv[5], argv[6]);
         if (command == "music" && argc == 5) return music(argv[2], argv[3], argv[4]);
         if (command == "ticker" && argc == 6) return ticker(argv[2], argv[3], std::stoi(argv[4]), argv[5]);

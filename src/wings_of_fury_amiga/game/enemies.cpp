@@ -122,18 +122,42 @@ public:
 
     // $101510: the planes parked on enemy ships take off (facing left) while
     // the plane is in the ship's range and fewer fighters than its limit are
-    // up. (The Japanese carrier's roll along its deck first: not rebuilt,
-    // no such ship on the maps played so far.)
+    // up. The Japanese carrier's last parked plane first rolls along the
+    // deck from $17C past the ship's start, speeding up (-$3CB4 eases toward
+    // 8 pixels a tick), and takes off past the ship's bow.
     void ship_planes() {
+        auto& carrier = w.ships[3];
+        if (carrier.planes.count != 0) {
+            auto& rolling = carrier.planes.planes[std::size_t(carrier.planes.count - 1)];
+            if (rolling.flag > 0) {
+                int step = e.deck_roll;
+                step = word(step + 8 - (std::uint16_t(step) >> 4));
+                e.deck_roll = step;
+                rolling.x = word(rolling.x - (std::uint16_t(step) >> 4));
+                if (word(carrier.first * 4) > rolling.x) {
+                    --carrier.planes.count;
+                    launch(false, rolling.x, rolling.altitude, -1);
+                }
+            }
+        }
         if (e.launch_cooldown != 0) return;
-        static constexpr int order[4] = {0, 1, 2, 3};
+        static constexpr int order[4] = {0, 1, 2, 3}; // (-$5AA4 without the US carrier: its value is 0)
         for (const int slot : order) {
             auto& s = w.ships[std::size_t(slot)];
             if (!s.present || !s.afloat || s.value == 0 || s.ready <= 0) continue;
             auto& planes = s.planes;
             if (w.last.x < planes.low || w.last.x > planes.high) continue;
             if (e.fighters_out >= planes.limit || planes.count == 0) continue;
-            if (slot == 3) return; // (the carrier's deck roll)
+            if (slot == 3) {
+                // $1015F4: the carrier's last plane starts its roll.
+                auto& plane = planes.planes[std::size_t(planes.count - 1)];
+                plane.flag = 1;
+                e.deck_roll = 0;
+                plane.x = word(s.first * 4 + 0x17C);
+                plane.altitude = 0x21;
+                e.launch_cooldown = 0x64;
+                return;
+            }
             const auto& plane = planes.planes[std::size_t(--planes.count)];
             launch(false, plane.x, plane.altitude, -1);
             e.launch_cooldown = 0x64;

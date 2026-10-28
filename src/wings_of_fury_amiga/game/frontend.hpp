@@ -33,9 +33,10 @@ struct ScoreEntry {
 
 class FrontEnd {
 public:
-    enum class Screen : std::uint8_t { none, story, pictures, rank_select, name_entry, hall_of_fame };
-    // What a step leads to.
-    enum class Result : std::uint8_t { running, play, done };
+    enum class Screen : std::uint8_t { none, story, pictures, rank_select, name_entry, hall_of_fame, saved_games };
+    // What a step leads to (the saved-game screen: back where it was opened,
+    // a game loaded (loaded_game()), or Exit Game).
+    enum class Result : std::uint8_t { running, play, done, back, loaded, exit_game };
 
     FrontEnd(const data::Assets&, const TickerFont&, std::filesystem::path score_file);
 
@@ -43,6 +44,10 @@ public:
     void start_rank_select();
     // After the game: the name (if the score makes the table), then the table.
     void start_game_over(long score, int rank);
+    // $108B96: the saved games (`wof.<name>` beside the high scores): Save
+    // Game with the game's text, or Load Game.
+    void start_saved_games(bool save, std::string game_text = {});
+    const std::string& loaded_game() const { return loaded_game_; }
     // Back to the game (no front-end screen).
     void close() { screen_ = Screen::none; }
     // The music the screens ask for ($1023DC: a song of `wofsongs`;
@@ -119,6 +124,22 @@ private:
     void write_scores() const;
     void enter_score();
     bool edit_name(const app::GameInput&);  // true when the entry ends
+    // $106086 itself: edits `text` (at most `length`); 0 while editing, else
+    // how it ended: -1 up, 1 down, 2 Return.
+    int edit_line(const app::GameInput&, std::string& text, int& cursor, int length);
+
+    // ---- saved games ($108B96) ----
+    bool saving_ = false;
+    std::string game_text_, loaded_game_;
+    std::array<std::string, 6> slots_, slots_found_; // -$3380, -$32D2 (as found)
+    std::array<bool, 6> edited_{};  // drawn by the line editor (a pixel further left)
+    int found_ = 0;          // saved games found ($108A06)
+    int slot_ = 0;           // -$44: 0..5 the slots, 6 Exit Game, 7 Cancel
+    int slot_cursor_ = 0;
+    bool up_was_ = false, down_was_ = false, return_was_ = false;
+    std::string busy_;       // "Saving game..." / "Loading game..." while it fades
+    Result after_fade_ = Result::back;
+    std::filesystem::path saved_game_file(const std::string& name) const;
 };
 
 } // namespace wings::game

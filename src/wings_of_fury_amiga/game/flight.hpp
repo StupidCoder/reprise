@@ -262,6 +262,7 @@ struct FlightWorld {
     bool guns{};                      // -$5C94: the guns firing
     int gun_supply{};                 // -$50EA: $600 for a new plane; never counts down
     std::int32_t gravity{0x6000};     // -$5CAE: what falling weapons gain per tick ($103562)
+    int pitch_adjust{};               // the debug mode's change to -$50E8 (keys i and k: +-50)
     // The frame's copies the tick reads ($100F88): the camera (-$41A2), the
     // altitude (-$419E) and the 1/8 view (-$60CA); and whether a frame was
     // drawn since the last tick (-$41C2). Set by the caller before a tick.

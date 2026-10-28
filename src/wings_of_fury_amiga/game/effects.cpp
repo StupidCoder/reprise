@@ -67,6 +67,36 @@ bool Effects::start_blast_at(int x, int height, bool water) {
     return false;
 }
 
+void Effects::step_sparks() {
+    for (auto& s : sparks) {
+        if (!s.active) continue;
+        s.x = std::int32_t(std::uint32_t(s.x) + std::uint32_t(s.dx));
+        s.y = std::int32_t(std::uint32_t(s.y) + std::uint32_t(s.dy));
+        if (std::int16_t(std::uint32_t(s.y) >> 16) >= 0xAA) s.active = false;
+    }
+}
+
+void Effects::start_sparks(int carrier_x, BeamRandom& random) {
+    const auto whole = [](std::int32_t& v, int w) { // (move.w: the whole part only)
+        v = std::int32_t((std::uint32_t(std::uint16_t(w)) << 16) | (std::uint32_t(v) & 0xFFFF));
+    };
+    for (auto& s : sparks) {
+        if (s.active) continue;
+        whole(s.x, carrier_x - 0x74);
+        whole(s.y, 0x38);
+        // rol.w #4, the low two bits (the top two of the four): 0 counts as
+        // 2; then less one.
+        int kind = random.next() >> 12 & 3;
+        if (kind == 0) kind = 2;
+        s.kind = kind - 1;
+        // Both speeds come from the beam position read twice a few
+        // instructions apart: nearly the same, so every spark climbs at 45
+        // degrees (one stream on the screen); here one draw for both.
+        s.dx = s.dy = std::int32_t(std::uint32_t(random.next() & 0xFFFF) * 2 + one);
+        s.active = true;
+    }
+}
+
 void Effects::set_off_torpedoes(int x, int reach) {
     const auto off = [&](FlyingObject& o, bool any) {
         if (o.listed == FlyingObject::Kind::none || (!any && o.weapon != 2)) return;
@@ -225,6 +255,12 @@ void DeckCrew::step(const CrewTables& t, int signal) {
         pose_b += pose_b < target_b ? 1 : -1;
     } else {
         target_b = turn_round(entry(t.b), pose_b);
+    }
+}
+
+void draw_sparks(IndexedCanvas& canvas, const data::Assets& assets, const Effects& e, const EffectView& view) {
+    for (const auto& s : e.sparks) {
+        if (s.active) put(canvas, assets, view, 0xC + s.kind, std::int16_t(std::uint32_t(s.x) >> 16), std::int16_t(std::uint32_t(s.y) >> 16));
     }
 }
 

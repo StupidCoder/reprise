@@ -111,7 +111,7 @@ constexpr int ground_line_for(int altitude) {
 //   $1037BC  the map's scenery columns, each followed by its special:
 //            $22 the waving US flag on the tower ($103D10), $9F the deck
 //            crew ($103BCE), both moved with the US carrier; $113 an island's enemy flag or bare pole
-//            ($103B52); index 5 ($104E18) is not rebuilt yet
+//            ($103B52); index 5, a wrecked hut ($104E18): its smoke (islands)
 //   $103E6C  the wave strip: five copies of the frame, 96 pixels apart
 //   $1040E8  each island's sand (colour 17, the ground line and 4 rows
 //            below) and its beach ends

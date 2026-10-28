@@ -345,8 +345,10 @@ void DashboardGauges::step(const DashboardInput& in, int random) {
         if (load_tens == tens_at && load_units == units_at) {
             load_settled = load;
         } else {
-            if (++load_units > 0x50) load_units = 1;
-            if (load_tens != tens_at && std::uint16_t(load_units) <= 8 && ++load_tens > 0x50) load_tens = 1;
+            // ($10F07C: unsigned compares: a position below 0, as $10EDBC
+            // leaves the tens for a load of $FF, wraps to 1 at once.)
+            if (std::uint16_t(++load_units) > 0x50) load_units = 1;
+            if (load_tens != tens_at && std::uint16_t(load_units) <= 8 && std::uint16_t(++load_tens) > 0x50) load_tens = 1;
         }
     }
     const int spares = std::clamp(in.spare_planes, 0, 9);

@@ -420,9 +420,128 @@ FrontEnd::Result FrontEnd::step(const app::GameInput& input) {
         }
         return Result::running;
     }
+    case Screen::saved_games: {
+        if (fading()) return Result::running;
+        if (phase_ == 2) {
+            screen_ = Screen::none;
+            return after_fade_;
+        }
+        const bool up = input.up && !up_was_, down = input.down && !down_was_;
+        const bool ret = input.c64_keys[1] && !return_was_;
+        int move = 0;
+        bool chosen = false;
+        if (slot_ < 6 && saving_) {
+            // The line editor on the slot ($106086 at $2C, 28 characters).
+            const int r = edit_line(input, slots_[std::size_t(slot_)], slot_cursor_, 0x1C);
+            edited_[std::size_t(slot_)] = true;
+            if (r == -1 || r == 1) move = r;
+            else if (r == 2 || fire) chosen = true;
+        } else {
+            // $108194: up and down (stick or cursor keys), fire or Return.
+            up_was_ = input.up;
+            down_was_ = input.down;
+            return_was_ = input.c64_keys[1];
+            if (up) move = -1;
+            else if (down) move = 1;
+            else if (fire || ret) chosen = true;
+        }
+        if (move != 0) {
+            // $108F7E: round the eight places; loading skips empty slots.
+            do {
+                slot_ += move;
+                if (slot_ < 0) slot_ = 7;
+                if (slot_ > 7) slot_ = 0;
+            } while (!saving_ && slot_ < 6 && slots_[std::size_t(slot_)].empty());
+            if (slot_ < 6) slot_cursor_ = int(slots_[std::size_t(slot_)].size());
+            return Result::running;
+        }
+        if (!chosen) return Result::running;
+        if (slot_ < 6) {
+            // $106592: ':' and '/' would make a path; they become spaces.
+            for (auto& c : slots_[std::size_t(slot_)]) {
+                if (c == ':' || c == '/') c = ' ';
+            }
+        }
+        const auto& name = slot_ < 6 ? slots_[std::size_t(slot_)] : std::string{};
+        if (slot_ < 6 && !name.empty()) {
+            if (saving_) {
+                // $105E8A; then a slot renamed loses its old file (the first
+                // one found, $109180).
+                busy_ = "Saving game...";
+                try {
+                    platform::write_text(saved_game_file(name), game_text_);
+                    for (int i = 0; i < found_; ++i) {
+                        const auto& old = slots_found_[std::size_t(i)];
+                        if (old.empty() || old == slots_[std::size_t(i)]) continue;
+                        std::error_code ignored;
+                        std::filesystem::remove(saved_game_file(old), ignored);
+                        break;
+                    }
+                } catch (const std::exception&) {
+                    // (A game that cannot be written is not saved.)
+                }
+                after_fade_ = Result::back;
+            } else {
+                // $105E1A.
+                busy_ = "Loading game...";
+                try {
+                    const auto bytes = platform::read_file(saved_game_file(name));
+                    loaded_game_.assign(bytes.begin(), bytes.end());
+                    after_fade_ = Result::loaded;
+                } catch (const std::exception&) {
+                    after_fade_ = Result::back;
+                }
+            }
+        } else {
+            // Exit Game ($106E96: the program ends) or Cancel.
+            after_fade_ = slot_ == 6 ? Result::exit_game : Result::back;
+        }
+        fade_to(std::vector<std::uint16_t>(16, 0)); // $1073B0
+        phase_ = 2;
+        return Result::running;
+    }
     case Screen::none: break;
     }
     return Result::done;
+}
+
+std::filesystem::path FrontEnd::saved_game_file(const std::string& name) const {
+    return score_file_.parent_path() / ("wof." + name);
+}
+
+// $108B96: the screen ($1069A4) with its texts and boxes, then the saved
+// games found ($108A06: files `wof.<name>`, the first six; each slot 27
+// characters at most).
+void FrontEnd::start_saved_games(bool save, std::string game_text) {
+    screen_ = Screen::saved_games;
+    saving_ = save;
+    game_text_ = std::move(game_text);
+    loaded_game_.clear();
+    busy_.clear();
+    slots_ = {};
+    slots_found_ = {};
+    edited_ = {};
+    std::vector<std::string> names;
+    std::error_code error;
+    for (const auto& entry : std::filesystem::directory_iterator(score_file_.parent_path(), error)) {
+        const auto file = entry.path().filename().string();
+        if (file.size() < 5 || file[3] != '.') continue;
+        if (std::tolower(file[0]) != 'w' || std::tolower(file[1]) != 'o' || std::tolower(file[2]) != 'f') continue;
+        names.push_back(file.substr(4, 0x1B));
+    }
+    std::sort(names.begin(), names.end());
+    found_ = int(std::min<std::size_t>(names.size(), 6));
+    for (int i = 0; i < found_; ++i) slots_[std::size_t(i)] = slots_found_[std::size_t(i)] = names[std::size_t(i)];
+    slot_ = found_ == 0 && !save ? 7 : 0; // (nothing to load: on Cancel)
+    slot_cursor_ = int(slots_[0].size());
+    up_was_ = down_was_ = true;
+    return_was_ = true;
+    fire_was_ = true;
+    keys_.fill(true);
+    shown_.picture = nullptr;
+    shown_.colours.assign(16, 0);
+    fade_to(words_at(assets_->program, a4 - 0x55EE, 16)); // ($107084)
+    phase_ = 1;
 }
 
 // $106086: the line editor. Letters and digits go in at the cursor (16 at
@@ -451,6 +570,35 @@ bool FrontEnd::edit_name(const app::GameInput& input) {
     left_was_ = input.left;
     right_was_ = input.right;
     return ends;
+}
+
+int FrontEnd::edit_line(const app::GameInput& input, std::string& text, int& cursor, int length) {
+    int result = 0;
+    if (input.up && !up_was_) result = -1;
+    if (input.down && !down_was_) result = 1;
+    up_was_ = input.up;
+    down_was_ = input.down;
+    for (int i = 0; i < 64; ++i) {
+        const bool down = input.c64_keys[std::size_t(i)];
+        const bool pressed = down && !keys_[std::size_t(i)];
+        keys_[std::size_t(i)] = down;
+        if (!pressed) continue;
+        if (i == 1) result = 2;
+        else if (i == 0) {
+            if (cursor > 0) text.erase(std::size_t(--cursor), 1);
+        } else if (const char c = key_char(i); c != 0 && int(text.size()) < length) {
+            text.insert(text.begin() + cursor, c);
+            cursor = std::min(cursor + 1, length);
+        }
+    }
+    const bool space = input.space && !keys_were_;
+    keys_were_ = input.space;
+    if (space && int(text.size()) < length) text.insert(text.begin() + cursor++, ' ');
+    if (input.left && !left_was_) cursor = std::max(cursor - 1, 0);
+    if (input.right && !right_was_) cursor = std::min(cursor + 1, int(text.size()));
+    left_was_ = input.left;
+    right_was_ = input.right;
+    return result;
 }
 
 void FrontEnd::read_scores() {
@@ -565,6 +713,52 @@ platform::Image FrontEnd::picture(int height) const {
         for (int y = name_y; y < name_y + 8; ++y) {
             for (int x = name_x + cursor_ * 8; x < name_x + cursor_ * 8 + 8; ++x) c.pixels[std::size_t(y * 320 + x)] ^= 0xF;
         }
+        for (int y = 0; y < 200 && y < height; ++y) put_row(image, y, c, y, shown_.colours, true);
+        break;
+    }
+    case Screen::saved_games: {
+        // $108B96 on a 320 x 200 screen of four planes, all in pen 15 ($28F).
+        IndexedCanvas c(320, 200);
+        topaz_text(c, saving_ ? "Save" : "Load", 0x55, 0x13, 15, 0, false);
+        topaz_text(c, "Game", 127, 19, 15, 0, false); // (the texts -$5656)
+        topaz_text(c, "Exit Game", 63, 193, 15, 0, false);
+        topaz_text(c, "Cancel", 222, 194, 15, 0, false);
+        static constexpr int boxes[8][4] = {{43, 59, 282, 69},   {43, 75, 282, 85},   {43, 91, 282, 101},
+                                            {43, 107, 282, 117}, {43, 123, 282, 133}, {43, 139, 282, 149},
+                                            {43, 183, 147, 199}, {205, 183, 285, 199}}; // (-$5636)
+        for (const auto& b : boxes) {
+            line(c, b[0], b[1], b[2], b[1], 15);
+            line(c, b[2], b[1], b[2], b[3], 15);
+            line(c, b[0], b[3], b[2], b[3], 15);
+            line(c, b[0], b[1], b[0], b[3], 15);
+        }
+        for (int i = 0; i < 6; ++i) {
+            const int y = 0x3D + i * 16;
+            const auto& name = slots_[std::size_t(i)];
+            if (edited_[std::size_t(i)]) {
+                // The line editor's field, with its cursor complemented.
+                std::string field = name;
+                field.resize(0x1D, ' ');
+                topaz_text(c, field, 0x2C, y + amiga::Topaz8::baseline, 15, 0, true);
+                if (saving_ && i == slot_) {
+                    for (int yy = y; yy < y + 8; ++yy) {
+                        for (int x = 0x2C + slot_cursor_ * 8; x < 0x2C + slot_cursor_ * 8 + 8 && x < 320; ++x) c.pixels[std::size_t(yy * 320 + x)] ^= 0xF;
+                    }
+                }
+            } else {
+                topaz_text(c, name, 0x2D, y + amiga::Topaz8::baseline, 15, 0, false); // ($108958)
+            }
+        }
+        // The choice, complemented ($108E10: a slot when loading; the buttons).
+        const auto complement = [&](int x0, int y0, int x1, int y1) {
+            for (int y = y0; y <= y1; ++y) {
+                for (int x = x0; x <= x1; ++x) c.pixels[std::size_t(y * 320 + x)] ^= 0xF;
+            }
+        };
+        if (slot_ < 6 && !saving_) complement(0x2C, 0x3D + slot_ * 16 - 1, 0x2C + 0xED, 0x3D + slot_ * 16 + 7);
+        if (slot_ == 6) complement(0x2D, 0xB9, 0x91, 0xC5);
+        if (slot_ == 7) complement(0xCF, 0xB9, 0x11B, 0xC5);
+        if (!busy_.empty()) topaz_text(c, busy_, 10, 10, 1, 0, false); // ($109118, pen 1)
         for (int y = 0; y < 200 && y < height; ++y) put_row(image, y, c, y, shown_.colours, true);
         break;
     }

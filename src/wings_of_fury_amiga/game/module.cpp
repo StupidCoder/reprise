@@ -11,6 +11,7 @@
 #include "wings_of_fury_amiga/game/briefing.hpp"
 #include "wings_of_fury_amiga/game/frontend.hpp"
 #include "wings_of_fury_amiga/game/music.hpp"
+#include "wings_of_fury_amiga/game/saved_game.hpp"
 #include "platform/files.hpp"
 #include "ui/vhs.hpp"
 #include <optional>
@@ -34,7 +35,7 @@ public:
           briefing_tables_(read_briefing_tables(assets_.program)),
           map_(&assets_.maps.front()), day_(data::find_palette(assets_, "wingspalette")),
           sea_(data::find_palette(assets_, "ocean.palette")), ticker_font_(read_ticker_font(assets_.ticker_font)),
-          front_end_(assets_, ticker_font_, content / "highscore"),
+          front_end_(assets_, ticker_font_, content / "highscore"), content_(content),
           music_(platform::read_file(content / "songplay"), platform::read_file(content / "wofsongs")) {
         // $1087BA: the ticker's copper list sets colour 1 for its first ten
         // lines from `wings` $1158E8 (the last stays below).
@@ -61,9 +62,18 @@ public:
                 playing_song_ = song_pending_ >= 0 ? song_pending_ : -1;
                 song_pending_ = -1;
             }
-            if (front_end_.step(input) == FrontEnd::Result::play) {
-                new_game(front_end_.chosen_rank());
+            switch (front_end_.step(input)) {
+            case FrontEnd::Result::play: new_game(front_end_.chosen_rank()); return;
+            case FrontEnd::Result::back:
+                // (The saved games from the rank menu: back to it; from the
+                // game: the game goes on.)
+                if (!saves_in_game_) front_end_.start_rank_select();
                 return;
+            case FrontEnd::Result::loaded:
+                if (!restore(front_end_.loaded_game()) && !saves_in_game_) front_end_.start_rank_select();
+                return;
+            case FrontEnd::Result::exit_game: exited_ = true; return;
+            default: break;
             }
             if (const int song = front_end_.take_song_request(); song != -1) {
                 if (music_.state() != 0) {
@@ -76,14 +86,45 @@ public:
             }
             return;
         }
-        // $10CD2C: the key `r` ends the game (-$5A3E): the fade, then rank
-        // selection without the hall of fame.
-        const bool r_key = input.c64_keys[17];
-        if (r_key && !r_was_ && !world_.game_over) {
+        // $10CCF6: the keys, with Ctrl ($10CD20). (Ctrl-s, sound off, and
+        // Ctrl-l, a saved game, are Joyport's quick save and load: the
+        // pause menu's mute and RETURN FROM R&R do those; Ctrl-b, an
+        // `illegal` trap, is left out.)
+        const auto ctrl = [&](int key) { return input.ctrl_keys[std::size_t(key)] && !ctrl_was_[std::size_t(key)]; };
+        const bool end_key = ctrl(17), save_key = ctrl(26), version_key = ctrl(31), scores_key = ctrl(20), flip_key = ctrl(21);
+        ctrl_was_ = input.ctrl_keys;
+        if (end_key && briefing_ > 0) {
+            // ($108712: at the briefing Ctrl-r fades it out and the game
+            // starts again at the rank selection, $100066.)
+            if (!briefing_out_) {
+                briefing_ = 1;
+                briefing_out_ = true;
+                briefing_fade_ = 0;
+            }
+            ranks_after_briefing_ = true;
+        } else if (end_key && !world_.game_over) {
+            // Ctrl-r ends the game (-$5A3E): the fade, then rank selection
+            // without the hall of fame.
             world_.game_over = true;
             quit_ = true;
         }
-        r_was_ = r_key;
+        if (save_key && plane_.mode == 1 && !world_.game_over && blackout_ == 0 && briefing_ == 0) {
+            // Ctrl-g on deck ($10CD74): the sound stops, Save Game.
+            for (int c = 0; c < 4; ++c) paula_.flush(c);
+            channels_ = {};
+            saves_in_game_ = true;
+            front_end_.start_saved_games(true, save_game_text(world_, plane_));
+            return;
+        }
+        if (version_key) world_.say("Version 1.0"); // (Ctrl-v: "Version %d.%d", -$321C/-$321A)
+        if (scores_key) {
+            // Ctrl-c deletes the file `highscore` (DeleteFile): the table
+            // starts again from the disk's.
+            std::error_code ignored;
+            std::filesystem::remove(content_ / "highscore", ignored);
+        }
+        if (flip_key) inverted_ = !inverted_; // (Ctrl-f: -$5B08)
+        debug_keys(input);
         if (world_.game_over) {
             // $1001C6: the sound stops, the ticker is cleared, and the last
             // frame fades out ($1073E6); then the hall of fame ($109856).
@@ -93,6 +134,10 @@ public:
             }
             if (++end_fade_ >= 16) {
                 end_fade_ = -1;
+                if (leave_after_fade_) {
+                    exited_ = true;
+                    return;
+                }
                 if (quit_) front_end_.start_rank_select();
                 else front_end_.start_game_over(world_.score, world_.rank);
                 quit_ = false;
@@ -108,6 +153,10 @@ public:
                 if (++briefing_fade_ >= 16) {
                     briefing_fade_ = -1;
                     if (briefing_out_) briefing_ = 0;
+                    if (briefing_out_ && ranks_after_briefing_) {
+                        ranks_after_briefing_ = false;
+                        front_end_.start_rank_select();
+                    }
                 }
                 return;
             }
@@ -136,10 +185,16 @@ public:
         sample_fire(input.fire);
         if (++vblank_ % vblanks_per_tick != 0) return;
         int command = 0;
-        if (input.up) command |= command::up;
-        if (input.down) command |= command::down;
+        // ($10520E: with Ctrl-f's switch up and down change places.)
+        const bool up = inverted_ && input.up != input.down ? input.down : input.up;
+        const bool down = inverted_ && input.up != input.down ? input.up : input.down;
+        if (up) command |= command::up;
+        if (down) command |= command::down;
         if (input.left) command |= command::left;
         if (input.right) command |= command::right;
+        // ($1012C8: in the weapon menu, with the stick at rest, Return or
+        // Enter chooses as fire does.)
+        if (command == 0 && !tapped_ && !held_ && world_.menu && input.c64_keys[1]) command |= command::fire_held;
         if (tapped_) command |= command::fire_tapped;
         if (held_) command |= command::fire_held;
         tapped_ = held_ = false;
@@ -168,6 +223,9 @@ public:
         // What drawing the frame steps: the effects, the tower flag, the
         // deck crew and the islands' flags.
         world_.effects.advance();
+        // $10557C (as the frame is drawn): the victory ceremony's sparks start
+        // again in the normal view.
+        if (world_.celebration && !plane_.eighth_scale) world_.effects.start_sparks(world_.carrier_x, world_.beam);
         islands_frame(plane_, world_, tables_, specials_shown(*world_.map, backdrop_state()).wrecked_huts);
         // (The infinite fuel cheat: nothing lowers it, neither burning nor
         // hits; a new plane's full tank still comes.)
@@ -220,6 +278,7 @@ public:
     }
 
     std::string stopped() const override {
+        if (exited_) return "Wings of Fury has ended (Exit Game).";
         if (mission_over_) {
             return "Mission " + std::to_string(world_.mission) + " (" + map_->name +
                    ") needs parts of the game not rebuilt yet: the port stops here.";
@@ -236,7 +295,7 @@ public:
     bool save() override {
         saved_.emplace(Snapshot{world_, plane_, map_, blackout_, random_, vblank_, press_start_, fire_down_, tapped_, held_,
                                 gear_offset_, us_flag_step_, flash_, flash_counter_, enemy_sprites_, front_end_,
-                                song_pending_, playing_song_, ticker_, mission_over_, end_fade_, quit_, r_was_, briefing_,
+                                song_pending_, playing_song_, ticker_, mission_over_, end_fade_, quit_, ctrl_was_, briefing_,
                                 briefing_fade_, briefing_out_, frame_facing_, enemy_flag_counter_, enemy_flags_drawn_});
         return true;
     }
@@ -244,6 +303,7 @@ public:
         if (!saved_) return false;
         const auto& s = *saved_;
         world_ = s.world;
+        world_.map = &world_.mission_map; // (the copy's own map, not the snapshot's)
         set_lighting();
         plane_ = s.plane;
         map_ = s.map;
@@ -266,7 +326,7 @@ public:
         mission_over_ = s.mission_over;
         end_fade_ = s.end_fade;
         quit_ = s.quit;
-        r_was_ = s.r_was;
+        ctrl_was_ = s.ctrl_was;
         briefing_ = s.briefing;
         briefing_fade_ = s.briefing_fade;
         briefing_out_ = s.briefing_out;
@@ -402,6 +462,7 @@ private:
 
         if (world_.elevator != 0) effects.smoke_clip_bottom = smoke_clip_line + backdrop.vertical_scroll + deck.bob;
         draw_effects(canvas, assets_, world_.effects, effects, soldiers);
+        if (world_.celebration && !backdrop.eighth_scale) draw_sparks(canvas, assets_, world_.effects, effects);
         if (world_.menu) draw_weapon_menu(canvas, assets_, world_.weapon);
         // $1010C2: the last plane lost, `gmov` (THE END) over the view.
         if (world_.the_end) {
@@ -518,7 +579,7 @@ private:
     // debug mode keys ($10D184, $10D08A) set; infinite lives and the duds
     // are not the original's. (Infinite fuel is kept after the tick.)
     void apply_cheats() {
-        world_.enemies.invulnerable = cheats_.bullet_proof;
+        world_.enemies.invulnerable = cheats_.bullet_proof || debug_invulnerable_;
         world_.infinite_lives = cheats_.infinite_lives;
         world_.enemy_duds = cheats_.enemy_duds;
         const bool infinite = world_.weapon_load == 0xFF;
@@ -552,8 +613,9 @@ private:
     // and the carrier's hits set, mission 1 of the rank.
     void new_game(int rank) {
         if (front_end_.load_chosen()) {
-            // (RETURN FROM R&R, saved games: not rebuilt yet; back to the choice.)
-            front_end_.start_rank_select();
+            // RETURN FROM R&R: Load Game ($108B96 with 0).
+            saves_in_game_ = false;
+            front_end_.start_saved_games(false);
             return;
         }
         front_end_.close();
@@ -567,6 +629,81 @@ private:
         start_mission();
     }
 
+    // $10CE96..: without Ctrl, typing `colin` steps -$50E6 to 5 (a wrong
+    // letter of it starts again): the debug mode, whose keys follow. (Space,
+    // free memory in the ticker, and Help and F10 are left out: the host
+    // has no such keys for the game, and the port no Amiga memory.)
+    void debug_keys(const app::GameInput& input) {
+        const auto key = [&](int index) { return input.c64_keys[std::size_t(index)] && !plain_was_[std::size_t(index)]; };
+        std::array<bool, 64> pressed{};
+        for (int i = 0; i < 64; ++i) pressed[std::size_t(i)] = key(i);
+        plain_was_ = input.c64_keys;
+        const bool on = debug_step_ == 5;
+        if (pressed[38]) debug_step_ = debug_step_ == 1 ? 2 : 0;                  // o
+        else if (pressed[42]) debug_step_ = debug_step_ == 2 ? 3 : 0;             // l
+        else if (pressed[39]) debug_step_ = debug_step_ == 4 ? 5 : 0;             // n
+        else if (pressed[33]) {                                                    // i
+            if (on) world_.pitch_adjust += 0x32;
+            else if (debug_step_ == 3) debug_step_ = 4;
+            else if (debug_step_ != 0) debug_step_ = 0;
+        } else if (pressed[37] && on) world_.pitch_adjust -= 0x32;                  // k
+        else if (pressed[21] && on) plane_.fuel = 0x80;                            // f: fuel
+        else if (pressed[41] && on) ++world_.spare_planes;                         // p: a plane
+        else if (pressed[62] && on) {                                              // q: the game ends, the program too
+            world_.game_over = true;
+            quit_ = true;
+            leave_after_fade_ = true;
+        } else if (pressed[36] && on) {                                            // m: no load used ($FF), or back
+            world_.weapon_load = world_.weapon_load == 0xFF ? tables_.weapon_loads[std::size_t(world_.weapon)] : 0xFF;
+            if (world_.weapon_load != 0xFF) world_.gauges.set_load(world_.weapon_load); // ($10EDBC)
+        } else if (pressed[17] && on) {                                            // r: $103756
+            for (auto& o : world_.effects.objects) o.kind = FlyingObject::Kind::none;
+            world_.effects.enemy_torpedo.kind = FlyingObject::Kind::none;
+        } else if (pressed[20]) {                                                  // c
+            if (debug_step_ == 0) debug_step_ = 1;
+            else if (on) world_.weapon = (world_.weapon + 1) % 3;                   // the next weapon
+        } else if (pressed[27] && on) world_.gravity += 0x1000;                    // 8, 2, 4, 6: the weapons' fall
+        else if (pressed[59] && on) world_.gravity -= 0x1000;
+        else if (pressed[11] && on) world_.gravity -= 0x100;
+        else if (pressed[19] && on) world_.gravity += 0x100;
+        else if (pressed[18] && on) {                                              // d: oil, flying, bullet proof
+            plane_.oil = 0x80;
+            plane_.mode = 0;
+            world_.enemies.invulnerable = !world_.enemies.invulnerable;
+            debug_invulnerable_ = world_.enemies.invulnerable;
+        }
+    }
+
+    // A saved game loaded ($105E1A): the game where it was saved, on deck.
+    bool restore(const std::string& text) {
+        auto saved = load_game_text(text, assets_.maps);
+        if (!saved) return false;
+        front_end_.close();
+        world_ = std::move(saved->world);
+        world_.map = &world_.mission_map;
+        plane_ = saved->plane;
+        for (const auto& m : assets_.maps) {
+            if (m.name == world_.mission_map.name) map_ = &m;
+        }
+        set_lighting();
+        set_up_sounds(world_, sample_lengths(assets_));
+        ticker_ = Ticker{};
+        for (int c = 0; c < 4; ++c) paula_.flush(c);
+        channels_ = {};
+        music_.silence();
+        playing_song_ = -1;
+        flash_ = 0;
+        enemy_sprites_.clear();
+        mission_over_ = false;
+        briefing_ = 0;
+        blackout_ = 0;
+        end_fade_ = -1;
+        quit_ = false;
+        world_.gauges.set_load(world_.weapon_load);
+        world_.gauges.set_spares(world_.spare_planes);
+        return true;
+    }
+
     // Day or night: the view's and the sea's palettes and the dashboard.
     void set_lighting() {
         day_ = data::find_palette(assets_, world_.night ? "night.p" : "wingspalette");
@@ -576,13 +713,11 @@ private:
         }
     }
 
-    // The maps rebuilt so far: islands (huts, dugouts, pillboxes), the US
-    // carrier, torpedo bombers, airfields and the destroyer, battleship and
-    // cruise ship (k.map on: checked against the original not yet; m.map
-    // and o.map add the Japanese carrier, whose deck roll is not rebuilt).
+    // Every map (a.map - o.map): islands, the US carrier, torpedo bombers,
+    // airfields and the four kinds of enemy ship.
     static bool map_supported(const std::string& name) {
-        static constexpr const char* rebuilt[] = {"a.map", "b.map", "c.map", "d.map", "e.map",
-                                                  "f.map", "g.map", "h.map", "i.map", "j.map"};
+        static constexpr const char* rebuilt[] = {"a.map", "b.map", "c.map", "d.map", "e.map", "f.map", "g.map", "h.map",
+                                                  "i.map", "j.map", "k.map", "l.map", "m.map", "n.map", "o.map"};
         return std::find(std::begin(rebuilt), std::end(rebuilt), name) != std::end(rebuilt);
     }
 
@@ -739,13 +874,23 @@ private:
     std::vector<EnemySprite> enemy_sprites_;
     TickerFont ticker_font_;
     FrontEnd front_end_;
+    std::filesystem::path content_; // (the saved games and high scores live here)
     MusicPlayer music_;
     int song_pending_ = -1;   // a song waiting for the last one's fade (-2: none)
     Ticker ticker_;
     std::array<std::uint16_t, 10> ticker_colours_{};
     bool mission_over_ = false;
     int end_fade_ = -1;       // $1073E6 after the game: the step of the fade to black
-    bool quit_ = false, r_was_ = false;
+    bool quit_ = false;
+    std::array<bool, 64> ctrl_was_{};
+    bool saves_in_game_ = false; // the saved games opened from the game (not the rank menu)
+    bool exited_ = false;        // Exit Game
+    bool inverted_ = false;      // Ctrl-f: up and down swapped (-$5B08)
+    std::array<bool, 64> plain_was_{};
+    int debug_step_ = 0;            // -$50E6: `colin` typed so far (5: the debug mode)
+    bool debug_invulnerable_ = false; // the debug key d's switch (-$408C)
+    bool leave_after_fade_ = false;  // q: the program ends after the game ($10020E)
+    bool ranks_after_briefing_ = false; // Ctrl-r at a briefing
     int playing_song_ = -1;   // the song the front end plays (for quick load)
     int vhs_ = 0;
     struct Cheats {
@@ -766,7 +911,8 @@ private:
         Ticker ticker;
         bool mission_over;
         int end_fade;
-        bool quit, r_was;
+        bool quit;
+        std::array<bool, 64> ctrl_was;
         int briefing, briefing_fade;
         bool briefing_out;
         int frame_facing, enemy_flag_counter, enemy_flags_drawn;

@@ -60,6 +60,7 @@ struct Enemies {
     std::array<EnemyPlane, 4> planes{}; // -$5DD4
     std::array<Airfield, 4> airfields{};
     int launch_cooldown{};     // -$3CB6: ticks before another take-off
+    int deck_roll{};           // -$3CB4: the Japanese carrier's rolling plane's speed x 16
     int fighters_out{};        // -$5E28: lone fighters in the air
     std::vector<int> wrecks;   // -$5E24 (-$5E26 counts): burnt-out planes on the islands (x, sign = facing)
     int attacker_step{};       // -$3198: how many attackers ahead were spaced out this tick

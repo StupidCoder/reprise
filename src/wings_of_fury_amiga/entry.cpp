@@ -44,11 +44,14 @@ app::GameEntry entry() {
         .import = import::import_disk,
         .previews = previews,
         .start = game::start,
-        .progress = "The first mission's map: take off from the carrier, fly, turn, climb into the high view "
-                    "and land on the carrier's arresting wires; bombs, rockets, torpedoes and guns; the "
-                    "cockpit dashboard; crashes with explosions, fire, smoke and splashes; the sound "
-                    "effects. Not rebuilt yet: the islands' defences and targets, enemies, the music, the "
-                    "front end and the missions.",
+        .progress = "The whole game: the story, rank selection, the briefings and all fifteen missions - islands "
+                    "with huts, dugouts, pillboxes and soldiers, airfields, destroyers, battleships, cruise ships "
+                    "and the Japanese carrier, torpedo bombers and fighters, night missions - with the fireworks "
+                    "of a promotion, game over and the hall of fame, the music and sound effects, and the saved "
+                    "games (RETURN FROM R&R; Ctrl-G on deck). The original's keys: Ctrl-R ends the game, Ctrl-V "
+                    "its version, Ctrl-F swaps up and down, Ctrl-C clears the high scores, and its debug mode "
+                    "(type colin). Options: VHS look and cheats (infinite lives, fuel and ammo, bullet proof, "
+                    "enemy duds); quick save.",
     };
 }
 

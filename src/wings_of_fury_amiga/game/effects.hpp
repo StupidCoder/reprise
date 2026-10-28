@@ -99,6 +99,15 @@ struct Effects {
     }
     std::array<Splash, 20> splashes{};
     std::array<Puff, 40> puffs{};
+    // The victory ceremony's fireworks (*-$4098, 20 x $12 bytes): after a
+    // promotion, sparks rise from beside the carrier.
+    struct Spark {
+        std::int32_t x{}, y{};   // +0, +4: 16.16 world place (y up from the ground line)
+        std::int32_t dx{}, dy{}; // +8, +$C: 1.0 .. 3.0 a tick, up and to the right
+        int kind{};              // +$10: 0..2 (scenery entries 12..14)
+        bool active{};           // +$11
+    };
+    std::array<Spark, 20> sparks{};
 
     // $100820: a blast in the column at `column`, `height` above the ground
     // (sinking wrecks: 0); ignored when every slot is busy. (A blast on land
@@ -116,6 +125,13 @@ struct Effects {
     void start_smoke(int x, int y, int size, BeamRandom&);
     // $105460: a puff at a 16.16 place (y at least 16).
     void start_puff(std::int32_t x, std::int32_t y, int size, BeamRandom&);
+    // $101C5E (each tick while promoted): the sparks rise; one at height
+    // $AA or more is done.
+    void step_sparks();
+    // $10557C (each frame while promoted, in the normal view): a spark that
+    // is done starts again $74 left of the carrier at height $38, with a
+    // random colour and speed.
+    void start_sparks(int carrier_x, BeamRandom&);
     // $100FBA (frame start): what the drawing will see.
     void frame_start();
     // What the drawers change as they draw one frame ($100EE0, $1052F8,
@@ -132,6 +148,8 @@ struct EffectView {
     bool eighth_scale{};
     int smoke_clip_bottom{-1}; // $100EE0: at the deck while the elevator moves
 };
+// $10557C: the fireworks (scenery entries 12..14), over the effects.
+void draw_sparks(IndexedCanvas&, const data::Assets&, const Effects&, const EffectView&);
 // A scenery-table entry drawn at a world place (the islands' soldiers and guns).
 struct WorldSprite {
     int entry{}, x{}, y{};

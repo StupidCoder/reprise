@@ -23,6 +23,10 @@ struct GameInput {
     bool up2{}, down2{}, left2{}, right2{}, fire2{};
     // The C64 keyboard matrix, held (index row * 8 + column; see Controls).
     std::array<bool, 64> c64_keys{};
+    // The same keys while Ctrl (not Cmd) is held - the letters and digits
+    // except Joyport's own shortcuts Ctrl-Q, Ctrl-S and Ctrl-L - for games
+    // whose keys are Ctrl combinations.
+    std::array<bool, 64> ctrl_keys{};
     // The mouse, for games played with one: whether it is over the game's
     // picture, where (in pixels of the game's own picture, picture(), not of
     // the larger one shown with the launcher's effects), and the left button
