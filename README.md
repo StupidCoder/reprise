@@ -110,9 +110,9 @@ The pause menu reports success, session-only storage or failure explicitly.
   - *Top rank* — the first recruit on the roster is a General, with a
     General's faster, further-reaching shots. This is the original's own
     cheat (a saved game named JOOLS).
-  - *Bullet proof* — enemy bullets and the enemy's grenades, rockets,
-    missiles and shells do the recruits no harm; mines, traps, water and
-    their own grenades still do.
+  - *Bullet proof* — bullets and explosions do the recruits no harm: the
+    enemy's and their own grenades, rockets, missiles and shells, mines and
+    booby traps. Snap traps and water still do.
   - *Infinite ammo* — grenades and rockets never run out.
 
 ### Fort Apocalypse options

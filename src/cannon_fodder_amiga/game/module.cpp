@@ -158,8 +158,8 @@ public:
                  "The first recruit on the roster is a General, with a General's faster, further-reaching "
                  "shots: the original's own cheat (the saved game named JOOLS).", "Cheats"},
                 {"Bullet proof", {"Off", "On"}, cheats_.bullet_proof ? 1 : 0,
-                 "Enemy bullets and the enemy's grenades, rockets, missiles and shells do the recruits no "
-                 "harm. Mines, traps, water and their own grenades still do.", "Cheats"},
+                 "Bullets and explosions do the recruits no harm: the enemy's and their own grenades, "
+                 "rockets, missiles and shells, mines and booby traps. Snap traps and water still do.", "Cheats"},
                 {"Infinite ammo", {"Off", "On"}, cheats_.infinite_ammo ? 1 : 0,
                  "Grenades and rockets never run out.", "Cheats"}};
     }
@@ -515,10 +515,10 @@ void Module::open_music(int source) {
 // map, tiles and sheets are read again from the files by its number (only
 // the cells map damage changed are kept), the music from its files.
 template <class A> void Module::persist(A& a) {
-    int version = 6; // 2: the pointer over the panel; 3: smooth motion's places; 4: its camera by ticks; 5: pictures;
-                     // 6: the enemy's explosions (cheat)
+    int version = 7; // 2: the pointer over the panel; 3: smooth motion's places; 4: its camera by ticks; 5: pictures;
+                     // 6: the enemy's explosions (an earlier cheat's, dropped in 7)
     a(version);
-    if (version < 1 || version > 6) A::fail();
+    if (version < 1 || version > 7) A::fail();
     bool in_phase = phase_.terrain.has_value();
     int number = phase_.number;
     a(in_phase, number);
@@ -543,7 +543,10 @@ template <class A> void Module::persist(A& a) {
     a(overview_);
     if (version >= 2) a(pointer_on_panel_);
     if (version >= 5) a(motion_state_.before_graphic);
-    if (version >= 6) a(world_.enemy_blast);
+    if (version == 6) {
+        std::array<bool, object_slots> unused{};
+        a(unused);
+    }
     if constexpr (A::reading) world_.bullet_proof = cheats_.bullet_proof;
     if (version >= 4) {
         a(motion_state_);

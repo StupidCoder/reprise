@@ -275,12 +275,9 @@ struct World {
     } engine;                     // the loudest engine this tick ($A3B60)
     std::vector<SoundRequest> sounds; // this tick's, in order
     std::mt19937 random{0x43464f44};
-    // Cheats (options, not the original's; outside persist(): the module
-    // keeps them): enemy bullets and the enemy's explosions spare the
-    // recruits; which explosions the enemy set off (its grenade, rocket,
-    // missile or shell, its vehicle), marked when they go off.
+    // Cheat (an option, not the original's; outside persist(): the module
+    // keeps it): enemy bullets and every explosion spare the recruits.
     bool bullet_proof{};
-    std::array<bool, object_slots> enemy_blast{};
 
     // Every field, for the quick saves (game/module.cpp).
     template <class A> void persist(A& a) {
