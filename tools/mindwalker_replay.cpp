@@ -1483,6 +1483,24 @@ int flow(const std::filesystem::path& content, const std::filesystem::path& out_
     return 0;
 }
 
+// The pointer with the VHS look on: the launcher reports it in pixels of the
+// (doubled) picture shown; the game's pointer must land on the same spot.
+int pointer_check(const std::filesystem::path& content, const std::filesystem::path& out) {
+    auto module = mindwalker::game::start(content);
+    module->set_option(0, 2); // VHS medium
+    app::GameInput in;
+    module->tick(in);
+    auto shown = module->picture();
+    in.pointer = true;
+    in.pointer_x = shown.width / 2;
+    in.pointer_y = shown.height / 2;
+    module->tick(in);
+    shown = module->picture();
+    platform::save_png(shown, out);
+    std::printf("picture %d x %d; pointer reported at %d, %d\n", shown.width, shown.height, in.pointer_x, in.pointer_y);
+    return 0;
+}
+
 int main(int argc, char** argv) {
     const std::string command = argc > 1 ? argv[1] : "";
     try {
@@ -1506,6 +1524,9 @@ int main(int argc, char** argv) {
         if (command == "psyche" && argc >= 5 && argc <= 7) {
             return psyche(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]), platform::utf8_path(argv[4]),
                           argc >= 6 ? std::stoi(argv[5]) : 1 << 30, argc == 7 ? platform::utf8_path(argv[6]) : std::filesystem::path());
+        }
+        if (command == "pointer" && argc == 4) {
+            return pointer_check(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]));
         }
         if (command == "flow" && argc == 4) {
             return flow(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]));
