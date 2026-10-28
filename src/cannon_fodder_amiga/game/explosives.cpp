@@ -46,6 +46,7 @@ void head_for(const GeometryTables& g, const GameObject& o, Walker& w, int x, in
 // and then overwrites it with the explosion's own).
 void blast_soldiers(World& world, int blast, int left, int right, int top, int bottom) {
     if (world.outcome != World::Outcome::playing) return; // ($82A92)
+    if (world.bullet_proof && world.enemy_blast[std::size_t(blast)]) return; // (cheat)
     const auto& b = object(world, blast);
     const auto& bw = walker(world, blast);
     for (const int i : world.roster_slots) {
@@ -446,7 +447,9 @@ bool update_explosion(World& world, const ProgramTables& tables, int slot) { // 
         return true;
     }
     if (o.graphic != graphic_air_burst && o.graphic != graphic_fire) {
-        // $974E6: goes off.
+        // $974E6: goes off. (The cheat's record: still the side of what
+        // exploded, the enemy's 1.)
+        world.enemy_blast[std::size_t(slot)] = o.side == 1;
         if (o.on_screen) {
             mark_blast(world, steps, o);
             if (o.hidden_lines != 0) {

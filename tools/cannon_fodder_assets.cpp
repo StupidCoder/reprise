@@ -1154,15 +1154,22 @@ int run(int argc, char** argv) {
                 game->set_canvas(w, h);
             } else if (std::string(argv[a]) == "smooth") {
                 game->set_option(1, 1); // smooth motion
+            } else if (std::string(argv[a]) == "toprank") {
+                game->set_option(3, 1); // the cheats
+            } else if (std::string(argv[a]) == "bulletproof") {
+                game->set_option(4, 1);
+            } else if (std::string(argv[a]) == "infiniteammo") {
+                game->set_option(5, 1);
             }
-        struct Hold { int from, to, x, y; bool left, right, modifier; };
+        struct Hold { int from, to, x, y; bool left, right, command, option; };
         std::vector<Hold> holds;
         for (int a = 5; a < argc; ++a) {
             int f0 = 0, f1 = 0, x = 0, y = 0;
             char b = 'l';
-            // l left, r right, b both, m a modifier key (Control), M the left button with it
+            // l left, r right, b both, c Command, C the left button with Command, o Option
             if (std::sscanf(argv[a], "%d-%d:%d,%d,%c", &f0, &f1, &x, &y, &b) >= 4)
-                holds.push_back({f0, f1, x, y, b == 'l' || b == 'b' || b == 'M', b == 'r' || b == 'b', b == 'm' || b == 'M'});
+                holds.push_back({f0, f1, x, y, b == 'l' || b == 'b' || b == 'C', b == 'r' || b == 'b', b == 'c' || b == 'C',
+                                 b == 'o'});
         }
         const int frames = std::stoi(argv[3]);
         std::vector<float> audio(2 * 882);
@@ -1188,14 +1195,15 @@ int run(int argc, char** argv) {
                 }
             }
             if (f == win_at) fodder::game::win_phase(*game);
-            input.mouse_button = input.mouse_right = input.modifier = false;
+            input.mouse_button = input.mouse_right = input.command = input.option = false;
             for (const auto& h : holds) {
                 if (f < h.from || f > h.to) continue;
                 input.pointer_x = h.x;
                 input.pointer_y = h.y;
                 input.mouse_button = h.left;
                 input.mouse_right = h.right;
-                input.modifier = h.modifier;
+                input.command = h.command;
+                input.option = h.option;
             }
             game->tick(input);
             game->audio(audio, 44100);

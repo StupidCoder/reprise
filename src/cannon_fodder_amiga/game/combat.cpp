@@ -159,6 +159,7 @@ private:
                 const bool covered = t.hidden_lines >= 5 || tw.wading || w_.squads[std::size_t(t.squad)].mode == 0;
                 if (covered && (w_.random() & 7) != 0) continue;
             }
+            if (w_.bullet_proof) return true; // (cheat: the bullet stops on him, harmless)
             if (t.kind == kind_soldier) {
                 tw.heading = s_.heading;
                 tw.state_timer = s_.heading;

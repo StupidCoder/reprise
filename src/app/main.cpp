@@ -254,7 +254,9 @@ int run(const Options& options) {
                 }
                 input.mouse_button = controls.mouse_held;
                 input.mouse_right = controls.mouse_right_held;
-                input.modifier = controls.modifier_held;
+                input.command = controls.command_held;
+                input.option = controls.option_held;
+                input.control = controls.control_held;
                 const auto canvas = host.canvas_size();
                 game->set_canvas(canvas[0], canvas[1]);
                 game_clock = std::max(game_clock, now - 4 * game->step_seconds());

@@ -92,7 +92,9 @@ public:
                ", camera " + std::to_string(motion_.x) + "/" + std::to_string(motion_.y) + ", pointer " + std::to_string(pointer_image_) + ", screen " +
                std::to_string(front_ && front_->active() ? int(front_->screen()) : 0) + ", overview " +
                std::to_string(int(overview_.mode)) +
-               (overview_.requested ? " requested" : "");
+               (overview_.requested ? " requested" : "") + ", ammo " +
+               std::to_string(world_.squads[0].grenades) + "/" + std::to_string(world_.squads[0].rockets) + ", rank " +
+               std::to_string(campaign_.roster[0].rank) + ", route " + std::to_string(world_.squads[0].route.size());
     }
 
     void win() { world_.outcome = World::Outcome::won; } // (tools)
@@ -101,10 +103,15 @@ public:
     std::string stopped() const override { return stopped_; }
 
     void tick(const app::GameInput& original) override {
-        // A modifier key (Control, Option, Command) held is the right
-        // button: held, the squad fires; with a click, the leader throws.
+        // Keys for a one-button trackpad (besides the original's buttons):
+        // Command (or Control) held fires as the right button does, and a
+        // click meanwhile walks there, the squad firing on (it does not
+        // throw); Option is both buttons: the leader throws.
         app::GameInput input = original;
-        input.mouse_right = input.mouse_right || input.modifier;
+        const bool fire_key = input.command || input.control;
+        walk_while_firing_ = fire_key && !input.mouse_right && !input.option;
+        input.mouse_right = input.mouse_right || fire_key || input.option;
+        input.mouse_button = input.mouse_button || input.option;
         if (front_ && front_->active()) {
             input.pointer_x -= margin(FrontScreen::height); // (the screens in the middle)
             front_frame(input);
@@ -146,7 +153,15 @@ public:
                  "Soldiers, vehicles, shots and the scrolling map glide at the display's own rate instead of "
                  "stepping about 17 times a second. The game plays the same."},
                 {"VHS look", {"Off", "Light", "Medium", "Heavy", "Broken"}, vhs_,
-                 "A worn video tape's colour bleed and noise."}};
+                 "A worn video tape's colour bleed and noise."},
+                {"Top rank", {"Off", "On"}, cheats_.top_rank ? 1 : 0,
+                 "The first recruit on the roster is a General, with a General's faster, further-reaching "
+                 "shots: the original's own cheat (the saved game named JOOLS).", "Cheats"},
+                {"Bullet proof", {"Off", "On"}, cheats_.bullet_proof ? 1 : 0,
+                 "Enemy bullets and the enemy's grenades, rockets, missiles and shells do the recruits no "
+                 "harm. Mines, traps, water and their own grenades still do.", "Cheats"},
+                {"Infinite ammo", {"Off", "On"}, cheats_.infinite_ammo ? 1 : 0,
+                 "Grenades and rockets never run out.", "Cheats"}};
     }
     int vhs_level() const override { return vhs_; }
     void set_option(std::size_t index, int value) override {
@@ -156,6 +171,12 @@ public:
             motion_state_.have_before = motion_state_.have_camera = false;
         }
         if (index == 2) vhs_ = std::clamp(value, 0, ui::vhs_levels - 1);
+        if (index == 3) {
+            cheats_.top_rank = value != 0;
+            if (cheats_.top_rank) promote_first();
+        }
+        if (index == 4) cheats_.bullet_proof = world_.bullet_proof = value != 0;
+        if (index == 5) cheats_.infinite_ammo = value != 0;
     }
     void set_frame_fraction(double fraction) override { frame_fraction_ = std::clamp(fraction, 0.0, 1.0); }
     void set_display_pointer(std::optional<std::array<int, 2>> at) override { display_pointer_ = at; }
@@ -290,12 +311,25 @@ private:
     std::optional<std::array<int, 2>> display_pointer_; // (smooth motion: the mouse when the picture is drawn)
     bool smooth_{};
     int vhs_{}; // the VHS look (drawn by the launcher)
+    struct Cheats {
+        bool top_rank{}, bullet_proof{}, infinite_ammo{};
+    } cheats_;
+    // Top rank: the first recruit on the roster a General ($AA3A6, the
+    // original's JOOLS: rank byte of the roster's first place set to 15),
+    // in a running phase his soldier too.
+    void promote_first() {
+        auto& r = campaign_.roster[0];
+        if (r.name < 0) return;
+        r.rank = 15;
+        if (const int slot = world_.roster_slots[0]; slot >= 0) world_.walkers[std::size_t(slot)].rank = 15;
+    }
     double frame_fraction_{}; // the time since the last frame, in frames (the host's)
     bool smooth_now() const { return smooth_ && !(front_ && front_->active()) && overview_.mode == Overview::Mode::off; }
     void smooth_view(Camera& camera, MissionObjects& objects) const;
     bool widescreen_{};
     int canvas_width_{}, canvas_height_{};
     bool pointer_on_panel_{}; // the pointer over the panel (widescreen: the picture's left edge)
+    bool walk_while_firing_{}; // the fire key held: a click walks (set each frame from the input)
     std::optional<sound::Rjp1> music_;
     int music_source_{-1}; // music_'s files: 0 the landscape's, 1 jon, 2 warx (-1 none)
     sound::MusicDirector director_;
@@ -353,6 +387,8 @@ void Module::start_phase(int number) {
     world_.time_left = 100;                              // $884CC
     world_.time_step = 0x28;
     phase_ = std::move(p);
+    world_.bullet_proof = cheats_.bullet_proof;
+    if (cheats_.top_rank && campaign_.roster[0].name >= 0) campaign_.roster[0].rank = 15;
     set_up_squad();
 
     // The camera starts on the leader.
@@ -479,9 +515,10 @@ void Module::open_music(int source) {
 // map, tiles and sheets are read again from the files by its number (only
 // the cells map damage changed are kept), the music from its files.
 template <class A> void Module::persist(A& a) {
-    int version = 5; // 2: the pointer over the panel; 3: smooth motion's places; 4: its camera by ticks; 5: pictures
+    int version = 6; // 2: the pointer over the panel; 3: smooth motion's places; 4: its camera by ticks; 5: pictures;
+                     // 6: the enemy's explosions (cheat)
     a(version);
-    if (version < 1 || version > 5) A::fail();
+    if (version < 1 || version > 6) A::fail();
     bool in_phase = phase_.terrain.has_value();
     int number = phase_.number;
     a(in_phase, number);
@@ -506,6 +543,8 @@ template <class A> void Module::persist(A& a) {
     a(overview_);
     if (version >= 2) a(pointer_on_panel_);
     if (version >= 5) a(motion_state_.before_graphic);
+    if (version >= 6) a(world_.enemy_blast);
+    if constexpr (A::reading) world_.bullet_proof = cheats_.bullet_proof;
     if (version >= 4) {
         a(motion_state_);
     } else if (version == 3) {
@@ -618,6 +657,7 @@ void Module::between_phases() {
         return;
     }
     call_up_preview();
+    if (cheats_.top_rank) promote_first();
     front_->start_hill(campaign_);
     after_front_ = AfterFront::parallax;
 }
@@ -936,15 +976,17 @@ void Module::frame(const app::GameInput& input) {
         }
     } else if (world_.outcome == World::Outcome::playing) {
         // Both buttons: the leader's grenade or rocket ($8CBA0 → $8147E).
-        if (input.mouse_button && input.mouse_right && (left_press || right_press)) world_.both_buttons = true;
+        if (input.mouse_button && input.mouse_right && (left_press || right_press) && !walk_while_firing_)
+            world_.both_buttons = true;
         if (!input.mouse_right) world_.both_buttons = false;
         if (input.mouse_right && world_.leader_slot >= 0) {
             if (over_map) set_pointer(0x24, -8); // $9EAD2: the cross-hair, centred
             hold_fire(world_, tables_.fire, right_press); // $9F454, every frame while held
         } else if (left_press && !over_map && input.pointer && !input.mouse_right) {
             panel_click(input.pointer_x, input.pointer_y);
-        } else if (left_press && over_map && !input.mouse_right) {
-            // $9EB36: the walk order at the pointer.
+        }
+        // $9EB36: the walk order at the pointer (with the fire key held, too).
+        if (left_press && over_map && (!input.mouse_right || walk_while_firing_)) {
             const int x = std::max(world_.camera.x + world_.pointer_x - 22, 0);
             const int y = std::max(world_.camera.y + world_.pointer_y - 3, 3);
             target_ = {x, y};
@@ -952,7 +994,7 @@ void Module::frame(const app::GameInput& input) {
                            tables_.hits); // $9EEB0
             click_recruit(world_, world_.camera.x + world_.pointer_x - 0xf, world_.camera.y + world_.pointer_y - 3);
             order_walk(world_, x, y);
-            set_pointer(0x23, 0); // $9EB22: back to the arrow
+            if (!walk_while_firing_) set_pointer(0x23, 0); // $9EB22: back to the arrow
         }
     }
     // The camera: the look-ahead from the leader towards the pointer
@@ -1000,6 +1042,10 @@ void Module::frame(const app::GameInput& input) {
 }
 
 void Module::game_tick() {
+    // (Infinite ammo: the squads' grenades and rockets kept at least where
+    // they were before the tick.)
+    std::array<std::pair<int, int>, 3> ammo{};
+    for (std::size_t n = 0; n < 3; ++n) ammo[n] = {world_.squads[n].grenades, world_.squads[n].rockets};
     // (smooth motion: the objects' places before the tick moves them)
     for (int i = 0; i < object_slots; ++i) {
         const auto& o = world_.objects.slots[std::size_t(i)];
@@ -1078,6 +1124,14 @@ void Module::game_tick() {
     if (music_) board_.play_all(w, tables_.geometry, *music_);
     w.sounds.clear();
     board_.tick();
+    if (cheats_.infinite_ammo) {
+        for (std::size_t n = 0; n < 3; ++n) {
+            auto& sq = world_.squads[n];
+            if (sq.grenades < ammo[n].first || sq.rockets < ammo[n].second) sq.ammunition_changed = true;
+            sq.grenades = std::max(sq.grenades, ammo[n].first);
+            sq.rockets = std::max(sq.rockets, ammo[n].second);
+        }
+    }
     // The end: the next phase, or the phase again.
     if (ended) finish_phase();
 }

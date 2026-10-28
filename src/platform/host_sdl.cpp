@@ -273,7 +273,10 @@ Controls Host::poll() {
     const auto buttons = SDL_GetMouseState(&mx, &my);
     input.mouse_held = (buttons & SDL_BUTTON_LMASK) != 0;
     input.mouse_right_held = (buttons & SDL_BUTTON_RMASK) != 0;
-    input.modifier_held = (SDL_GetModState() & (SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_GUI)) != 0;
+    const auto held = SDL_GetModState();
+    input.command_held = (held & SDL_KMOD_GUI) != 0;
+    input.option_held = (held & SDL_KMOD_ALT) != 0;
+    input.control_held = (held & SDL_KMOD_CTRL) != 0;
     float rx = 0, ry = 0;
     if (i.ui_shown && SDL_GetMouseFocus() == i.window && SDL_RenderCoordinatesFromWindow(i.renderer, mx, my, &rx, &ry))
         input.ui_pointer = std::array<int, 2>{int(std::floor(rx)), int(std::floor(ry))};

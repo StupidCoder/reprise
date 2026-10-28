@@ -66,7 +66,7 @@ struct Controls {
     std::optional<std::array<int, 2>> game_pointer;
     bool mouse_held{};
     bool mouse_right_held{}; // the right button (games played with both)
-    bool modifier_held{};    // Control, Option/Alt or Command (GameInput::modifier)
+    bool command_held{}, option_held{}, control_held{}; // (GameInput::command, option, control)
 };
 
 class Host {

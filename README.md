@@ -102,9 +102,18 @@ The pause menu reports success, session-only storage or failure explicitly.
   Drawing only: the game plays the same.
 - **VHS look** — a worn video tape's colour bleed and noise.
 - **Controls** — the original's: click to walk, hold the right button to
-  fire, both buttons to throw a grenade or rocket. In addition, holding
-  Control, Option or Command acts as the right button: hold it to fire,
-  click while holding it to throw (for one-button trackpads).
+  fire, both buttons to throw a grenade or rocket. In addition, for
+  one-button trackpads: hold Command (or Control) to fire, and click while
+  holding it to walk there, the squad firing on (it never throws); hold
+  Option to throw.
+- **Cheats** (off by default):
+  - *Top rank* — the first recruit on the roster is a General, with a
+    General's faster, further-reaching shots. This is the original's own
+    cheat (a saved game named JOOLS).
+  - *Bullet proof* — enemy bullets and the enemy's grenades, rockets,
+    missiles and shells do the recruits no harm; mines, traps, water and
+    their own grenades still do.
+  - *Infinite ammo* — grenades and rockets never run out.
 
 ### Fort Apocalypse options
 
