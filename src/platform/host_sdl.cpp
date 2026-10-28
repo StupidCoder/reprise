@@ -20,6 +20,7 @@ struct Host::Implementation {
     bool ui_shown{true};
     float wheel_rest{}; // mouse wheel movement not yet a whole step
     SDL_FRect overlay_box{}; // where the last game overlay was shown (device pixels)
+    SDL_Texture* note_texture{}; // present_game's note
     SDL_FRect game_box{};    // where the last game frame was shown (device pixels)
     int game_width{}, game_height{}; // that frame's size in pixels
     bool game_draws_pointer{};       // the game shows its own pointer
@@ -46,6 +47,7 @@ struct Host::Implementation {
         SDL_DestroyAudioStream(audio);
         SDL_DestroyTexture(texture);
         SDL_DestroyTexture(overlay_texture);
+        SDL_DestroyTexture(note_texture);
         SDL_DestroyRenderer(renderer);
         SDL_DestroyWindow(window);
         SDL_Quit();
@@ -309,7 +311,7 @@ void Host::present(const Image& image) {
     SDL_RenderPresent(i.renderer);
 }
 
-void Host::present_game(const Image& frame, double pixel_aspect, const Image* overlay, bool dim) {
+void Host::present_game(const Image& frame, double pixel_aspect, const Image* overlay, bool dim, const Image* note) {
     auto& i = *impl_;
     i.ui_shown = false;
     i.upload(frame);
@@ -331,6 +333,23 @@ void Host::present_game(const Image& frame, double pixel_aspect, const Image* ov
     SDL_SetTextureColorMod(i.texture, brightness, brightness, brightness);
     SDL_RenderTexture(i.renderer, i.texture, nullptr, &target);
     SDL_SetTextureColorMod(i.texture, 255, 255, 255);
+    if (note && note->width > 0 && note->height > 0) {
+        if (i.note_texture && (i.note_texture->w != note->width || i.note_texture->h != note->height)) {
+            SDL_DestroyTexture(i.note_texture);
+            i.note_texture = nullptr;
+        }
+        if (!i.note_texture) {
+            i.note_texture = SDL_CreateTexture(i.renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STREAMING,
+                                               note->width, note->height);
+            SDL_SetTextureBlendMode(i.note_texture, SDL_BLENDMODE_BLEND);
+            SDL_SetTextureScaleMode(i.note_texture, SDL_SCALEMODE_NEAREST);
+        }
+        SDL_UpdateTexture(i.note_texture, nullptr, note->pixels.data(), note->width * int(sizeof(Color)));
+        const float margin = float(std::max(4, int(std::min(w, h) / 60)));
+        const SDL_FRect at{float(int(target.x + w - note->width - margin)), float(int(target.y + margin)),
+                           float(note->width), float(note->height)};
+        SDL_RenderTexture(i.renderer, i.note_texture, nullptr, &at);
+    }
     i.overlay_box = {};
     if (overlay) {
         if (!i.overlay_texture) {

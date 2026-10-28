@@ -83,9 +83,11 @@ public:
     // nearest-neighbour sampling and an aspect-correct pixel shape
     // (`pixel_aspect` = displayed width / height of one pixel). An overlay
     // (ui_width x ui_height, with transparency) is letterboxed on top; `dim`
-    // darkens the frame under it.
+    // darkens the frame under it. A `note` (device pixels, with
+    // transparency) is drawn unscaled in the frame's top-right corner, above
+    // the game and without taking the mouse.
     void present_game(const Image& frame, double pixel_aspect, const Image* overlay = nullptr,
-                      bool dim = false);
+                      bool dim = false, const Image* note = nullptr);
     // Whether the game shown draws its own mouse pointer; the system's is
     // then hidden while over the game frame (not over an overlay).
     void set_game_draws_pointer(bool draws);
