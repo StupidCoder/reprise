@@ -719,18 +719,30 @@ seeds and a clock seed), not stored.
    Fame screen, the command screen (Save Game to worlds A-H, Continue
    Game where it was, New Game in the same world). Recorded and replayed:
    every dump pixel-exact (bar the recorder's gadget highlight).
-   Enhancements: quick save/load and the VHS look. Open: T's own pause
-   box; the finished game's ending not recorded.
+   Enhancements: quick save/load and the VHS look.
 10. **Cheats** — 2026-10-28: god mode (no tethers in the landscape; no
    strength lost and no wall deaths in the arena), a minimap (landscape:
    zoomed to the next beacon or the way on's ramps, flashing; arena: the
    whole maze, the exit flashing), auto transform (the walker takes each
    cell's form on entering it). All off by default.
+11. **The whole game, start to end** — 2026-10-28. The finished game
+   recorded and compared: the last picture (progress 42) put together,
+   its bonuses (lives, playing time, self-development) and the finale,
+   the window closed, the MindF6 portrait, then T's initials board (761
+   reads equal, the final score, the portrait pixel for pixel). T's pause
+   box rebuilt (window shrunk to its bar, moved under the screen's title,
+   the screen redrawn by what was showing): dumps pen-exact. A natural
+   tunnel catch (no poke) equal read for read into the arena. The pauses
+   of the tunnel, arena and psyche screen compared with dumps and read
+   for read through the resume; found on the way: resuming the tunnel
+   sets it up again (pace back to 7, the wander reseeded), and P takes a
+   click after any of its button reads. Nothing of the game is left
+   unbuilt. Accuracy items left in game.md: the kaleidoscope's thin-edge
+   texture and the rings' shallow edges (AreaEnd line rounding).
 
 Open: what each shared image set and icon is used for and its colours;
 sample playback periods and triggers; A's world model beyond the generator;
-P's rules; T's high scores, command screen (save/load), pause box and end
-screens; the slider drag (modelled, not compared); the release's video
+the slider drag (modelled, not compared); the release's video
 standard (50 Hz assumed); the shared fields
 marked as hypotheses in `game.md`.
 

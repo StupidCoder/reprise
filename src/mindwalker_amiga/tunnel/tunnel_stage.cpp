@@ -14,6 +14,7 @@ constexpr std::uint32_t corner_x = 0x301330, corner_y = 0x301340; // the outer r
 constexpr std::uint32_t pace_points = 0x30326C;  // h27: points for a catch by pace
 constexpr std::uint32_t sample_periods = 0x3034B0; // h30: the four channels' periods
 constexpr std::uint32_t new_window = 0x300A9A;
+constexpr std::uint32_t screen_title = 0x300A56;   // "Click on Pause Box to Resume Game."
 // The Image data pointers B sets to S's icons ($300040; as A's).
 constexpr std::uint32_t pause_box_data = 0x30093A, knob_data = 0x300926, first_life_data = 0x300978;
 constexpr std::uint32_t s_life = 0x700A2C, s_pause_box = 0x700A40, s_knob = 0x700A54;
@@ -78,6 +79,21 @@ TunnelStage::TunnelStage(const data::GameFiles& files, const data::Assets& asset
     }
 }
 
+// $300272 after a pause: h23 (the colours shown again from h3, which B
+// turns in place: the current ones) and h8's set-up: the wander's mixer
+// from two more draws, the pan back to ($50, $32), laps, ticks and pace 7
+// (the rings drawn again are the same).
+void TunnelStage::restart() {
+    shown_colours_ = colours_;
+    const auto high = seed_.next();
+    wander_ = world::Mixer::seeded(high, seed_.next());
+    pan_x_ = 0x50;
+    pan_y_ = 0x32;
+    laps_ = 0;
+    ticks_ = 0;
+    pace_ = 7;
+}
+
 // h8 / $300EDE: 17 octagonal rings from the outside in, each of eight
 // triangles from the middle; the outermost reaching the picture's corners.
 void TunnelStage::draw_tunnel() {
@@ -138,37 +154,46 @@ void TunnelStage::frame(const TunnelReader& read, int gadget) {
         return;
     }
     if (outcome_ != Outcome::playing) return;
-    if (paused_) { // $300536: Wait for the P box again
+    if (paused_) { // $300536: Wait; each message through $30044C, the button read first
+        if (gadget < 0) return;
+        const bool button = read(TunnelRead::button).button;
+        if (button && frozen_ == 0) frozen_ = 300;
+        button_was_down_ = button;
+        frozen_ = 0;
+        if (gadget == -2) outcome_ = Outcome::quit;
         if (gadget == pause_gadget) {
             paused_ = false;
             resume_wait_ = 30;
         }
         return;
     }
-    if (resume_wait_ > 0) { // $30059C: 30 frames, then the colours again
-        if (--resume_wait_ == 0) {
-            shown_colours_ = colours_;
-            voices_.set_dma(true);
-        }
-        return;
-    }
-    sound();
-    // $30040C: the left button held starts a wait of 300 frames.
-    const bool button = read(TunnelRead::button).button;
-    if (button && frozen_ == 0) frozen_ = 300;
-    button_was_down_ = button;
-    if (gadget == -2) {
-        outcome_ = Outcome::quit; // CLOSEWINDOW
-        return;
-    }
-    if (gadget >= 0) {
-        frozen_ = 0;
-        if (gadget == pause_gadget) { // $300536
-            paused_ = true;
-            std::fill(rect_layer_.begin(), rect_layer_.end(), 0); // $302E94
-            voices_.set_dma(false);
-            for (int c = 0; c < 4; ++c) voices_.set_volume(c, 0);
+    if (resume_wait_ > 0) {
+        // $30059C: 30 frames, then the tunnel set up again (h23's colours,
+        // h8: the wander reseeded, pace 7, laps, ticks and pan back) and the
+        // sound on; the interrupted pass of the main loop goes on (the
+        // stick and a rectangle, no new button read).
+        if (--resume_wait_ > 0) return;
+        restart();
+        voices_.set_dma(true);
+    } else {
+        sound();
+        // $30040C: the left button held starts a wait of 300 frames.
+        const bool button = read(TunnelRead::button).button;
+        if (button && frozen_ == 0) frozen_ = 300;
+        button_was_down_ = button;
+        if (gadget == -2) {
+            outcome_ = Outcome::quit; // CLOSEWINDOW
             return;
+        }
+        if (gadget >= 0) {
+            frozen_ = 0;
+            if (gadget == pause_gadget) { // $300536
+                paused_ = true;
+                std::fill(rect_layer_.begin(), rect_layer_.end(), 0); // $302E94
+                voices_.set_dma(false);
+                for (int c = 0; c < 4; ++c) voices_.set_volume(c, 0);
+                return;
+            }
         }
     }
     if (frozen_ == 0) {
@@ -334,7 +359,26 @@ platform::Image TunnelStage::picture() const {
             if (rect_layer_[std::size_t(y * 320 + x)]) pen |= 16;
             canvas.plot(x, y, pen);
         }
-    if (paused_) canvas.fill(0, view_top, 319, 199, 0); // (hypothesis until a dump)
+    if (paused_) {
+        // The window (the bar) moved down 10 over the view's first rows, the
+        // screen's title bar above it: BlockPen 2, the title in DetailPen 0
+        // at (2, 7), the depth gadgets (dump b_paused_later); the
+        // rectangles cleared, the tunnel and hands left as they were.
+        const screen::Canvas shown = canvas;
+        for (int y = 0; y < picture_top; ++y)
+            for (int x = 0; x < 320; ++x) canvas.plot(x, y + picture_top, shown.pen(x, y));
+        canvas.fill(0, 0, 319, picture_top - 1, 2);
+        std::string title;
+        for (std::uint32_t c = screen_title; b_.u8(c) != 0; ++c) title.push_back(char(b_.u8(c)));
+        canvas.text(2, 7, title, 0);
+        for (const auto& gadget : amiga::screen_depth_gadgets()) {
+            const int x0 = 319 + gadget.left;
+            for (int y = 0; y < gadget.height; ++y)
+                for (int x = 0; x < gadget.width; ++x)
+                    canvas.plot(x0 + x, y, int(gadget.planes[0][std::size_t(y)] >> (31 - x) & 1) |
+                                               int(gadget.planes[1][std::size_t(y)] >> (31 - x) & 1) << 1);
+        }
+    }
     return canvas.picture(colours);
 }
 

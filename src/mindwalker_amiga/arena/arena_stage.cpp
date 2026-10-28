@@ -266,9 +266,18 @@ void ArenaStage::frame(const ArenaReader& read, int gadget) {
         return;
     }
     if (outcome_ != Outcome::playing) return;
-    if (paused_) { // $40070C: Wait for the P box again (no sound)
+    if (paused_) { // $40070C: Wait; each message through $400618, the button read first
+        if (gadget < 0) return;
+        const bool button = read(ArenaRead::button).button;
+        button_was_down_ = button;
+        frozen_ = 0;
         if (gadget == pause_gadget) resume();
         else if (gadget == -2) outcome_ = Outcome::quit;
+        return;
+    }
+    if (continue_pass_) { // the pass the pause interrupted goes on after $40077E
+        continue_pass_ = false;
+        tick(read);
         return;
     }
     sound_tick(); // $404E46, every pass (waiting too)
@@ -1029,6 +1038,7 @@ void ArenaStage::pause() {
 // scrolled in again, the panel; the sound back.
 void ArenaStage::resume() {
     paused_ = false;
+    continue_pass_ = true;
     for (int f = 0; f < 29; ++f) sequence_.push_back({Act::wait});
     sequence_.push_back({Act::resume_room});
 }
@@ -1038,8 +1048,9 @@ platform::Image ArenaStage::picture(bool sprites) const {
     for (const auto c : shown_colours_) colours.push_back(c & 0xFFF);
     screen::Canvas canvas = screen_;
     if (paused_) {
-        // The screen's title bar (rows 0-9), the window moved down over
-        // rows 10-21.
+        // The screen's title bar (rows 0-9); the picture's rows 0-11 (the
+        // window and the two rows under it) moved down 10 (dump
+        // c_paused_later); the sprites gone.
         screen::Canvas bar;
         bar_.draw(bar, title_bar_pen);
         const auto& close = amiga::window_close_gadget();
@@ -1047,7 +1058,7 @@ platform::Image ArenaStage::picture(bool sprites) const {
             for (int x = 0; x < close.width; ++x)
                 bar.plot(x, y, (close.planes[0][std::size_t(y)] >> (15 - x) & 1) | (close.planes[1][std::size_t(y)] >> (15 - x) & 1) << 1);
         for (int y = 0; y < 12; ++y)
-            for (int x = 0; x < 320; ++x) canvas.plot(x, y + 10, bar.pen(x, y));
+            for (int x = 0; x < 320; ++x) canvas.plot(x, y + 10, y < top ? bar.pen(x, y) : screen_.pen(x, y));
         canvas.fill(0, 0, 319, 9, title_bar_pen);
         std::string title;
         for (std::uint32_t c = screen_title; c_.u8(c) != 0; ++c) title.push_back(char(c_.u8(c)));

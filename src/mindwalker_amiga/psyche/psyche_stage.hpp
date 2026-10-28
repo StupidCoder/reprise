@@ -52,6 +52,9 @@ public:
     // One display frame; `gadget` a gadget clicked this frame (-2 the close
     // gadget; the P box, id $10, pauses and resumes).
     void frame(const PsycheReader&, int gadget = -1);
+    // A gadget message arriving now (between reads; replays post the
+    // recorder's clicks at their read). frame()'s `gadget` does the same.
+    void post(int gadget) { message_ = gadget; }
     platform::Image picture(bool sprites = true) const;
     void render_audio(std::span<float> stereo, int rate) { sound_.render(stereo, rate); }
 
@@ -60,6 +63,7 @@ public:
     std::uint32_t score() const { return score_; }
     std::uint32_t bonus() const { return bonus_; }
     bool whole() const { return whole_; }  // $5021A0: the last picture done
+    bool paused() const { return paused_; }
     int gadget_at(int x, int y) const;
     // h32: the portrait that follows (MindF1-6 by the progress) and its colour.
     int portrait() const;
@@ -102,6 +106,8 @@ private:
     void become_whole();                   // h41
     void pause();
     void resume();
+    bool take_message();                   // $500488's message
+    void copy_whole();
     void image(const data::Bitmap&, int plane_pick, int x, int y);
     int hint_height() const;
 
@@ -136,6 +142,8 @@ private:
     int cursor_x_{-0x50}, cursor_y_{};               // $5065FC / $506600
     int mouse_x_{}, mouse_y_{};
     bool button_down_{}, paused_{};
+    int message_{-1};                                // a gadget message not yet taken (-2 the close gadget)
+    bool resume_pass_{}, resume_tile_{};             // resumed: the interrupted pass goes on (in the tiles' loop)
     int next_tile_{}, pass_home_{};                  // the pass's progress, tiles counted home
     bool pass_started_{}, waited_{};
     int whole_wait_{};                               // frames to the next timer tick (the last picture's passes)

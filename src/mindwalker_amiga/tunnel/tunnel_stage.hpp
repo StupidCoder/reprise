@@ -72,6 +72,7 @@ public:
 
 private:
     void draw_tunnel();                        // h8 / $300EDE
+    void restart();                            // $300272 after a pause (h23, h8)
     void ring(int radius, int first_pen, bool pens, int pen); // $300EDE
     void move(const TunnelReader&);            // $301086
     void steer();                              // $301186

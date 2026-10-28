@@ -236,19 +236,32 @@ void PsycheStage::frame(const PsycheReader& read, int gadget) {
         return;
     }
     if (outcome_ != Outcome::playing) return;
-    if (paused_) {
-        if (gadget == pause_gadget) resume();
-        else if (gadget == -2) outcome_ = Outcome::quit;
+    if (gadget >= 0 || gadget == -2) message_ = gadget; // (waits in the window's port)
+    if (paused_) { // $500590's loop: Wait, then $500488: the button read first
+        if (message_ == -1) return;
+        button(read);
+        if (message_ == pause_gadget) resume();
+        else if (message_ == -2) outcome_ = Outcome::quit;
+        message_ = -1;
         return;
     }
-    if (gadget == -2) { // CLOSEWINDOW
-        outcome_ = Outcome::quit;
-        sound_.stop();
-        return;
-    }
-    if (gadget == pause_gadget) {
-        pause();
-        return;
+    if (resume_pass_ && resume_tile_) { // resumed in the tiles' loop: that tile's $505970, then on
+        resume_pass_ = resume_tile_ = false;
+        ++next_tile_;
+        after_tile();
+        if (!sequence_.empty() || outcome_ != Outcome::playing) return;
+    } else if (resume_pass_) { // resumed ($5005F0): the pass $500488 began goes on
+        resume_pass_ = false;
+        kaleidoscope();
+        if (!whole_) {
+            pass_started_ = true;
+            next_tile_ = 0;
+            pass_home_ = 0;
+        } else {
+            copy_whole();
+            end_of_pass();
+            return;
+        }
     }
     sound_.frame(hint_height());
     if (whole_) {
@@ -257,9 +270,9 @@ void PsycheStage::frame(const PsycheReader& read, int gadget) {
         if (++whole_wait_ < 3) return;
         whole_wait_ = 0;
         button(read);
+        if (take_message()) return;
         kaleidoscope();
-        for (int y = 0; y < 120; ++y)
-            for (int x = 0; x < 140; ++x) screen_.plot(0xAC + x, 0x48 + y, (screen_.pen(0xAC + x, 0x48 + y) & 16) | back_.pen(x, y));
+        copy_whole();
         end_of_pass();
         return;
     }
@@ -268,6 +281,7 @@ void PsycheStage::frame(const PsycheReader& read, int gadget) {
     for (;;) {
         if (!pass_started_) {
             button(read);
+            if (take_message()) return;
             kaleidoscope();
             pass_started_ = true;
             next_tile_ = 0;
@@ -289,7 +303,11 @@ void PsycheStage::frame(const PsycheReader& read, int gadget) {
             if ((at & 0x80) && (at & 7) == p_.u8(home_column + std::uint32_t(t)) && (at >> 3 & 7) == p_.u8(home_row + std::uint32_t(t)))
                 ++pass_home_;
             blit_tile(t);
-            button(read);
+            button(read); // ($500488: the button, then the window's message)
+            if (take_message()) {
+                resume_tile_ = true;
+                return;
+            }
             ++next_tile_;
             after_tile();
             if (!sequence_.empty() || outcome_ != Outcome::playing) return;
@@ -504,6 +522,28 @@ void PsycheStage::run(const Action& action) {
     }
 }
 
+// $500488's message, after the pass's first button read: the close gadget
+// ends the screen, the P box pauses. True when the pass stops here.
+bool PsycheStage::take_message() {
+    const int message = message_;
+    message_ = -1;
+    if (message == -2) { // CLOSEWINDOW
+        outcome_ = Outcome::quit;
+        sound_.stop();
+        return true;
+    }
+    if (message == pause_gadget) {
+        pause();
+        return true;
+    }
+    return false;
+}
+
+void PsycheStage::copy_whole() { // the last picture: the whole of it copied at once
+    for (int y = 0; y < 120; ++y)
+        for (int x = 0; x < 140; ++x) screen_.plot(0xAC + x, 0x48 + y, (screen_.pen(0xAC + x, 0x48 + y) & 16) | back_.pen(x, y));
+}
+
 void PsycheStage::rotate_bar() { // $505C5E: colours 25-31 turn
     const auto last = colours_[31];
     for (int k = 31; k > 25; --k) colours_[std::size_t(k)] = colours_[std::size_t(k - 1)];
@@ -620,6 +660,7 @@ void PsycheStage::pause() {
 // drawn again; the sound back.
 void PsycheStage::resume() {
     paused_ = false;
+    resume_pass_ = true;
     for (int f = 0; f < 29; ++f) sequence_.push_back({Act::wait});
     sequence_.push_back({Act::resume_panel});
 }
@@ -635,9 +676,11 @@ platform::Image PsycheStage::picture(bool sprites) const {
         for (int x = 0; x < close.width; ++x)
             bar.plot(x, y, (close.planes[0][std::size_t(y)] >> (15 - x) & 1) | (close.planes[1][std::size_t(y)] >> (15 - x) & 1) << 1);
     if (paused_) {
-        // The screen's title bar (rows 0-9), the window moved down over rows 10-21.
+        // The screen's title bar (rows 0-9); the picture's rows 0-11 (the
+        // window and the two rows under it) moved down 10 (dump
+        // p_paused_later); no hand.
         for (int y = 0; y < 12; ++y)
-            for (int x = 0; x < 320; ++x) canvas.plot(x, y + 10, bar.pen(x, y));
+            for (int x = 0; x < 320; ++x) canvas.plot(x, y + 10, y < top_ ? bar.pen(x, y) : screen_.pen(x, y));
         canvas.fill(0, 0, 319, 9, title_bar_pen);
         std::string title;
         for (std::uint32_t c = screen_title; p_.u8(c) != 0; ++c) title.push_back(char(p_.u8(c)));

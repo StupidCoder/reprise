@@ -9,6 +9,7 @@ namespace {
 // T's data (research layout, .analysis/mindwalker_amiga/game.md).
 constexpr std::uint32_t new_window = 0x60156A;      // the window and its gadget list
 constexpr std::uint32_t menu_colours = 0x600AD8;    // 16 base colours; their values double as pens
+constexpr std::uint32_t screen_title = 0x601526;  // "Click on Pause Box to Resume Game."
 constexpr std::uint32_t title_colours = 0x6032B0;   // the title picture's colours
 constexpr std::uint32_t twinkle_colours = 0x6032D0; // the twinkle's working copy
 constexpr std::uint32_t picture_planes = 0x603350;  // MindB's planes -> bitplanes
@@ -288,6 +289,24 @@ void TitleStage::drag_slider(const Pointer& pointer) {
 }
 
 void TitleStage::frame(const Pointer& pointer) {
+    if (shrink_frames_ > 0) { // $600E20's 15 vertical blanks, the window shrunk to its bar
+        --shrink_frames_;
+        return;
+    }
+    if (paused_) { // the loop Waits on the window's port: only its gadgets
+        const bool press = pointer.button && !button_was_down_;
+        button_was_down_ = pointer.button;
+        if (press && pointer.y < 10) {
+            const int id = gadget_at_pointer(pointer);
+            if (id == pause_box) resume();
+            if (id == quit) phase_ = Phase::quit; // ($601620 ends the pause loop and then T)
+        }
+        return;
+    }
+    if (resume_frames_ > 0) { // $600EE6's 30 vertical blanks, then the screen drawn again
+        if (--resume_frames_ == 0) redraw_after_pause();
+        return;
+    }
     if (phase_ == Phase::title || phase_ == Phase::menu) drag_slider(pointer);
     switch (phase_) {
     case Phase::title:
@@ -325,6 +344,7 @@ void TitleStage::frame(const Pointer& pointer) {
             break;
         }
         const bool press = pointer.button && !button_was_down_;
+        if (pause_clicked(pointer, press)) return;
         button_was_down_ = pointer.button;
         if (press && pointer.y < 10 && gadget_at_pointer(pointer) == quit) {
             phase_ = Phase::quit;
@@ -355,6 +375,7 @@ void TitleStage::frame(const Pointer& pointer) {
     }
     case Phase::fame: {
         const bool press = pointer.button && !button_was_down_;
+        if (pause_clicked(pointer, press)) return;
         button_was_down_ = pointer.button;
         if (press && pointer.y < 10) gadget_clicked(gadget_at_pointer(pointer));
         if (phase_ == Phase::fame && (++fame_count_ & 1) == 0) animate_fame(); // two vertical blanks a step
@@ -366,6 +387,7 @@ void TitleStage::frame(const Pointer& pointer) {
             break;
         }
         const bool press = pointer.button && !button_was_down_;
+        if (pause_clicked(pointer, press)) return;
         button_was_down_ = pointer.button;
         if (press && pointer.y < 10) {
             gadget_clicked(gadget_at_pointer(pointer));
@@ -378,6 +400,7 @@ void TitleStage::frame(const Pointer& pointer) {
         // The main loop ($600276): gadget messages, one step of the "New
         // Game" seed, the menu click, one pillar's animation.
         const bool press = pointer.button && !button_was_down_;
+        if (pause_clicked(pointer, press)) return;
         if (press && pointer.y < 10) {
             const int id = gadget_at_pointer(pointer);
             if (id == quit) {
@@ -486,6 +509,54 @@ void TitleStage::gadget_clicked(int id) {
     if (!g.selected) back_to_menu();
     else if (id == fame) show_fame();
     else open_command();
+}
+
+// The pause box (a toggle; h5 hands $600DF4 its SELECTED flag), in the
+// loops that read the window's messages: the menu, the Hall of Fame, the
+// command screen and the initials board.
+bool TitleStage::pause_clicked(const Pointer& pointer, bool press) {
+    if (!press || pointer.y >= 10 || gadget_at_pointer(pointer) != pause_box) return false;
+    button_was_down_ = pointer.button;
+    pause();
+    return true;
+}
+
+// $600E20: the disk and Fame off (ghosted), the window shrunk to its bar,
+// 15 frames (then a MoveWindow without visible effect); the loop waits.
+void TitleStage::pause() {
+    paused_ = true;
+    bar_.find(pause_box)->selected = true;
+    bar_.find(fame)->enabled = false;
+    bar_.find(disk)->enabled = false;
+    bar_.draw(canvas_);
+    shrink_frames_ = 15;
+}
+
+// $600EE6: the window back up and to its size, 30 frames, then the screen
+// drawn again.
+void TitleStage::resume() {
+    paused_ = false;
+    bar_.find(pause_box)->selected = false;
+    resume_frames_ = 30;
+}
+
+void TitleStage::redraw_after_pause() {
+    if (bar_.find(disk)->selected) { // $601ADA: the command screen, its choices kept
+        draw_command_background();
+        draw_items_ = 0;
+        bar_.find(disk)->enabled = true;
+    } else if (bar_.find(fame)->selected) { // $603728
+        bar_.find(fame)->enabled = true;
+        show_fame();
+    } else if (phase_ != Phase::initials) { // $6004F0
+        back_to_menu();
+        bar_.find(disk)->enabled = true;
+        bar_.find(fame)->enabled = true;
+    } else { // $6043B6: the initials board again
+        draw_menu_background();
+        draw_initials_screen();
+    }
+    bar_.draw(canvas_);
 }
 
 void TitleStage::back_to_menu() { // $6004F0
@@ -776,10 +847,41 @@ void TitleStage::world_clicked(int world) {
     }
 }
 
+void TitleStage::gadget(int id) {
+    if (id != pause_box) gadget_clicked(id);
+    else if (paused_) resume();
+    else pause();
+}
+
+screen::Canvas TitleStage::screen() const {
+    if (!paused_ && shrink_frames_ == 0 && resume_frames_ == 0) return canvas_;
+    // The window shrunk to its bar: the screen under it pen 0 (dumps
+    // shrunk, resuming).
+    screen::Canvas shown = canvas_;
+    shown.fill(0, playfield_top, screen::Canvas::width - 1, screen::Canvas::height - 1, 0);
+    if (paused_ && shrink_frames_ == 0) {
+        // Moved down 10 (Intuition does it a moment after the call): the
+        // screen's title bar above it, in BlockPen 15 with the title in
+        // DetailPen 0 at (2, 7), and the depth gadgets (dump paused_later).
+        const screen::Canvas bar = shown;
+        for (int y = 0; y < playfield_top; ++y)
+            for (int x = 0; x < screen::Canvas::width; ++x) shown.plot(x, y + 10, bar.pen(x, y));
+        shown.fill(0, 0, screen::Canvas::width - 1, 9, 0xF);
+        shown.text(2, 7, c_string(t_, screen_title), 0, screen::TextFont::topaz8, screen::plain, false, 0);
+        for (const auto& g : amiga::screen_depth_gadgets()) {
+            const int x0 = screen::Canvas::width - 1 + g.left;
+            for (int y = 0; y < g.height; ++y)
+                for (int x = 0; x < g.width; ++x)
+                    shown.plot(x0 + x, y, int(g.planes[0][std::size_t(y)] >> (31 - x) & 1) | int(g.planes[1][std::size_t(y)] >> (31 - x) & 1) << 1);
+        }
+    }
+    return shown;
+}
+
 platform::Image TitleStage::picture() const {
     // S's screen colours: 0 black, 1 green (S $700040's SetRGB4 calls).
     if (phase_ == Phase::loading) return loading_.picture({0x000, 0x0F0});
-    return canvas_.ham_picture(colours_);
+    return screen().ham_picture(colours_);
 }
 
 } // namespace mindwalker::title

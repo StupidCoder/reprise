@@ -78,8 +78,14 @@ public:
     void set_slider(std::uint16_t pot);
 
     Phase phase() const { return phase_; }
+    bool paused() const { return paused_; }
     const std::optional<NewGame>& new_game() const { return new_game_; }
     platform::Image picture() const;
+    // The screen as shown: the canvas, or while paused only the window's
+    // bar over pen 0.
+    screen::Canvas screen() const;
+    // For replays: a gadget message as Intuition would post it.
+    void gadget(int id);
 
     // State as the original holds it, for the harness's comparisons.
     std::uint32_t mixed_seed() const { return seed_.state; }
@@ -101,6 +107,7 @@ public:
     // For replays: whether the next frame reads the button (the original's
     // waits and the Hall of Fame read none).
     bool reading() const {
+        if (paused_ || shrink_frames_ > 0 || resume_frames_ > 0) return false;
         return phase_ == Phase::title || phase_ == Phase::menu || (phase_ == Phase::initials && wait_ == 0) ||
                (phase_ == Phase::command && draw_items_ >= 15);
     }
@@ -119,6 +126,12 @@ private:
     void gadget_clicked(int id);              // h5 / $600CB4
     int gadget_at_pointer(const Pointer&) const;
     void back_to_menu();                      // $6004F0
+    // The pause box ($600DF4): the window shrunk to its bar ($600E20), back
+    // to its size and the screen redrawn ($600EE6).
+    bool pause_clicked(const Pointer&, bool press);
+    void pause();
+    void resume();
+    void redraw_after_pause();
     // The Hall of Fame (h17, $6035D4, $603714-$603AFC).
     void check_high_score();                  // h17
     void sort_fame();                         // $6035D4
@@ -174,6 +187,9 @@ private:
     std::array<int, 28> item_back_{};
     int command_{1}, confirm_world_{}, draw_items_{};
     bool confirming_{}, restarted_{};
+    // $601626: paused; the frames of the shrink (15) and of the way back (30).
+    bool paused_{};
+    int shrink_frames_{}, resume_frames_{};
 };
 
 } // namespace mindwalker::title

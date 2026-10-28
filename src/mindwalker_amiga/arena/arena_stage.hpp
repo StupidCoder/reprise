@@ -186,6 +186,7 @@ private:
     int hit_noise_{}, death_noise_{}, death_pitch_{};      // $4050B8, $4050BC, $4050C0
     int frozen_{};                                         // $4010FA
     bool button_was_down_{}, paused_{};
+    bool continue_pass_{};                                 // resumed: the interrupted pass of $400040 still to finish
     Outcome outcome_{Outcome::playing};
     Cheats cheats_;
     long frame_count_{};           // display frames (the minimap's flashing)

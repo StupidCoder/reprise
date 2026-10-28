@@ -30,6 +30,7 @@
 #include <fstream>
 #include <deque>
 #include <map>
+#include <random>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -40,11 +41,60 @@ namespace {
 using mindwalker::title::Pointer;
 using mindwalker::title::TitleStage;
 
+// The P box in a stage's recording: a "gadget 10" event at a read clicks
+// it in the frame that makes that read (the stages read their messages
+// right after the button); while paused the stage reads nothing, and the
+// recorder's hook in the pause loop clicks it again (here two frames into
+// the pause, after MW_PAUSE_SHOT saved the picture shown).
+struct PauseDriver {
+    std::deque<int> hooks;
+    int pending{-1}, paused_frames{}, delivered{-1};
+    bool shot_done{};
+
+    PauseDriver(const std::filesystem::path& script, char module) {
+        std::ifstream in(script);
+        std::string line;
+        while (std::getline(in, line)) {
+            std::istringstream f(line.substr(0, line.find('#')));
+            std::vector<std::string> w;
+            for (std::string x; f >> x;) w.push_back(x);
+            if (w.size() == 5 && w[0] == "hook" && w[1] == std::string(1, module) && w[3] == "gadget")
+                hooks.push_back(std::stoi(w[4], nullptr, 16));
+        }
+    }
+    // Clicks posted up to the read the next frame makes first (each once):
+    // the stage takes its messages after that frame's button read.
+    void next_read(int index, const std::map<int, std::vector<std::vector<std::string>>>& events) {
+        for (auto it = events.upper_bound(delivered); it != events.end() && it->first <= index; ++it)
+            for (const auto& ev : it->second)
+                if (ev[0] == "gadget") pending = std::stoi(ev[1], nullptr, 16);
+        delivered = std::max(delivered, index);
+    }
+    template <class Picture> int gadget(bool paused, const Picture& picture) {
+        int g = pending;
+        pending = -1;
+        if (!paused) {
+            paused_frames = 0;
+            return g;
+        }
+        if (++paused_frames == 2 && std::getenv("MW_PAUSE_SHOT") && !shot_done) {
+            platform::save_png(picture(), std::getenv("MW_PAUSE_SHOT"));
+            shot_done = true;
+        }
+        if (paused_frames >= 2 && !hooks.empty()) {
+            g = hooks.front();
+            hooks.pop_front();
+        }
+        return g;
+    }
+};
+
 struct Script {
     std::uint32_t seed{};
     bool has_seed{};
     std::map<int, std::vector<std::vector<std::string>>> events; // T frame -> events
     std::vector<std::string> end_dumps;                            // hook dumps of T (taken as it ends)
+    std::map<std::uint32_t, std::vector<std::vector<std::string>>> pause_hooks; // T's pause box ($600E20/$600EE6)
 };
 
 Script read_script(const std::filesystem::path& path) {
@@ -61,7 +111,9 @@ Script read_script(const std::filesystem::path& path) {
             script.seed = std::uint32_t(std::stoul(words[1], nullptr, 16));
             script.has_seed = true;
         } else if (words[0] == "hook" && words.size() == 5 && words[1] == "T") {
-            script.end_dumps.push_back(words[4]);
+            const auto at = std::uint32_t(std::stoul(words[2], nullptr, 16));
+            if (at >= 0x600E20 && at < 0x600FEA) script.pause_hooks[at].push_back({words[3], words[4]});
+            else script.end_dumps.push_back(words[4]);
         } else if (words[0] == "T") {
             script.events[std::stoi(words[1])].push_back({words.begin() + 2, words.end()});
         }
@@ -102,7 +154,7 @@ int title(const std::filesystem::path& content, const std::filesystem::path& scr
     // The dump is taken at the read, before this frame's work (or, for a
     // hook, where the hook stopped).
     const auto compare = [&](const std::string& name, int frame) {
-        const auto& canvas = stage.phase() == TitleStage::Phase::loading ? stage.loading_canvas() : stage.canvas();
+        const auto canvas = stage.phase() == TitleStage::Phase::loading ? stage.loading_canvas() : stage.screen();
         const auto idx = platform::read_file(dumps / (log_path.stem().string() + "-" + name + ".idx"));
         int bad = 0, first_x = -1, first_y = -1;
         for (int y = 0; y < 200; ++y)
@@ -131,17 +183,19 @@ int title(const std::filesystem::path& content, const std::filesystem::path& scr
         platform::write_file(dumps / (name + "-native.idx"), pens);
     };
     const auto differ = [&](int frame, const std::string& what, const std::string& ours, const std::string& theirs) {
-        if (++differences <= 12) std::printf("T %d %s: ours %s, original %s\n", frame, what.c_str(), ours.c_str(), theirs.c_str());
+        if (++differences <= (std::getenv("MW_ALL") ? 100000 : 12)) std::printf("T %d %s: ours %s, original %s\n", frame, what.c_str(), ours.c_str(), theirs.c_str());
     };
     while (std::getline(log, line)) {
         if (!line.starts_with("T ")) continue;
         const int frame = std::stoi(line.substr(2));
         while (stage.phase() == TitleStage::Phase::pause) stage.frame(pointer);
+        bool pause_box = false; // the P box posted at this read: handled after its frame
         for (const auto& ev : script.events.count(frame) ? script.events.at(frame) : std::vector<std::vector<std::string>>{}) {
             if (ev[0] == "button") pointer.button = ev[1] == "1";
             if (ev[0] == "mouse") pointer = {std::stoi(ev[1]), std::stoi(ev[2]), pointer.button};
             if (ev[0] == "poke" && ev[1] == "601402") stage.set_slider(std::uint16_t(std::stoul(ev[2], nullptr, 16)));
             if (ev[0] == "dump" && !dumps.empty()) compare(ev[1], frame);
+            if (ev[0] == "gadget" && std::stoi(ev[1], nullptr, 16) == 0x10) pause_box = true;
         }
         const auto f = fields(line);
         // State at the read: the title's twinkle runs before its read; the
@@ -160,6 +214,28 @@ int title(const std::filesystem::path& content, const std::filesystem::path& scr
             if (f.at("pillars") != offsets) differ(frame, "pillar offsets", offsets, f.at("pillars"));
             stage.frame(pointer);
             if (f.at("newgame") != hex(stage.menu_seed(), 8)) differ(frame, "new game seed", hex(stage.menu_seed(), 8), f.at("newgame"));
+        }
+        if (pause_box) {
+            // The P box (posted at the read): $600E20's shrink, the hooks
+            // in its loop (the resume click), $600EE6's wait back up.
+            stage.gadget(0x10);
+            const auto hooks = [&](std::uint32_t at) {
+                if (!script.pause_hooks.count(at)) return;
+                for (const auto& h : script.pause_hooks.at(at)) {
+                    if ((h[0] == "dump" || h[0] == "dumplater") && !dumps.empty()) compare(h[1], frame);
+                    if (h[0] == "gadget") stage.gadget(std::stoi(h[1], nullptr, 16));
+                }
+            };
+            for (int k = 0; k < 14; ++k) stage.frame(pointer);
+            hooks(0x600E98); // (after the 15 frames, the window still at the top)
+            stage.frame(pointer);
+            hooks(0x600EBE);
+            hooks(0x600EC4);
+            if (!stage.paused()) {
+                for (int k = 0; k < 29; ++k) stage.frame(pointer);
+                hooks(0x600F40); // (after the 30 frames, before the redraw)
+                stage.frame(pointer);
+            }
         }
         ++frames;
     }
@@ -798,6 +874,7 @@ int tunnel(const std::filesystem::path& content, const std::filesystem::path& sc
     // (B's flags may already be set at its first read: the start state is the log's.)
     auto stage_owner = std::make_unique<tunnel::TunnelStage>(files, assets, start);
     auto* stage = stage_owner.get();
+    PauseDriver pause(script_path, 'B');
     // MW_COPY_AT=n (research): at frame n the stage replaced by a copy of itself (the
     // original destroyed): a copy must carry the whole state (quick save).
     const int copy_at = std::getenv("MW_COPY_AT") ? std::atoi(std::getenv("MW_COPY_AT")) : -1;
@@ -862,7 +939,8 @@ int tunnel(const std::filesystem::path& content, const std::filesystem::path& sc
         return held;
     };
     while (next < reads.size() && !out_of_step && frames < frame_limit && !stage->over()) {
-        stage->frame(reader);
+        if (next < reads.size()) pause.next_read(reads[next].index, events);
+        stage->frame(reader, pause.gadget(stage->paused(), [&] { return stage->picture(); }));
         ++frames;
         if (frames == copy_at) {
             stage_owner = std::make_unique<tunnel::TunnelStage>(*stage);
@@ -955,6 +1033,7 @@ int arena(const std::filesystem::path& content, const std::filesystem::path& scr
     arena::ArenaStage::Start start{at(0x4C), int(at(0x5C)), int(at(0x6E)), at(0x66), int(at(0x48))};
     auto stage_owner = std::make_unique<arena::ArenaStage>(files, assets, start);
     auto* stage = stage_owner.get();
+    PauseDriver pause(script_path, 'C');
     if (const char* c = std::getenv("MW_CHEATS")) { // research: god,minimap
         const std::string list = c;
         stage->set_cheats({list.find("god") != std::string::npos, list.find("minimap") != std::string::npos, false});
@@ -1084,7 +1163,8 @@ int arena(const std::filesystem::path& content, const std::filesystem::path& scr
         return held;
     };
     while (next < reads.size() && !out_of_step && frames < frame_limit && !stage->over()) {
-        stage->frame(reader);
+        if (next < reads.size()) pause.next_read(reads[next].index, events);
+        stage->frame(reader, pause.gadget(stage->paused(), [&] { return stage->picture(); }));
         ++frames;
         if (frames == copy_at) {
             stage_owner = std::make_unique<arena::ArenaStage>(*stage);
@@ -1093,7 +1173,8 @@ int arena(const std::filesystem::path& content, const std::filesystem::path& scr
     }
     // Run out the closing sequence (no reads).
     while (!stage->over() && (stage->outcome() != arena::ArenaStage::Outcome::playing || stage->in_sequence()) && frames < frame_limit) {
-        stage->frame(reader);
+        if (next < reads.size()) pause.next_read(reads[next].index, events);
+        stage->frame(reader, pause.gadget(stage->paused(), [&] { return stage->picture(); }));
         ++frames;
         if (frames == copy_at) {
             stage_owner = std::make_unique<arena::ArenaStage>(*stage);
@@ -1184,6 +1265,7 @@ int psyche(const std::filesystem::path& content, const std::filesystem::path& sc
     if (const char* b = std::getenv("MW_BONUS")) start.bonus = std::uint32_t(std::stoul(b));
     auto stage_owner = std::make_unique<psyche::PsycheStage>(files, assets, start);
     auto* stage = stage_owner.get();
+    PauseDriver pause(script_path, 'P');
     // MW_COPY_AT=n (research): at frame n the stage replaced by a copy of itself (the
     // original destroyed): a copy must carry the whole state (quick save).
     const int copy_at = std::getenv("MW_COPY_AT") ? std::atoi(std::getenv("MW_COPY_AT")) : -1;
@@ -1191,6 +1273,8 @@ int psyche(const std::filesystem::path& content, const std::filesystem::path& sc
                 start.time);
     psyche::PsycheInput held;
     const auto apply = [&](const std::vector<std::string>& ev) {
+        if (ev[0] == "close") stage->post(-2); // CLOSEWINDOW
+        if (ev[0] == "gadget") stage->post(std::stoi(ev[1], nullptr, 16)); // (P takes it after its pass's first read)
         if (ev[0] == "button") held.button = ev[1] == "1";
         if (ev[0] == "mouse") {
             held.x = std::stoi(ev[1]);
@@ -1258,7 +1342,8 @@ int psyche(const std::filesystem::path& content, const std::filesystem::path& sc
     };
     for (const auto& ev : events[0]) apply(ev); // (the pointer before the first read)
     while (next < reads.size() && frames < frame_limit && !stage->over()) {
-        stage->frame(reader);
+        const int gadget = pause.gadget(stage->paused(), [&] { return stage->picture(); });
+        stage->frame(reader, gadget);
         ++frames;
         if (frames == copy_at) {
             stage_owner = std::make_unique<psyche::PsycheStage>(*stage);
@@ -1505,6 +1590,82 @@ int pointer_check(const std::filesystem::path& content, const std::filesystem::p
     return 0;
 }
 
+// The portrait after the psyche screen (h32) as the game module shows it:
+// the loading picture of the progress, MindF(n) from row 12, colour 1 its own.
+int portrait(const std::filesystem::path& content, int stage_number, const std::filesystem::path& png) {
+    using namespace mindwalker;
+    const data::GameFiles files(content);
+    const auto assets = data::load_assets(content);
+    const auto picture = platform::read_file(content / "MindB");
+    const title::TitleStage title(files, picture, 0);
+    const psyche::PsycheStage p(files, assets, psyche::PsycheStage::Start{0, stage_number});
+    auto canvas = title.loading_picture(stage_number);
+    const auto& face = assets.portraits[std::size_t(p.portrait())];
+    for (int y = 0; y < 188 && y < face.height; ++y)
+        for (int x = 0; x < 320; ++x) canvas.plot(x, y + 12, face.at(x, y));
+    platform::save_png(canvas.picture({0x000, p.portrait_colour()}), png);
+    std::printf("MindF%d, colour %03x\n", p.portrait() + 1, p.portrait_colour());
+    return 0;
+}
+
+// Research: joystick scripts (random holds) that make the tunnel catch a
+// rectangle, for a recording of a natural catch; prints the first found as
+// recorder lines (B <read> joy ...), the reads counted as the original's.
+int tunnel_search(const std::filesystem::path& content, std::uint32_t seed, int stage_number, int tries) {
+    using namespace mindwalker;
+    const data::GameFiles files(content);
+    const auto assets = data::load_assets(content);
+    std::mt19937 random(1);
+    static const char* directions[] = {"-", "U", "D", "L", "R", "UL", "UR", "DL", "DR"};
+    for (int t = 0; t < tries; ++t) {
+        tunnel::TunnelStage stage(files, assets, tunnel::TunnelStage::Start{seed, stage_number});
+        std::vector<std::pair<int, int>> script; // (read, direction)
+        int reads = 0, next_change = 0, direction = 0;
+        const tunnel::TunnelReader reader = [&](tunnel::TunnelRead) {
+            if (reads >= next_change) {
+                direction = int(random() % 9);
+                script.push_back({reads, direction});
+                next_change = reads + 20 + int(random() % 60);
+            }
+            ++reads;
+            const std::string d = directions[direction];
+            return tunnel::TunnelInput{d.find('U') != std::string::npos, d.find('D') != std::string::npos,
+                                       d.find('L') != std::string::npos, d.find('R') != std::string::npos, false, false};
+        };
+        int frames = 0;
+        while (!stage.over() && stage.outcome() == tunnel::TunnelStage::Outcome::playing && frames < 4000) {
+            stage.frame(reader);
+            ++frames;
+        }
+        if (stage.outcome() != tunnel::TunnelStage::Outcome::caught) continue;
+        std::printf("# try %d: caught after %d frames, %d reads, score %u\n", t, frames, reads, stage.score());
+        for (const auto& [read, d] : script) std::printf("B %d joy %s\n", read, directions[d]);
+        return 0;
+    }
+    std::printf("no catch in %d tries\n", tries);
+    return 1;
+}
+
+// Research: the psyche screen's slots for a world and progress, each tile's
+// home cell and where to click (a recorder script's P clicks).
+int psyche_layout(const std::filesystem::path& content, std::uint32_t seed, int stage) {
+    using namespace mindwalker;
+    const data::GameFiles files(content);
+    const auto assets = data::load_assets(content);
+    const psyche::PsycheStage p(files, assets, psyche::PsycheStage::Start{seed, stage});
+    const auto& image = files.program(data::Stage::psyche);
+    std::map<std::string, long> v;
+    p.describe([&](const std::string& name, long value) { v[name] = value; });
+    for (int i = 0; i < 7; ++i) {
+        const long tile = v["slot " + std::to_string(i)];
+        if (tile == 0xFF) continue;
+        const int column = image.u8(0x502404 + std::uint32_t(tile)), row = image.u8(0x50242E + std::uint32_t(tile));
+        std::printf("slot %d (click %d,30): tile %ld home %d,%d (click %d,%d)\n", i, 19 + 22 * i, tile, column, row,
+                    0xAC + 20 * column + 10, 0x48 + 20 * row + 10);
+    }
+    return 0;
+}
+
 int main(int argc, char** argv) {
     const std::string command = argc > 1 ? argv[1] : "";
     try {
@@ -1525,6 +1686,14 @@ int main(int argc, char** argv) {
             return arena(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]), platform::utf8_path(argv[4]),
                          argc >= 6 ? std::stoi(argv[5]) : 1 << 30, argc == 7 ? platform::utf8_path(argv[6]) : std::filesystem::path());
         }
+        if (command == "portrait" && argc == 5)
+            return portrait(platform::utf8_path(argv[2]), std::stoi(argv[3]), platform::utf8_path(argv[4]));
+        if (command == "tunnel-search" && argc == 6)
+            return tunnel_search(platform::utf8_path(argv[2]), std::uint32_t(std::stoul(argv[3], nullptr, 16)),
+                                 std::stoi(argv[4]), std::stoi(argv[5]));
+        if (command == "psyche-layout" && argc == 5)
+            return psyche_layout(platform::utf8_path(argv[2]), std::uint32_t(std::stoul(argv[3], nullptr, 16)),
+                                 std::stoi(argv[4]));
         if (command == "psyche" && argc >= 5 && argc <= 7) {
             return psyche(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]), platform::utf8_path(argv[4]),
                           argc >= 6 ? std::stoi(argv[5]) : 1 << 30, argc == 7 ? platform::utf8_path(argv[6]) : std::filesystem::path());
