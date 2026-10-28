@@ -6,7 +6,9 @@
 #include "platform/image.hpp"
 #include "ui/scroll_list.hpp"
 #include <filesystem>
+#include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 // The collector's shelf: filtered, scrollable covers and imported-content details.
@@ -31,6 +33,14 @@ public:
     std::size_t selected() const { return selected_; }
 
     platform::Image draw(double now) const;
+
+    // The asset viewer's sound, if one is playing: fills `stereo` (interleaved
+    // left/right at `rate`) and advances it; silence otherwise. The sound
+    // stops when the viewer shows another page or is left.
+    void preview_audio(std::span<float> stereo, int rate);
+    // True once after a sound was stopped before its end, so the caller
+    // drops the audio it has queued already.
+    bool take_audio_cut() { return std::exchange(audio_cut_, false); }
 
     // For headless previews.
     void select(std::size_t game);
@@ -127,6 +137,21 @@ private:
     int filter_{}, first_row_{};
     bool sidebar_focus_{};
     std::string details_error_;
+
+    // The asset viewer's sound playback and 3D model view.
+    const Preview* shown_preview() const;
+    void update_preview(const platform::Controls&, double now, Request request);
+    void stop_sound();
+    struct Playback {
+        const Preview* preview{}; // the preview whose sound plays
+        double position{};        // in the sound's samples
+    };
+    std::optional<Playback> playback_;
+    bool audio_cut_{};
+    const Preview* model_preview_{}; // the model the angles below belong to
+    double model_yaw_{}, model_pitch_{}, spin_yaw_{}, spin_pitch_{}, model_time_{-1};
+    bool dragging_{};
+    std::array<int, 2> drag_last_{};
 };
 
 } // namespace app

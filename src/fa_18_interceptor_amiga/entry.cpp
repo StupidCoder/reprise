@@ -44,7 +44,8 @@ std::vector<app::Preview> previews(const std::filesystem::path& content) {
         char title[160];
         std::snprintf(title, sizeof title, "Sound %s: %zu bytes, slot %d, period %d (%d Hz)", sound.title.c_str(),
                       sound.samples.size(), sound.slot, sound.period, int(3546895.0 / sound.period + 0.5));
-        result.push_back({title, waveform_image(sound)});
+        result.push_back({title, waveform_image(sound),
+                          app::PreviewSound::signed8(sound.samples, 3546895.0 / sound.period)});
     }
     return result;
 }

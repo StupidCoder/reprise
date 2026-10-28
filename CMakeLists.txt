@@ -29,7 +29,7 @@ target_link_libraries(platform PUBLIC SDL3::SDL3)
 target_compile_options(platform PRIVATE ${PROJECT_WARNINGS})
 
 # --- ui: the launcher's drawing kit and shared picture filters --------------------------------------------
-add_library(ui src/ui/draw.cpp src/ui/vhs.cpp src/ui/shelf.cpp)
+add_library(ui src/ui/draw.cpp src/ui/vhs.cpp src/ui/shelf.cpp src/ui/model_view.cpp)
 target_link_libraries(ui PUBLIC platform)
 target_include_directories(ui PUBLIC ${SOURCE_ROOT})
 target_compile_options(ui PRIVATE ${PROJECT_WARNINGS})

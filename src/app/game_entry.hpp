@@ -1,10 +1,12 @@
 #pragma once
 #include "app/game_module.hpp"
 #include "platform/image.hpp"
+#include "ui/model_view.hpp"
 #include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -40,10 +42,29 @@ struct ImportResult {
     int parts{1};
 };
 
-// A picture of decoded game data, for the launcher's viewer.
+// A sound for the viewer to play when its preview is clicked: mono samples
+// in -1..1 at their own rate (the viewer resamples).
+struct PreviewSound {
+    std::vector<float> samples;
+    double rate{};
+
+    // From the 8-bit signed samples Paula and most 8-bit sound chips play.
+    static PreviewSound signed8(std::span<const std::int8_t> samples, double rate) {
+        PreviewSound sound{{}, rate};
+        sound.samples.reserve(samples.size());
+        for (const auto s : samples) sound.samples.push_back(float(s) / 128.0f);
+        return sound;
+    }
+};
+
+// A picture of decoded game data, for the launcher's viewer. A preview can
+// also carry a sound (the picture is then its waveform; clicking plays it)
+// or a 3D model (drawn turning in place of the picture; drag to turn it).
 struct Preview {
     std::string title;
     platform::Image image;
+    std::optional<PreviewSound> sound{};
+    std::shared_ptr<const ui::Model> model{};
 };
 
 struct GameEntry {

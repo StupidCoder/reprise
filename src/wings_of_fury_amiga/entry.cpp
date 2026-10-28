@@ -28,7 +28,10 @@ std::vector<app::Preview> previews(const std::filesystem::path& content) {
         result.push_back({"Palette: " + palette.name, palette_image(palette.colours)});
     }
     for (const auto& sample : assets.samples) {
-        result.push_back({"Sound: " + sample.name, sample_image(sample)});
+        // The game sets each sound's period when it plays it; the viewer
+        // plays them at period 428 (8,287 Hz on a PAL Amiga).
+        result.push_back({"Sound: " + sample.name + " (played at period 428)", sample_image(sample),
+                          app::PreviewSound::signed8(sample.data, 3546895.0 / 428)});
     }
     return result;
 }

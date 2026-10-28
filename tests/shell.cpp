@@ -10,6 +10,7 @@
 #include "platform/type.hpp"
 #include "ui/shelf.hpp"
 #include "platform/resources.hpp"
+#include <algorithm>
 #include <SDL3/SDL.h>
 #include <filesystem>
 #include <iostream>
@@ -120,7 +121,18 @@ int main(int argc, char** argv) {
             entries[0].previews = [](const std::filesystem::path&) {
                 platform::Image a(160, 100), b(160, 100);
                 ui::fill(a, ui::shelf::cobalt); ui::fill(b, ui::shelf::green);
-                return std::vector<app::Preview>{{"First asset", std::move(a)}, {"Second asset", std::move(b)}};
+                // A sound (a square wave) and a model (a cube) for the viewer's players.
+                std::vector<std::int8_t> wave(4000);
+                for (std::size_t i = 0; i < wave.size(); ++i) wave[i] = (i / 20) % 2 ? 100 : -100;
+                auto cube = std::make_shared<ui::Model>();
+                for (int i = 0; i < 8; ++i) cube->points.push_back({float(i & 1) * 2 - 1, float(i >> 1 & 1) * 2 - 1, float(i >> 2) * 2 - 1});
+                for (const auto& f : std::vector<std::vector<int>>{{0, 1, 3, 2}, {4, 6, 7, 5}, {0, 4, 5, 1}, {2, 3, 7, 6}, {0, 2, 6, 4}, {1, 5, 7, 3}})
+                    cube->faces.push_back({f, ui::shelf::cobalt});
+                cube->lines.push_back({0, 7, ui::shelf::green});
+                std::vector<app::Preview> result{{"First asset", std::move(a)}, {"Second asset", std::move(b)}};
+                result.push_back({"A sound", platform::Image(160, 100), app::PreviewSound::signed8(wave, 8000)});
+                result.push_back({"A model", platform::Image(1, 1), std::nullopt, cube});
+                return result;
             };
             entries[0].start = [](const std::filesystem::path&) { return std::make_unique<MotionGame>(); };
             app::Library fixture(root / "fixture", entries);
@@ -146,6 +158,49 @@ int main(int argc, char** argv) {
             check(backdrop.r == 20 && backdrop.g == 30 && backdrop.b == 34,
                   "Asset transitions preserve the dark backdrop without a paper flash");
             if (argc == 3) platform::save_png(asset_mid, std::string(argv[2]) + "/asset-moving.png");
+            {
+                // Sounds play on a click and stop when the viewer turns the page or is left.
+                const auto loud = [&] {
+                    std::vector<float> stereo(800);
+                    importing.preview_audio(stereo, 48000);
+                    return std::any_of(stereo.begin(), stereo.end(), [](float v) { return v != 0; });
+                };
+                importing.open_assets(3); importing.update({}, 20);
+                check(!loud(), "A sound is silent until clicked");
+                importing.update(click(600, 340), 20.1);
+                check(loud(), "Clicking a sound's preview plays it");
+                importing.update(click(600, 340), 20.2);
+                check(!loud() && importing.take_audio_cut(), "A second click stops it");
+                importing.update(click(600, 340), 20.3);
+                importing.update(right, 20.4);
+                check(!loud() && importing.take_audio_cut(), "Turning the page stops the sound");
+                importing.open_assets(3); importing.update({}, 20.5);
+                importing.update(click(600, 340), 20.6);
+                platform::Controls back; back.back = true;
+                for (int i = 0; i < 3; ++i) importing.update(back, 20.7 + i * .1);
+                check(!loud() && importing.take_audio_cut(), "Leaving the viewer stops the sound");
+
+                // A model turns on its own, follows a drag and keeps turning after it.
+                importing.open_details(); importing.open_assets(4); importing.update({}, 30);
+                const auto a = importing.draw(30.5);
+                importing.update({}, 31);
+                const auto b = importing.draw(31.5);
+                check(different(a, b), "A model turns slowly on its own");
+                if (argc == 3) platform::save_png(b, std::string(argv[2]) + "/asset-model.png");
+                importing.update(click(500, 340), 32);
+                platform::Controls drag; drag.mouse_held = true;
+                for (int i = 1; i <= 5; ++i) {
+                    drag.ui_pointer = std::array<int, 2>{500 + i * 30, 340 + i * 6};
+                    importing.update(drag, 32 + i * .016);
+                }
+                const auto dragged = importing.draw(33);
+                importing.update({}, 33.1);
+                const auto after = importing.draw(33.2);
+                importing.update({}, 33.2);
+                check(different(dragged, after), "A released drag carries the model on");
+                check(different(b, dragged), "Dragging turns the model");
+            }
+
             std::cout << "Motion, continuous scrolling, moving-card hit testing, flash-free assets and saved preference checks passed.\n";
             return 0;
         }

@@ -129,7 +129,7 @@ int run(const Options& options) {
     std::unique_ptr<app::GameModule> game;
     std::size_t playing = 0;
     app::PauseMenu menu;
-    double game_clock = 0, sample_credit = 0;
+    double game_clock = 0, sample_credit = 0, launcher_audio_clock = 0;
     std::string quick_message;
     double quick_message_until{};
     // The frames run (for the VHS look's noise) and the picture last shown,
@@ -356,6 +356,20 @@ int run(const Options& options) {
         case app::Launcher::Request::none:
             break;
         }
+        // The asset viewer's sounds: as many samples as the time since the
+        // last frame takes; a sound stopped early drops what is queued.
+        if (launcher.take_audio_cut()) {
+            host.clear_audio();
+        }
+        if (!game) {
+            sample_credit += std::clamp(now - launcher_audio_clock, 0.0, 0.1) * platform::Host::audio_sample_rate;
+            const int samples = int(sample_credit);
+            sample_credit -= samples;
+            audio.resize(std::size_t(samples) * 2);
+            launcher.preview_audio(audio, platform::Host::audio_sample_rate);
+            host.audio(audio);
+        }
+        launcher_audio_clock = now;
         host.present(launcher.draw(now));
     }
     return 0;

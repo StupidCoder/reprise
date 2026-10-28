@@ -11,6 +11,7 @@
 #include <exception>
 #include <cmath>
 #include <fstream>
+#include <numbers>
 #include <tuple>
 #include "platform/files.hpp"
 
@@ -155,6 +156,8 @@ void Launcher::open_details(std::size_t page) {
     refresh_save();
     detail_focus_ = save_preview_.available ? 1 : 0;
     details_error_.clear();
+    stop_sound();
+    model_preview_ = nullptr;
     previews_.clear();
     const auto& game = library_.games()[selected_];
     if (library_.installed(selected_) && game.previews) {
@@ -184,7 +187,7 @@ void Launcher::refresh_save() {
     save_fade_pending_ = changed;
     save_preview_ = std::move(next);
 }
-void Launcher::close_details() { details_ = false; confirm_remove_ = false; previews_.clear(); }
+void Launcher::close_details() { details_ = false; confirm_remove_ = false; stop_sound(); previews_.clear(); }
 void Launcher::activate() {
     open_details();
 }
@@ -553,8 +556,28 @@ void Launcher::draw_details(Image& im) const {
                 308, 496, 600, 2, 14, details_error_.empty() ? s::muted : s::red);
         }
     } else {
+        const auto& preview = previews_[page_ - 1];
         ui::rounded(im, 304, 160, 616, 370, 5, {20, 30, 34});
-        ui::picture(im, previews_[page_ - 1].image, 310, 166, 604, 358);
+        if (preview.model) {
+            ui::draw_model(im, 310, 166, 604, 358, *preview.model, model_yaw_, model_pitch_);
+            s::text(im, "Drag to turn", 316, 508, 13, s::muted);
+        } else {
+            ui::picture(im, preview.image, 310, 166, 604, 358);
+        }
+        if (preview.sound) {
+            const bool playing = playback_ && playback_->preview == &preview;
+            if (playing && !preview.sound->samples.empty()) {
+                // The playhead, across the waveform as ui::picture placed it.
+                double scale = std::min(604.0 / preview.image.width, 358.0 / preview.image.height);
+                if (scale >= 1) scale = std::floor(scale);
+                const int dw = std::max(1, int(preview.image.width * scale));
+                const int dh = std::max(1, int(preview.image.height * scale));
+                const int left = 310 + (604 - dw) / 2, top = 166 + (358 - dh) / 2;
+                const double done = playback_->position / double(preview.sound->samples.size());
+                ui::rect(im, left + int(done * (dw - 1)), top, 2, dh, {255, 214, 120});
+            }
+            s::text(im, playing ? "Playing - click to stop" : "Click to play", 316, 508, 13, s::muted);
+        }
     }
     ui::rect(im, 24, footer_y, 912, 1, s::line);
     s::text(im, "Left / Right: pages     Up / Down: scroll files     Esc: details", 24, 582, 14, s::muted);
@@ -647,6 +670,7 @@ Launcher::Request Launcher::update(const platform::Controls& in, double now) {
     auto from = details_ ? std::array<int, 4>{24, 106, 240, 158} : cover_bounds(now);
     if (actionable && !reduced_motion_) old = draw(now);
     const auto request = update_input(in, now);
+    update_preview(in, now, request);
     if (filter_ != old_filter) {
         scroll_from_ = first_row_; scroll_start_ = -10; hovered_.reset();
     } else if (first_row_ != old_row) {
@@ -681,6 +705,87 @@ void Launcher::button(Image& im, std::string_view text, int x, int y, int w, int
     y += int(std::lround(2 * strength));
     if (danger) s::danger_button(im, text, x, y, w, h, primary);
     else s::button(im, text, x, y, w, h, primary);
+}
+
+const Preview* Launcher::shown_preview() const {
+    const bool assets = details_ && documentation_ && !about_ && !lessons_ && !chapter_ && !confirm_remove_;
+    return assets && page_ > 0 && page_ <= previews_.size() ? &previews_[page_ - 1] : nullptr;
+}
+
+void Launcher::stop_sound() {
+    if (playback_) audio_cut_ = true;
+    playback_.reset();
+}
+
+void Launcher::update_preview(const platform::Controls& in, double now, Request request) {
+    const Preview* shown = request == Request::none ? shown_preview() : nullptr;
+    const bool in_panel = in.click && in.mouse_x >= 304 && in.mouse_x < 920 && in.mouse_y >= 160 && in.mouse_y < 530;
+    // A sound plays only while its own page is shown.
+    if (playback_ && playback_->preview != shown) stop_sound();
+    if (shown && shown->sound && in_panel) {
+        if (playback_) stop_sound();
+        else playback_ = Playback{shown, 0};
+    }
+
+    // The model view: a slow turn of its own, turned by dragging; a drag's
+    // speed carries on when released and eases back to the slow turn.
+    const double dt = model_time_ < 0 ? 0 : std::clamp(now - model_time_, 0.0, 0.1);
+    model_time_ = now;
+    if (!shown || !shown->model) {
+        model_preview_ = nullptr;
+        dragging_ = false;
+        return;
+    }
+    const double idle_spin = reduced_motion_ ? 0.0 : 0.5; // radians per second
+    if (model_preview_ != shown) {
+        model_preview_ = shown;
+        model_yaw_ = -0.6; model_pitch_ = 0.35;
+        spin_yaw_ = idle_spin; spin_pitch_ = 0;
+        dragging_ = false;
+    }
+    constexpr double radians_per_pixel = 0.012;
+    constexpr double pitch_limit = 1.45;
+    if (in_panel) {
+        dragging_ = true;
+        drag_last_ = {in.mouse_x, in.mouse_y};
+        spin_yaw_ = spin_pitch_ = 0;
+    }
+    if (dragging_ && in.mouse_held && in.ui_pointer) {
+        const double dx = (*in.ui_pointer)[0] - drag_last_[0], dy = (*in.ui_pointer)[1] - drag_last_[1];
+        drag_last_ = *in.ui_pointer;
+        model_yaw_ += dx * radians_per_pixel;
+        model_pitch_ = std::clamp(model_pitch_ + dy * radians_per_pixel, -pitch_limit, pitch_limit);
+        if (dt > 0) {
+            // The release speed: the last few frames' motion, smoothed.
+            const double keep = std::exp(-dt / 0.05);
+            spin_yaw_ = spin_yaw_ * keep + dx * radians_per_pixel / dt * (1 - keep);
+            spin_pitch_ = spin_pitch_ * keep + dy * radians_per_pixel / dt * (1 - keep);
+        }
+        return;
+    }
+    dragging_ = false;
+    const double ease = std::exp(-dt / 0.9); // inertia: about a second to settle
+    spin_yaw_ = idle_spin + (spin_yaw_ - idle_spin) * ease;
+    spin_pitch_ *= ease;
+    model_yaw_ = std::remainder(model_yaw_ + spin_yaw_ * dt, 2 * std::numbers::pi);
+    model_pitch_ = std::clamp(model_pitch_ + spin_pitch_ * dt, -pitch_limit, pitch_limit);
+}
+
+void Launcher::preview_audio(std::span<float> stereo, int rate) {
+    std::fill(stereo.begin(), stereo.end(), 0.0f);
+    if (!playback_ || !playback_->preview->sound) return;
+    const auto& sound = *playback_->preview->sound;
+    const double step = sound.rate / rate;
+    for (std::size_t i = 0; i + 1 < stereo.size(); i += 2) {
+        const auto at = std::size_t(playback_->position);
+        if (at >= sound.samples.size()) {
+            playback_.reset(); // played to its end
+            return;
+        }
+        // Nearest sample, as Paula plays them (no smoothing between samples).
+        stereo[i] = stereo[i + 1] = sound.samples[at] * 0.6f;
+        playback_->position += step;
+    }
 }
 
 Image Launcher::draw(double now) const {
