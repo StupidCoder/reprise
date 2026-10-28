@@ -207,6 +207,11 @@ struct FlightWorld {
     Islands islands;
     Enemies enemies;
     bool night{};                    // -$5C6E: a night mission ($1011FC)
+    // Cheats (not the original game): a lost plane uses no spare (and the
+    // last one's wreck shows no THE END); the enemy bombers' torpedoes are
+    // duds, gone without a blast where they reach the carrier (or land).
+    bool infinite_lives{};
+    bool enemy_duds{};
     int rank{};                      // -$5C40
     int mission{1};                  // -$5C3E
     bool mission_accomplished{};     // -$5C42: back below deck, the debriefing

@@ -254,7 +254,7 @@ private:
     // the carrier is lost.
     void plane_lost() {
         w.blackout = 0x14;
-        --w.spare_planes;
+        if (!w.infinite_lives) --w.spare_planes;
         p.x = w.carrier_x;
         p.turn = 0;
         p.facing = -1;
@@ -281,7 +281,7 @@ private:
 
     // $10AF7C: the wreck waits 150 ticks, or a fire press after 30.
     void wreck_timer() {
-        if (w.spare_planes == 1 || w.spare_planes == 0) w.the_end = true; // ($10AF80)
+        if ((w.spare_planes == 1 || w.spare_planes == 0) && !w.infinite_lives) w.the_end = true; // ($10AF80)
         ++p.wreck_time;
         if (p.wreck_time == 0x96 || (p.wreck_time > 0x1E && (cmd & (command::fire_held | command::fire_tapped)))) {
             plane_lost();
@@ -784,6 +784,11 @@ private:
             return;
         }
         o.x = std::int32_t(std::uint32_t(o.x) + std::uint32_t(o.dx));
+        if (surface_at(o.pixel_x()) != 0 && w.enemy_duds && &o == &w.effects.enemy_torpedo) {
+            o.kind = Kind::none; // (the cheat: a dud)
+            o.frame = 0;
+            return;
+        }
         if (surface_at(o.pixel_x()) != 0) {
             // What it hits ($1046DC); the blast keeps the water's frames.
             island_hit(p, w, t, o.pixel_x(), o.weapon, true);

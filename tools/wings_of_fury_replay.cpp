@@ -19,7 +19,8 @@
 //   wings_of_fury_replay play <content> <script> <out dir> <tick,tick,...>
 //       drives the game module (game/module) with the script as joystick
 //       input (stick bits per tick, four vertical blanks each) and saves the
-//       picture at the listed ticks as PNG.
+//       picture at the listed ticks as PNG. WOF_OPTIONS="1=1,..." sets
+//       options first (1-5: the cheats).
 
 #include "platform/files.hpp"
 #include "platform/host.hpp"
@@ -1437,6 +1438,8 @@ int simulate(const std::string& content, const std::string& map_name, const std:
     w.islands = wings::game::find_islands(*map);
     load_world(rec, 0, w);
     if (rec.has_islands()) load_islands(rec, 0, w); // (and the ships' guns)
+    if (const char* duds = std::getenv("WOF_DUDS")) w.enemy_duds = *duds != 0; // (the cheats)
+    if (const char* lives = std::getenv("WOF_LIVES")) w.infinite_lives = *lives != 0;
     const auto commands = parse_script(script);
     for (std::size_t k = 0; k < commands.size(); ++k) {
         // One drawn frame per tick, as the module draws.
@@ -1459,9 +1462,9 @@ int simulate(const std::string& content, const std::string& map_name, const std:
                 for (const auto& g : s.guns) guns_down += g.destroyed ? 1 : 0;
             }
             std::printf("%4zu cmd %02x mode %d alt %4d x %6d facing %2d speed %4d climb %5d turn %2d fuel %3d score %ld soldiers %d "
-                        "weapon %d/%d ship guns down %d%s%s\n", k,
+                        "weapon %d/%d ship guns down %d carrier %d spare %d%s%s\n", k,
                         commands[k], p.mode, p.altitude, p.x, p.facing, p.speed, p.climb, p.turn, p.fuel, w.score,
-                        w.islands.targets.empty() ? 0 : w.islands.targets[0].soldiers, w.weapon, w.weapon_load, guns_down,
+                        w.islands.targets.empty() ? 0 : w.islands.targets[0].soldiers, w.weapon, w.weapon_load, guns_down, w.ships[4].ready, w.spare_planes,
                         p.shape.c_str(), p.eighth_scale ? " 1/8" : "");
         }
     }
@@ -1474,6 +1477,14 @@ int play(const std::string& content, const std::string& script, const std::strin
     std::istringstream items(tick_list);
     for (std::string item; std::getline(items, item, ',');) wanted.insert(std::stoi(item));
     auto module = wings::game::start(platform::utf8_path(content));
+    // WOF_OPTIONS="index=value,...": the pause menu's options (e.g. the cheats).
+    if (const char* list = std::getenv("WOF_OPTIONS")) {
+        std::istringstream options(list);
+        for (std::string item; std::getline(options, item, ',');) {
+            const auto eq = item.find('=');
+            if (eq != std::string::npos) module->set_option(std::size_t(std::stoi(item.substr(0, eq))), std::stoi(item.substr(eq + 1)));
+        }
+    }
     const auto commands = parse_script(script);
     std::filesystem::create_directories(platform::utf8_path(out));
     // WOF_WAV=file: the sound as a 16-bit stereo WAV at 44,100 Hz.

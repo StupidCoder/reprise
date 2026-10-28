@@ -861,10 +861,18 @@ and songs `wofsongs` (both with their symbols), IFF pictures, "Rpck"-packed
    night: destroyer and battleship sunk, a gun knocked out, the mission
    accomplished; e, g, h, i flights; 38 in all), the night dashboard exact,
    the night view's colours sampled from the original's screen.
-16. Next: maps k-o (k: battleship and airfield; l: two airfields; m/o: the
+16. **Done 2026-10-28: cheats.** Infinite lives, infinite fuel, bullet proof and infinite
+   ammo (the last two the original's debug mode switches −$408C and load
+   $FF; debug mode = typing `colin`, its keys listed in game.md), enemy
+   duds (the bombers' torpedoes); bomb release while turning checked
+   against the original (recAM: the same as the port, none while upside
+   down).
+17. Next: maps k-o (k: battleship and airfield; l: two airfields; m/o: the
    Japanese carrier with its deck roll), RETURN FROM R&R and saving
    (`$108B96`, keys `g`/`l`), the other in-game keys (`s` sound, `f`,
-   pause).
+   pause), the rest of the debug mode (`colin`: repair, spare plane,
+weapon cycling, lift-off speed and weapon gravity tuning, memory and
+island info; Ctrl-v version, Ctrl-c deletes the high scores).
 
 Open: the elevator's tie to the draw rate (the port draws once per tick;
 effects, crew and flags step per drawn frame too), shape-mirroring first

@@ -162,11 +162,16 @@ public:
             a.shown_parked = a.parked;
             a.shown_takeoff = a.takeoff_x;
         }
+        apply_cheats();
+        const int fuel_before = plane_.fuel;
         flight_tick(plane_, world_, tables_, command);
         // What drawing the frame steps: the effects, the tower flag, the
         // deck crew and the islands' flags.
         world_.effects.advance();
         islands_frame(plane_, world_, tables_, specials_shown(*world_.map, backdrop_state()).wrecked_huts);
+        // (The infinite fuel cheat: nothing lowers it, neither burning nor
+        // hits; a new plane's full tank still comes.)
+        if (cheats_.infinite_fuel && plane_.fuel < fuel_before) plane_.fuel = fuel_before;
         animate_specials();
         // $10030C: a hit flashes the background colour on every second frame.
         flash_ = 0;
@@ -278,10 +283,26 @@ public:
 
     std::vector<app::GameOption> options() const override {
         return {{"VHS look", {"Off", "Light", "Medium", "Heavy", "Broken"}, vhs_,
-                 "A worn video tape's colour bleed and noise."}};
+                 "A worn video tape's colour bleed and noise."},
+                {"Infinite lives", {"Off", "On"}, cheats_.infinite_lives ? 1 : 0,
+                 "A lost plane uses no spare: the game never ends for want of planes.", "Cheats"},
+                {"Infinite fuel", {"Off", "On"}, cheats_.infinite_fuel ? 1 : 0,
+                 "The tank never empties: flying, flak and fighters' hits burn no fuel.", "Cheats"},
+                {"Bullet proof", {"Off", "On"}, cheats_.bullet_proof ? 1 : 0,
+                 "Enemy fighters' guns and anti-aircraft fire do no harm: the game's own debugging switch.",
+                 "Cheats"},
+                {"Infinite ammo", {"Off", "On"}, cheats_.infinite_ammo ? 1 : 0,
+                 "Rockets, bombs and torpedoes never run out: the game's own debugging key.", "Cheats"},
+                {"Enemy duds", {"Off", "On"}, cheats_.enemy_duds ? 1 : 0,
+                 "The enemy bombers' torpedoes are duds and leave the carrier unharmed.", "Cheats"}};
     }
     void set_option(std::size_t index, int value) override {
         if (index == 0) vhs_ = std::clamp(value, 0, ui::vhs_levels - 1);
+        if (index == 1) cheats_.infinite_lives = value != 0;
+        if (index == 2) cheats_.infinite_fuel = value != 0;
+        if (index == 3) cheats_.bullet_proof = value != 0;
+        if (index == 4) cheats_.infinite_ammo = value != 0;
+        if (index == 5) cheats_.enemy_duds = value != 0;
     }
 
 private:
@@ -489,6 +510,22 @@ private:
             if (library.name == "hellcat.shp") return library.library.find(name);
         }
         return nullptr;
+    }
+
+    // The cheats, as the options stand, on the world before each tick (a new
+    // mission or a quick load starts from a fresh world). Bullet proof is the
+    // switch -$408C, infinite ammo the load $FF: both what the original's
+    // debug mode keys ($10D184, $10D08A) set; infinite lives and the duds
+    // are not the original's. (Infinite fuel is kept after the tick.)
+    void apply_cheats() {
+        world_.enemies.invulnerable = cheats_.bullet_proof;
+        world_.infinite_lives = cheats_.infinite_lives;
+        world_.enemy_duds = cheats_.enemy_duds;
+        const bool infinite = world_.weapon_load == 0xFF;
+        if (cheats_.infinite_ammo != infinite) {
+            world_.weapon_load = cheats_.infinite_ammo ? 0xFF : tables_.weapon_loads[std::size_t(world_.weapon)];
+            world_.gauges.set_load(world_.weapon_load); // ($10EDBC)
+        }
     }
 
     // $10C9E0: fire pressed and released within 10 blanks is a tap; held
@@ -711,6 +748,9 @@ private:
     bool quit_ = false, r_was_ = false;
     int playing_song_ = -1;   // the song the front end plays (for quick load)
     int vhs_ = 0;
+    struct Cheats {
+        bool infinite_lives{}, infinite_fuel{}, bullet_proof{}, infinite_ammo{}, enemy_duds{};
+    } cheats_;
     struct Snapshot {
         FlightWorld world;
         PlayerFlight plane;
