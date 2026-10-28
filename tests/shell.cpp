@@ -440,7 +440,7 @@ int main(int argc, char** argv) {
         shell.select(0); shell.update(left, 1); shell.update(down, 1); shell.update(down, 1);
         shell.update(right, 1); check(shell.selected() == 4, "Keyboard filter must select first Amiga entry");
         shell.update(left, 1); shell.update(down, 1); shell.update(right, 1);
-        check(shell.selected() == 6, "Planned filter must select Rock 'n Roll (the first planned game)");
+        check(shell.selected() == 7, "Planned filter must select Tower of Babel (the first planned game)");
         check(shell.update(enter, 1) == Request::none, "Planned game must not start or import");
         shell.draw(2); shell.update(back, 1);
         shell.update(click(40, 125), 1); // All games

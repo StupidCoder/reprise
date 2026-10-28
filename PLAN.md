@@ -66,7 +66,7 @@ clicks during scrolling, and the asset backdrop.
 | Marble Madness | Amiga | `Marble_Madness.adf` (MD5 `735dc697d64b3eeaa000778eb0b1153a`) | disk import (both encrypted programs decrypted, checked against the original's memory); asset previews; all six courses complete in play (physics, covers, creatures, special regions, music and effects; each compared with the original update for update from start to goal); front end for one player (options, introductions, bonus, game over, the end) |
 | Wizball | C64 | `Wizball.g64` (MD5 `73e1a136da4b6972d39f00817b86983e`) | disk import, asset decoding with launcher previews; play rebuilt and checked in lockstep (places, enemies, catellite, tunnels, lives, bonus wave, Wizlab, level flight, round end, sound and music); front end, high scores and keys rebuilt |
 | Cannon Fodder | Amiga | three ADFs, `Cannon Fodder (1993)(Virgin)(Disk N of 3)[cr CSL].adf` (SHA-256 `2b01cbc9…`, `9089815b…`, `87ea9c1d…`; a cracked copy) | import of all three disks (Sensible disk format, RNC unpacking) and decoded screens, sprite sheets, tile sets, colours and the 72 mission maps with launcher viewer; map view, camera, tile drawer, mission set-up, object drawing, panel, squad walking, shooting, deaths, enemy soldiers, grenades, rockets, huts, civilians, mission objectives, music and sound effects rebuilt and checked against the original; the whole game plays in the shell (mouse): all 72 phases with vehicles, the campaign and the front end (all screens rebuilt from the program); persistent quick saves, widescreen, smooth motion, Control/Option/Command as the right button |
-| Rock 'n Roll | Amiga | — | planned |
+| Rock 'n Roll | Amiga | `Rock'n Roll (1989)(Rainbow Arts)[cr PNA].adf` (SHA-256 `1d89a8e7…228615e60`, a one-disk cracked copy) | disk import (program and all files unpacked and checked) and decoded data with launcher viewer: 33 level maps drawn from their worlds' tiles (checked against the original's drawn view), seven worlds' graphics banks and palettes, title and ending pictures; not playable yet |
 | Wings of Fury | Amiga | `Wings_of_Fury_v1.0_1990_Broderbund_cr_Hysteria.adf` (SHA-256 `638d9a9d…4620044`, a cracked copy) | disk import and decoded assets with launcher viewer (pictures, all 12 shape libraries, palettes, sounds, texts); the whole game playable and checked against the original: front end, all fifteen missions (islands, airfields, all four enemy ships, night), the promotion fireworks, game over and hall of fame, music, saved games (R&R), the original's keys and debug mode; cheats, widescreen, smooth motion and VHS look |
 | Tower of Babel | Amiga | — | planned; original interpretive shell cover added, importer and gameplay not implemented |
 
@@ -1203,6 +1203,46 @@ recorded. Sound: release and
 slide not met in a recording, speed modes other than 1, the engine sound
 (`$A3B60`), other kinds' sounds, the music control (see sound.md), the
 channel model against FS-UAE's audio.
+
+## Rock 'n Roll (Amiga) milestones
+
+Notes: `.analysis/rock_n_roll_amiga/` (`disk.md` disk, cruncher, boot,
+loader, load table; `formats.md` program tables, levels, tiles, graphics
+bank, view drawer). No outside material on this game was used.
+
+The program (`Main`, crunched, unpacks to $1A578) takes over the machine;
+the crack's loader at $A000 reads numbered files (crunched with the same
+format). Hand-written 68000, no OS.
+
+Design notes for later (owner, 2026-10-28): the game is meant to get a
+widescreen mode and smooth motion up to 120 Hz. So the view is modelled as a
+camera in map pixels that draws any width of map, and game state is kept
+apart from drawing so pictures can be interpolated between logic ticks. The
+original's 16-column window and its right-edge run into the next row stay a
+rule of the original-width view.
+
+1. **Done 2026-10-28: import and assets.** `src/rock_n_roll_amiga`
+   (namespace `rocknroll`): cruncher, importer (release by the unpacked
+   program's SHA-256, every file by its unpacked SHA-256, installed by game
+   file number, plus `main`), decoders for levels, worlds (ILBM + graphics
+   bank incl. the program's graphics), pictures; launcher previews;
+   `rock_n_roll_assets import|export`. Checked: C++ import equals the Python
+   research extraction (program + 63 files); level 1's start view equals the
+   original's drawn buffer except the ball (157 of 28,928 pixels).
+   Reference machine on port 6864 (`harness/run.sh`, `rnr.py boot`), up to
+   level 1.
+2. Next: top-level structure (title, name entry, level loop, frame/tick
+   timing), level header (start position, objects), ball physics and input
+   (mouse), then objects, panel, TFMX player, front end.
+
+Open items:
+- Level header fields +$000..+$3E7 (object lists, settings).
+- File 31 (12,288 bytes into display buffer 1), file 30 (title's extra
+  file) and the 6,144-byte world companions' use.
+- World 3 names $3C as both songs and samples.
+- Level 28's map runs past its file (stale memory behind it); check what the
+  view shows there.
+- Graphics bank extent below row 615 observed, not read from a routine.
 
 ## Launcher visual exploration (2026-10-26)
 
