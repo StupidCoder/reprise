@@ -35,9 +35,9 @@ void tick_route_windows(World& world);
 // (one in a vehicle only when no other follows); none: no squad selected.
 void choose_leader(World& world);
 
-// $949F0: an enemy soldier comes out of `from` (a hut); false when ten
-// are out already, the mission is won, or no slot is free.
-bool spawn_enemy(World& world, int from);
+// $949F0: an enemy soldier comes out of `from` (a hut); his slot, or -1
+// when ten are out already, the mission is won, or no slot is free.
+int spawn_enemy(World& world, int from);
 
 // $9E150: the next enemy's skill, bouncing between the phase's minimum and
 // a maximum that grows with every 16 enemies sent out.

@@ -15,6 +15,7 @@
 #include "cannon_fodder_amiga/game/tables.hpp"
 #include "cannon_fodder_amiga/game/walking.hpp"
 #include "cannon_fodder_amiga/sound/board.hpp"
+#include "cannon_fodder_amiga/sound/music_director.hpp"
 #include "cannon_fodder_amiga/sound/rjp1.hpp"
 #include <algorithm>
 #include <map>
@@ -50,10 +51,10 @@ struct Phase {
 
 class Module : public app::GameModule {
 public:
-    explicit Module(const std::filesystem::path& folder)
+    Module(const std::filesystem::path& folder, int first_phase)
         : content_(folder), program_(content_.read("fodderc", 1)), tables_(program_), frames_(program_),
           panel_art_(program_, amiga::read_ilbm(content_.read("pstuff.lbm", 1))) {
-        start_phase(0);
+        start_phase(first_phase);
     }
 
     std::string kinds() const {
@@ -69,7 +70,10 @@ public:
                std::to_string(won_) + ", lost " + std::to_string(lost_) + ", recruits on the map " + std::to_string(recruits) +
                ", enemies " + std::to_string(world_.objects.enemies) + ", killed " + std::to_string(world_.enemies_killed) +
                ", casualties " + std::to_string(world_.casualties) + ", unhandled updates " + std::to_string(unhandled_) +
-               kinds();
+               kinds() + ", music points " + std::to_string(director_.points().size()) + ", song " +
+               std::to_string(jon_playing_ ? -1 : director_.song()) + ", volumes " +
+               (music_ ? std::to_string(music_->channel_volume(0)) + "/" + std::to_string(music_->channel_volume(1)) : "-") +
+               ", pointer " + std::to_string(pointer_image_);
     }
 
     double step_seconds() const override { return 1.0 / 50.0; } // a PAL frame
@@ -96,6 +100,13 @@ private:
     void frame(const app::GameInput& input);
     void game_tick();
     void set_up_squad();
+    void end_music();
+    void start_jon(int song);
+    void draw_pointer(platform::Image& image) const;
+    void set_pointer(int image, int offset) {
+        pointer_image_ = image;
+        pointer_offset_ = offset;
+    }
 
     data::Content content_;
     std::vector<std::uint8_t> program_;
@@ -107,12 +118,17 @@ private:
     CameraMotion motion_;
     Point target_{};
     std::optional<sound::Rjp1> music_;
+    sound::MusicDirector director_;
+    bool jon_playing_{};   // $A3C5C: the end songs (jon.sng) replaced the landscape's
+    int end_song_delay_{}; // $A3C5A: ticks until the lost phase's song
     mutable amiga::PaulaChannels paula_;
     sound::SoundBoard board_;
     int frames_since_tick_{};
     bool snapshot_tick_{}; // $80612
     bool left_was_down_{}, right_was_down_{};
     int outcome_ticks_{}; // ticks since the mission was won or lost
+    int pointer_image_{0x23}; // $81E16: the pstuff piece the pointer shows
+    int pointer_offset_{};    // $81E12/$81E14: its offset (both the same)
     int phases_played_{}, won_{}, lost_{}, unhandled_{};
     std::map<std::string, int> unhandled_kinds_; // kind/state: count (tools)
     std::string stopped_;
@@ -162,15 +178,46 @@ void Module::start_phase(int number) {
     world_.snapshot = world_.camera;
     target_ = {start.x + 144, start.y + 112};
 
-    // The landscape's song ($A39A4 starts song 2; the recorded missions
-    // played it with all channel volumes at 64).
+    // The landscape's music ($A39A4): song 2 with all channel volumes 0;
+    // the director fades the first two channels in from there ($87774).
     music_.emplace(content_.read(base + ".sng", disk), content_.read(base + ".ins", disk), program_);
     paula_ = amiga::PaulaChannels{};
     paula_.set_memory(music_->samples());
     music_->start_song(2);
+    for (int c = 0; c < 4; ++c) music_->set_channel_volume_raw(c, 0);
+    director_.start_phase(phase_.map);
+    jon_playing_ = false;
+    end_song_delay_ = 0;
     board_ = sound::SoundBoard{};
     outcome_ticks_ = 0;
     frames_since_tick_ = 0;
+}
+
+void Module::end_music() {
+    // $8CC72 on the first tick of the end: a won phase plays jon's song 6
+    // (mission complete, $9480A) or 12 (phase complete, $9483A) at once; a
+    // lost one song 15 ten ticks later (recruits left; with none left, game
+    // over, song 8: the recruit pool is not rebuilt yet).
+    if (world_.outcome != World::Outcome::playing && outcome_ticks_ == 0) {
+        if (world_.outcome == World::Outcome::won) {
+            start_jon(tables_.mission.last_of_mission(phase_.number) ? 6 : 12);
+        } else {
+            end_song_delay_ = 10;
+        }
+    }
+    // $863F0, once a tick.
+    if (end_song_delay_ > 0 && --end_song_delay_ == 0) start_jon(15);
+}
+
+void Module::start_jon(int song) {
+    // $A3C60 + $A3CEC: jon.sng/jon.ins from disk 1, the song, all channels
+    // at volume 64.
+    music_.emplace(content_.read("jon.sng", 1), content_.read("jon.ins", 1), program_);
+    paula_ = amiga::PaulaChannels{};
+    paula_.set_memory(music_->samples());
+    music_->start_song(song);
+    for (int c = 0; c < 4; ++c) music_->set_channel_volume_raw(c, 0x40);
+    jon_playing_ = true;
 }
 
 void Module::set_up_squad() {
@@ -224,6 +271,7 @@ void Module::frame(const app::GameInput& input) {
         world_.pointer_y = std::clamp(input.pointer_y + 4, 4, 0xe3);
     }
     const bool over_map = input.pointer && input.pointer_x >= panel_width;
+    if (world_.pointer_x < 0x20) set_pointer(0x23, 0); // $9EC80: over the panel, the arrow
     const bool left_press = input.mouse_button && !left_was_down_;
     const bool right_press = input.mouse_right && !right_was_down_;
     left_was_down_ = input.mouse_button;
@@ -233,13 +281,24 @@ void Module::frame(const app::GameInput& input) {
         if (input.mouse_button && input.mouse_right && (left_press || right_press)) world_.both_buttons = true;
         if (!input.mouse_right) world_.both_buttons = false;
         if (input.mouse_right && world_.leader_slot >= 0) {
+            if (over_map) set_pointer(0x24, -8); // $9EAD2: the cross-hair, centred
             hold_fire(world_, tables_.fire, right_press); // $9F454, every frame while held
+        } else if (left_press && !over_map && input.pointer && !input.mouse_right) {
+            // The panel's weapon icons ($886AE / $8879A, regions in $821E0):
+            // the selected squad's both-button weapon.
+            const int x = input.pointer_x, y = input.pointer_y;
+            if (world_.selected_squad >= 0 && y >= 0x0e && y <= 0x0e + 0x14) {
+                auto& squad = world_.squads[std::size_t(world_.selected_squad)];
+                if (x <= 0x0c) squad.weapon = 1;
+                else if (x >= 0x24 && x <= 0x24 + 0x0c) squad.weapon = 3;
+            }
         } else if (left_press && over_map && !input.mouse_right) {
             // $9EB36: the walk order at the pointer.
             const int x = std::max(world_.camera.x + world_.pointer_x - 22, 0);
             const int y = std::max(world_.camera.y + world_.pointer_y - 3, 3);
             target_ = {x, y};
             order_walk(world_, x, y);
+            set_pointer(0x23, 0); // $9EB22: back to the arrow
         }
     }
     // The camera: the look-ahead from the leader towards the pointer
@@ -263,7 +322,13 @@ void Module::frame(const app::GameInput& input) {
     cf.target = target_;
     step_camera(motion_, tables_.geometry, cf);
     world_.camera = motion_.camera();
-    if (music_) music_->frame(paula_);
+    if (music_) {
+        music_->frame(paula_);
+        // $878A2 every fourth frame while the mission runs.
+        if (!jon_playing_ && world_.outcome == World::Outcome::playing && (world_.frame_counter & 3) == 0) {
+            director_.fade(*music_, false); // (no vehicles yet: the engine sound, $829F6, is never on)
+        }
+    }
     ++world_.frame_counter;
 }
 
@@ -300,6 +365,12 @@ void Module::game_tick() {
         phase_.picture->set_tile(changed % width, changed / width, phase_.terrain->cell(changed), phase_.base_tiles,
                                  phase_.sub_tiles);
     }
+    if (music_ && !jon_playing_ && w.outcome == World::Outcome::playing && w.leader_slot >= 0) {
+        // $87774: the song for the leader's tile.
+        const auto& l = w.objects.slots[std::size_t(w.leader_slot)];
+        director_.choose(whole(l.x) >> 4, whole(l.y) >> 4, tables_.geometry, *music_, false);
+    }
+    end_music();
     if (music_) board_.play_all(w, tables_.geometry, *music_);
     w.sounds.clear();
     board_.tick();
@@ -357,13 +428,32 @@ platform::Image Module::picture() const {
             if (c != 0) image.put(x - 1, y, data::to_color(pstuff.palette[c])); // sprites start one pixel left
         }
     }
+    draw_pointer(image);
     return image;
+}
+
+void Module::draw_pointer(platform::Image& image) const {
+    // $895BC: the piece's first 16 columns on the attached sprites 0/1 in
+    // pstuff's colours (0 transparent), at column pointer x + offset + 15,
+    // line pointer y + offset - 4: with offset 0 its top-left corner sits
+    // at the mouse position.
+    const auto piece = panel_art_.piece(pointer_image_);
+    const auto& pstuff = panel_art_.pstuff();
+    const int left = world_.pointer_x + 16 + pointer_offset_, top = world_.pointer_y - 4 + pointer_offset_;
+    for (int y = 0; y < piece.lines; ++y) {
+        for (int x = 0; x < std::min(piece.width, 16); ++x) {
+            const int px = piece.x + x, py = piece.y + y;
+            if (px >= pstuff.width || py >= pstuff.height) continue;
+            const auto c = pstuff.pixels[std::size_t(py * pstuff.width + px)];
+            if (c != 0) image.put(left + x, top + y, data::to_color(pstuff.palette[c]));
+        }
+    }
 }
 
 } // namespace
 
-std::unique_ptr<app::GameModule> start_game(const std::filesystem::path& content) {
-    return std::make_unique<Module>(content);
+std::unique_ptr<app::GameModule> start_game(const std::filesystem::path& content, int first_phase) {
+    return std::make_unique<Module>(content, first_phase);
 }
 
 std::string describe(const app::GameModule& game) {

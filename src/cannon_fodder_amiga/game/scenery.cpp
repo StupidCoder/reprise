@@ -56,18 +56,23 @@ void become_tile_explosion(World& world, int slot) {
 
 } // namespace
 
-void update_hut(World& world, const Terrain& terrain, const ProgramTables& tables, int slot) { // $96ED6
+// The two huts: $14 ($96ED6, graphic $99, thrown at 120 towards $1C0) and
+// $19 ($970AC, graphic $9B, thrown at 110, towards $1C0 only in the ice;
+// its soldiers come out 4 higher, and a failed sending ends its count).
+void update_hut(World& world, const Terrain& terrain, const ProgramTables& tables, int slot) {
     auto& o = world.objects.slots[std::size_t(slot)];
     auto& w = world.walkers[std::size_t(slot)];
-    if (w.state == 7 || w.state == 5) { // $96F86: hit by a blast, it is thrown up
+    const bool second = o.kind == 0x19;
+    const int open = second ? 0x9b : 0x99;
+    if (w.state == 7 || w.state == 5) { // $96F86 / $97158: hit by a blast, it is thrown up
         w.state = 6;
-        o.graphic = 0x99;
+        o.graphic = open;
         const auto r = world.random();
         int turn = int(r & 0x1e);
         if (r & 0x8000) turn = -turn;
-        w.heading = 0x1c0 + turn;
+        w.heading = (!second || world.landscape == 2 ? 0x1c0 : 0) + turn;
         w.wait = int(r & 3) + 5;
-        w.speed = 120;
+        w.speed = second ? 0x6e : 120;
     }
     if (w.state == 6) {
         if (--w.wait != 0) {
@@ -84,34 +89,117 @@ void update_hut(World& world, const Terrain& terrain, const ProgramTables& table
         return;
     }
     if (world.objects.enemies >= 10) { // the door stays open
-        o.graphic = 0x99;
+        o.graphic = open;
         return;
     }
     o.layer = -1;
+    const auto send = [&] {
+        const int enemy = spawn_enemy(world, slot);
+        if (second) {
+            if (enemy >= 0) {
+                auto& e = world.objects.slots[std::size_t(enemy)];
+                set_whole(e.y, whole(e.y) - 4);
+            } else {
+                w.state_timer = 0;
+                w.idle = 0xff;
+            }
+        }
+        return enemy;
+    };
     // The door: shut while a count runs down (enemies come out at 20 and
     // 10), then open for a while (shorter for higher skills), then the last
     // one comes out and the door shuts.
     if (std::int8_t(w.idle) >= 0) {
         w.idle = (w.idle - 1) & 0xff;
         if (w.idle == 20 || w.idle == 10) {
-            spawn_enemy(world, slot);
+            send();
             return;
         }
         if (std::int8_t(w.idle) >= 0) {
             o.graphic = 0x7c;
             return;
         }
-        o.graphic = 0x99;
+        o.graphic = open;
         request_sound(world, 0x10, 1, slot);
         w.state_timer = std::max(20 - world.skill_max, 0) * 8 + int(world.random() & 0xf);
     }
     if (--w.state_timer >= 0) return;
     w.idle = int(world.random() & 0xf) + 6;
     o.graphic = 0x7c;
-    if (!spawn_enemy(world, slot)) {
+    if (send() < 0 && !second) {
         w.state_timer = -1;
         w.idle = 0xff;
     }
+}
+
+// $97018: a hidden spawn point (a trench or the like): while buildings are
+// left, enemies rise out of it (12 lines hidden), two at a time.
+void update_spawn_point(World& world, int slot) {
+    auto& w = world.walkers[std::size_t(slot)];
+    if (world.buildings_left == 0) return;
+    if (w.fall_count != 0) { // $2A: send one now
+        const int enemy = spawn_enemy(world, slot);
+        if (enemy >= 0) {
+            auto& e = world.objects.slots[std::size_t(enemy)];
+            set_whole(e.x, whole(e.x) + 6);
+            set_whole(e.y, whole(e.y) - 5);
+            e.hidden_lines = 12;
+        }
+        w.fall_count = 0;
+        return;
+    }
+    world.objects.slots[std::size_t(slot)].layer = -1;
+    if (std::int8_t(w.idle) >= 0) {
+        w.idle = (w.idle - 1) & 0xff;
+        if (w.idle == 20 || w.idle == 10 || std::int8_t(w.idle) < 0) {
+            w.fall_count = -1;
+            world.objects.slots[std::size_t(slot)].frame = 0;
+            w.state_timer = int(world.random() & 0xff) + 10;
+        }
+        return;
+    }
+    if (--w.state_timer >= 0) return;
+    w.idle = int(world.random() & 0xf) + 6;
+    w.fall_count = 0;
+}
+
+// $9B35C: a trap. The leader stepping within 4 of it is caught (held at it,
+// state 9: he writhes and dies); it shuts over two ticks either way at 5.
+void update_trap(World& world, const ProgramTables& tables, int slot) {
+    auto& o = world.objects.slots[std::size_t(slot)];
+    o.graphic = 0xc9;
+    if (o.frame == 0) {
+        const int leader = world.leader_slot;
+        if (leader < 0) return;
+        auto& l = world.objects.slots[std::size_t(leader)];
+        auto& lw = world.walkers[std::size_t(leader)];
+        if (lw.carried != 0 || lw.state != 0) return;
+        const int dx = std::abs(whole(l.x) + 2 - whole(o.x)), dy = std::abs(whole(l.y) + 2 - whole(o.y));
+        const int distance = dx >= 32 || dy >= 32 ? 1000 : tables.geometry.distance(dx, dy);
+        if (distance >= 6) return;
+        if (distance != 5) {
+            set_whole(l.x, whole(o.x) - 3);
+            set_whole(l.y, whole(o.y) + 1);
+            lw.state = 9;
+            lw.hit_timer = 0xff;
+            l.height = 7;
+        }
+    }
+    if (o.frame < 2) ++o.frame;
+}
+
+// $9A5F2: a house with smoke from its chimney (the next slot).
+void update_house(World& world, int slot) {
+    auto& o = world.objects.slots[std::size_t(slot)];
+    o.graphic = 0xcd;
+    o.frame = (o.frame + 1) & 3;
+    if (slot + 1 >= object_slots) return;
+    auto& smoke = world.objects.slots[std::size_t(slot + 1)];
+    auto& sw = world.walkers[std::size_t(slot + 1)];
+    smoke.graphic = 0xce;
+    sw.fall_count = (sw.fall_count + 1) & 1;
+    if (sw.fall_count == 0 && ++smoke.frame >= 6) smoke.frame = 0;
+    smoke.height = 16;
 }
 
 void update_crate(World& world, const ProgramTables& tables, int slot) { // $9B3B0 / $9B3FC

@@ -36,6 +36,10 @@ public:
     };
     // $A22CE: the point (x + dx, y + dy).
     Probe probe(int x, int y, int dx, int dy) const;
+    // $A22C8: the probe's second entry, given the tile row's coordinate in
+    // `row` and the column's in `column` (no check for negatives; the
+    // two-kind mask is read with them the other way round).
+    int probe_raw(int row, int column) const;
     // $A1260: whether the tiles between two points block the view (whole
     // tiles of a blocking kind; the first two steps and every other step
     // after them are not looked at, as in the original).
@@ -43,6 +47,10 @@ public:
     int width() const { return width_; }
     int height() const { return height_; }
     int width_tiles() const { return map_width_tiles_; }
+    int height_tiles() const { return map_width_tiles_ ? int(cells_.size()) / map_width_tiles_ : 0; }
+    // The tile's attribute word at a point (bit 15: two kinds, split by the
+    // .bht mask: bits 0-3 and 4-7).
+    int tile_attribute(int x, int y) const;
 
     // The map can change: blasts swap tiles for their damaged forms (the
     // tile sets' .swp files, a word per tile, $FFFF none).
@@ -70,5 +78,9 @@ bool update_soldier(World& world, const Terrain& terrain, const ProgramTables& t
 // recruits in range and in sight, closes in and fires; without a target it
 // stands and looks around. Same return as update_soldier.
 bool update_enemy(World& world, const Terrain& terrain, const ProgramTables& tables, int slot);
+// $9B48E (kind $24): a kneeling soldier with a rocket launcher.
+bool update_bazooka(World& world, const Terrain& terrain, const ProgramTables& tables, int slot);
+// $9A2A6 (kind $3D): a civilian walking about.
+bool update_civilian(World& world, const Terrain& terrain, const ProgramTables& tables, int slot);
 
 } // namespace fodder::game

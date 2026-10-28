@@ -10,7 +10,10 @@
 // that wander in tall grass.
 namespace fodder::game {
 
-void update_hut(World& world, const Terrain& terrain, const ProgramTables& tables, int slot);      // $14
+void update_hut(World& world, const Terrain& terrain, const ProgramTables& tables, int slot);      // $14, $19
+void update_spawn_point(World& world, int slot);                                                  // $18
+void update_trap(World& world, const ProgramTables& tables, int slot);                            // $37
+void update_house(World& world, int slot);                                                        // $3C
 void update_crate(World& world, const ProgramTables& tables, int slot);                           // $25, $26
 void update_bush(World& world, const Terrain& terrain, const ProgramTables& tables, int slot);     // $D-$11
 void update_bush_shadow(World& world, int slot);                                                  // $23

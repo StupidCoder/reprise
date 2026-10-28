@@ -97,6 +97,20 @@ bool BlastTables::immune(int landscape, int tile) const {
 MissionTables::MissionTables(std::span<const std::uint8_t> program) : program_(program.begin(), program.end()) {
     need(program, 0xa4f70 + phases * 4);
     need(program, 0xa4d8e + phases * 4);
+    for (std::size_t i = 0; i < 16; ++i) avoid_[i] = program[file_offset(0xa22a8) + i] != 0;
+    need(program, 0xa4c1e + 2 * 24);
+    for (std::size_t i = 0; i < mission_phases_.size(); ++i) {
+        mission_phases_[i] = amiga::read_be16(program, file_offset(0xa4c1e) + 2 * i);
+    }
+}
+
+bool MissionTables::last_of_mission(int phase) const {
+    int end = 0;
+    for (const int n : mission_phases_) {
+        end += n;
+        if (phase < end) return phase == end - 1;
+    }
+    return false;
 }
 
 std::vector<int> MissionTables::objectives(int phase) const {

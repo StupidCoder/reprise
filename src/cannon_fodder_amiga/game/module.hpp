@@ -10,7 +10,7 @@
 // frame), with its view, panel and sound.
 namespace fodder::game {
 
-std::unique_ptr<app::GameModule> start_game(const std::filesystem::path& content);
+std::unique_ptr<app::GameModule> start_game(const std::filesystem::path& content, int first_phase = 0);
 // For tools: the phase, the outcome and the counts, in one line.
 std::string describe(const app::GameModule& game);
 

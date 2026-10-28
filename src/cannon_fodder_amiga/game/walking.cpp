@@ -2,6 +2,7 @@
 #include "amiga/adf.hpp"
 #include "cannon_fodder_amiga/game/combat.hpp"
 #include "cannon_fodder_amiga/game/explosives.hpp"
+#include "cannon_fodder_amiga/game/mission.hpp"
 #include <algorithm>
 #include <cstdlib>
 #include <stdexcept>
@@ -18,6 +19,8 @@ int whole(std::int32_t v) { return std::int16_t(std::uint32_t(v) >> 16); }
 void set_whole(std::int32_t& v, int w) {
     v = std::int32_t((std::uint32_t(std::uint16_t(w)) << 16) | (std::uint32_t(v) & 0xffff));
 }
+
+constexpr int bleeding_mark = 0x9876;
 
 // Per-update scratch the original keeps in globals (each update sets them
 // before use; World keeps the ones that carry over).
@@ -90,19 +93,259 @@ public:
         return true;
     }
 
+    bool update_bazooka() { // $9B48E: a soldier with a rocket launcher, kneeling
+        if (const int handled = states(); handled >= 0) return handled != 0;
+        w_.other_squad = false;
+        s_.idle = 0xff;
+        seek_target();
+        // $96230 with all weapons off: kind $24 fires rockets at a target
+        // beyond 24.
+        if (s_.fire_delay != 0) {
+            bool fire = s_.fire_delay < 0;
+            if (!fire && --s_.fire_delay == 0) {
+                s_.fire_delay = -1;
+                fire = true;
+            }
+            if (fire) use_weapons(false, false, w_.target_distance > 0x18);
+        }
+        turn_facing();
+        w_.other_squad = false;
+        w_.walked = false;
+        s_.animation_state = 3;
+        s_.aim_override = true;
+        s_.animation_step = 0;
+        o_.frame = 0;
+        look_at_aim();
+        o_.frame = 2;
+        return true;
+    }
+
+    bool update_civilian(const MissionTables& mission) { // $9A2A6
+        if (s_.state != 0) return civilian_dies();
+        o_.side = 2;
+        o_.graphic = 0xd0;
+        // ($9A380, the walk home of objective 8, is not rebuilt: no phase
+        // of the first ten has it.)
+        civilian_wander(mission);
+        s_.speed = 6;
+        // $9A506
+        save_position();
+        if (s_.wait != 0) {
+            --s_.wait;
+        } else if (!head_for(s_.waypoint_x, s_.waypoint_y)) {
+            p_.moved_back = true;
+        }
+        if (o_.kind != 0x44) { // a wobble
+            const auto r = w_.random();
+            int wobble = int(r & 0xe);
+            if (r & 0x8000) wobble = -wobble;
+            s_.heading = (s_.heading + wobble) & 0x1fe;
+        }
+        if (!snap_to_waypoint()) {
+            terrain_speed();
+            move();
+        }
+        keep_on_map();
+        react_to_terrain();
+        if (s_.terrain == 6) put_back();
+        else if (s_.terrain == 4) o_.hidden_lines = 3;
+        else if (s_.terrain == 5) o_.hidden_lines = 5;
+        // $9A5A8 / $9A5D2: a step every 4 ticks, facing the heading.
+        if (!p_.moved_back) {
+            s_.fall_count = (s_.fall_count + 1) & 3;
+            if (s_.fall_count == 0) o_.frame = (o_.frame + 1) & 1;
+        }
+        o_.frame = ((((s_.heading >> 5) - 1) ^ 0xf) & 0xe) | (o_.frame & 1);
+        return true;
+    }
+
 private:
+    // $9A4C6 / $99FE4: now and then a new place to walk to, on open ground
+    // somewhere on the map (4 tiles in from the top and left).
+    void civilian_wander(const MissionTables& mission) {
+        if (s_.stopped != 0 && --s_.stopped != 0) return;
+        if (o_.kind == 0x48 || o_.kind == 0x6a) {
+            s_.waypoint_x = whole(o_.x);
+            s_.waypoint_y = whole(o_.y);
+        } else {
+            const int tx = int(w_.random() & 0x7f) + 4;
+            if (tx >= t_.width_tiles()) return;
+            const int ty = int(w_.random() & 0x3f) + 4;
+            if (ty >= t_.height_tiles()) return;
+            const int x = tx * 16 + int(w_.random() & 0xf), y = ty * 16 + int(w_.random() & 0xf);
+            const int a = t_.tile_attribute(x, y);
+            const bool avoid = (a & 0x8000) ? (mission.civilian_avoids(a & 15) || mission.civilian_avoids((a >> 4) & 15))
+                                            : mission.civilian_avoids(a & 15);
+            if (avoid) return;
+            s_.waypoint_x = x;
+            s_.waypoint_y = y;
+        }
+        s_.stopped = int(w_.random() & 0x3f) + 20;
+    }
+
+    // $9A426: a civilian killed: the others turn hostile; on a "protect"
+    // or "get civilian home" mission it is lost.
+    bool civilian_dies() {
+        if (o_.graphic == 0xd6) {
+            if (++o_.frame >= 9) free_object(w_, slot_);
+            return true;
+        }
+        w_.civilians_angry = true;
+        if (w_.objectives[3] || w_.objectives[7]) w_.outcome = World::Outcome::lost; // ($81DD2)
+        o_.graphic = 0xd6;
+        o_.frame = 0;
+        request_sound(w_, tables_.cry(int(w_.random())), 0x14, slot_);
+        return true;
+    }
+
     // $95BB2: the states before walking: 1 handled, 0 not rebuilt yet, -1
     // the normal state (go on).
     int states() {
+        if (s_.state == 3) return drop(); // into a hole
         if (s_.state == 6) return lie(true);
         if (s_.state == 2) return lie(false);
-        if (s_.state == 3) return 0; // falling into a hole
         if (whole(o_.y) >= t_.height()) set_whole(o_.y, t_.height());
-        if (s_.squeeze != 0 || s_.entering == 1) return 0;
+        if (s_.squeeze != 0) return drop(); // over a cliff
+        if (s_.entering == 1) return drown();
         if (s_.state == 0xa) return writhe();
+        if (s_.state == 0x32) return trip(false);
+        if (s_.state == 0x33) return slide();
+        if (s_.state == 0x34) return trip(true);
+        if (s_.state == 0x5a) { // into a vehicle ($95A28; vehicles are not rebuilt yet)
+            s_.state = 0;
+            return -1;
+        }
+        if (s_.state == 0x5b) return 0;
         if (s_.state == 0) return -1;
-        if (s_.state >= 0x32) return 0; // trips and the like
         return s_.hit_timer != 0 ? start_falling() : fall();
+    }
+
+    // $960E8: a hole (state 3) swallows the soldier: deeper by a growing
+    // step until 14 lines are hidden, then he is dead. Over a cliff
+    // (terrain 9, the squeeze count) he falls faster and faster, his
+    // waypoint and route sliding down with him while the ground below is a
+    // cliff or a hole; landing within 12 ticks he walks on, later he dies.
+    int drop() {
+        if (s_.squeeze == 1) {
+            s_.state_timer = 1;
+            s_.waypoint_y += 2;
+        }
+        const int step = s_.state_timer;
+        s_.state_timer = std::int16_t(s_.state_timer + 1);
+        int ground = 0;
+        if (s_.state == 3) {
+            o_.hidden_lines += step;
+            if (o_.hidden_lines < 14) return 1;
+            o_.hidden_lines = 14;
+            s_.state_timer = 20;
+            request_sound(w_, tables_.cry(int(w_.random())), 0xa, slot_);
+        } else {
+            set_whole(o_.y, whole(o_.y) + step);
+            if (whole(o_.y) >= t_.height()) s_.state = 2;
+            p_.old_y = o_.y;
+            // (The original passes x as the row and y as the column here.)
+            const int below = t_.probe_raw(s_.waypoint_x + 8, s_.waypoint_y - 3);
+            if (below == 9 || below == 10) {
+                s_.waypoint_y += s_.state_timer;
+                const std::size_t index = std::size_t(s_.route_index / 4);
+                if (index < squad_.route.size()) squad_.route[index][1] = s_.waypoint_y;
+            }
+            ground = t_.probe(whole(o_.x), whole(o_.y), 8, -3).attribute; // (what $950C2 reads)
+            react_to_terrain();
+            if (s_.state_timer > 5) { // the falling picture
+                s_.facing = (s_.facing + p_.turn) & 0xe;
+                o_.graphic = tables_.picture(o_.side, 0x80 + s_.facing);
+                s_.facing_timer = s_.heading;
+                o_.frame = 0;
+            }
+            if (ground == 9) return 1;
+        }
+        if (s_.state_timer < 12) { // landed in time
+            s_.facing_timer = 0;
+            s_.squeeze = 0;
+            return s_.state == 0 ? -1 : 1;
+        }
+        s_.state = 6;
+        s_.heading = s_.facing_timer;
+        s_.state_timer = 0;
+        s_.pause = 1;
+        return 1;
+    }
+
+    // $95F48: deep water (terrain 11): the soldier goes under, a line every
+    // 10 ticks from 5 to 13, and is dead.
+    int drown() {
+        if (o_.hidden_lines < 5) {
+            o_.hidden_lines = 5;
+            request_sound(w_, 0xe, 0xa, slot_);
+            o_.graphic = o_.side != 0 ? 0x7a : 0x38;
+            o_.frame = 0;
+            s_.state_timer = 10;
+            return 1;
+        }
+        if (--s_.state_timer == 0) {
+            if (++o_.hidden_lines >= 13) {
+                s_.state = 6;
+                s_.heading = s_.facing_timer;
+                s_.state_timer = 0;
+                s_.pause = 1;
+                return 1;
+            }
+            s_.state_timer = 10;
+        }
+        if (!(s_.state_timer & 2) && o_.frame < 5) ++o_.frame;
+        return 1;
+    }
+
+    // $95ABA (state $32) / $959D4 ($34): a trip; not in grass or water
+    // (terrain 4-6). The soldier slides on (state $33), turned a little.
+    int trip(bool sharp) {
+        if (s_.terrain >= 4 && s_.terrain <= 6) {
+            s_.state = 0;
+            return -1;
+        }
+        s_.state = 0x33;
+        if (sharp) {
+            s_.speed = 0x2e;
+            s_.heading = s_.heading + int(w_.random() & 0x1f);
+        } else {
+            static constexpr std::array<int, 4> turns{-0x22, -0x38, 0x38, 0x22}; // $95AB2
+            s_.speed = 0x24;
+            s_.heading = (s_.heading + turns[std::size_t((w_.random() & 6) >> 1)]) & 0x1fe;
+        }
+        o_.graphic = o_.side != 0 ? 0xa7 : 0xa4;
+        o_.frame = ((((s_.heading >> 5) - 1) ^ 0xf) & 0xe) >> 1;
+        return 1;
+    }
+
+    // $95B1C: sliding, slower by 5 a tick (at once in grass or water); then
+    // he sits up (picture +$60) and gets on, and the squad's leader is chosen
+    // again.
+    int slide() {
+        save_position();
+        w_.saved_frame = o_.frame;
+        move();
+        keep_on_map();
+        react_to_terrain();
+        if (s_.state == 0x33) {
+            bool stop = s_.terrain >= 4 && s_.terrain <= 6;
+            if (!stop) {
+                s_.speed -= 5;
+                if (s_.speed > 0) return 1;
+                s_.speed = 0;
+            }
+            const int facing = (((s_.heading >> 5) - 1) ^ 0xf) & 0xe;
+            const int sitting = tables_.picture(o_.side, 0x60 + facing);
+            if (o_.graphic != sitting) {
+                o_.graphic = sitting;
+                o_.frame = 0;
+                return 1;
+            }
+            s_.state = 0;
+        }
+        s_.idle = 0;
+        choose_leader(w_);
+        return 1;
     }
 
     // $9D894: the enemy's target. It looks at one recruit a tick (in the
@@ -130,6 +373,7 @@ private:
             if (t.used && t.kind == 0 && (tw.state == 0 || tw.state >= 0x32) && t.height < 13) {
                 const int tx = whole(t.x), ty = whole(t.y);
                 distance = g_.distance(tx - whole(o_.x), ty - whole(o_.y));
+                w_.target_distance = distance;
                 if (distance <= 200) {
                     if (distance <= 40 || !t_.sight_blocked(whole(o_.x), whole(o_.y), tx, ty)) {
                         seen = true;
@@ -228,7 +472,6 @@ private:
     // fast squad); a rocket pushes him back (pause and wait).
     bool use_weapons(bool bullet, bool grenade, bool rocket) {
         if (s_.wading) return true;
-        if (o_.kind == 0x24) return false; // (other enemy kinds: not rebuilt yet)
         if (bullet) {
             s_.fire_delay = fire_bullet(w_, fire_tables_, slot_) ? 0 : -1;
             if (w_.last_mode != 2) s_.pause = 15;
@@ -256,7 +499,9 @@ private:
     // heading, spinning half of the time, and bleeds.
     bool start_falling() {
         s_.hit_timer = 0;
-        // (With $81DCA set the original marks the body to bleed on; open.)
+        // Once the mission is lost every falling body bleeds on (the mark
+        // $9876 in the route index).
+        if (w_.outcome == World::Outcome::lost) s_.route_index = bleeding_mark;
         if (!s_.shadowed) {
             cast_shadow(w_, slot_);
             s_.shadowed = true;
@@ -270,7 +515,7 @@ private:
         s_.state_timer = 2;
         request_sound(w_, tables_.cry(int(w_.random())), 0x14, slot_);
         if (s_.speed < 30) s_.speed += 15;
-        s_.fall_heading = s_.heading;
+        s_.facing_timer = s_.heading;
         s_.spin = (w_.random() & 1) == 0 ? s_.heading : -1;
         spawn_blood(w_, slot_);
         s_.waypoint_x = -1; // bleeds again on landing
@@ -285,8 +530,13 @@ private:
     // $95DA0: the body flies, bounces and comes to rest; then it lies
     // (state 6), or one time in 128 on open ground writhes (state $A).
     bool fall() {
+        if ((s_.route_index & 0xffff) == bleeding_mark) { // $95DA8: blood every tick, a cry every 8
+            ++s_.waypoint_y;
+            spawn_blood(w_, slot_);
+            if ((s_.waypoint_y & 7) == 0) request_sound(w_, tables_.cry(int(w_.random())), 0x14, slot_);
+        }
         if (s_.spin >= 0) {
-            s_.fall_heading = s_.spin;
+            s_.facing_timer = s_.spin;
             s_.spin = (s_.spin + s_.speed * 4) & 0x1fe;
             o_.graphic = lying_picture(s_.spin);
         }
@@ -345,7 +595,7 @@ private:
             return true;
         }
         s_.state = 6;
-        s_.heading = s_.fall_heading;
+        s_.heading = s_.facing_timer;
         s_.state_timer = 0;
         s_.pause = 1;
         return true;
@@ -994,10 +1244,37 @@ bool update_enemy(World& world, const Terrain& terrain, const ProgramTables& tab
     return Soldier(world, terrain, tables, slot).update_enemy();
 }
 
+bool update_bazooka(World& world, const Terrain& terrain, const ProgramTables& tables, int slot) {
+    return Soldier(world, terrain, tables, slot).update_bazooka();
+}
+
+bool update_civilian(World& world, const Terrain& terrain, const ProgramTables& tables, int slot) {
+    return Soldier(world, terrain, tables, slot).update_civilian(tables.mission);
+}
+
 void Terrain::set_swaps(std::span<const std::uint8_t> base_swp, std::span<const std::uint8_t> sub_swp) {
     swaps_.clear();
     for (std::size_t i = 0; i + 1 < base_swp.size(); i += 2) swaps_.push_back(std::int16_t(amiga::read_be16(base_swp, i)));
     for (std::size_t i = 0; i + 1 < sub_swp.size(); i += 2) swaps_.push_back(std::int16_t(amiga::read_be16(sub_swp, i)));
+}
+
+int Terrain::probe_raw(int row, int column) const { // $A22C8
+    const auto r = unsigned(std::uint16_t(row)), c = unsigned(std::uint16_t(column));
+    const auto cell = std::size_t((r >> 4) * unsigned(map_width_tiles_) + (c >> 4));
+    const int tile = cell < cells_.size() ? cells_[cell] & 0x1ff : 0;
+    int attribute = std::size_t(tile) < attributes_.size() ? attributes_[std::size_t(tile)] : 0;
+    if (attribute & 0x8000) {
+        const auto mask_row = std::size_t(tile) * 8 + ((c >> 1) & 7);
+        if (mask_row < masks_.size() && (masks_[mask_row] >> (7 - ((r >> 1) & 7)) & 1)) attribute >>= 4;
+    }
+    return attribute & 0xf;
+}
+
+int Terrain::tile_attribute(int x, int y) const {
+    const int cell = (int(unsigned(std::uint16_t(y)) >> 4)) * map_width_tiles_ + (int(unsigned(std::uint16_t(x)) >> 4));
+    if (cell < 0 || std::size_t(cell) >= cells_.size()) return 0;
+    const auto tile = std::size_t(cells_[std::size_t(cell)] & 0x1ff);
+    return tile < attributes_.size() ? attributes_[tile] : 0;
 }
 
 int Terrain::swap(int tile) const {

@@ -18,7 +18,9 @@ struct Walker {
     int heading{};        // [$10] direction of travel, sine units 0-$1FE
     int speed{};          // [$36] 16.16 step = sine/4 x speed
     int facing{};         // [$3C] 0-$E (8 facings)
-    int facing_timer{};   // [$3E]
+    int facing_timer{};   // [$3E]; also the falling body's heading (the original keeps
+                          // both in this word: a soldier who lands from a fall walks on
+                          // with that heading as his turn timer)
     int waypoint_x{}, waypoint_y{}; // [$26], [$28]
     int route_index{};    // [$40] byte offset into the squad's route (4 per waypoint)
     bool took_waypoint{}; // [$42]
@@ -57,7 +59,6 @@ struct Walker {
     std::int32_t vertical_speed{}; // [$1A] 16.16, up
     int height_fraction{}; // [$20] below GameObject::height
     int spin{-1};         // [$3A] while falling: the body's turning direction, -1 none; writhing: ticks
-    int fall_heading{};   // [$3E] while falling: the direction the body lies in
     int fall_count{};     // [$2A] ticks of the fall; writhing: ticks to the next sound
     bool shadowed{};      // [$58] the falling body has its shadow (or had)
 };
@@ -184,6 +185,8 @@ struct World {
     int spawns{};                      // $80650: every 16th raises skill_max (to 30)
     int saved_frame{};            // $817B8
     bool keep_frame{};            // $81DE4
+    int target_distance{};        // $81FD8: the last enemy's distance to its target
+    bool civilians_angry{};       // $82860: a civilian was killed
     bool other_squad{};           // $81FCE: the update is not the selected squad's (enemies: no target)
     bool walked{};                // $8213E: the enemy stepped this tick
     int last_mode{2};             // $81F64: the last soldier's squad mode, which enemies read too

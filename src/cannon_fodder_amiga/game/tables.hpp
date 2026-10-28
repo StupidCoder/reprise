@@ -82,10 +82,17 @@ public:
     explicit MissionTables(std::span<const std::uint8_t> program_file);
     std::vector<int> objectives(int phase) const;
     std::array<int, 2> skill_range(int phase) const;
+    // $A4C1E: the phases of each of the 24 missions; true for a mission's
+    // last phase ($80658 = 1 at $947EA).
+    bool last_of_mission(int phase) const;
+    // $A22A8: terrain kinds a civilian does not choose to walk to.
+    bool civilian_avoids(int attribute) const { return avoid_[std::size_t(attribute & 15)]; }
     static constexpr int phases = 72;
 
 private:
     std::vector<std::uint8_t> program_;
+    std::array<bool, 16> avoid_{};
+    std::array<int, 24> mission_phases_{};
 };
 
 struct ProgramTables {

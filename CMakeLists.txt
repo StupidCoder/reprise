@@ -250,6 +250,7 @@ add_library(cannon_fodder_amiga
     src/cannon_fodder_amiga/game/module.cpp
     src/cannon_fodder_amiga/sound/rjp1.cpp
     src/cannon_fodder_amiga/sound/board.cpp
+    src/cannon_fodder_amiga/sound/music_director.cpp
     src/cannon_fodder_amiga/import/disk_import.cpp
     src/cannon_fodder_amiga/import/rnc.cpp
     src/cannon_fodder_amiga/import/sensi_disk.cpp)

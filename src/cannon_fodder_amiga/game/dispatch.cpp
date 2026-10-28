@@ -16,7 +16,12 @@ bool update_object(World& world, Terrain& terrain, const ProgramTables& tables, 
     case 6: return update_bullet(world, terrain, tables, slot);
     case 0xc: return update_explosion(world, tables, slot);
     case 0xd: case 0xe: case 0xf: case 0x10: case 0x11: update_bush(world, terrain, tables, slot); return true;
-    case 0x14: update_hut(world, terrain, tables, slot); return true;
+    case 0x14: case 0x19: update_hut(world, terrain, tables, slot); return true;
+    case 0x18: update_spawn_point(world, slot); return true;
+    case 0x37: update_trap(world, tables, slot); return true;
+    case 0x24: return update_bazooka(world, terrain, tables, slot);
+    case 0x3d: return update_civilian(world, terrain, tables, slot);
+    case 0x3c: update_house(world, slot); return true;
     case 0x15: return update_leader_marker(world, slot);
     case 0x16: update_shadow(world, slot); return true;
     case 0x17: update_blood(world, slot); return true;

@@ -188,8 +188,8 @@ void tick_route_windows(World& world) { // $A1248
     }
 }
 
-bool spawn_enemy(World& world, int from) { // $949F0
-    if (world.outcome == World::Outcome::won || world.objects.enemies >= 10) return false;
+int spawn_enemy(World& world, int from) { // $949F0
+    if (world.outcome == World::Outcome::won || world.objects.enemies >= 10) return -1;
     int slot = -1;
     for (int i = 29; i >= 0; --i) { // $9819A: the highest free slot below 30
         const auto& o = world.objects.slots[std::size_t(i)];
@@ -198,7 +198,7 @@ bool spawn_enemy(World& world, int from) { // $949F0
             break;
         }
     }
-    if (slot < 0) return false;
+    if (slot < 0) return -1;
     const auto& hut = world.objects.slots[std::size_t(from)];
     auto& o = world.objects.slots[std::size_t(slot)];
     auto& w = world.walkers[std::size_t(slot)];
@@ -224,7 +224,7 @@ bool spawn_enemy(World& world, int from) { // $949F0
     world.spawns = (world.spawns + 1) & 0xf;
     if (world.spawns == 0 && world.skill_max < 30) ++world.skill_max;
     ++world.objects.enemies;
-    return true;
+    return slot;
 }
 
 } // namespace fodder::game

@@ -12,7 +12,7 @@
 //   cannon_fodder_assets panel <content folder> <out.png> [sprites.bin]
 //   cannon_fodder_assets replay <content folder> <map> <trace>
 //   cannon_fodder_assets music <content folder> <disk:song.sng> <disk:song.ins> <song|eN> <seconds> <out.wav>
-//   cannon_fodder_assets play <content folder> <frames> <out.png> [F0-F1:X,Y,l|r|b ...]
+//   cannon_fodder_assets play <content folder> <frames> <out.png> [phase=N] [F0-F1:X,Y,l|r|b ...]
 //   cannon_fodder_assets sndreplay <content folder> <song.sng> <song.ins> <trace> <sng address> <ins address>
 //
 // music renders a song (or with eN, effect pattern N on channel 2) through
@@ -57,6 +57,7 @@
 #include "cannon_fodder_amiga/data/preview.hpp"
 #include "cannon_fodder_amiga/game/camera.hpp"
 #include "cannon_fodder_amiga/game/combat.hpp"
+#include "cannon_fodder_amiga/game/dispatch.hpp"
 #include "cannon_fodder_amiga/game/explosives.hpp"
 #include "cannon_fodder_amiga/game/mission.hpp"
 #include "cannon_fodder_amiga/game/module.hpp"
@@ -72,6 +73,7 @@
 #include "platform/files.hpp"
 #include "platform/host.hpp"
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
 #include <exception>
@@ -154,7 +156,7 @@ int run(int argc, char** argv) {
                               content.read(base + ".bht", disk), content.read(sub + ".bht", disk), program);
         terrain.set_swaps(content.read(base + ".swp", disk), content.read(sub + ".swp", disk));
         sound::Rjp1 music(content.read(base + ".sng", disk), content.read(base + ".ins", disk), program);
-        int sound_requests = 0, bird_cries = 0, walk_orders = 0;
+        int sound_requests = 0, bird_cries = 0, walk_orders = 0, chance_shots = 0;
         const game::ProgramTables tables(program);
         const auto trace = platform::read_file(argv[4]);
         struct Range { std::uint32_t address, size, offset; };
@@ -205,7 +207,7 @@ int run(int argc, char** argv) {
                 s.recruit = roster ? W(b, roster) : 0;
                 s.hit_timer = B(b, r + 0x64); s.state_timer = W(b, r + 0x12);
                 s.vertical_speed = L(b, r + 0x1a); s.height_fraction = W(b, r + 0x20) & 0xffff; s.spin = W(b, r + 0x3a);
-                s.fall_heading = W(b, r + 0x3e); s.fall_count = W(b, r + 0x2a); s.shadowed = B(b, r + 0x58) != 0;
+                s.fall_count = W(b, r + 0x2a); s.shadowed = B(b, r + 0x58) != 0;
                 s.hit_from_behind = B(b, r + 0x59) != 0;
                 o.on_screen = B(b, r + 0x5c) != 0;
                 s.fire_delay = W(b, r + 0x4a); s.skill = W(b, r + 0x62);
@@ -236,6 +238,13 @@ int run(int argc, char** argv) {
                 const auto roster = std::uint32_t(L(before, 0xfdb2c + std::uint32_t(i) * 0x76 + 0x46));
                 if (o.used && o.kind == 0 && roster >= 0x80664 && roster < 0x80664 + 8 * 0xc)
                     world.roster_slots[(roster - 0x80664) / 0xc] = i;
+            }
+            // The roster's own links (+4, an object offset; -1 none) where the
+            // recording has them (entries 0 and 1): a phase reached by poking
+            // the phase number leaves them all at 0.
+            for (std::uint32_t n = 0; n < 2; ++n) {
+                const int link = W(before, 0x80664 + n * 12 + 4);
+                world.roster_slots[n] = link < 0 ? -1 : link / 0x76;
             }
             for (int n = 0; n < 3; ++n) {
                 auto& q = world.squads[std::size_t(n)];
@@ -273,6 +282,7 @@ int run(int argc, char** argv) {
                 for (std::uint32_t k = 0; k < 8; ++k) m.objectives[k] = W(b, 0x82a08 + k * 2) != 0;
                 m.civilian_home = W(b, 0x82a1c) != 0;
                 m.objects.kind_6a_48 = W(b, 0x81f60);
+                m.buildings_left = W(b, 0x81dd0);
                 m.outcome = W(b, 0x81dcc) ? game::World::Outcome::won : W(b, 0x81dca) ? game::World::Outcome::lost : game::World::Outcome::playing;
             };
             load_mission(before, world);
@@ -317,10 +327,10 @@ int run(int argc, char** argv) {
                 const auto& o = world.objects.slots[std::size_t(i)];
                 if (!o.used || o.removed || std::int16_t(std::uint32_t(o.x) >> 16) < 0) continue; // (negative x: skipped, as free)
                 bool done = false;
-                if (o.kind == 0 || o.kind == 5) {
-                    done = o.kind == 0 ? game::update_soldier(world, terrain, tables, i) : game::update_enemy(world, terrain, tables, i);
+                if (o.kind == 0 || o.kind == 5 || o.kind == 0x24) {
+                    done = o.kind == 0 ? game::update_soldier(world, terrain, tables, i) : game::update_object(world, terrain, tables, i);
                     if (done) handled[std::size_t(i)] = o.kind == 0 ? 1 : 5;
-                    else if (o.kind == 5) ++unhandled_enemies;
+                    else if (o.kind != 0) ++unhandled_enemies;
                 } else if (o.kind == 6) {
                     done = game::update_bullet(world, terrain, tables, i);
                     if (done) handled[std::size_t(i)] = 2;
@@ -329,26 +339,8 @@ int run(int argc, char** argv) {
                     done = true;
                     handled[std::size_t(i)] = 4;
                 } else {
-                    done = true;
-                    switch (o.kind) {
-                    case 2: done = game::update_grenade(world, terrain, tables, i); break;
-                    case 3: game::update_follower(world, i); break;
-                    case 0x21: done = game::update_rocket(world, terrain, tables, i); break;
-                    case 0xc: done = game::update_explosion(world, tables, i); break;
-                    case 0x27: done = game::update_tile_explosion(world, tables, i); break;
-                    case 0x2f: game::update_debris(world, tables, i); break;
-                    case 0x30: game::update_smoke(world, i); break;
-                    case 0x56: case 0x57: game::update_splash(world, i); break;
-                    case 0x14: game::update_hut(world, terrain, tables, i); break;
-                    case 0x25: case 0x26: game::update_crate(world, tables, i); break;
-                    case 0xd: case 0xe: case 0xf: case 0x10: case 0x11: game::update_bush(world, terrain, tables, i); break;
-                    case 0x23: game::update_bush_shadow(world, i); break;
-                    case 0x1b: game::update_animal(world, terrain, tables, i); break;
-                    case 0x42: case 0x43: game::update_bird(world, i); break;
-                    case 0x15: done = game::update_leader_marker(world, i); break;
-                    case 4: break; // freed ($953E0 does nothing)
-                    default: done = false; break;
-                    }
+                    // Every other kind through the game's own dispatch.
+                    done = game::update_object(world, terrain, tables, i);
                     if (done) handled[std::size_t(i)] = 6;
                     else if (!done) done = false;
                 }
@@ -397,11 +389,41 @@ int run(int argc, char** argv) {
                     {"frame", {o.frame, expected.frame}}, {"heading", {n.heading, e.heading}},
                     {"state", {n.state, e.state}}, {"layer", {o.layer, expected.layer}}, {"kind", {o.kind, expected.kind}},
                     {"height", {o.height, expected.height}}, {"aim_x", {n.aim_x, e.aim_x}}, {"aim_y", {n.aim_y, e.aim_y}}};
+                // A shot or rocket the native side made in a tick where an
+                // enemy's random choices differed (the original's slot is
+                // still free): by chance.
+                if (!was_used[std::size_t(i)] && (o.kind == 6 || o.kind == 0x21 || o.kind == 3) &&
+                    (!expected.used || std::int16_t(std::uint32_t(expected.x) >> 16) < 0)) {
+                    ++chance_shots;
+                    continue;
+                }
                 if (handled[std::size_t(i)] == 7) { // new, partly by chance: the kind only (a splash's either way)
                     const bool splashes = (o.kind == 0x56 || o.kind == 0x57) && (expected.kind == 0x56 || expected.kind == 0x57);
                     if (!splashes) report(i, "kind", o.kind, expected.kind);
                     ++created_effects;
                     continue;
+                }
+                if (handled[std::size_t(i)] == 6 && o.kind == 0x3d) {
+                    // A civilian's heading wobbles at random (0-14 either way)
+                    // each tick: position and heading by range, the rest exact.
+                    const auto& was = walkers_before[std::size_t(i)];
+                    const bool new_place = n.waypoint_x != e.waypoint_x || n.waypoint_y != e.waypoint_y;
+                    if (std::abs(o.x - expected.x) > 0x20000 || std::abs(o.y - expected.y) > 0x20000)
+                        report(i, "civilian place range", o.x / 65536, expected.x / 65536);
+                    if (!new_place && (std::abs(n.stopped - e.stopped) > 0)) report(i, "civilian wait", n.stopped, e.stopped);
+                    report(i, "civilian graphic", o.graphic, expected.graphic);
+                    (void)was;
+                    ++random_skips;
+                    continue;
+                }
+                if (handled[std::size_t(i)] == 6 && o.kind == 0x18) {
+                    // The spawn point's timer is drawn at random (10-265).
+                    const auto& was = walkers_before[std::size_t(i)];
+                    if (e.state_timer > was.state_timer && n.state_timer > was.state_timer) { // drawn this tick
+                        if (e.state_timer < 10 || e.state_timer > 265 || n.state_timer < 10 || n.state_timer > 265)
+                            report(i, "spawn timer range", n.state_timer, e.state_timer);
+                        n.state_timer = e.state_timer;
+                    }
                 }
                 if (handled[std::size_t(i)] == 6 && (o.kind == 0x42 || o.kind == 0x43)) {
                     // A bird comes in again at a random place, and starts with a
@@ -508,7 +530,7 @@ int run(int argc, char** argv) {
                 }
                 const std::pair<const char*, std::pair<long, long>> fields[] = {
                     {"height", {o.height, expected.height}}, {"hidden", {o.hidden_lines, expected.hidden_lines}},
-                    {"facing", {n.facing, e.facing}}, {"facing_timer", {n.state == 0 ? n.facing_timer : 0, e.state == 0 ? e.facing_timer : 0}},
+                    {"facing", {n.facing, e.facing}}, {"facing_timer", {n.facing_timer, e.facing_timer}},
                     {"waypoint_x", {n.waypoint_x, e.waypoint_x}}, {"waypoint_y", {n.waypoint_y, e.waypoint_y}},
                     {"route_index", {n.route_index, e.route_index}}, {"took", {n.took_waypoint, e.took_waypoint}},
                     {"idle", {n.idle, e.idle}}, {"wait", {n.wait, e.wait}}, {"pause", {n.pause, e.pause}},
@@ -534,7 +556,6 @@ int run(int argc, char** argv) {
                 report(i, "height_fraction", n.height_fraction, e.height_fraction);
                 if (was.state != 0) {
                     report(i, "spin", n.spin, e.spin);
-                    report(i, "fall_heading", n.fall_heading, e.fall_heading);
                     report(i, "fall_count", n.fall_count, e.fall_count);
                 }
                 for (const auto& [name, v] : fields) report(i, name, v.first, v.second);
@@ -704,13 +725,16 @@ int run(int argc, char** argv) {
         std::printf("%d ticks, %d updates not handled (%d enemy), %d bullets fired, %d falls started, %d enemy updates skipped "
                     "after random choices, %d effects created, %d map tiles changed, %d sounds (%d ticks with a bird cry), %d fields differ\n",
                     ticks, unhandled, unhandled_enemies, created, falls, random_skips, created_effects, map_changes, sound_requests, bird_cries, bad);
-        std::printf("%d walk orders checked\n", walk_orders);
+        std::printf("%d walk orders checked, %d shots made on one side only (by chance)\n", walk_orders, chance_shots);
         return bad == 0 ? 0 : 1;
     }
     if (command == "play" && argc >= 5) {
         // The launcher's game module, headless: frames with scripted mouse
         // input (picture pixels; l, r or b buttons), the last picture saved.
-        auto game = fodder::game::start_game(argv[2]);
+        int first_phase = 0;
+        for (int a = 5; a < argc; ++a)
+            if (std::string(argv[a]).rfind("phase=", 0) == 0) first_phase = std::stoi(std::string(argv[a]).substr(6));
+        auto game = fodder::game::start_game(argv[2], first_phase);
         struct Hold { int from, to, x, y; bool left, right; };
         std::vector<Hold> holds;
         for (int a = 5; a < argc; ++a) {
