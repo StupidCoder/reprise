@@ -19,6 +19,25 @@ Pen read_pen(std::span<const std::uint8_t, 16> bytes) {
     return pen;
 }
 
+Pen read_see_through_pen(std::span<const std::uint8_t, 32> bytes) {
+    Pen pen;
+    for (int row = 0; row < 2; ++row) {
+        const std::size_t base = std::size_t(row * 12);
+        const unsigned mask = unsigned(bytes[base]) << 8 | bytes[base + 1];
+        for (int x = 0; x < 16; ++x) {
+            std::uint8_t colour = 0;
+            for (int plane = 0; plane < 4; ++plane) {
+                const std::size_t at = base + 4 + std::size_t(plane * 2);
+                const unsigned word = unsigned(bytes[at]) << 8 | bytes[at + 1];
+                colour |= std::uint8_t((word >> (15 - x) & 1) << plane);
+            }
+            pen.rows[std::size_t(row)][std::size_t(x)] = colour;
+            pen.clear[std::size_t(row)][std::size_t(x)] = (mask >> (15 - x) & 1) != 0;
+        }
+    }
+    return pen;
+}
+
 namespace {
 
 // The clipper's intersections ($149C6 / $149F4): 14-bit fixed point, the
@@ -92,11 +111,16 @@ void drop_repeats(std::vector<Point>& p) {
     p.pop_back();
 }
 
-void span(Canvas& canvas, int y, int x0, int x1, const Pen& pen) {
+void span(Canvas& canvas, int y, int x0, int x1, const Pen& pen, Fill fill = Fill::plain) {
     if (y < 0 || y >= canvas.height) return;
-    if (x0 < 0) x0 = 0;
-    if (x1 >= canvas.width) x1 = canvas.width - 1;
-    for (int x = x0; x <= x1; ++x) canvas.set(x, y, pen.colour(x, y));
+    const auto put = [&](int x, std::uint8_t c) { if (x >= 0 && x < canvas.width) canvas.set(x, y, c); };
+    for (int x = x0; x <= x1; ++x) {
+        switch (fill) {
+        case Fill::plain: put(x, pen.colour(x, y)); break;
+        case Fill::outlined: put(x, x == x0 || x == x1 ? 0 : pen.colour(x, y)); break;
+        case Fill::see_through: if (!pen.see_through(x, y)) put(x, pen.colour(x, y)); break;
+        }
+    }
 }
 
 // An edge's step per line ($13EB0): (dx * 256 / dy) as a 16-bit signed
@@ -119,7 +143,7 @@ struct Edge {
     void step(std::int32_t delta) { fixed = std::int32_t(std::uint32_t(fixed) + std::uint32_t(delta)); }
 };
 
-void scan(Canvas& canvas, const std::vector<Point>& p, const Pen& pen) {
+void scan(Canvas& canvas, const std::vector<Point>& p, const Pen& pen, Fill fill) {
     const std::size_t n = p.size();
     const auto next = [&](std::size_t i) { return i + 1 == n ? 0 : i + 1; };
     const auto prev = [&](std::size_t i) { return i == 0 ? n - 1 : i - 1; };
@@ -139,7 +163,7 @@ void scan(Canvas& canvas, const std::vector<Point>& p, const Pen& pen) {
     int left_lines = 0, right_lines = 0;
 
     const auto finish = [&]() {
-        if (left.x() < right.x()) span(canvas, y, left.x(), right.x(), pen);
+        if (left.x() < right.x()) span(canvas, y, left.x(), right.x(), pen, fill);
     };
 
     // The right-hand side's first edge; flat edges along the top extend it.
@@ -160,7 +184,7 @@ void scan(Canvas& canvas, const std::vector<Point>& p, const Pen& pen) {
     left_step = slope(p[l].x - left.x(), left_lines);
 
     for (;;) {
-        if (left.x() <= right.x()) span(canvas, y, left.x(), right.x(), pen);
+        if (left.x() <= right.x()) span(canvas, y, left.x(), right.x(), pen, fill);
         ++y;
         left.step(left_step);
         right.step(right_step);
@@ -189,11 +213,52 @@ void scan(Canvas& canvas, const std::vector<Point>& p, const Pen& pen) {
 
 } // namespace
 
-void fill_polygon(Canvas& canvas, const Window& window, std::vector<Point> points, const Pen& pen) {
+void fill_polygon(Canvas& canvas, const Window& window, std::vector<Point> points, const Pen& pen, Fill fill) {
     for (Side side : {Side::left, Side::right, Side::top, Side::bottom}) clip_side(points, side, window);
     drop_repeats(points);
     if (points.size() < 3) return;
-    scan(canvas, points, pen);
+    scan(canvas, points, pen, fill);
+}
+
+void clip_to_plane(std::vector<Point3>& p, int keep, int plane) {
+    if (p.empty()) return;
+    const bool along_x = keep < 2, keep_greater = (keep & 1) == 0;
+    const auto out = [&](const Point3& q) {
+        const int v = along_x ? q.x : q.z;
+        return keep_greater ? v < plane : v > plane;
+    };
+    // $14B8C / $14BD2: the other two coordinates at the plane, ordered by
+    // the clipped axis, 14-bit fixed point as in the 2D clipper.
+    const auto cut = [&](Point3 a, Point3 b) {
+        if (along_x) {
+            if (b.x < a.x) std::swap(a, b);
+            const auto t = std::int16_t(std::int32_t(std::int16_t(plane - a.x)) * 16384 / std::int16_t(b.x - a.x));
+            return Point3{plane, a.y + ((std::int32_t(std::int16_t(b.y - a.y)) * t) >> 14),
+                          a.z + ((std::int32_t(std::int16_t(b.z - a.z)) * t) >> 14)};
+        }
+        if (b.z < a.z) std::swap(a, b);
+        const auto t = std::int16_t(std::int32_t(std::int16_t(plane - a.z)) * 16384 / std::int16_t(b.z - a.z));
+        return Point3{a.x + ((std::int32_t(std::int16_t(b.x - a.x)) * t) >> 14),
+                      a.y + ((std::int32_t(std::int16_t(b.y - a.y)) * t) >> 14), plane};
+    };
+    p.push_back(p.front()); // the closing point, as in the 2D clipper
+    std::size_t i = 0;
+    while (i + 1 < p.size()) {
+        const bool here_out = out(p[i]), next_out = out(p[i + 1]);
+        if (here_out && next_out) {
+            p.erase(p.begin() + std::ptrdiff_t(i));
+            if (p.size() <= 1) { p.clear(); return; }
+            continue;
+        }
+        if (here_out) {
+            p[i] = cut(p[i], p[i + 1]);
+        } else if (next_out) {
+            p.insert(p.begin() + std::ptrdiff_t(i) + 1, cut(p[i], p[i + 1]));
+            ++i;
+        }
+        ++i;
+    }
+    p.pop_back();
 }
 
 void fill_rectangle(Canvas& canvas, const Window& w, int left, int top, int right, int bottom, const Pen& pen) {

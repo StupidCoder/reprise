@@ -64,9 +64,9 @@ struct Turn {
 class Frame {
 public:
     Frame(Canvas& canvas, const Window& window, const Pens& pens, const game::TowerMap& map, const Camera& cam, int cx,
-          int cy, const LiftHeight& lift_height)
+          int cy, const LiftHeight& lift_height, const ObjectAt& objects)
         : canvas_(canvas), window_(window), pens_(pens), map_(map), cam_(cam), cx_(cx), cy_(cy), turn_{cam.heading},
-          lift_height_(lift_height), p_(project_rows(cam, cx, cy)) {}
+          lift_height_(lift_height), objects_(objects), p_(project_rows(cam, cx, cy)) {}
 
     std::uint8_t at(int f, int c, int v) const {
         if (c < 0 || c > 7 || v < 0 || v > 7) return 0;
@@ -116,6 +116,7 @@ public:
                     const auto cell = at(f, c, v);
                     if (!(cell & solid) || x(k, c) > window_.right) continue;
                     if (cell & lift) { lift_above(k, c, v, f, cell, true); continue; }
+                    object(k, c, v, f, cell);
                     left_face(k, c, v, f, cell);
                     front_face(k, c, v, f, cell);
                     under_face(k, c, v, f, cell);
@@ -124,6 +125,7 @@ public:
                     const auto cell = at(f, c, v);
                     if (!(cell & solid) || x(k, c + 1) < window_.left) continue;
                     if (cell & lift) { lift_above(k, c, v, f, cell, false); continue; }
+                    object(k, c, v, f, cell);
                     right_face(k, c, v, f, cell);
                     front_face(k, c, v, f, cell);
                     under_face(k, c, v, f, cell);
@@ -138,6 +140,7 @@ public:
                     left_face(k, c, v, f, cell);
                     front_face(k, c, v, f, cell);
                     top_face(k, c, f, cell);
+                    object(k, c, v, f, cell);
                 }
                 for (int i = 0, c = 0; i <= left_cells; ++i, ++c) {
                     const auto cell = at(f, c, v);
@@ -146,6 +149,7 @@ public:
                     right_face(k, c, v, f, cell);
                     front_face(k, c, v, f, cell);
                     top_face(k, c, f, cell);
+                    object(k, c, v, f, cell);
                 }
             }
         }
@@ -227,6 +231,7 @@ private:
     void lift_above(int k, int c, int v, int f, std::uint8_t cell, bool right_of_centre) {
         const auto p = platform(k, c, v, f, cell);
         if (!p.drawn) return;
+        object(k, c, v, f, cell);
         lift_side(k, c, v, f, cell, p, right_of_centre);
         lift_front(k, c, v, f, cell, p);
         lift_under(k, c, f, cell);
@@ -234,10 +239,128 @@ private:
     void lift_below(int k, int c, int v, int f, std::uint8_t cell, bool right_of_centre) {
         const auto p = platform(k, c, v, f, cell);
         if (!p.drawn) return;
+        if (!p.top) object(k, c, v, f, cell);
         lift_side(k, c, v, f, cell, p, right_of_centre);
         lift_front(k, c, v, f, cell, p);
-        if (p.top) lift_top_face(k, c, cell, p);
+        if (p.top) {
+            lift_top_face(k, c, cell, p);
+            object(k, c, v, f, cell);
+        }
     }
+
+    // --- Objects ($E0AC, $13934) ---------------------------------------
+
+    // A point of the object's shape in view space relative to the camera:
+    // offset (already doubled) plus the object's position, turned with the
+    // camera.
+    Point3 to_view(const data::Vec3& offset, const SceneObject& o) const {
+        int x = offset.x + o.x, y = offset.y + o.y, z = offset.z + o.z;
+        turn(x, z);
+        return {std::int16_t(x - cam_.x), std::int16_t(y - cam_.y), std::int16_t(z - cam_.z)};
+    }
+    void turn(int& x, int& z) const {
+        for (int i = 0; i < (cam_.heading & 3); ++i) {
+            const int old_x = x;
+            x = -z;
+            z = old_x;
+        }
+    }
+
+    // Clips (at the cell boundary for objects between cells), projects and
+    // fills one polygon; points behind the eye drop the polygon.
+    void object_polygon(std::vector<Point3> points, int keep, int cell_x, int cell_z, const Pen& pen, Fill fill) {
+        if (keep >= 0) {
+            const int plane = keep == 0 ? cell_x - 0x100 : keep == 1 ? cell_x + 0x100 : keep == 2 ? cell_z - 0x100 : cell_z + 0x100;
+            clip_to_plane(points, keep, plane);
+        }
+        if (points.empty()) return;
+        std::vector<Point> screen;
+        for (const auto& q : points) {
+            if (q.z <= 0) return;
+            screen.push_back({project(q.x, q.z) + cx_, cy_ - project(q.y, q.z)});
+        }
+        fill_polygon(canvas_, window_, std::move(screen), pen, fill);
+    }
+
+    void object(int k, int c, int v, int f, std::uint8_t cell) {
+        if (!objects_) return;
+        int tx, tz;
+        turn_.cell(c, v, tx, tz);
+        const SceneObject* o = objects_(f, tx, tz);
+        if (o == nullptr || o->slot >= 0x3F || o->type >= 0x1A || o->shape == nullptr) return; // $E0AC (type $1A: particles, later)
+        const int cell_x = c * cell_size - 0x700 - cam_.x;                       // $FA6
+        const int cell_z = (7 - k) * cell_size - 0x700 - cam_.z;                 // $FAA
+        // $13934: which side of this cell a moving object lies on.
+        int keep = -1;
+        if (o->moving) {
+            int x = o->x, z = o->z;
+            turn(x, z);
+            const int dx = std::int16_t(x - cam_.x), dz = std::int16_t(z - cam_.z);
+            if (dx != cell_x) keep = dx < cell_x ? 0 : 1;
+            else if (dz != cell_z) keep = dz < cell_z ? 2 : 3;
+        }
+        const auto& shape = *o->shape;
+        // Shadows on a lit floor, only while the eye is above them.
+        if ((cell & lit) && !shape.shadows.empty() && shape.shadows.front().front().y / 2 + o->y <= cam_.y) {
+            const Pen& shadow_pen = (cell & lift) ? pens_.pens[lift_top] : pen(top, cell, false);
+            for (const auto& polygon : shape.shadows) {
+                std::vector<Point3> points;
+                for (const auto& q : polygon) points.push_back(to_view(q, *o));
+                object_polygon(std::move(points), keep, cell_x, cell_z, shadow_pen, Fill::plain);
+            }
+        }
+        // Parts far to near by squared distance of their centres (the
+        // insertion at $13B44 puts a part before equal ones).
+        std::vector<std::pair<std::uint32_t, const data::ShapePart*>> order;
+        for (const auto& part : shape.parts) {
+            const auto q = to_view(part.centre, *o);
+            const auto d = std::uint32_t(std::int32_t(std::int16_t(q.x)) * std::int16_t(q.x) +
+                                         std::int32_t(std::int16_t(q.y)) * std::int16_t(q.y) +
+                                         std::int32_t(std::int16_t(q.z)) * std::int16_t(q.z));
+            std::size_t at = 0;
+            while (at < order.size() && d < order[at].first) ++at;
+            order.insert(order.begin() + std::ptrdiff_t(at), {d, &part});
+        }
+        for (const auto& entry : order) {
+            for (const auto& face : entry.second->faces) {
+                if (face.points.empty()) continue;
+                // Back faces: the turned normal against the first point ($13C08).
+                int nx = face.normal.x, nz = face.normal.z;
+                turn(nx, nz);
+                const auto first = to_view(face.points.front(), *o);
+                const std::int32_t dot = std::int32_t(std::int16_t(nx)) * std::int16_t(first.x) +
+                                         std::int32_t(std::int16_t(face.normal.y)) * std::int16_t(first.y) +
+                                         std::int32_t(std::int16_t(nz)) * std::int16_t(first.z);
+                if (dot >= 0) continue;
+                std::vector<Point3> points;
+                for (const auto& q : face.points) points.push_back(to_view(q, *o));
+                face_style(face.style, cell, o->slot, std::move(points), keep, cell_x, cell_z);
+            }
+        }
+    }
+
+    // $13D12: the style byte picks pen and fill.
+    void face_style(int style, std::uint8_t cell, int slot, std::vector<Point3> points, int keep, int cell_x, int cell_z) {
+        const auto lit_index = [&](int s) {
+            int index = s & 0x1F;
+            if (!(s & 0x20) && !(cell & lit)) index -= 1; // unlit cells use the pen before
+            return index;
+        };
+        if (style & 0x80) {
+            if (style & 0x40) {
+                const int index = slot + 9 + ((style & 1) ? 7 : 0);
+                object_polygon(std::move(points), keep, cell_x, cell_z, object_pen(index), Fill::plain);
+            } else {
+                const int index = lit_index(style);
+                object_polygon(std::move(points), keep, cell_x, cell_z,
+                               pens_.see_through[std::size_t(index & 31)], Fill::see_through);
+            }
+        } else {
+            object_polygon(std::move(points), keep, cell_x, cell_z, object_pen(lit_index(style)),
+                           (style & 0x40) ? Fill::outlined : Fill::plain);
+        }
+    }
+    const Pen& object_pen(int index) const { return pens_.object[std::size_t(std::clamp(index, 0, 79))]; }
 
     int x(int k, int i) const { return p_.x[std::size_t(k)][std::size_t(i)]; }
     int t(int k, int l) const { return p_.top[std::size_t(k)][std::size_t(l)]; }
@@ -310,6 +433,7 @@ private:
     int cx_, cy_;
     Turn turn_;
     const LiftHeight& lift_height_;
+    const ObjectAt& objects_;
     Projection p_;
 };
 
@@ -317,10 +441,20 @@ private:
 
 Pens read_pens(const data::Memory& program) {
     constexpr std::uint32_t pens_at = 0x1228; // $A22(a6)
+    constexpr std::uint32_t object_pens_at = 0x1098;      // $892(a6)
+    constexpr std::uint32_t see_through_pens_at = 0x1328; // $B22(a6)
     Pens pens;
     for (std::size_t i = 0; i < pens.pens.size(); ++i) {
         const auto bytes = program.bytes(pens_at + std::uint32_t(i) * 16, 16);
         pens.pens[i] = read_pen(std::span<const std::uint8_t, 16>(bytes.data(), 16));
+    }
+    for (std::size_t i = 0; i < pens.object.size(); ++i) {
+        const auto bytes = program.bytes(object_pens_at + std::uint32_t(i) * 16, 16);
+        pens.object[i] = read_pen(std::span<const std::uint8_t, 16>(bytes.data(), 16));
+    }
+    for (std::size_t i = 0; i < pens.see_through.size(); ++i) {
+        const auto bytes = program.bytes(see_through_pens_at + std::uint32_t(i) * 32, 32);
+        pens.see_through[i] = read_see_through_pen(std::span<const std::uint8_t, 32>(bytes.data(), 32));
     }
     return pens;
 }
@@ -335,12 +469,12 @@ Camera spider_camera(int x, int y, int z, int heading, int offset, int height, i
 }
 
 void TowerView::draw(Canvas& canvas, const Window& window, int centre_x, int centre_y, const game::TowerMap& map,
-                     const Camera& camera, const LiftHeight& lift_height) const {
+                     const Camera& camera, const LiftHeight& lift_height, const ObjectAt& objects) const {
     // $1191C: the view is cleared to colour 7, the sky and ground colour the
     // copper changes line by line.
     for (int y = window.top; y <= window.bottom; ++y)
         for (int x = window.left; x <= window.right; ++x) canvas.set(x, y, 7);
-    Frame frame(canvas, window, pens_, map, camera, centre_x, centre_y, lift_height);
+    Frame frame(canvas, window, pens_, map, camera, centre_x, centre_y, lift_height, objects);
     frame.ground_shadows();
     frame.cells();
 }

@@ -279,7 +279,9 @@ target_compile_options(rock_n_roll_amiga PRIVATE ${PROJECT_WARNINGS})
 add_library(tower_of_babel_amiga
     src/tower_of_babel_amiga/entry.cpp
     src/tower_of_babel_amiga/data/assets.cpp
+    src/tower_of_babel_amiga/data/model.cpp
     src/tower_of_babel_amiga/data/preview.cpp
+    src/tower_of_babel_amiga/data/shape.cpp
     src/tower_of_babel_amiga/game/tower_map.cpp
     src/tower_of_babel_amiga/import/decruncher.cpp
     src/tower_of_babel_amiga/import/disk_import.cpp

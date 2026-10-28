@@ -3,6 +3,7 @@
 //
 //   tower_of_babel_assets import <image.adf> <content folder>
 //   tower_of_babel_assets export <content folder> <output folder>
+//   tower_of_babel_assets models <content folder> <out.png>   (contact sheet of the shapes)
 //   tower_of_babel_assets viewcheck <content folder> <memory.bin> <group> <tower> <out.png>
 //
 // viewcheck (research): takes the camera from a reference machine's chip
@@ -17,13 +18,16 @@
 #include "platform/files.hpp"
 #include "platform/host.hpp"
 #include "tower_of_babel_amiga/data/assets.hpp"
+#include "tower_of_babel_amiga/data/model.hpp"
 #include "tower_of_babel_amiga/data/preview.hpp"
+#include "ui/draw.hpp"
 #include "tower_of_babel_amiga/game/tower_map.hpp"
 #include "tower_of_babel_amiga/view/polygon.hpp"
 #include "tower_of_babel_amiga/view/tower_view.hpp"
 #include "tower_of_babel_amiga/import/disk_import.hpp"
 #include <cstdio>
 #include <cstdlib>
+#include <map>
 #include <exception>
 #include <string>
 
@@ -87,7 +91,36 @@ int view_check(const babel::data::Assets& assets, const Dump& d, int group, int 
         if (n < 0) return std::nullopt;
         return d.s16(0x806 + 0x15DA + std::uint32_t(n) * 32 + 8);
     };
-    view::TowerView(view::read_pens(assets.program)).draw(canvas, window, 160, 72, map, cam, lift_height);
+    // Objects: the object map gives each cell's object slot; the slot's
+    // record its type, shape pointer, position and moving flag.
+    std::map<std::uint32_t, data::Shape> shapes;
+    std::vector<view::SceneObject> objects(64);
+    for (int n = 0; n < 64; ++n) {
+        const std::uint32_t r = 0x806 + 0x15DA + std::uint32_t(n) * 32;
+        auto& o = objects[std::size_t(n)];
+        o.slot = n;
+        o.type = d.s16(r);
+        o.x = d.s16(r + 6); o.y = d.s16(r + 8); o.z = d.s16(r + 10);
+        o.moving = d.s16(r + 0x10) != 0;
+        const std::uint32_t shape = d.u32(r + 2);
+        if (o.type < 0x1A && assets.main.contains(shape, 2)) {
+            try {
+                if (!shapes.count(shape)) shapes.emplace(shape, data::decode_shape(assets.main, shape));
+                o.shape = &shapes.at(shape);
+            } catch (const std::exception&) {
+                std::printf("slot %d: no shape at $%X\n", n, shape);
+            }
+        }
+    }
+    const view::ObjectAt object_at = [&](int f, int x, int z) -> const view::SceneObject* {
+        const int n = std::int8_t(d.u8(0x806 + 0x1E4E + std::uint32_t(f * 100 + (z + 1) * 10 + x + 1)));
+        return n < 0 ? nullptr : &objects[std::size_t(n)];
+    };
+    const bool with_objects = std::getenv("TOB_NO_OBJECTS") == nullptr;
+    // Pens as they are in the dump's memory (some object pens change at run time).
+    const data::Memory memory(0, d.m);
+    view::TowerView(view::read_pens(memory)).draw(canvas, window, 160, 72, map, cam, lift_height,
+                                                  with_objects ? object_at : view::ObjectAt{});
 
     const std::uint32_t buffer = d.u32(0x806 + 0x1A);
     platform::Image image(3 * 320, 200);
@@ -158,6 +191,25 @@ int main(int argc, char** argv) {
                 std::printf("effect $%04X: waveform $%05X, %zu bytes\n", effect.record, effect.waveform,
                             effect.samples.size());
             }
+            return 0;
+        }
+        if (command == "models" && argc == 4) {
+            const auto assets = load_assets(platform::utf8_path(argv[2]));
+            const auto& reference = assets.groups.at(1).towers.at(0);
+            const auto kinds = babel::data::kind_shapes(assets.program);
+            platform::Image sheet(6 * 160, int((kinds.size() + 5) / 6) * 140);
+            int i = 0;
+            for (const auto& k : kinds) {
+                const int x = (i % 6) * 160, y = (i / 6) * 140;
+                try {
+                    const auto model = babel::data::shape_model(babel::data::decode_shape(assets.main, k.address),
+                                                                assets.program, reference);
+                    ui::draw_model(sheet, x, y, 160, 120, *model, 0.6, 0.35);
+                } catch (const std::exception&) {}
+                ui::text(sheet, std::to_string(k.kind) + " " + object_kind_name(assets.program, k.kind), x + 2, y + 124, 1, {220, 220, 220});
+                ++i;
+            }
+            platform::save_png(sheet, platform::utf8_path(argv[3]));
             return 0;
         }
         if (command == "viewcheck" && argc == 7) {

@@ -1,4 +1,5 @@
 #pragma once
+#include "tower_of_babel_amiga/data/shape.hpp"
 #include "tower_of_babel_amiga/game/tower_map.hpp"
 #include "tower_of_babel_amiga/view/canvas.hpp"
 #include <array>
@@ -38,8 +39,24 @@ Camera spider_camera(int x, int y, int z, int heading, int offset, int height, i
 // shadow, a lift top and a lit lift top.
 struct Pens {
     std::array<Pen, 16> pens{};
+    // Objects' pens ($892(a6) on: solid colours 0-15, dithers 16-22, then
+    // the program's following bytes, which the per-object pens reach) and
+    // see-through pens ($B22(a6), 32 bytes each).
+    std::array<Pen, 80> object{};
+    std::array<Pen, 32> see_through{};
 };
-Pens read_pens(const data::Memory& program); // from $1228
+Pens read_pens(const data::Memory& program); // from $1228, $1098, $1328
+
+// An object as the view draws it ($15DA + 32 n in the original).
+struct SceneObject {
+    int slot{};      // its number, which picks its own pens (style bits 7 + 6)
+    int type{};      // record +0: 0-$19 shapes, $1A particles (not drawn yet), more: not drawn
+    const data::Shape* shape{};
+    int x{}, y{}, z{}; // tower units
+    bool moving{};   // between cells: clipped at the cell's boundary ($13934)
+};
+// The object a cell holds (the original's object map beside the cells).
+using ObjectAt = std::function<const SceneObject*(int floor, int x, int z)>;
 
 // The height (tower units) of the lift object standing in a lift cell, if
 // any; lifts without one show their platform at the floor's level.
@@ -52,7 +69,7 @@ public:
     // Draws the view of `map` into `window` of `canvas`, centred at
     // (centre_x, centre_y) (160, 72 in the original's 320-pixel screen).
     void draw(Canvas&, const Window&, int centre_x, int centre_y, const game::TowerMap&, const Camera&,
-              const LiftHeight& lift_height = {}) const;
+              const LiftHeight& lift_height = {}, const ObjectAt& objects = {}) const;
 
 private:
     Pens pens_;

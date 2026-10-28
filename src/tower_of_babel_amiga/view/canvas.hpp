@@ -22,11 +22,17 @@ struct Canvas {
 // row as four bitplane words; 2 x 2 checks of two colours give its dithers.
 struct Pen {
     std::array<std::array<std::uint8_t, 16>, 2> rows{};
+    // See-through pens leave these pixels as they are.
+    std::array<std::array<bool, 16>, 2> clear{};
     std::uint8_t colour(int x, int y) const { return rows[std::size_t(y & 1)][std::size_t(x & 15)]; }
+    bool see_through(int x, int y) const { return clear[std::size_t(y & 1)][std::size_t(x & 15)]; }
 };
 
 // Reads a pen from its 16 bytes (row 0: planes 0-3 words, row 1 likewise).
 Pen read_pen(std::span<const std::uint8_t, 16> bytes);
+// Reads a see-through pen from its 32 bytes ($B22(a6)): per row a mask word
+// (1 = leave the pixel), a spare word and the four plane words.
+Pen read_see_through_pen(std::span<const std::uint8_t, 32> bytes);
 
 // The rectangle the view may draw in (inclusive bounds).
 struct Window {

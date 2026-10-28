@@ -1281,10 +1281,24 @@ apart from drawing, so spiders and camera can be interpolated between ticks.
    the reference): identical, 0 of 32,256 pixels, in all four headings at
    several positions and eye heights; cell flags identical to the original's
    grid. Launcher previews show each tower's start view.
-3. Next: objects (3D shapes $13934, shadows, depth sort, animation frames),
-   stars, moon, lightning, meteors, the copper sky bands, the overlays;
-   then spider movement and the program strip (Write/Run), objects'
-   behaviour, panel, front end, designer, sound effects (envelopes).
+3. **Done 2026-10-28: objects in the view.** `data/shape` (shadow
+   polygons, parts with sort centres, faces with style, normal, byte
+   vertices × 2), objects in `view/tower_view` at the original's places in
+   the traversal ($E0AC: one object per cell from the object map), back
+   faces ($13C08), parts far to near by squared distance ($13B44), shadows
+   on lit floors in the floor's unlit pen while the eye is above them,
+   objects between cells clipped at the cell boundary in 3D ($14A20-$14B30),
+   style → pen: lit/unlit rule, outlined fill ($1414C), see-through fill
+   ($1447C), per-object pens. Checked with viewcheck (stars, moon, effects,
+   overlays off; objects on): identical on towers A-C, 24 grabs (the only
+   differences found: the READY caption when Run All did not start the
+   game). Launcher: each object kind's shape in the shared 3D model viewer
+   (`data/model`, `tower_of_babel_assets models`).
+4. Next: animation frames (per-type display update $BEE4/$BF16: frame
+   choice from state and the frame counter $FBE, tables $BD9A-$BED4),
+   particles ($14C18, type $1A), stars, moon, lightning, meteors, copper
+   sky bands, overlays; then spider movement and programs, object
+   behaviour, panel, front end, designer, sound effects.
 
 Open items:
 - Tower record fields $E2E, $E34–$E42, flags 3, 4, 6–9, the last 4 bits
