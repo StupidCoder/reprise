@@ -1160,8 +1160,9 @@ files RNC-packed. The image set is a cracked copy (CSL intro loaded by disk
    $A5972 (opening, the officer waving each joining recruit in, closing),
    a step a frame once the queue has closed up (the step's reset before a
    hill: hypothesis, the mission variables' clear). VHS look (option).
-   Open: music reported to run about 2.2x fast at a mission's end in the
-   app with smooth motion on (120 Hz display); not reproduced: the module's
+   Music reported to run about 2.2x fast at a mission's end in the app with
+   smooth motion on (120 Hz display); gone with 34cfdcf (confirmed by the
+   user, cause not found; never reproduced: the module's
    sound is identical with and without the option at 120 pictures a
    second through a won mission, the debrief and the hill, a wall-clock
    loop gives 50 ticks and 44100 samples a second, and the victory song's
