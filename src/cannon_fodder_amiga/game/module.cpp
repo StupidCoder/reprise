@@ -278,6 +278,7 @@ private:
             template <class A> void persist(A& a) { a(used, kind, height, x, y); }
         };
         std::array<Place, object_slots> before{}; // the objects a tick earlier
+        std::array<int, object_slots> before_graphic{}; // (saved from format 5 on)
         bool have_before{};
         std::int32_t camera_x{}, camera_y{};      // the camera (16.16) at the tick before the last
         std::int32_t camera_now_x{}, camera_now_y{}; // and at the last tick
@@ -478,9 +479,9 @@ void Module::open_music(int source) {
 // map, tiles and sheets are read again from the files by its number (only
 // the cells map damage changed are kept), the music from its files.
 template <class A> void Module::persist(A& a) {
-    int version = 4; // 2: the pointer over the panel; 3: smooth motion's places; 4: its camera by ticks
+    int version = 5; // 2: the pointer over the panel; 3: smooth motion's places; 4: its camera by ticks; 5: pictures
     a(version);
-    if (version < 1 || version > 4) A::fail();
+    if (version < 1 || version > 5) A::fail();
     bool in_phase = phase_.terrain.has_value();
     int number = phase_.number;
     a(in_phase, number);
@@ -504,6 +505,7 @@ template <class A> void Module::persist(A& a) {
     }
     a(overview_);
     if (version >= 2) a(pointer_on_panel_);
+    if (version >= 5) a(motion_state_.before_graphic);
     if (version >= 4) {
         a(motion_state_);
     } else if (version == 3) {
@@ -1002,6 +1004,7 @@ void Module::game_tick() {
     for (int i = 0; i < object_slots; ++i) {
         const auto& o = world_.objects.slots[std::size_t(i)];
         motion_state_.before[std::size_t(i)] = {o.used && !o.removed && whole(o.x) >= 0, o.kind, o.height, o.x, o.y};
+        motion_state_.before_graphic[std::size_t(i)] = o.graphic;
     }
     motion_state_.have_before = true;
     // (and the camera's at the last two ticks: it moves on two frames of
@@ -1096,6 +1099,10 @@ void Module::smooth_view(Camera& camera, MissionObjects& objects) const {
         auto& o = objects.slots[std::size_t(i)];
         const auto& was = st.before[std::size_t(i)];
         if (!was.used || !o.used || o.removed || whole(o.x) < 0 || o.kind != was.kind) continue;
+        // Not drawn a tick ago (picture $7C, such as the leader's rank badge
+        // hidden while a route is drawn, its place not kept up): it appears
+        // where it is.
+        if (st.before_graphic[std::size_t(i)] == 0x7c) continue;
         if (std::abs(whole(o.x) - whole(was.x)) > 32 || std::abs(whole(o.y) - whole(was.y)) > 32) continue;
         o.x = between(was.x, o.x, t);
         o.y = between(was.y, o.y, t);

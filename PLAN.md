@@ -1160,6 +1160,10 @@ files RNC-packed. The image set is a cracked copy (CSL intro loaded by disk
    $A5972 (opening, the officer waving each joining recruit in, closing),
    a step a frame once the queue has closed up (the step's reset before a
    hill: hypothesis, the mission variables' clear). VHS look (option).
+   Smooth motion: an object not drawn a tick ago (picture $7C) appears
+   where it is instead of gliding: the leader's rank badge, hidden while a
+   route is drawn ($954F6, its place not kept up meanwhile), slid in from
+   where it was hidden. Save format 5.
    Music reported to run about 2.2x fast at a mission's end in the app with
    smooth motion on (120 Hz display); gone with 34cfdcf (confirmed by the
    user, cause not found; never reproduced: the module's
