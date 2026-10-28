@@ -275,6 +275,17 @@ target_include_directories(rock_n_roll_amiga PUBLIC ${SOURCE_ROOT})
 target_link_libraries(rock_n_roll_amiga PUBLIC amiga platform ui)
 target_compile_options(rock_n_roll_amiga PRIVATE ${PROJECT_WARNINGS})
 
+# --- tower_of_babel_amiga: Tower of Babel (Amiga) -----------------------------
+add_library(tower_of_babel_amiga
+    src/tower_of_babel_amiga/entry.cpp
+    src/tower_of_babel_amiga/data/assets.cpp
+    src/tower_of_babel_amiga/data/preview.cpp
+    src/tower_of_babel_amiga/import/decruncher.cpp
+    src/tower_of_babel_amiga/import/disk_import.cpp)
+target_include_directories(tower_of_babel_amiga PUBLIC ${SOURCE_ROOT})
+target_link_libraries(tower_of_babel_amiga PUBLIC amiga platform ui)
+target_compile_options(tower_of_babel_amiga PRIVATE ${PROJECT_WARNINGS})
+
 # --- joyport: the launcher application -----------------------------------------
 add_executable(joyport
     src/app/main.cpp
@@ -286,7 +297,7 @@ add_executable(joyport
     src/app/launcher.cpp src/app/quick_save.cpp
     src/app/pause_menu.cpp
     src/app/saved_options.cpp)
-target_link_libraries(joyport PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga ui)
+target_link_libraries(joyport PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga ui)
 target_compile_options(joyport PRIVATE ${PROJECT_WARNINGS})
 
 # --- tools ---------------------------------------------------------------------
@@ -341,6 +352,9 @@ target_compile_options(mindwalker_replay PRIVATE ${PROJECT_WARNINGS})
 add_executable(rock_n_roll_assets tools/rock_n_roll_assets.cpp)
 target_link_libraries(rock_n_roll_assets PRIVATE rock_n_roll_amiga)
 target_compile_options(rock_n_roll_assets PRIVATE ${PROJECT_WARNINGS})
+add_executable(tower_of_babel_assets tools/tower_of_babel_assets.cpp)
+target_link_libraries(tower_of_babel_assets PRIVATE tower_of_babel_amiga)
+target_compile_options(tower_of_babel_assets PRIVATE ${PROJECT_WARNINGS})
 
 add_executable(wings_of_fury_assets tools/wings_of_fury_assets.cpp)
 target_link_libraries(wings_of_fury_assets PRIVATE wings_of_fury_amiga)
@@ -364,7 +378,7 @@ if(BUILD_TESTING)
     src/bruce_lee_c64/game/room_chapter.cpp
     src/bruce_lee_c64/game/background_article.cpp
     src/app/launcher.cpp src/app/quick_save.cpp src/app/pause_menu.cpp)
-    target_link_libraries(shell_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga ui)
+    target_link_libraries(shell_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga ui)
     target_compile_options(shell_checks PRIVATE ${PROJECT_WARNINGS})
     add_dependencies(shell_checks joyport_resources)
     add_test(NAME shell_navigation COMMAND shell_checks)
@@ -377,7 +391,7 @@ target_compile_options(marble_madness_replay PRIVATE ${PROJECT_WARNINGS})
 
 if(BUILD_TESTING)
     add_executable(persistence_checks tests/persistence.cpp src/app/catalog.cpp src/app/quick_save.cpp)
-    target_link_libraries(persistence_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga ui)
+    target_link_libraries(persistence_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga ui)
     target_compile_options(persistence_checks PRIVATE ${PROJECT_WARNINGS})
     add_test(NAME persistent_saves COMMAND persistence_checks)
 endif()

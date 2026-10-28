@@ -5,6 +5,7 @@
 #include "bruce_lee_c64/game/background_article.hpp"
 #include "ui/shelf.hpp"
 #include <algorithm>
+#include <iterator>
 #include <span>
 #include "marble_madness_amiga/game/mechanics_chapter.hpp"
 #include <exception>
@@ -58,7 +59,8 @@ std::span<const LessonEntry> lessons_for(const GameEntry& game) {
     if(game.id=="marble_madness_amiga") return marble_lessons;
     return {};
 }
-constexpr const char* filters[] = {"All games", "Commodore 64", "Amiga", "Planned"};
+constexpr const char* filters[] = {"All games", "Commodore 64", "Amiga"};
+constexpr int filter_count = int(std::size(filters));
 bool hit(const platform::Controls& in, int x, int y, int w, int h) {
     return in.click && in.mouse_x >= x && in.mouse_x < x + w && in.mouse_y >= y && in.mouse_y < y + h;
 }
@@ -87,7 +89,6 @@ std::vector<std::size_t> Launcher::visible_games() const {
     for (std::size_t i = 0; i < games.size(); ++i) {
         if (filter_ == 1 && games[i].machine != Machine::c64) continue;
         if (filter_ == 2 && games[i].machine != Machine::amiga) continue;
-        if (filter_ == 3 && games[i].import) continue;
         result.push_back(i);
     }
     std::stable_sort(result.begin(), result.end(), [&](auto a, auto b) {
@@ -117,7 +118,7 @@ void Launcher::select(std::size_t game) {
     scroll_from_ = first_row_; scroll_start_ = -10;
 }
 void Launcher::set_filter(int filter) {
-    filter_ = std::clamp(filter, 0, 3);
+    filter_ = std::clamp(filter, 0, filter_count - 1);
     first_row_ = 0;
     const auto games = visible_games();
     if (!games.empty() && std::find(games.begin(), games.end(), selected_) == games.end()) selected_ = games.front();
@@ -293,7 +294,7 @@ Launcher::Request Launcher::update_input(const platform::Controls& in, double no
     } else {
         if (sidebar_focus_) {
             if (in.nav_up || in.nav_down) {
-                sidebar_row_ = (sidebar_row_ + 4 + int(in.nav_down) - int(in.nav_up)) % 4;
+                sidebar_row_ = (sidebar_row_ + filter_count + int(in.nav_down) - int(in.nav_up)) % filter_count;
                 set_filter(sidebar_row_);
             }
             if (in.nav_right || in.accept || in.back) sidebar_focus_ = false;
@@ -306,7 +307,7 @@ Launcher::Request Launcher::update_input(const platform::Controls& in, double no
             if (in.page_up) move(0, -2);
             if (in.accept) activate();
         }
-        for (int i = 0; i < 4; ++i) if (hit(in, 18, 110 + i * 46, 160, 38)) {
+        for (int i = 0; i < filter_count; ++i) if (hit(in, 18, 110 + i * 46, 160, 38)) {
             set_filter(i); sidebar_row_ = i; sidebar_focus_ = true;
         }
         auto games = visible_games();
@@ -735,7 +736,7 @@ Image Launcher::draw_scene(double now) const {
     ui::rect(im, 184, 78, 1, 465, s::line);
     s::text(im, "Your library", grid_x, 69, 23, s::ink, true);
     s::text(im, "Release year · oldest first", 390, 76, 13, s::muted);
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < filter_count; ++i) {
         const bool active = i == filter_;
         if (active) ui::rounded(im, 18, 110 + i * 46, 160, 38, 7, sidebar_focus_ && sidebar_row_ == i ? s::cobalt : s::pale);
         s::text(im, filters[i], 30, 118 + i * 46, 15, active && sidebar_focus_ && sidebar_row_ == i ? s::white : s::ink, active);
