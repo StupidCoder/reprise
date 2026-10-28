@@ -22,6 +22,8 @@ LevelMap LevelMap::from(const data::Level& level) {
     map.camera_start_y = header_long(level, 0x3DC);
     map.view_start_x = header_long(level, 0x3E0);
     map.view_start_y = header_long(level, 0x3E4);
+    map.left_behind = level.header.at(0x1D5); // set-up reads the word at +$1D4 as a byte ($6C6E2)
+    map.refill = level.header.at(0x1D4);
     return map;
 }
 

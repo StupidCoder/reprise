@@ -21,7 +21,18 @@ struct LevelMap {
     Fixed camera_start_x{}, camera_start_y{}; // +$3D8, +$3DC ($71A30/$71A34)
     Fixed view_start_x{}, view_start_y{};     // +$3E0, +$3E4 ($71A38/$71A3C)
 
+    // The value a collected item leaves in its cell ($6EC00): from header
+    // +$1D5 at the start, refilled from +$1D4 after each use ($6EC02).
+    std::uint8_t left_behind{};
+    std::uint8_t refill{};
+
     static LevelMap from(const data::Level&);
+
+    // $6EC02: the cell takes the value left behind, which is refilled.
+    void clear(long index) {
+        if (index >= 0 && index < long(cells.size())) cells[std::size_t(index)] = left_behind;
+        left_behind = refill;
+    }
 
     // The cell at a linear index (row * columns + column), as the original
     // addresses them; indices outside the map read as 0.

@@ -1247,9 +1247,16 @@ rule of the original-width view.
    the drawn view against a ball disc), bounce, speed limits.
    `rock_n_roll_replay ball` vs recordings rail1, ice1, fall2, arrow3,
    slope1: all 852 updates equal in every compared field (`regress.sh`).
-4. Next: the fall and the continue/restart prompt, the other cell kinds
-   (pickups, keys, shops, bridges, teleports, …), objects from the level
-   header, then drawing (tiles, ball sprites, panel) and a playable level.
+4. **Done 2026-10-28: the fall, pickups and locks.** The fall to "ball
+   lost" ($6C3D6), keys, finds with money, energy, map pieces (`Pocket`),
+   the cell an item leaves behind (header +$1D4/+$1D5), locks $D1-$D8 with
+   their "pressing" rule (a $D5 lock never opens). Recorder saves the map
+   at row 0; replay follows a recording to the loop's end. Eight runs,
+   1,252 updates, all equal.
+5. Next: the continue/restart prompt and the level loop's other exits,
+   the remaining cells (bridges $DD-$E0, shops, teleports from header
+   +$380, switches $26/$33, $22, …), objects from the level header, then
+   drawing (tiles, ball sprites, panel) and a playable level.
 
 Open items:
 - Level header fields +$000..+$3E7 (object lists, settings).

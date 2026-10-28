@@ -19,7 +19,18 @@ struct MouseCounters {
     std::uint16_t word() const { return std::uint16_t(y << 8 | x); }
 };
 
-enum class BallMode { rolling, falling };
+// rolling ($6C274), falling ($6C3D6), lost: the fall is over and the level
+// loop ends for the continue/restart prompt ($6FDEA).
+// What the player has collected; shown on the panel.
+struct Pocket {
+    std::array<int, 4> keys{};    // cells $01-$04: $719EC, $719F8, $719F0, $719F4 (at most 9 each)
+    std::array<int, 4> finds{};   // cells $05-$08: $719FC, $71A08, $71A00, $71A04
+    int money{};                  // $719BA
+    int energy{};                 // $719C2 (at most $26AC)
+    int map_pieces{};             // cells $0D/$0E: pieces of the magic map ($6EB22, not rebuilt)
+};
+
+enum class BallMode { rolling, falling, lost };
 
 struct Ball {
     Fixed camera_x{}, camera_y{};     // $71A30/$71A34
@@ -52,6 +63,9 @@ struct Ball {
 
     BallMode mode{BallMode::rolling};
     int fall_cell{};                  // $6C9BC
+    int fall_updates{};               // $6C3C4: counts on through falls; reset at level start and on continue
+    bool mouse_ignored{};             // $6C3C6: reads see no movement (while falling)
+    Fixed falling_friction{0x800};    // $6C3C8
 
     // Cell kinds the rules met that are not rebuilt yet (for tools).
     int unhandled_cells{};
@@ -61,10 +75,10 @@ struct Ball {
 };
 
 // One update of the in-level loop ($68940), the parts rebuilt so far, in
-// the original's order: steer ($7040C), halve along a contact ($703B4),
+// the original's order (items collected go into the pocket): steer ($7040C), halve along a contact ($703B4),
 // keep in view ($707AA), centre cell ($6B4AC), the cells' rules ($6CFC6),
 // rolling picture ($6C274), contact ($6F666, $6F60A, $6FDEE), bounce
 // ($700E8) and the speed limits ($6ABF0).
-void update_ball(Ball&, LevelMap&, const data::World&, MouseCounters mouse);
+void update_ball(Ball&, Pocket&, LevelMap&, const data::World&, MouseCounters mouse);
 
 } // namespace rocknroll::game

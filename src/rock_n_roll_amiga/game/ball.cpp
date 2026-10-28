@@ -1,4 +1,5 @@
 #include "rock_n_roll_amiga/game/ball.hpp"
+#include <algorithm>
 #include "rock_n_roll_amiga/data/preview.hpp"
 
 namespace rocknroll::game {
@@ -60,7 +61,8 @@ Steered steer(Ball& b, MouseCounters mouse) {
         if (b.updates_without_read < reads_apart) return finish();
     }
     b.updates_without_read = 0;
-    const std::uint16_t now = mouse.word(), before = b.last_mouse.word();
+    // While falling the read takes the counters as unmoved ($70460).
+    const std::uint16_t now = mouse.word(), before = b.mouse_ignored ? now : b.last_mouse.word();
     b.last_mouse = mouse;
 
     const auto end_reading = [&] {
@@ -238,8 +240,28 @@ void slope_right(Ball& b) {
     if (b.speed_x > b.min_speed_x) b.speed_x += b.last_push_x;
 }
 
+// $6E6F0: is the ball pressing against a lock in cell n (1-4) of the 2 x 2
+// block? $D1-$D4 lie beside the ball (x), $D5-$D8 above or below it (y);
+// the centre must be in the cell next to the lock and the position's
+// fraction far enough over. The routine returns v - $D5 as its "yes", which
+// is 0 for $D5 itself, so a $D5 lock never opens (kept).
+bool presses_lock(const Ball& b, std::uint8_t v, int n) {
+    const std::uint8_t result = std::uint8_t(v - 0xD5);
+    const std::uint16_t fx = std::uint16_t(low_word(b.camera_x) + low_word(b.view_x));
+    const std::uint16_t fy = std::uint16_t(low_word(b.camera_y) + low_word(b.view_y));
+    bool touching = false;
+    if (std::int8_t(result) >= 0) {
+        static constexpr int centre_for[5] = {0, 3, 4, 1, 2};
+        touching = b.centre_cell == centre_for[n] && (n <= 2 ? fy <= 0xCFFF : fy >= 0x6000);
+    } else {
+        static constexpr int centre_for[5] = {0, 2, 1, 4, 3};
+        touching = b.centre_cell == centre_for[n] && (n % 2 == 1 ? fx <= 0xCFFF : fx >= 0x6000);
+    }
+    return touching && result != 0;
+}
+
 // $6D0FA and the cell handlers (table $733C4) rebuilt so far.
-void cell_rules(Ball& b, LevelMap& map) {
+void cell_rules(Ball& b, Pocket& pocket, LevelMap& map) {
     const long first = first_cell_of(b, map);
     b.high_cell = false;
     b.hold_x = b.hold_y = false;
@@ -249,7 +271,38 @@ void cell_rules(Ball& b, LevelMap& map) {
         if (v >= 0x50) b.high_cell = true;
         const bool centre = n == b.centre_cell;
         if (v == 0x21) { // abyss $6E378 → $6C9C0 (repair sets not rebuilt)
-            if (centre && b.collisions && b.mode == BallMode::rolling) start_fall(b, n);
+            if (centre && b.collisions) start_fall(b, n);
+        } else if (v >= 0x01 && v <= 0x04) { // keys $6E5B0-$6E670: one more unless 9, then gone
+            if (centre && pocket.keys[v - 1] != 9) {
+                ++pocket.keys[v - 1];
+                map.clear(cells[n - 1]);
+            }
+        } else if (v >= 0xD1 && v <= 0xD8) { // locks $6E882-$6E94E (any of the four cells)
+            static constexpr int key_for[4] = {0, 1, 2, 3}; // $D1/$D5 key 1 … $D4/$D8 key 4
+            auto& keys = pocket.keys[std::size_t(key_for[(v - 0xD1) % 4])];
+            if (presses_lock(b, v, n) && keys != 0) {
+                --keys;
+                map.clear(cells[n - 1]);
+            }
+        } else if (v >= 0x05 && v <= 0x08) { // finds $6E9D0-$6EA84, with money
+            if (centre) {
+                static constexpr int money[4] = {30, 400, 150, 70};
+                ++pocket.finds[v - 5];
+                pocket.money += money[v - 5];
+                map.clear(cells[n - 1]);
+            }
+        } else if (v >= 0x11 && v <= 0x13) { // energy $6EB7E-$6EBAE
+            if (centre) {
+                static constexpr int energy[3] = {100, 300, 500};
+                pocket.energy = std::min(pocket.energy + energy[v - 0x11], 0x26AC);
+                map.clear(cells[n - 1]);
+            }
+        } else if (v == 0x0D || v == 0x0E) { // magic-map piece, two cells wide ($6EADE/$6EB00)
+            if (centre) {
+                map.clear(cells[n - 1] + (v == 0x0D ? 1 : -1)); // the other half first ($6EC1C/$6EC3E)
+                ++pocket.map_pieces;
+                map.clear(cells[n - 1]);
+            }
         } else if (v >= 0x09 && v <= 0x0C) { // arrows $6E444 up, $6E582 right, $6E4AE down, $6E518 left
             if (centre) (v == 0x09 ? push_up : v == 0x0A ? push_right : v == 0x0B ? push_down : push_left)(b);
         } else if (v >= 0x3D && v <= 0x40) { // dome quarters $6D58E-$6D612: away from its middle
@@ -283,6 +336,21 @@ void roll(Ball& b) {
         b.roll_x += b.speed_x;
         b.roll_y += b.speed_y;
     }
+}
+
+// $6C3D6, each update while falling: high friction, no steering, no
+// railings; the picture shrinks every 8 updates (8 pictures); after that
+// the ball is lost.
+void fall(Ball& b) {
+    b.friction = b.falling_friction;
+    b.mouse_ignored = true;
+    b.collisions = false;
+    ++b.fall_updates;
+    if (((b.fall_updates >> 2) & 0xFE) <= 14) return;
+    b.friction = 400;
+    b.collisions = true;
+    b.mouse_ignored = false;
+    b.mode = BallMode::lost;
 }
 
 // Colour bit 4 of the picture in the view at a map pixel when the contact
@@ -389,14 +457,18 @@ Ball Ball::at_start(const LevelMap& map) {
     return b;
 }
 
-void update_ball(Ball& b, LevelMap& map, const data::World& world, MouseCounters mouse) {
-    if (b.mode != BallMode::rolling) return; // falling: next slice
+void update_ball(Ball& b, Pocket& pocket, LevelMap& map, const data::World& world, MouseCounters mouse) {
+    if (b.mode == BallMode::lost) return;
     const Steered s = steer(b, mouse);
     halve_along_contact(b);
     keep_in_view(b, s);
     b.centre_cell = centre_of(b);
-    cell_rules(b, map);
-    if (b.mode == BallMode::rolling) roll(b);
+    cell_rules(b, pocket, map);
+    if (b.mode == BallMode::rolling) {
+        roll(b);
+    } else {
+        fall(b); // also in the update the fall starts in ($6CA26 switches the state routine)
+    }
     touch(b, map, world);
     bounce(b);
     clamp_speeds(b);
