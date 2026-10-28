@@ -32,6 +32,8 @@ bool fire_bullet(World& world, const FireTables& tables, int shooter);
 int allocate_slot(World& world);
 // $9814E: the first pair of free slots (lowest first), or -1.
 int allocate_pair(World& world);
+// $9819A: the highest free slot below 30 (not cleared), or -1.
+int free_slot_below_30(World& world);
 // $979B0: a shot at its place hits something: 0 nothing, 1 something solid,
 // 2 something it hurts.
 int bullet_hit(World& world, const Terrain& terrain, const ProgramTables& tables, int slot);

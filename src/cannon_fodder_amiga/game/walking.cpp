@@ -81,7 +81,7 @@ public:
         const auto& t = w_.objects.slots[std::size_t(index)];
         const auto next = [&] {
             s_.fire_delay = 0;
-            if (++s_.target >= object_slots) s_.target = 0;
+            if (++s_.target >= scanned_slots) s_.target = 0;
         };
         bool found = false;
         if (t.used && whole(t.x) >= 0 && t.kind == 5 && w_.walkers[std::size_t(index)].state == 0 && !s_.wading) {
@@ -414,20 +414,21 @@ public:
             }
             o_.frame = s_.idle_frame;
         }
+        // $98F6A: the leading hostage's piece follows it (gone while riding),
+        // and it shows the walking picture whenever it was moved this tick.
         if (o_.kind == 0x6a && slot_ + 1 < object_slots) {
             auto& piece = w_.objects.slots[std::size_t(slot_ + 1)];
+            piece.kind = 0x29;
+            set_whole(piece.x, whole(o_.x) + 6);
+            set_whole(piece.y, whole(o_.y) - 0xb + o_.hidden_lines);
+            piece.height = o_.height;
             if (s_.carried != 0) {
                 piece.kind = 4;
                 piece.graphic = 0x7c;
                 piece.frame = 0;
-            } else {
-                piece.kind = 0x29;
-                set_whole(piece.x, whole(o_.x) + 6);
-                set_whole(piece.y, whole(o_.y) - 0xb + o_.hidden_lines);
-                piece.height = o_.height;
             }
+            if (o_.x != p_.old_x || o_.y != p_.old_y) o_.graphic = 0xd8;
         }
-        if (o_.x == p_.old_x && o_.y == p_.old_y) o_.graphic = 0xd8;
         return true;
     }
 
@@ -449,7 +450,7 @@ public:
         const std::vector<int> kinds = leader_kind ? std::vector<int>{0, 0x49} : std::vector<int>{0x49, 5, 0};
         const int found = scan(kinds);
         if (found < 0) {
-            if ((w_.random() & (leader_kind ? 7 : 0x3f)) == 0 && ++s_.target >= object_slots) s_.target = 0;
+            if ((w_.random() & (leader_kind ? 7 : 0x3f)) == 0 && ++s_.target >= scanned_slots) s_.target = 0;
             return;
         }
         const auto& t = w_.objects.slots[std::size_t(found)];
@@ -486,7 +487,7 @@ public:
                 return;
             }
         }
-        if ((w_.random() & (leader_kind ? 7 : 0x3f)) == 0 && ++s_.target >= object_slots) s_.target = 0;
+        if ((w_.random() & (leader_kind ? 7 : 0x3f)) == 0 && ++s_.target >= scanned_slots) s_.target = 0;
     }
 
     // $98E64 for the hostage (see vehicles.cpp): one candidate a tick.
@@ -494,7 +495,7 @@ public:
         const int index = std::clamp(s_.target, 0, object_slots - 1);
         const auto& t = w_.objects.slots[std::size_t(index)];
         const auto next = [&] {
-            if (++s_.target >= object_slots) s_.target = 0;
+            if (++s_.target >= scanned_slots) s_.target = 0;
             return -1;
         };
         if (!t.used || whole(t.x) < 0) return next();
@@ -618,7 +619,7 @@ private:
         const auto salute = [&] { // $966B2
             static constexpr int frames[7] = {0, 1, 2, 3, 2, 1, 2}; // $96722
             o_.frame = frames[std::clamp(s_.fall_count, 0, 6)];
-            s_.speed ^= 0x8000;
+            s_.speed = std::int16_t(s_.speed ^ 0x8000); // (a word)
             if (s_.speed & 0x8000) return true;
             if (++s_.fall_count >= 7) s_.fall_count = 3;
             return true;
@@ -630,7 +631,7 @@ private:
             return true;
         };
         const auto arms = [&] { // $966E0
-            s_.speed ^= 0x8000;
+            s_.speed = std::int16_t(s_.speed ^ 0x8000); // (a word)
             if (s_.speed & 0x8000) return true;
             if (o_.frame < 5) ++o_.frame;
             return true;
@@ -640,7 +641,13 @@ private:
         if (o_.graphic == 0x38) return arms();
         o_.frame = 0;
         s_.speed = 0;
-        if (!w_.failed_objective && ((w_.random() & 1) == 0 || o_.hidden_lines != 0)) {
+        // After a failed objective all raise their arms; after a win a
+        // salute (always when sunk in water), a jump or the arms at random.
+        if (w_.failed_objective) {
+            o_.graphic = 0x38;
+            return arms();
+        }
+        if ((w_.random() & 1) == 0 || o_.hidden_lines != 0) {
             o_.graphic = 0x9f;
             s_.fall_count = 0;
             return salute();

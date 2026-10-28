@@ -15,6 +15,9 @@
 namespace fodder::game {
 
 constexpr int object_slots = 44;
+// The scans that look at one object a tick ($98E64, $98EFE, $967B8) run
+// through the first 43 ($13D2 / $76) and start again.
+constexpr int scanned_slots = 43;
 
 struct GameObject {
     bool used{};
@@ -37,6 +40,10 @@ struct MissionObjects {
     std::array<GameObject, object_slots> slots{};
     int enemies{};    // $81F5E: placements of kind 5 and $24
     int kind_6a_48{}; // $81F60: placements of kind $6A and $48 (meaning open)
+    // A search for a free slot that found none blocks every later search of
+    // its kind until an object is removed through +$24 ($AB8B4 clears both).
+    bool full{};          // $826EA: all 43 slots ($98104)
+    bool full_below_30{}; // $826EC: slots 0-29 ($9819A)
 };
 
 // The spawner ($8A594): one slot per placement, in file order. Every slot

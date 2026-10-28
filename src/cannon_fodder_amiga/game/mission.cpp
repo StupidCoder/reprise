@@ -229,14 +229,7 @@ void tick_route_windows(World& world) { // $A1248
 
 int spawn_enemy(World& world, int from) { // $949F0
     if (world.outcome == World::Outcome::won || world.objects.enemies >= 10) return -1;
-    int slot = -1;
-    for (int i = 29; i >= 0; --i) { // $9819A: the highest free slot below 30
-        const auto& o = world.objects.slots[std::size_t(i)];
-        if (!o.used || whole(o.x) < 0) {
-            slot = i;
-            break;
-        }
-    }
+    const int slot = free_slot_below_30(world);
     if (slot < 0) return -1;
     const auto& hut = world.objects.slots[std::size_t(from)];
     auto& o = world.objects.slots[std::size_t(slot)];

@@ -260,7 +260,7 @@ public:
             tx = w_.camera.x + w_.pointer_x - 0x10;
             ty = w_.camera.y + w_.pointer_y;
         }
-        if (const auto d = g_.direction(tx - fx, ty - fy, 9)) {
+        if (const auto d = g_.direction(fx - tx, fy - ty, 9)) { // ($A0B8E takes from - to)
             t.frame = ((((*d - 0x10) >> 5) + 8) ^ 0xf) & 0xf;
         }
     }
@@ -321,9 +321,11 @@ public:
             if (helper(2).kind == kind_piece) free_object(w_, slot_ + 2);
             return;
         }
+        // (+$4C counts down, but the search runs every tick: the original's
+        // test of it branches to the next instruction either way.)
         if (s_.stopped != 0) --s_.stopped;
         bool found = false;
-        if (s_.stopped == 0) {
+        {
             const int index = s_.target;
             const int r = index >= 0 && index < 30 ? w_.recruit_lists[std::size_t(index)] : -1;
             if (r >= 0) {
@@ -347,8 +349,8 @@ public:
                     }
                 }
             }
-            if (!found) {
-                if (++s_.target >= 0x1e) s_.target = 0;
+            if (!found && ++s_.target >= 0x1e) { // the aim is dropped once a round
+                s_.target = 0;
                 s_.aim_x = -1;
             }
         }
@@ -419,7 +421,7 @@ public:
 
     void point_at(int x, int y) {
         const int fx = whole(o_.x) + 8, fy = whole(o_.y) - 5;
-        if (const auto d = g_.direction(x - fx, y - fy, 9)) {
+        if (const auto d = g_.direction(fx - x, fy - y, 9)) { // ($A0B8E takes from - to)
             o_.frame = ((((*d - 0x10) >> 5) + 8) ^ 0xf) & 0xf;
         }
     }
@@ -1263,7 +1265,7 @@ public:
         const int index = std::clamp(s_.target, 0, object_slots - 1);
         const auto& t = w_.objects.slots[std::size_t(index)];
         const auto next = [&] {
-            if (++s_.target >= object_slots) s_.target = 0;
+            if (++s_.target >= scanned_slots) s_.target = 0;
             return -1;
         };
         if (!t.used || whole(t.x) < 0) return next();

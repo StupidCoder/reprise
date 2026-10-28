@@ -231,8 +231,9 @@ int run(int argc, char** argv) {
                     if (k != 0) s.land = B(b, r + 0x6e) != 0;
                     if (k == 0x2e || k == 0x61) s.homing_target = slot_of(std::uint32_t(L(b, r + 0x1a)));
                     if (k == 0x2d || k == 0x2e || k == 0x61) { s.thrust = L(b, r + 0x6a); s.wall_check = W(b, r + 0x32) != 0; }
-                    static const int by_offset[] = {0x4e, 0x4f, 0x54, 0x55, 0x69, 0x50, 0x51, 0x52, 0x3f, 0x40};
+                    static const int by_offset[] = {0x4e, 0x4f, 0x54, 0x55, 0x69, 0x50, 0x51, 0x52, 0x3f, 0x40, 0x48, 0x6a};
                     if (std::find(std::begin(by_offset), std::end(by_offset), k) != std::end(by_offset)) s.target = W(b, r + 0x5e) / 0x76;
+                    if (k == 0x48 || k == 0x6a) s.idle_frame = W(b, r + 0x32); // the hostage's standing picture
                 }
                 s.shot_by_roster = std::min((W(b, r + 0x5e) & 0xfff) / 12, 8) % 8; s.shot_by_mark = B(b, r + 0x5d);
                 const auto building = std::uint32_t(L(b, r + 0x70));
@@ -288,6 +289,8 @@ int run(int argc, char** argv) {
             world.saved_frame = W(before, 0x817b8);
             world.phase = W(before, 0x80626);
             world.objects.enemies = W(before, 0x81f5e);
+            world.objects.full = W(before, 0x826ea) != 0;
+            world.objects.full_below_30 = W(before, 0x826ec) != 0;
             for (std::uint32_t n = 0; n < 2; ++n) {
                 world.grenades_in_air[n] = B(before, 0x81df0 + n);
                 world.rockets_in_air[n] = B(before, 0x81df4 + n);
@@ -423,15 +426,22 @@ int run(int argc, char** argv) {
                     report(i, "kind", o.kind, expected.kind);
                     continue;
                 }
+                // An enemy tank's turret with no target turns one step either
+                // way at random (every 16th tick, $99AE8).
+                const bool turret_wander = o.graphic == 0xd2 && expected.graphic == 0xd2 &&
+                                           (((o.frame - expected.frame) & 15) == 2 || ((o.frame - expected.frame) & 15) == 14);
+                // The hostage's heading wobbles at random (as a civilian's,
+                // $9912A); a held one stays in place.
+                const bool hostage = o.kind == 0x48 || o.kind == 0x6a;
                 const std::pair<const char*, std::pair<long, long>> common[] = {
                     {"x", {o.x, expected.x}}, {"y", {o.y, expected.y}}, {"graphic", {o.graphic, expected.graphic}},
-                    {"frame", {o.frame, expected.frame}}, {"heading", {n.heading, e.heading}},
+                    {"frame", {turret_wander ? expected.frame : o.frame, expected.frame}}, {"heading", {hostage ? e.heading : n.heading, e.heading}},
                     {"state", {n.state, e.state}}, {"layer", {o.layer, expected.layer}}, {"kind", {o.kind, expected.kind}},
                     {"height", {o.height, expected.height}}, {"aim_x", {n.aim_x, e.aim_x}}, {"aim_y", {n.aim_y, e.aim_y}}};
                 // A shot or rocket the native side made in a tick where an
                 // enemy's random choices differed (the original's slot is
                 // still free): by chance.
-                if (!was_used[std::size_t(i)] && (o.kind == 6 || o.kind == 0x21 || o.kind == 3) &&
+                if (!was_used[std::size_t(i)] && (o.kind == 6 || o.kind == 0x21 || o.kind == 3 || o.kind == 0x2d) &&
                     (!expected.used || std::int16_t(std::uint32_t(expected.x) >> 16) < 0)) {
                     ++chance_shots;
                     continue;
@@ -442,8 +452,8 @@ int run(int argc, char** argv) {
                     ++created_effects;
                     continue;
                 }
-                if (handled[std::size_t(i)] == 6 && o.kind == 0x3d) {
-                    // A civilian's heading wobbles at random (0-14 either way)
+                if (handled[std::size_t(i)] == 6 && (o.kind == 0x3d || o.kind == 0x3e || o.kind == 0x46 || o.kind == 0x53)) {
+                    // A civilian's heading (all four variants) wobbles at random (0-14 either way)
                     // each tick: position and heading by range, the rest exact.
                     const auto& was = walkers_before[std::size_t(i)];
                     const bool new_place = n.waypoint_x != e.waypoint_x || n.waypoint_y != e.waypoint_y;
@@ -455,7 +465,34 @@ int run(int argc, char** argv) {
                     ++random_skips;
                     continue;
                 }
-                if (handled[std::size_t(i)] == 6 && o.kind == 0x18) {
+                {
+                    // The end pose a recruit picks in the first tick after the
+                    // phase ends ($96658) is random: salute, jump or arms.
+                    const auto pose = [](int g) { return g == 0x9f || g == 0x41 || g == 0x38; };
+                    const auto& was = walkers_before[std::size_t(i)];
+                    (void)was;
+                    if (o.kind == 0 && pose(o.graphic) && pose(expected.graphic) && o.graphic != expected.graphic) {
+                        ++random_skips;
+                        continue;
+                    }
+                }
+                if (hostage) {
+                    // Its heading wobbles (so the place, by range: 2 pixels),
+                    // and a standing one picks its picture at random every
+                    // 16th tick ($99106).
+                    if (std::abs(o.x - expected.x) > 0x20000 || std::abs(o.y - expected.y) > 0x20000)
+                        report(i, "hostage place range", o.x / 65536, expected.x / 65536);
+                    report(i, "hostage graphic", o.graphic, expected.graphic);
+                    if (o.graphic != 0xda || expected.graphic != 0xda) report(i, "hostage frame", o.frame, expected.frame);
+                    report(i, "hostage kind", o.kind, expected.kind);
+                    report(i, "hostage waypoint x", n.waypoint_x, e.waypoint_x);
+                    report(i, "hostage waypoint y", n.waypoint_y, e.waypoint_y);
+                    report(i, "hostage target", n.target, e.target);
+                    report(i, "hostage riding", n.carried, e.carried);
+                    ++random_skips;
+                    continue;
+                }
+                                if (handled[std::size_t(i)] == 6 && o.kind == 0x18) {
                     // The spawn point's timer is drawn at random (10-265).
                     const auto& was = walkers_before[std::size_t(i)];
                     if (e.state_timer > was.state_timer && n.state_timer > was.state_timer) { // drawn this tick
@@ -641,10 +678,19 @@ int run(int argc, char** argv) {
             report(-1, "skill max", world.skill_max, W(after, 0x8062c));
             report(-1, "grenades in the air", world.grenades_in_air[0], B(after, 0x81df0));
             report(-1, "rockets in the air", world.rockets_in_air[0], B(after, 0x81df4));
+            report(-1, "no free slot", world.objects.full, W(after, 0x826ea) != 0);
+            report(-1, "no free slot below 30", world.objects.full_below_30, W(after, 0x826ec) != 0);
             report(-1, "squad grenades", world.squads[0].grenades, W(after, 0x81f4c));
             report(-1, "squad rockets", world.squads[0].rockets, W(after, 0x81f52));
             report(-1, "blast ring write", world.blast_write, int((std::uint32_t(L(after, 0x826a8)) - 0x82498) / 4));
             report(-1, "kills of recruit 0", world.kills[0], W(after, 0x8066e));
+            // The ranks on the roster (the top-rank power-up raises them; the
+            // trace holds the first three places).
+            for (int k = 0; k < 8; ++k) {
+                const auto& w = world.walkers[std::size_t(k)];
+                const auto roster = std::uint32_t(L(after, 0xfdb2c + std::uint32_t(k) * 0x76 + 0x46));
+                if (world.objects.slots[std::size_t(k)].used && roster && roster + 2 < 0x80680) report(k, "rank", w.rank, B(after, roster + 2));
+            }
             // The frames up to the next tick: the hold timer, and the fire
             // control while the right button is held.
             if (!next_before.empty() && amiga::read_be16(trace, at + 2) == tick + 1) {

@@ -27,6 +27,7 @@ std::vector<int> draw_list(MissionObjects& objects, Camera snapshot, int directi
         }
         if (o.removed) {
             o = GameObject{};
+            objects.full = objects.full_below_30 = false;
             continue;
         }
         o.on_screen = false;

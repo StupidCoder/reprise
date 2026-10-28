@@ -24,7 +24,6 @@ constexpr std::uint32_t widths_header = 0xa9d46;    // HOME … AWAY
 // Where the original loads the pictures the frames lie in.
 constexpr std::uint32_t at_font = 0x57f60;    // FONT.RAW (after its 32 colour bytes)
 constexpr std::uint32_t at_sheet = 0x3294a;   // rankfont.lbm, hills.lbm (copied there)
-constexpr std::uint32_t at_picture = 0x75f60; // the RAW screens
 
 } // namespace
 
@@ -251,7 +250,7 @@ void FrontEnd::start_intro() {
     loaded_.clear();
     loaded_.emplace(at_font, data::read_raw_screen(content_.read("font.raw", 1)));
     std::vector<Step> steps;
-    const auto once = [this](std::function<void()> f) { return [f](const app::GameInput&) { f(); return true; }; };
+    const auto once = [](std::function<void()> f) { return [f](const app::GameInput&) { f(); return true; }; };
     steps.push_back(once([this] { song_ = 1; warx_ = true; music_fade_ = false; })); // $86FDA + song 1
     // The text page, 150 frames.
     steps.push_back(once([this] { show_text_page(0x80000 + program_long(0x9d03c)); }));

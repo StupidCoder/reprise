@@ -1050,8 +1050,13 @@ files RNC-packed. The image set is a cracked copy (CSL intro loaded by disk
    Since: the hill's graves and the recruits walking down the road
    (rebuilt from `$A5C3A`/`$A5DC4`/`$A5EEE` and their tables), saves listed
    by mission and phase, a recording of map 21 (turrets, jeeps) that the
-   vehicles replay without differences. Open: hostage and power-up
-   recordings; the parallax bands and the debrief's scrolling are laid out
+   vehicles replay without differences. Hostage and power-up recordings
+   (map 35: held, following, rescued into the tent and the won phase; map
+   19: both power-ups) replay without rule differences after the fixes
+   they found (slot latches `$826EA`/`$826EC`, turret aim `$A0B8E` from−to,
+   the enemy tank's search, the hostage's picture, scans wrapping at 43,
+   the end pose); `tools/replay_all.py` replays every recording. Open: the
+   parallax bands and the debrief's scrolling are laid out
    from captures; saves are named by mission/phase (the original lets the
    player type a name; the shell has no text entry); joining squads not
    tried headless.

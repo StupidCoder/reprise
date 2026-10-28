@@ -142,14 +142,7 @@ int release_civilian(World& world, int from, int kind) {
         world.objects.enemies >= 10) {
         return -1;
     }
-    int slot = -1;
-    for (int i = 29; i >= 0; --i) { // $9819A: the highest free slot below 30
-        const auto& f = world.objects.slots[std::size_t(i)];
-        if (!f.used || whole(f.x) < 0) {
-            slot = i;
-            break;
-        }
-    }
+    const int slot = free_slot_below_30(world);
     if (slot < 0) return -1;
     auto& o = world.objects.slots[std::size_t(slot)];
     auto& w = world.walkers[std::size_t(slot)];

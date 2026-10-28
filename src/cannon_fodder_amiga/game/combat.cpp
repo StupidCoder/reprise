@@ -217,6 +217,7 @@ private:
 } // namespace
 
 int allocate_slot(World& world) {
+    if (world.objects.full) return -1;
     for (int i = 42; i >= 0; --i) {
         // (An object with a negative x counts as free, as in the original.)
         const auto& o = world.objects.slots[std::size_t(i)];
@@ -228,10 +229,12 @@ int allocate_slot(World& world) {
         world.attachments[std::size_t(i)] = Attachment{};
         return i;
     }
+    world.objects.full = true;
     return -1;
 }
 
 int allocate_pair(World& world) {
+    if (world.objects.full) return -1;
     const auto is_free = [&](int i) {
         const auto& o = world.objects.slots[std::size_t(i)];
         return !o.used || whole(o.x) < 0;
@@ -247,6 +250,17 @@ int allocate_pair(World& world) {
         }
         return i;
     }
+    world.objects.full = true;
+    return -1;
+}
+
+int free_slot_below_30(World& world) {
+    if (world.objects.full_below_30) return -1;
+    for (int i = 29; i >= 0; --i) {
+        const auto& o = world.objects.slots[std::size_t(i)];
+        if (!o.used || whole(o.x) < 0) return i;
+    }
+    world.objects.full_below_30 = true;
     return -1;
 }
 
