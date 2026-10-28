@@ -34,6 +34,8 @@ struct PanelState {
     int selected_squad{};
     std::array<int, 3> soldiers{};  // $815E0
     std::array<int, 3> grenades{}, rockets{};
+    std::array<int, 3> weapon{};    // $821CC: 1 grenades, 3 rockets
+    bool marking{};                 // $821D4: names are being picked (the split)
     std::array<int, 3> icon{};      // $81F58 ($88E30): 0 one soldier, 1 more; vehicles open
     std::vector<PanelSoldier> roster; // in roster order
     bool globe{true}; // every mission but the last ($88454)
@@ -62,7 +64,17 @@ private:
 // 16 + index), 48 x 224, row by row, built as at the start of a mission
 // ($88566): all colour 15, every squad's block ($88C6A; a later squad 8
 // lines below the previous one's last bar), and the globe ($88472).
-// Ammunition counts are not drawn yet (open: $892FC).
+// The ammunition counts as $892FC.
 std::vector<std::uint8_t> compose_panel(const PanelArt& art, const PanelState& state);
+
+// The hill's column ($A63BA): HEROES (the hall of fame, five places) and
+// SQUAD (the recruits going into the phase), 48 x 224 like the panel.
+struct HillColumn {
+    struct Entry {
+        int recruit{}, rank{}, kills{};
+    };
+    std::vector<Entry> fame, squad;
+};
+std::vector<std::uint8_t> compose_hill_column(const PanelArt& art, const HillColumn& column);
 
 } // namespace fodder::game

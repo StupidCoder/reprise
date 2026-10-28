@@ -81,6 +81,8 @@ bool update_enemy(World& world, const Terrain& terrain, const ProgramTables& tab
 // $9B48E (kind $24): a kneeling soldier with a rocket launcher.
 bool update_bazooka(World& world, const Terrain& terrain, const ProgramTables& tables, int slot);
 // $9A2A6 (kind $3D): a civilian walking about.
-bool update_civilian(World& world, const Terrain& terrain, const ProgramTables& tables, int slot);
+bool update_civilian(World& world, const Terrain& terrain, const ProgramTables& tables, int slot);   // $3D, $3E, $46, $53
+bool update_bystander(World& world, const Terrain& terrain, const ProgramTables& tables, int slot);  // $44, $5B
+bool update_hostage(World& world, const Terrain& terrain, const ProgramTables& tables, int slot);    // $48, $6A
 
 } // namespace fodder::game

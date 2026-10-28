@@ -46,7 +46,7 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
 | Mindwalker | Amiga | `Mind Walker (1986)(Commodore).adf` (SHA-256 `2e83a67a…a8969c`) | disk import and decoded assets with launcher viewer; title, world menu and new game playable (mouse), matching the original frame for frame and pen for pen; world generator verified against the original; the whole game playable (landscape, tunnel, arena, psyche screen, Hall of Fame, saved worlds) and checked against the original; quick save and VHS look |
 | Marble Madness | Amiga | `Marble_Madness.adf` (MD5 `735dc697d64b3eeaa000778eb0b1153a`) | disk import (both encrypted programs decrypted, checked against the original's memory); asset previews; all six courses complete in play (physics, covers, creatures, special regions, music and effects; each compared with the original update for update from start to goal); front end for one player (options, introductions, bonus, game over, the end) |
 | Wizball | C64 | `Wizball.g64` (MD5 `73e1a136da4b6972d39f00817b86983e`) | disk import, asset decoding with launcher previews; play rebuilt and checked in lockstep (places, enemies, catellite, tunnels, lives, bonus wave, Wizlab, level flight, round end, sound and music); front end, high scores and keys rebuilt |
-| Cannon Fodder | Amiga | three ADFs, `Cannon Fodder (1993)(Virgin)(Disk N of 3)[cr CSL].adf` (SHA-256 `2b01cbc9…`, `9089815b…`, `87ea9c1d…`; a cracked copy) | import of all three disks (Sensible disk format, RNC unpacking) and decoded screens, sprite sheets, tile sets, colours and the 72 mission maps with launcher viewer; map view, camera, tile drawer, mission set-up, object drawing, panel, squad walking, shooting, deaths, enemy soldiers, grenades, rockets, huts, civilians, mission objectives, music and sound effects rebuilt and checked against the original; maps 1-10 play in the shell (mouse); no front end, recruits or vehicles yet |
+| Cannon Fodder | Amiga | three ADFs, `Cannon Fodder (1993)(Virgin)(Disk N of 3)[cr CSL].adf` (SHA-256 `2b01cbc9…`, `9089815b…`, `87ea9c1d…`; a cracked copy) | import of all three disks (Sensible disk format, RNC unpacking) and decoded screens, sprite sheets, tile sets, colours and the 72 mission maps with launcher viewer; map view, camera, tile drawer, mission set-up, object drawing, panel, squad walking, shooting, deaths, enemy soldiers, grenades, rockets, huts, civilians, mission objectives, music and sound effects rebuilt and checked against the original; the whole game plays in the shell (mouse): all 72 phases with vehicles, the campaign and the front end (some screens laid out from captures; see milestones) |
 | Rock 'n Roll | Amiga | — | planned |
 | Wings of Fury | Amiga | `Wings_of_Fury_v1.0_1990_Broderbund_cr_Hysteria.adf` (SHA-256 `638d9a9d…4620044`, a cracked copy) | disk import and decoded assets with launcher viewer (pictures, all 12 shape libraries, palettes, sounds, texts); the whole game playable and checked against the original: front end, all fifteen missions (islands, airfields, all four enemy ships, night), the promotion fireworks, game over and hall of fame, music, saved games (R&R), the original's keys and debug mode; cheats and VHS look |
 | Tower of Babel | Amiga | — | planned; original interpretive shell cover added, importer and gameplay not implemented |
@@ -1036,8 +1036,22 @@ files RNC-packed. The image set is a cracked copy (CSL intro loaded by disk
    by the leader's distance and the fade between songs; the end songs
    from `jon` (phase/mission complete at once, failed after 10 ticks).
    Checked against the reference's state in mission 1 and a forced loss.
-   Open: the host cursor over the picture, the recruit pool's game-over
-   song, the engine sound's channel 1.
+   Open: the recruit pool's game-over song (done in 14), the engine
+   sound's channel 1 (done in 14).
+14. The whole game (2026-10-28, in progress): every object kind of the 72
+   maps rebuilt (vehicles: jeeps, tanks, turrets, helicopters, missiles;
+   mines, traps, holes, civilians, hostages, power-ups, the last mission;
+   end texts; `.analysis/cannon_fodder_amiga/kinds.md`); the campaign
+   (roster, pool of 15 a mission, names, promotions, heroes, hall of fame,
+   score); the front end (intro with its text and pictures, the hill with
+   its column, the parallax intro, the briefing, the debrief, the ending,
+   LOAD/SAVE); the panel's counts and squads (select, pick, split, join);
+   engine sounds. Playable from the presentation to the ending in the shell.
+   Open: no recording yet checks a vehicle, hostage or power-up; the hill's
+   graves and the recruits walking down the road; the parallax bands and
+   the debrief's scrolling are laid out from captures (their copper and
+   blitter work is not traced); LOAD/SAVE keeps one game (the original
+   names and lists saves); joining squads not tried headless.
 
 Open: the panel's ammunition counts, lit-box condition, vehicle icons and
 mini-map; object drawing with hidden lines, negative/positive layers and y

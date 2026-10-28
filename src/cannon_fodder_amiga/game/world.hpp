@@ -61,6 +61,26 @@ struct Walker {
     int spin{-1};         // [$3A] while falling: the body's turning direction, -1 none; writhing: ticks
     int fall_count{};     // [$2A] ticks of the fall; writhing: ticks to the next sound
     bool shadowed{};      // [$58] the falling body has its shadow (or had)
+    int hits{};           // [$74] byte: big blasts taken by a sturdy building; a hostage's tent count
+    int idle_frame{};      // [$32] a hostage's frame standing still
+    // Vehicles (vehicles.cpp)
+    int vehicle_type{};   // [$6F] byte: 0, 1, 9 turrets; 2, 3, 10 ground vehicles; 4 tanks; 5-8 helicopters
+    bool is_vehicle{};    // [$65] byte
+    int rest_x{}, rest_y{}; // [$46], [$48] an enemy helicopter's home
+    int patrol{};         // [$62] an enemy helicopter's patrol count
+    bool fire_held{};     // [$57] a vehicle's shot waits for a free slot
+    bool fire_request{};  // [$54] byte: fire now
+    bool barrel{};        // [$5B] the gun's other barrel next
+    bool gun_toggle{};    // [$55] the gun fires every second press
+    int sink{};           // [$56] byte: sinking into a river bank
+    bool land{};          // [$6E] a helicopter told to land; a turret entered
+    bool crashing{};      // a helicopter going down (the original marks +$26 with $7171)
+    int boarding{-1};     // [$66] a soldier's vehicle to get into
+    int vehicle{-1};      // [$6A] the vehicle a soldier sits in
+    int homing_target{-1}; // [$1A] a homing missile's target
+    std::int32_t thrust{}; // [$6A] a missile's acceleration (16.16)
+    bool wall_check{};    // [$32] a missile explodes on walls
+    int flags75{};        // [$75] byte
 };
 
 struct Squad {
@@ -139,16 +159,22 @@ struct World {
     std::array<Squad, 3> squads{};
     int selected_squad{};
     int leader_slot{-1};          // $81554: the selected squad's leader
+    int driven_vehicle{-1};       // $82798: the vehicle the selected squad sits in
     AnimationClock clock;
     Camera camera;
     int pointer_x{}, pointer_y{}; // game pointer coordinates ($8CABA/$8CABC)
     bool firing{};                // $81DEC: the squad has been told to fire
     bool both_buttons{};          // $8147E
     int frame_counter{};          // $80618 (vertical blanks)
+    int tick_counter{};           // $8061A (mission ticks)
+    bool right_held{};            // $81478: the right button is down
+    bool left_held{};             // $81476: the left button is down
+    bool vehicle_click_latched{}; // $81482: a click on the own vehicle was taken (until the button is let go)
     std::array<int, 8> roster_slots{-1, -1, -1, -1, -1, -1, -1, -1}; // $80664: each recruit's soldier slot
     std::array<BulletState, object_slots> bullets{};
     std::array<Attachment, object_slots> attachments{};
     int bullets_alive{};          // $81DF2
+    int hit_flag{};               // $81F4A: the last hit test against objects: 1 solid, -1 hurt, 0 none
     SquadFire fire;
     // The original keeps these in globals that carry over from one
     // soldier's update to the next; a leftover changes the next soldier's
@@ -178,8 +204,19 @@ struct World {
     // The mission
     enum class Outcome { playing, won, lost };
     Outcome outcome{Outcome::playing}; // $81DCC won, $81DCA lost
+    bool failed_objective{};           // $81DD2: lost by an objective (a civilian or hostage killed, …)
+    int end_count{};                   // $81DCE: ticks of the end left (0 not started, -1 run out)
     std::array<bool, 8> objectives{};  // $82A08…$82A16: the phase's objectives 1-8 (program $A4D8E)
     bool civilian_home{};              // $82A1C (objective 8)
+    int civilian_house{-1};            // $82A18: the civilians' house ($5A)
+    int rescue_tent{-1};               // $82B96: the hostages' rescue tent ($49)
+    bool hostage_held{};               // $8287A: a hostage is held (guarded or following)
+    int markers{}, markers_taken{};    // $82A28, $82A2A: the last mission's places (kind $63) and those taken this tick
+    int last_marker_recruit{-1};       // $82A70
+    int time_left{100};                // $82A76: the last phase's count on the panel
+    int time_step{};                   // $82A74: ticks to the next count (40)
+    int doom_count{};                  // $82A78
+    bool panel_dirty{};                // $821B8 = 0: the panel's names and ranks are drawn again
     int buildings_left{};              // $81DD0
     int skill_min{}, skill_max{}, skill_next{}, skill_step{1}; // $8062A, $8062C, $8062E, $80630
     int spawns{};                      // $80650: every 16th raises skill_max (to 30)
@@ -190,9 +227,34 @@ struct World {
     bool other_squad{};           // $81FCE: the update is not the selected squad's (enemies: no target)
     bool walked{};                // $8213E: the enemy stepped this tick
     int last_mode{2};             // $81F64: the last soldier's squad mode, which enemies read too
+    // Vehicles
+    int skill_average{};          // $80628: (skill_min + skill_max) / 2 at the phase's start
+    std::array<int, 2> launch_offset{}; // $82716/$82718: where a missile starts from the launcher
+    bool homing_ready{};          // $82A80: the turret has a target for a homing missile
+    int homing_target{-1};        // (a5) the turret's target
+    int target_height{};          // $82A90
+    bool enemy_helicopter{};      // $82702: the helicopter routine runs for the enemy's
+    int rescue_x{-1}, rescue_y{}; // $82A6C/$82A6E: where the last mission's helicopters fly to (-1 none yet)
+    int target_distance2{};       // $82704: an enemy vehicle's distance to its recruit
+    std::array<int, 3> boarding_count{}; // $82A02: ticks until the squad is put in its vehicle
+    // The panel's split: recruits picked by roster place (+9 bit 0) and how
+    // the grenades and rockets are shared ($85B0A, $85B0C: 0 all go, 1
+    // half, 2 none).
+    std::array<bool, 8> marked{};
+    int grenade_split{1}, rocket_split{1};
+    struct Engine {
+        bool locked{};            // $82A00: the driven vehicle's engine has the channel
+        int volume{}, effect{}, param{}; // $829EE, $829F0, $829F2
+    } engine;                     // the loudest engine this tick ($A3B60)
     std::vector<SoundRequest> sounds; // this tick's, in order
     std::mt19937 random{0x43464f44};
 };
+
+// $81DD2: a phase objective has failed (a civilian or hostage killed, …).
+inline void fail_objective(World& world) {
+    world.outcome = World::Outcome::lost;
+    world.failed_objective = true;
+}
 
 inline void request_sound(World& world, int effect, int priority, int slot) {
     world.sounds.push_back({effect, priority, slot});

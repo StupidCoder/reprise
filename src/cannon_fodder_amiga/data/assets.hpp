@@ -26,6 +26,7 @@ public:
 
     std::optional<std::filesystem::path> find(std::string_view name, int disk) const;
     std::vector<std::uint8_t> read(std::string_view name, int disk) const; // throws when missing
+    const std::filesystem::path& folder() const { return folder_; }
     // Names of the installed files on one disk, sorted.
     std::vector<std::string> names(int disk) const;
 

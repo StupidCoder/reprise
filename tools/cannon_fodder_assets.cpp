@@ -60,6 +60,7 @@
 #include "cannon_fodder_amiga/game/dispatch.hpp"
 #include "cannon_fodder_amiga/game/explosives.hpp"
 #include "cannon_fodder_amiga/game/mission.hpp"
+#include "cannon_fodder_amiga/game/front_end.hpp"
 #include "cannon_fodder_amiga/game/module.hpp"
 #include "cannon_fodder_amiga/game/scenery.hpp"
 #include "cannon_fodder_amiga/sound/board.hpp"
@@ -733,7 +734,10 @@ int run(int argc, char** argv) {
         // input (picture pixels; l, r or b buttons), the last picture saved.
         int first_phase = 0;
         for (int a = 5; a < argc; ++a)
-            if (std::string(argv[a]).rfind("phase=", 0) == 0) first_phase = std::stoi(std::string(argv[a]).substr(6));
+            if (std::string(argv[a]).rfind("phase=", 0) == 0) {
+                const auto v = std::string(argv[a]).substr(6);
+                first_phase = v == "new" ? -1 : std::stoi(v); // new: the whole game with its screens
+            }
         auto game = fodder::game::start_game(argv[2], first_phase);
         struct Hold { int from, to, x, y; bool left, right; };
         std::vector<Hold> holds;
@@ -970,6 +974,73 @@ int run(int argc, char** argv) {
             std::printf("panel pixels %d, differing %d\n", game::panel_width * game::panel_height, bad);
             return bad == 0 ? 0 : 1;
         }
+        return 0;
+    }
+    if (command == "front" && argc == 6) {
+        // Research: a front-end screen after some frames, without input:
+        // intro, hill, briefing (a new game's first phase).
+        using namespace fodder;
+        const data::Content content(argv[2]);
+        const auto program = content.read("fodderc", 1);
+        const game::MissionTables tables(program);
+        game::Campaign campaign;
+        campaign.start(tables);
+        const game::PanelArt panel(program, amiga::read_ilbm(content.read("pstuff.lbm", 1)));
+        game::FrontEnd front(content, program, panel);
+        campaign.call_up(2);
+        const std::string which = argv[3];
+        if (which == "intro") front.start_intro();
+        else if (which == "hill") {
+            for (int k = 0; k < 40; ++k) campaign.heroes.push_back({k, k % 16}); // research: 40 graves
+            front.start_hill(campaign);
+        }
+        else if (which == "debrief") { campaign.roster[0].on_map = campaign.roster[1].on_map = true; front.start_debrief(campaign); }
+        else if (which == "ending") front.start_ending();
+        else front.start_briefing(campaign, tables);
+        app::GameInput input;
+        const int frames = std::stoi(argv[4]);
+        for (int f = 0; f < frames && front.active(); ++f) front.tick(input);
+        platform::save_png(front.picture(), argv[5]);
+        std::printf("%s after %d frames: %s\n", which.c_str(), frames, front.active() ? "running" : "done");
+        return 0;
+    }
+    if (command == "graphics" && argc == 7) {
+        // Research: frame groups first..last of a map's landscape, one row
+        // each (up to 16 frames, 48 x 48 cells), for naming object kinds.
+        using namespace fodder;
+        const data::Content content(argv[2]);
+        const int number = std::stoi(argv[3]);
+        const int disk = data::map_disk(number);
+        const int first = std::stoi(argv[4], nullptr, 0), last = std::stoi(argv[5], nullptr, 0);
+        const auto map = data::read_map(content.read("mapm" + std::to_string(number) + ".map", disk));
+        const auto land = map.base_set.substr(0, 3);
+        const game::ObjectSheets sheets{amiga::read_ilbm(content.read(land + "army.lbm", disk)),
+                                        amiga::read_ilbm(content.read(land + "copt.lbm", disk))};
+        const auto palette = data::read_palette(content.read(land + "base.pal", disk));
+        const game::FrameTables frames(content.read("fodderc", 1));
+        constexpr int cell = 48;
+        const int rows = last - first + 1;
+        std::vector<std::uint8_t> pixels(std::size_t(16 * cell * rows * cell), 0);
+        for (int g = first; g <= last; ++g) {
+            for (int f = 0; f < 16; ++f) {
+                const auto info = frames.frame(g, f);
+                if (!info) break;
+                game::MissionObjects objects;
+                auto& o = objects.slots[0];
+                o.used = true;
+                o.graphic = g;
+                o.frame = f;
+                o.x = (f * cell + 8) << 16;
+                o.y = ((g - first) * cell + 40) << 16;
+                game::ObjectTarget target{pixels, 16 * cell, rows * cell, 0, 0, 0};
+                game::draw_objects(target, objects, {0}, frames, sheets);
+            }
+        }
+        platform::Image image(16 * cell, rows * cell);
+        for (std::size_t i = 0; i < pixels.size(); ++i) {
+            image.pixels[i] = pixels[i] ? data::to_color(palette[pixels[i] & 15]) : platform::Color{40, 40, 60, 255};
+        }
+        platform::save_png(image, argv[6]);
         return 0;
     }
     if (command == "objects" && (argc == 5 || argc == 6)) {

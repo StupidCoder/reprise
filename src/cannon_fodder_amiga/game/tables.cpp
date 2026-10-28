@@ -27,6 +27,7 @@ SoldierTables::SoldierTables(std::span<const std::uint8_t> program) : program_(p
     for (std::size_t i = 0; i < 8; ++i) firing_speed_[i] = word(program, 0x9c4f8 + std::uint32_t(i) * 2);
     need(program, 0xa399c + 8);
     for (std::size_t i = 0; i < 8; ++i) cries_[i] = program[file_offset(0xa399c) + i];
+    for (std::size_t i = 0; i < 8; ++i) rotor_[i] = word(program, 0x955d0 + std::uint32_t(i) * 2);
 }
 
 int SoldierTables::picture(int side, int offset) const {
@@ -98,6 +99,7 @@ MissionTables::MissionTables(std::span<const std::uint8_t> program) : program_(p
     need(program, 0xa4f70 + phases * 4);
     need(program, 0xa4d8e + phases * 4);
     for (std::size_t i = 0; i < 16; ++i) avoid_[i] = program[file_offset(0xa22a8) + i] != 0;
+    for (std::size_t i = 0; i < 16; ++i) shelter_[i] = program[file_offset(0xa22b8) + i] != 0;
     need(program, 0xa4c1e + 2 * 24);
     for (std::size_t i = 0; i < mission_phases_.size(); ++i) {
         mission_phases_[i] = amiga::read_be16(program, file_offset(0xa4c1e) + 2 * i);

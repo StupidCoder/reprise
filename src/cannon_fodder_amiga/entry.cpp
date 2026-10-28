@@ -13,7 +13,7 @@ app::GameEntry entry() {
         .media = "three disk images (ADF), one after another or together",
         .import = import::import_disk,
         .previews = [](const std::filesystem::path& content) { return data::previews(content); },
-        .start = [](const std::filesystem::path& content) { return game::start_game(content, 0); },
+        .start = [](const std::filesystem::path& content) { return game::start_game(content); },
         .progress = "The first ten maps play with the mouse (left button walks, right fires, both throw a grenade or "
                     "fire a rocket; the panel's icons choose grenade or rocket), with the original's music and sound "
                     "effects. No front end, briefing, recruits or vehicles yet.",

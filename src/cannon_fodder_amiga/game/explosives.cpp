@@ -1,4 +1,5 @@
 #include "cannon_fodder_amiga/game/explosives.hpp"
+#include "cannon_fodder_amiga/game/vehicles.hpp"
 #include "cannon_fodder_amiga/game/combat.hpp"
 #include <cstdlib>
 
@@ -25,26 +26,6 @@ constexpr int graphic_none = 0x7c, graphic_fire = 0x8e, graphic_air_burst = 0xc0
 GameObject& object(World& w, int slot) { return w.objects.slots[std::size_t(slot)]; }
 Walker& walker(World& w, int slot) { return w.walkers[std::size_t(slot)]; }
 
-// $9814E: the first pair of free slots (an object with a negative x counts
-// as free, as in the original).
-int allocate_pair(World& world) {
-    const auto is_free = [&](int i) {
-        const auto& o = world.objects.slots[std::size_t(i)];
-        return !o.used || whole(o.x) < 0;
-    };
-    for (int i = 0; i < 42; ++i) {
-        if (!is_free(i) || !is_free(i + 1)) continue;
-        for (const int s : {i, i + 1}) {
-            world.objects.slots[std::size_t(s)] = GameObject{};
-            world.objects.slots[std::size_t(s)].used = true;
-            world.walkers[std::size_t(s)] = Walker{};
-            world.bullets[std::size_t(s)] = BulletState{};
-            world.attachments[std::size_t(s)] = Attachment{};
-        }
-        return i;
-    }
-    return -1;
-}
 
 void move(const GeometryTables& g, GameObject& o, Walker& w) { // $A0C9A
     if (w.speed == 0) return;
@@ -64,6 +45,7 @@ void head_for(const GeometryTables& g, const GameObject& o, Walker& w, int x, in
 // heading (the original works out a heading away from the blast for him
 // and then overwrites it with the explosion's own).
 void blast_soldiers(World& world, int blast, int left, int right, int top, int bottom) {
+    if (world.outcome != World::Outcome::playing) return; // ($82A92)
     const auto& b = object(world, blast);
     const auto& bw = walker(world, blast);
     for (const int i : world.roster_slots) {
@@ -85,8 +67,10 @@ void blast_soldiers(World& world, int blast, int left, int right, int top, int b
 }
 
 // $9D69A for explosions: every hittable object in the box (soldiers only
-// while writhing) is knocked over along the explosion's heading (state 5).
+// while writhing) is knocked over along the explosion's heading (state 5;
+// 7 for the big blasts of kind $59, which destroy vehicles and buildings).
 void blast_objects(World& world, const HitTables& hits, int blast, int left, int right, int top, int bottom) {
+    if (world.outcome != World::Outcome::playing) return; // ($82A92: off once the phase has ended)
     const auto& b = object(world, blast);
     const auto& bw = walker(world, blast);
     for (int i = 0; i < object_slots; ++i) {
@@ -99,7 +83,7 @@ void blast_objects(World& world, const HitTables& hits, int blast, int left, int
         if (b.height > hits.above(t.kind) + 8 + t.height || b.height + 11 < t.height) continue;
         auto& tw = walker(world, i);
         if (t.kind == kind_soldier && tw.state != 0xa) continue;
-        tw.state = 5;
+        tw.state = b.kind == 0x59 ? 7 : 5; // $9D75A: the big blasts mark 7
         tw.hit_timer = 0xff;
         tw.heading = bw.heading;
     }
@@ -283,9 +267,23 @@ bool launch_rocket(World& world, const ProgramTables& tables, int launcher) {
     r.height = 10;
     set_whole(r.y, whole(r.y) + 1);
     set_whole(r.x, whole(r.x) + 3);
-    // (Soldiers with flag bit 0 of +$75 fire homing rockets, kinds $2D/$61:
-    // not rebuilt yet.)
     r.kind = kind_rocket;
+    if (t.side == 0 && (tw.flags75 & 1)) {
+        // $9B616: a recruit with homing rockets: at what is near the pointer
+        // a homing missile, else a missile (not slowed by walls unless he is
+        // in squad 2 or 3).
+        const int target = homing_target_near_pointer(world, tables, t.side);
+        if (target >= 0) {
+            rw.homing_target = target;
+            r.kind = 0x61;
+            rw.thrust = 0x10000;
+            rw.state = 0;
+            rw.speed = sw.speed = 0;
+        } else {
+            r.kind = 0x2d;
+        }
+        rw.wall_check = t.squad != 0;
+    }
     world.attachments[std::size_t(slot)] = {launcher, t.kind};
     s.kind = kind_follower;
     r.side = s.side = t.side;

@@ -148,6 +148,22 @@ std::vector<std::uint8_t> compose_panel(const PanelArt& art, const PanelState& s
         // armed; the counts themselves are open).
         canvas.masked(selected && state.grenades[std::size_t(squad)] > 0 ? 0xc3 : 0xc4, 0, top + 14);
         canvas.masked(selected && state.rockets[std::size_t(squad)] > 0 ? 0xc5 : 0xc6, 0x20, top + 14);
+        // $892FC: the counts, centred in 13 pixels under the boxes (digits
+        // $AF…, lit $B9… for the weapon the squad has chosen).
+        const auto draw_count = [&](int value, int left, bool lit) {
+            if (value <= 0) return;
+            const std::string digits = std::to_string(std::min(value, 99));
+            int width = 0;
+            for (const char c : digits) width += art.byte(0xa9c46 + std::uint32_t(c));
+            int x = left + ((0xd - width) >> 1);
+            for (const char c : digits) {
+                canvas.masked((lit ? 0xb9 : 0xaf) + (c - '0'), x, top + 0x19);
+                x += art.byte(0xa9c46 + std::uint32_t(c));
+            }
+        };
+        const int w = state.weapon[std::size_t(squad)];
+        draw_count(state.grenades[std::size_t(squad)], 0, w == 1 && !state.marking);
+        draw_count(state.rockets[std::size_t(squad)], 0x24, w == 3 && !state.marking);
         // $89156: the squad icon.
         const auto icons = selected ? icons_selected : icons_other;
         canvas.masked(art.word(icons + std::uint32_t(state.icon[std::size_t(squad)]) * 2), 12, top + 14);
@@ -175,4 +191,43 @@ std::vector<std::uint8_t> compose_panel(const PanelArt& art, const PanelState& s
     return canvas.take();
 }
 
+std::vector<std::uint8_t> compose_hill_column(const PanelArt& art, const HillColumn& column) {
+    Canvas canvas(art);
+    canvas.fill(15);
+    const auto number = [&](int value, int y) { // $A65A0: digits $43… 4 apart, right to 48
+        const std::string digits = std::to_string(std::clamp(value, 0, 999));
+        int x = 0x30 - 4 * int(digits.size());
+        for (const char c : digits) {
+            canvas.masked(0x13 + c, x, y);
+            x += 4;
+        }
+    };
+    // $A63BA: the HEROES label and five bars (lit where the hall of fame has
+    // someone), the SQUAD label and eight bars (lit for the recruits going).
+    canvas.opaque(0xad, 0, 0);
+    const int famous = int(column.fame.size());
+    for (int k = 0, y = 0xe; y < 0x4a; ++k, y += 0xc) canvas.opaque(k < famous ? 0xa9 : 0xab, 0, y);
+    canvas.opaque(0xae, 0, 0x4a);
+    const int going = int(column.squad.size());
+    for (int k = 0, y = 0x58; y < 0xb8; ++k, y += 0xc) canvas.opaque(k < going ? 0xa9 : 0xab, 0, y);
+    // $89D90 / $9DEF6 with $81FE2 = 15: each recruit's rank, name and kills.
+    int y = 0x58;
+    for (const auto& r : column.squad) {
+        canvas.masked(r.rank + 9, 0, y);
+        draw_name(canvas, art, art.recruit_name(r.recruit), art.byte(name_fonts), y + 2);
+        number(r.kills, y + 2);
+        y += 0xc;
+    }
+    // $A64A8 with $81FE2 = -59: the hall of fame's names and kills.
+    y = 0xe;
+    for (const auto& f : column.fame) {
+        canvas.masked(f.rank + 9, 0, y);
+        draw_name(canvas, art, art.recruit_name(f.recruit), art.byte(name_fonts), y + 2);
+        number(f.kills, y + 2);
+        y += 0xc;
+    }
+    return canvas.take();
+}
+
 } // namespace fodder::game
+

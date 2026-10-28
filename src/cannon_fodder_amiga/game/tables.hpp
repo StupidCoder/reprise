@@ -23,12 +23,15 @@ public:
     int cry(int index) const { return cries_[std::size_t(index & 7)]; }
     // $9C4F8: walking speed while firing, by facing steps away from the heading.
     int firing_speed(int steps) const { return firing_speed_[std::size_t(steps & 7)]; }
+    // $955D0: a helicopter's rotor sound, one of eight at random each tick.
+    int rotor_sound(int index) const { return rotor_[std::size_t(index & 7)]; }
 
 private:
     std::vector<std::uint8_t> program_;
     std::array<std::int8_t, 16> turn_{};
     std::array<int, 8> firing_speed_{};
     std::array<int, 8> cries_{};
+    std::array<int, 8> rotor_{};
 };
 
 // Per-kind hit data: whether a kind can be hit ($801C2: 1 solid, 2 killable)
@@ -40,6 +43,8 @@ public:
     int width(int kind) const { return word(0x8029e, kind); }
     int above(int kind) const { return word(0x8037a, kind); }
     int below(int kind) const { return word(0x80456, kind); }
+    // $80532: what a homing missile can be aimed at (a helicopter's pointer).
+    int homing(int kind) const { return word(0x80532, kind); }
 
 private:
     int word(std::uint32_t table, int kind) const;
@@ -85,13 +90,16 @@ public:
     // $A4C1E: the phases of each of the 24 missions; true for a mission's
     // last phase ($80658 = 1 at $947EA).
     bool last_of_mission(int phase) const;
+    int mission_phases(int mission) const { return mission >= 0 && mission < 24 ? mission_phases_[std::size_t(mission)] : 1; }
     // $A22A8: terrain kinds a civilian does not choose to walk to.
     bool civilian_avoids(int attribute) const { return avoid_[std::size_t(attribute & 15)]; }
+    // $A22B8: terrain kinds that shelter a recruit from enemy vehicles.
+    bool sheltered(int attribute) const { return shelter_[std::size_t(attribute & 15)]; }
     static constexpr int phases = 72;
 
 private:
     std::vector<std::uint8_t> program_;
-    std::array<bool, 16> avoid_{};
+    std::array<bool, 16> avoid_{}, shelter_{};
     std::array<int, 24> mission_phases_{};
 };
 

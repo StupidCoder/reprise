@@ -1,4 +1,5 @@
 #include "cannon_fodder_amiga/game/walking.hpp"
+#include "cannon_fodder_amiga/game/vehicles.hpp"
 #include "amiga/adf.hpp"
 #include "cannon_fodder_amiga/game/combat.hpp"
 #include "cannon_fodder_amiga/game/explosives.hpp"
@@ -41,12 +42,20 @@ public:
           squad_(o_.squad >= 0 && o_.squad < 3 ? w.squads[std::size_t(o_.squad)] : no_squad_) {}
 
     bool update() {
-        if (s_.carried != 0) return false;
+        if (s_.carried != 0) return ride(w_, tables_all_, slot_); // $9A82C
+        if (s_.flags75 & 2) { // protected (a power-up): hits do not hold
+            if (s_.state <= 0x32) s_.state = 0;
+            s_.entering = 0;
+            s_.hit_timer = 0;
+        }
         if (const int handled = states(); handled >= 0) return handled != 0;
+        if (s_.state != 0) return true;
+        if (end_pose()) return true;
+        board(w_, tables_all_, slot_); // $9A87E
         const bool other_squad = squad_.merged_into < 0 && o_.squad != w_.selected_squad;
-        if (other_squad) return false; // AI comes later
-        w_.other_squad = false;
         w_.last_mode = squad_.mode;
+        if (other_squad) return squad_on_its_own();
+        w_.other_squad = false;
         if (w_.firing && !fire()) return false;
         // $96960 with $81FCE clear: straight to the walking branch, where
         // the firing and throwing poses have their own paths ($9699C).
@@ -59,6 +68,46 @@ public:
             }
             return walk_firing();
         }
+        return walk();
+    }
+
+    // $967B8: a squad that is not selected looks for enemies by itself (one
+    // candidate a tick, as the enemies do), aims at one it sees within 210
+    // (but now and then lets it go) and fires at its own pace; it walks its
+    // route meanwhile.
+    bool squad_on_its_own() {
+        w_.other_squad = true;
+        const int index = std::clamp(s_.target, 0, object_slots - 1);
+        const auto& t = w_.objects.slots[std::size_t(index)];
+        const auto next = [&] {
+            s_.fire_delay = 0;
+            if (++s_.target >= object_slots) s_.target = 0;
+        };
+        bool found = false;
+        if (t.used && whole(t.x) >= 0 && t.kind == 5 && w_.walkers[std::size_t(index)].state == 0 && !s_.wading) {
+            const int d = g_.distance(whole(t.x) - whole(o_.x), whole(t.y) - whole(o_.y));
+            if (d < 0xd2) {
+                found = d <= 0x28;
+                if (!found) {
+                    w_.target_distance = d;
+                    found = !t_.sight_blocked(whole(o_.x), whole(o_.y), whole(t.x), whole(t.y)) || d < 0x40;
+                }
+            }
+        }
+        if (found && (w_.random() & 0x1f) == 5) found = false;
+        if (!found) {
+            next();
+            return walk();
+        }
+        s_.aim_override = true;
+        s_.aim_x = whole(t.x);
+        s_.aim_y = whole(t.y) - 0xe;
+        if (s_.fire_delay == 0) {
+            s_.fire_delay = int(w_.random() & 0xf) + 1;
+            if ((w_.random() & 0x3f) == 0x2a) s_.fire_delay = 1;
+        }
+        if (s_.fire_delay > 0 && --s_.fire_delay == 0) s_.fire_delay = -1;
+        if (s_.fire_delay < 0) use_weapons(true, false, false);
         return walk();
     }
 
@@ -120,22 +169,39 @@ public:
         return true;
     }
 
-    bool update_civilian(const MissionTables& mission) { // $9A2A6
+    // $9A2A6 / $9A2DA / $9A31A / $9A290: civilians ($3D, $3E, the calling
+    // $46, the standing $53). They walk home to the civilians' house when
+    // there is one, wander otherwise; $3E throws spears once civilians have
+    // been killed, $46 always may.
+    bool update_civilian(const MissionTables& mission) {
+        if (o_.kind == 0x46) o_.side = 1;
         if (s_.state != 0) return civilian_dies();
         o_.side = 2;
         o_.graphic = 0xd0;
-        // ($9A380, the walk home of objective 8, is not rebuilt: no phase
-        // of the first ten has it.)
-        civilian_wander(mission);
-        s_.speed = 6;
-        // $9A506
+        if (o_.kind == 0x53) return true;
+        if (o_.kind == 0x46) {
+            if (w_.landscape == 3) call_out(0x26);
+            if (w_.landscape == 4) call_out(0x1f);
+        }
+        const int home = walk_home();
+        if (home > 0) return true;
+        if (home < 0) civilian_wander(mission);
+        s_.speed = o_.kind == 0x3d ? 6 : o_.kind == 0x3e ? 10 : 0xc;
+        civilian_step();
+        if (o_.kind == 0x46 || (o_.kind == 0x3e && w_.civilians_angry)) throw_at_leader();
+        return true;
+    }
+
+    // $9A506 / $9A5A8 / $9A5D2: a civilian's step towards the waypoint (a
+    // wobble except kind $44), the terrain, the walking picture.
+    void civilian_step() {
         save_position();
         if (s_.wait != 0) {
             --s_.wait;
         } else if (!head_for(s_.waypoint_x, s_.waypoint_y)) {
             p_.moved_back = true;
         }
-        if (o_.kind != 0x44) { // a wobble
+        if (o_.kind != 0x44) {
             const auto r = w_.random();
             int wobble = int(r & 0xe);
             if (r & 0x8000) wobble = -wobble;
@@ -150,12 +216,331 @@ public:
         if (s_.terrain == 6) put_back();
         else if (s_.terrain == 4) o_.hidden_lines = 3;
         else if (s_.terrain == 5) o_.hidden_lines = 5;
+        if (o_.kind == 0x48 || o_.kind == 0x6a) return; // (hostages have their own picture)
         // $9A5A8 / $9A5D2: a step every 4 ticks, facing the heading.
         if (!p_.moved_back) {
             s_.fall_count = (s_.fall_count + 1) & 3;
             if (s_.fall_count == 0) o_.frame = (o_.frame + 1) & 1;
         }
         o_.frame = ((((s_.heading >> 5) - 1) ^ 0xf) & 0xe) | (o_.frame & 1);
+    }
+
+    // $87906: now and then (1 tick in 128) a call, louder in the moors and
+    // the desert.
+    void call_out(int effect) {
+        if (w_.end_count != 0) return;
+        if ((w_.random() & 0x7f) != 0xe) return;
+        request_sound(w_, effect, (w_.landscape == 3 || w_.landscape == 4) ? 0x7f : 0, slot_);
+    }
+
+    // $9A380: to the civilians' house ($5A) while there is one: within 3 it
+    // goes in (objective 8 met); within 6 the door opens; blocked from view
+    // it now and then steps aside. -1 no house, 0 on the way, 1 home.
+    int walk_home() {
+        const int house = w_.civilian_house;
+        if (house < 0) return -1;
+        if (s_.stopped != 0 && --s_.stopped != 0) return 0;
+        const auto& h = w_.objects.slots[std::size_t(house)];
+        s_.waypoint_x = whole(h.x);
+        s_.waypoint_y = whole(h.y);
+        const int d = g_.distance(s_.waypoint_x - whole(o_.x), s_.waypoint_y - whole(o_.y), 0x20, 1000);
+        if (d <= 3) {
+            free_object(w_, slot_);
+            w_.civilian_home = true;
+            return 1;
+        }
+        if (d < 6) {
+            w_.walkers[std::size_t(house)].fall_count = 10;
+            return 0;
+        }
+        if (!t_.sight_blocked(whole(o_.x), whole(o_.y), s_.waypoint_x, s_.waypoint_y)) return 0;
+        if ((w_.random() & 0x3f) != 0) return 0;
+        s_.waypoint_x = whole(o_.x) - 0x10;
+        s_.waypoint_y = whole(o_.y) - 0x20;
+        s_.stopped = 0x1e;
+        return 0;
+    }
+
+    // $9A490: on screen, one tick in 64, a spear at the leader.
+    void throw_at_leader() {
+        if (!o_.on_screen || (w_.random() & 0x3f) != 9 || w_.leader_slot < 0) return;
+        const auto& l = w_.objects.slots[std::size_t(w_.leader_slot)];
+        s_.aim_x = whole(l.x);
+        s_.aim_y = whole(l.y);
+        throw_spear();
+    }
+
+    // $9938A: a spear (kind $47), like a bullet: 8 ticks (more for skilled
+    // throwers, at most 16), speed 24 then 50 + skill, aimed 7 right of the
+    // aim point, off by up to 7.
+    void throw_spear() {
+        if (w_.end_count != 0 || s_.aim_x == 0) return;
+        const int slot = allocate_slot(w_);
+        if (slot < 0 || w_.bullets_alive == 12) return;
+        ++w_.bullets_alive;
+        auto& b = w_.objects.slots[std::size_t(slot)];
+        auto& bw = w_.walkers[std::size_t(slot)];
+        auto& bs = w_.bullets[std::size_t(slot)];
+        b.x = o_.x;
+        b.y = o_.y;
+        b.graphic = 0xd7;
+        b.frame = 0;
+        bs.lifetime = std::min((s_.skill >> 3) + 8, 16);
+        b.kind = 0x47;
+        b.height = o_.height + 6;
+        bw.height_fraction = s_.height_fraction;
+        b.hidden_lines = o_.hidden_lines;
+        b.side = o_.side;
+        b.layer = 0;
+        bs.cruise_speed = 0x32 + s_.skill;
+        bw.speed = 0x18;
+        bw.aim_x = s_.aim_x + 7;
+        bw.aim_y = s_.aim_y;
+        bs.owner = slot_;
+        bs.muzzle_ticks = 2;
+        bs.offset_x = 0;
+        bs.offset_y = 2;
+        bs.first_heading = -1;
+        const auto r = w_.random();
+        int spread = int(r & 7);
+        if (r & 0x80) spread = -spread;
+        bs.spread = spread;
+        bs.spread_done = false;
+        if (w_.landscape == 3) request_sound(w_, (w_.random() & 1) ? 0x10 : 0x11, 0, slot_);
+        bs.age = 0;
+    }
+
+    // $9A16C (kind $44) / $9A04C ($5B): a civilian standing on the spot,
+    // moving its arms, calling now and then; $5B blows up when the leader
+    // comes within 20.
+    bool update_bystander() {
+        if (bystander_hit()) return true;
+        o_.side = 2;
+        o_.graphic = 0xd5;
+        if (s_.aim_x == 0) {
+            s_.aim_x = -1;
+            s_.animation_state = int(w_.random() & 0xf);
+        }
+        if (w_.tick_counter & 1) s_.animation_state = (s_.animation_state + 1) & 0xff;
+        static constexpr int frames[16] = {0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 1, 1, 1, 1}; // $9A1FA
+        o_.frame = frames[s_.animation_state & 15];
+        if (w_.landscape == 3) {
+            const int r = int(w_.random() & 3);
+            if (r != 3) call_out(0x23 + r);
+        }
+        if (w_.landscape == 2) call_out(0x1e);
+        if (o_.kind == 0x5b && o_.graphic != 0xe1 && s_.state == 0 && w_.leader_slot >= 0) {
+            const auto& l = w_.objects.slots[std::size_t(w_.leader_slot)];
+            if (g_.distance(whole(o_.x) - whole(l.x), whole(o_.y) - whole(l.y), 0x20, 1000) <= 0x14) s_.state = 9;
+        }
+        return true;
+    }
+
+    // $9A092: shot, it flashes for 20 ticks (bleeding at first) and is gone;
+    // a $5B's fuse (state 9) runs its frames, then it explodes.
+    bool bystander_hit() {
+        if (s_.state == 0) return false;
+        if (s_.state == 9) {
+            if (o_.graphic != 0xe1) {
+                o_.graphic = 0xe1;
+                o_.frame = 0;
+                s_.fall_count = 0;
+                return true;
+            }
+            s_.fall_count += 2;
+            static constexpr int fuse[] = {1, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 1, 2, 3, -1}; // $9A148
+            const int at = std::clamp(s_.fall_count / 2, 0, int(std::size(fuse)) - 1);
+            if (fuse[at] < 0) {
+                o_.kind = 0xc;
+                s_.waypoint_x = std::int16_t(0x8005);
+                s_.waypoint_y = std::int16_t(0xfffd);
+                return true;
+            }
+            o_.frame = fuse[at];
+            return true;
+        }
+        if (s_.fall_count == 0) {
+            s_.fall_count = 0x14;
+            o_.frame = 0;
+        }
+        if (--s_.fall_count == 0) {
+            free_object(w_, slot_);
+            return true;
+        }
+        if (s_.fall_count < 10) {
+            o_.frame = 0;
+            o_.graphic = o_.graphic == 0xd5 ? 0x7c : 0xd5;
+            return true;
+        }
+        spawn_blood(w_, slot_);
+        return true;
+    }
+
+    // $98F12 (kinds $48 and $6A): a hostage. It walks to the nearest of: the
+    // rescue tent ($49; there it is saved), a recruit (it follows him and
+    // gets into his vehicle when it stands near), an enemy (it stays and
+    // cowers; the enemy guards it). Kind $48 heads for a tent within 128
+    // every 200 ticks; it cannot be hurt.
+    bool update_hostage(const MissionTables& mission) {
+        if (s_.carried != 0) return hostage_riding();
+        o_.side = 2;
+        o_.graphic = 0xd9;
+        const std::int32_t start_x = o_.x, start_y = o_.y;
+        hostage_choose();
+        if (!o_.used || o_.removed) return true;
+        civilian_wander(mission);
+        s_.speed = 0xc;
+        civilian_step();
+        s_.state = 0;
+        // $9933E / $9936E: the walking picture, 8 directions of 3.
+        int step = s_.fire_delay;
+        s_.fall_count = (s_.fall_count + 1) & 1;
+        if (s_.fall_count == 0) step += 2;
+        s_.fire_delay = step & 6;
+        static constexpr int steps[4] = {0, 1, 2, 1}; // $99366
+        o_.frame = steps[s_.fire_delay >> 1];
+        const int facing = (((((s_.heading + 0x20) & 0x1c0) >> 5) - 1) ^ 0xf) & 0xe;
+        o_.frame += facing + (facing >> 1);
+        // $990C4
+        if (w_.hostage_held) {
+            o_.graphic = 0xd8;
+            o_.frame = 1;
+            put_back();
+        } else if (o_.x == start_x && o_.y == start_y) {
+            o_.graphic = 0xda;
+            if ((w_.tick_counter & 0xf) == 0) {
+                static constexpr int idle[4] = {0, 1, 2, 1}; // $99122
+                s_.idle_frame = idle[(w_.random() & 6) >> 1];
+            }
+            o_.frame = s_.idle_frame;
+        }
+        if (o_.kind == 0x6a && slot_ + 1 < object_slots) {
+            auto& piece = w_.objects.slots[std::size_t(slot_ + 1)];
+            if (s_.carried != 0) {
+                piece.kind = 4;
+                piece.graphic = 0x7c;
+                piece.frame = 0;
+            } else {
+                piece.kind = 0x29;
+                set_whole(piece.x, whole(o_.x) + 6);
+                set_whole(piece.y, whole(o_.y) - 0xb + o_.hidden_lines);
+                piece.height = o_.height;
+            }
+        }
+        if (o_.x == p_.old_x && o_.y == p_.old_y) o_.graphic = 0xd8;
+        return true;
+    }
+
+    // $9912A: the hostage's choice for the tick (one candidate a tick).
+    void hostage_choose() {
+        w_.hostage_held = false;
+        const bool leader_kind = o_.kind == 0x6a;
+        if (!leader_kind && w_.rescue_tent >= 0) {
+            if (s_.hits != 0) {
+                --s_.hits;
+            } else {
+                s_.hits = 0xc8;
+                const auto& t = w_.objects.slots[std::size_t(w_.rescue_tent)];
+                if (g_.distance(whole(t.x) + 0xa - whole(o_.x), whole(t.y) - 5 - whole(o_.y), 0x80, 1000) < 0x7f) {
+                    s_.target = w_.rescue_tent;
+                }
+            }
+        }
+        const std::vector<int> kinds = leader_kind ? std::vector<int>{0, 0x49} : std::vector<int>{0x49, 5, 0};
+        const int found = scan(kinds);
+        if (found < 0) {
+            if ((w_.random() & (leader_kind ? 7 : 0x3f)) == 0 && ++s_.target >= object_slots) s_.target = 0;
+            return;
+        }
+        const auto& t = w_.objects.slots[std::size_t(found)];
+        if (t.kind == 0x49) {
+            s_.waypoint_x = whole(t.x) + 0xa;
+            s_.waypoint_y = whole(t.y) - 5;
+            if (g_.distance(s_.waypoint_x - whole(o_.x), s_.waypoint_y - whole(o_.y), 0x10, 1000) < 3) {
+                --w_.objects.kind_6a_48;
+                if (leader_kind) free_object(w_, slot_ + 1);
+                free_object(w_, slot_);
+            }
+            return;
+        }
+        if (t.kind == 5) {
+            w_.walkers[std::size_t(found)].building = slot_; // the enemy guards it
+            s_.waypoint_x = whole(o_.x);
+            s_.waypoint_y = whole(o_.y);
+            w_.hostage_held = true;
+            return;
+        }
+        if (leader_kind) {
+            w_.hostage_held = true;
+            o_.graphic = 0xd8;
+        }
+        s_.waypoint_x = whole(t.x) + 4;
+        s_.waypoint_y = whole(t.y) - 6;
+        const auto& tw = w_.walkers[std::size_t(found)];
+        if (tw.carried != 0 && tw.vehicle >= 0) {
+            const auto& v = w_.objects.slots[std::size_t(tw.vehicle)];
+            const auto& vw = w_.walkers[std::size_t(tw.vehicle)];
+            if (vw.speed <= 2 && v.height <= 3 &&
+                g_.distance(whole(v.x) - whole(o_.x), whole(v.y) - whole(o_.y), 0x10, 1000) <= (leader_kind ? 0xf : 0xa)) {
+                s_.carried = 0xff;
+                return;
+            }
+        }
+        if ((w_.random() & (leader_kind ? 7 : 0x3f)) == 0 && ++s_.target >= object_slots) s_.target = 0;
+    }
+
+    // $98E64 for the hostage (see vehicles.cpp): one candidate a tick.
+    int scan(const std::vector<int>& kinds) {
+        const int index = std::clamp(s_.target, 0, object_slots - 1);
+        const auto& t = w_.objects.slots[std::size_t(index)];
+        const auto next = [&] {
+            if (++s_.target >= object_slots) s_.target = 0;
+            return -1;
+        };
+        if (!t.used || whole(t.x) < 0) return next();
+        if (std::find(kinds.begin(), kinds.end(), t.kind) == kinds.end()) return next();
+        const int d = g_.distance(whole(t.x) - whole(o_.x), whole(t.y) - whole(o_.y));
+        if (d >= 0xd2) return next();
+        if (d > 0x28 && t_.sight_blocked(whole(o_.x), whole(o_.y), whole(t.x), whole(t.y)) && d >= 0x40) return next();
+        return index;
+    }
+
+    // $98FE2: riding with its recruit; when he gets out, it does too (on
+    // open ground next to him) with a scream.
+    bool hostage_riding() {
+        s_.state = 0;
+        const int r = std::clamp(s_.target, 0, object_slots - 1);
+        const auto& t = w_.objects.slots[std::size_t(r)];
+        if (w_.walkers[std::size_t(r)].carried != 0) {
+            o_.graphic = 0x7c;
+            o_.frame = 0;
+            o_.x = t.x;
+            o_.y = t.y;
+            return true;
+        }
+        set_whole(o_.x, whole(t.x) + 8);
+        set_whole(o_.y, whole(t.y) + 0xa);
+        const int y0 = whole(o_.y);
+        while (t_.probe(whole(o_.x), whole(o_.y), 8, -3).blocking) {
+            if (whole(o_.y) - 1 >= 0) {
+                set_whole(o_.y, whole(o_.y) - 1);
+                continue;
+            }
+            set_whole(o_.y, y0);
+            if (whole(o_.x) - 1 < 0) {
+                set_whole(o_.x, 0);
+                s_.state = 5;
+                break;
+            }
+            set_whole(o_.x, whole(o_.x) - 1);
+        }
+        if (whole(o_.y) >= t_.height()) set_whole(o_.y, t_.height() - 1);
+        s_.carried = 0;
+        // $99066
+        if (o_.kind == 0x6a) free_object(w_, slot_ + 1);
+        o_.graphic = 0xdb;
+        o_.frame = 0;
+        request_sound(w_, tables_.cry(int(w_.random())), 0x14, slot_);
         return true;
     }
 
@@ -191,7 +576,7 @@ private:
             return true;
         }
         w_.civilians_angry = true;
-        if (w_.objectives[3] || w_.objectives[7]) w_.outcome = World::Outcome::lost; // ($81DD2)
+        if (w_.objectives[3] || w_.objectives[7]) fail_objective(w_); // ($81DD2)
         o_.graphic = 0xd6;
         o_.frame = 0;
         request_sound(w_, tables_.cry(int(w_.random())), 0x14, slot_);
@@ -211,13 +596,64 @@ private:
         if (s_.state == 0x32) return trip(false);
         if (s_.state == 0x33) return slide();
         if (s_.state == 0x34) return trip(true);
-        if (s_.state == 0x5a) { // into a vehicle ($95A28; vehicles are not rebuilt yet)
-            s_.state = 0;
-            return -1;
+        if (s_.state == 0x5a || s_.state == 0x5b) { // into a vehicle with a puff ($95A28)
+            const int r = board_by_puff(w_, slot_);
+            if (r != 2) return r;
+            s_.speed = 0x30;
+            step();
+            return 1;
         }
-        if (s_.state == 0x5b) return 0;
         if (s_.state == 0) return -1;
         return s_.hit_timer != 0 ? start_falling() : fall();
+    }
+
+    // $965FC: once the phase is won (or an objective failed) the recruits
+    // stop: they salute, jump about (with a shadow) or, failed, jump or
+    // throw up their arms; in water they stand deeper. True: handled.
+    bool end_pose() {
+        if (!w_.failed_objective && w_.outcome != World::Outcome::won) return false;
+        if (t_.probe(whole(o_.x), whole(o_.y), 8, -3).attribute == 6) {
+            o_.hidden_lines = o_.height < 8 ? std::min(8 - o_.height, 8) : 0;
+        }
+        const auto salute = [&] { // $966B2
+            static constexpr int frames[7] = {0, 1, 2, 3, 2, 1, 2}; // $96722
+            o_.frame = frames[std::clamp(s_.fall_count, 0, 6)];
+            s_.speed ^= 0x8000;
+            if (s_.speed & 0x8000) return true;
+            if (++s_.fall_count >= 7) s_.fall_count = 3;
+            return true;
+        };
+        const auto jump = [&] { // $966F6
+            o_.frame += s_.fall_count;
+            if (o_.frame == 0 || o_.frame == 5) s_.fall_count = -s_.fall_count;
+            o_.height = std::max(o_.frame - 1, 0) * 8;
+            return true;
+        };
+        const auto arms = [&] { // $966E0
+            s_.speed ^= 0x8000;
+            if (s_.speed & 0x8000) return true;
+            if (o_.frame < 5) ++o_.frame;
+            return true;
+        };
+        if (o_.graphic == 0x41) return jump();
+        if (o_.graphic == 0x9f) return salute();
+        if (o_.graphic == 0x38) return arms();
+        o_.frame = 0;
+        s_.speed = 0;
+        if (!w_.failed_objective && ((w_.random() & 1) == 0 || o_.hidden_lines != 0)) {
+            o_.graphic = 0x9f;
+            s_.fall_count = 0;
+            return salute();
+        }
+        if ((w_.random() & 1) == 0) {
+            o_.graphic = 0x41;
+            o_.frame = int(w_.random() & 3);
+            s_.fall_count = 1;
+            cast_shadow(w_, slot_);
+            return jump();
+        }
+        o_.graphic = 0x38;
+        return arms();
     }
 
     // $960E8: a hole (state 3) swallows the soldier: deeper by a growing
@@ -1096,7 +1532,27 @@ private:
             s_.took_waypoint = true;
             return;
         }
-        s_.took_waypoint = false; // squads joining at the route's end come later
+        // $ABE6E: at the route's end a soldier of a squad told to join
+        // another one goes over to it (with the squad's ammunition), and
+        // that squad is selected.
+        if (!s_.took_waypoint) return;
+        s_.took_waypoint = false;
+        const int from = o_.squad;
+        if (from < 0 || from > 2) return;
+        const int to = w_.squads[std::size_t(from)].merged_into;
+        if (to < 0 || to > 2 || w_.squads[std::size_t(from)].members.size() > 8) return;
+        if (s_.roster_index >= 0 && s_.roster_index < 8) w_.marked[std::size_t(s_.roster_index)] = false;
+        s_.route_index = 4 * int(w_.squads[std::size_t(to)].route.size());
+        o_.squad = to;
+        rebuild_squads(w_);
+        w_.selected_squad = to;
+        auto& a = w_.squads[std::size_t(from)];
+        auto& b = w_.squads[std::size_t(to)];
+        b.grenades += a.grenades;
+        a.grenades = 0;
+        b.rockets += a.rockets;
+        a.rockets = 0;
+        choose_leader(w_);
     }
 
     void animate() { // $96358
@@ -1246,6 +1702,14 @@ bool update_enemy(World& world, const Terrain& terrain, const ProgramTables& tab
 
 bool update_bazooka(World& world, const Terrain& terrain, const ProgramTables& tables, int slot) {
     return Soldier(world, terrain, tables, slot).update_bazooka();
+}
+
+bool update_bystander(World& world, const Terrain& terrain, const ProgramTables& tables, int slot) {
+    return Soldier(world, terrain, tables, slot).update_bystander();
+}
+
+bool update_hostage(World& world, const Terrain& terrain, const ProgramTables& tables, int slot) {
+    return Soldier(world, terrain, tables, slot).update_hostage(tables.mission);
 }
 
 bool update_civilian(World& world, const Terrain& terrain, const ProgramTables& tables, int slot) {

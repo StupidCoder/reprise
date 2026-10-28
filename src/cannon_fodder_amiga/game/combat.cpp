@@ -84,6 +84,8 @@ public:
         return true;
     }
 
+    HitResult test_hit() { return hit_test(); }
+
 private:
     // $A0C9A; false when the bullet left the map's top or left edge.
     bool move() {
@@ -106,6 +108,8 @@ private:
     // $9D69A: the first hittable object overlapping the box. A solid one
     // stops the bullet; a killable one is hit, turned to the bullet's heading.
     HitResult hit_objects(int left, int right, int top, int bottom) {
+        if (w_.outcome != World::Outcome::playing) return HitResult::none; // ($82A92: off once the phase has ended)
+        w_.hit_flag = 0; // $81F4A
         for (int i = 0; i < object_slots; ++i) {
             auto& t = w_.objects.slots[std::size_t(i)];
             const int flag = h_.hittable(t.kind);
@@ -116,7 +120,11 @@ private:
             if (o_.height > h_.above(t.kind) + 8 + t.height || o_.height + 11 < t.height) continue;
             auto& tw = w_.walkers[std::size_t(i)];
             if (t.kind == kind_soldier && tw.state != 0xa) continue;
-            if (flag != 2) return HitResult::stopped;
+            if (flag != 2) {
+                w_.hit_flag = 1;
+                return HitResult::stopped;
+            }
+            w_.hit_flag = -1;
             tw.state = 1;
             tw.hit_timer = 0xff;
             // The original compares the headings +$368/+$468 in a way that
@@ -137,6 +145,7 @@ private:
     // in cover (tall grass, water, or a squad set to walk slowly) one time
     // in eight. A hit counts as stopping the bullet.
     bool hit_soldiers() {
+        if (w_.outcome != World::Outcome::playing) return false; // ($82A92)
         const int left = whole(o_.x), right = left + 6, top = whole(o_.y) - 9, bottom = whole(o_.y) - 4;
         for (const int i : w_.roster_slots) {
             if (i < 0) continue;
@@ -222,6 +231,25 @@ int allocate_slot(World& world) {
     return -1;
 }
 
+int allocate_pair(World& world) {
+    const auto is_free = [&](int i) {
+        const auto& o = world.objects.slots[std::size_t(i)];
+        return !o.used || whole(o.x) < 0;
+    };
+    for (int i = 0; i < 42; ++i) {
+        if (!is_free(i) || !is_free(i + 1)) continue;
+        for (const int s : {i, i + 1}) {
+            world.objects.slots[std::size_t(s)] = GameObject{};
+            world.objects.slots[std::size_t(s)].used = true;
+            world.walkers[std::size_t(s)] = Walker{};
+            world.bullets[std::size_t(s)] = BulletState{};
+            world.attachments[std::size_t(s)] = Attachment{};
+        }
+        return i;
+    }
+    return -1;
+}
+
 void free_object(World& world, int slot) {
     auto& o = world.objects.slots[std::size_t(slot)];
     o.graphic = graphic_muzzle_spent;
@@ -293,6 +321,13 @@ void update_shadow(World& world, int slot) {
     const int lift = int(unsigned(std::uint16_t(body.height)) >> 2);
     set_whole(o.x, whole(body.x) + lift + 5);
     set_whole(o.y, whole(body.y) + lift - 3);
+}
+
+int bullet_hit(World& world, const Terrain& terrain, const ProgramTables& tables, int slot) {
+    // The callers tell a solid hit by $81F4A = 1, which only the test
+    // against objects sets; a hit on a recruit leaves it as it was.
+    if (Bullet(world, terrain, tables, slot).test_hit() == HitResult::none) return 0;
+    return world.hit_flag == 1 ? 1 : 2;
 }
 
 bool update_bullet(World& world, const Terrain& terrain, const ProgramTables& tables, int slot) {
