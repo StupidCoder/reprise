@@ -25,9 +25,17 @@ struct MouseCounters {
 struct Pocket {
     std::array<int, 4> keys{};    // cells $01-$04: $719EC, $719F8, $719F0, $719F4 (at most 9 each)
     std::array<int, 4> finds{};   // cells $05-$08: $719FC, $71A08, $71A00, $71A04
-    int money{};                  // $719BA
-    int energy{};                 // $719C2 (at most $26AC)
+    int score{};                  // $719BA: finds add to it
+    int money{};                  // $719C2: coins $11-$13, at most 9,900 ($26AC); shops take it
     int map_pieces{};             // cells $0D/$0E: pieces of the magic map ($6EB22, not rebuilt)
+
+    // Restarting a level clears $719C6-$71A23 (keys, finds, map pieces and
+    // more); score and money lie below that range and stay.
+    void clear_for_restart() {
+        keys = {};
+        finds = {};
+        map_pieces = 0;
+    }
 };
 
 enum class BallMode { rolling, falling, lost };
@@ -67,6 +75,10 @@ struct Ball {
     bool mouse_ignored{};             // $6C3C6: reads see no movement (while falling)
     Fixed falling_friction{0x800};    // $6C3C8
 
+    // Where "continue" puts the ball back ($6C476: camera and view, saved by
+    // $6F7B6 at the end of each update while the fall counter is 0).
+    Fixed continue_camera_x{}, continue_camera_y{}, continue_view_x{}, continue_view_y{};
+
     // Cell kinds the rules met that are not rebuilt yet (for tools).
     int unhandled_cells{};
     std::array<bool, 256> unhandled_kinds{};
@@ -80,5 +92,10 @@ struct Ball {
 // rolling picture ($6C274), contact ($6F666, $6F60A, $6FDEE), bounce
 // ($700E8) and the speed limits ($6ABF0).
 void update_ball(Ball&, Pocket&, LevelMap&, const data::World&, MouseCounters mouse);
+
+// The prompt after a fall, left button ($6BB86 → $6C5BC): the ball goes
+// back to the continue point and rolls again from rest; the map and the
+// pocket stay as they are.
+void continue_after_fall(Ball&);
 
 } // namespace rocknroll::game

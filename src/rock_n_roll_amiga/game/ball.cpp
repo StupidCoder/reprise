@@ -284,17 +284,17 @@ void cell_rules(Ball& b, Pocket& pocket, LevelMap& map) {
                 --keys;
                 map.clear(cells[n - 1]);
             }
-        } else if (v >= 0x05 && v <= 0x08) { // finds $6E9D0-$6EA84, with money
+        } else if (v >= 0x05 && v <= 0x08) { // finds $6E9D0-$6EA84, with points
             if (centre) {
-                static constexpr int money[4] = {30, 400, 150, 70};
+                static constexpr int points[4] = {30, 400, 150, 70};
                 ++pocket.finds[v - 5];
-                pocket.money += money[v - 5];
+                pocket.score += points[v - 5];
                 map.clear(cells[n - 1]);
             }
-        } else if (v >= 0x11 && v <= 0x13) { // energy $6EB7E-$6EBAE
+        } else if (v >= 0x11 && v <= 0x13) { // coins $6EB7E-$6EBAE
             if (centre) {
-                static constexpr int energy[3] = {100, 300, 500};
-                pocket.energy = std::min(pocket.energy + energy[v - 0x11], 0x26AC);
+                static constexpr int value[3] = {100, 300, 500};
+                pocket.money = std::min(pocket.money + value[v - 0x11], 0x26AC);
                 map.clear(cells[n - 1]);
             }
         } else if (v == 0x0D || v == 0x0E) { // magic-map piece, two cells wide ($6EADE/$6EB00)
@@ -472,6 +472,28 @@ void update_ball(Ball& b, Pocket& pocket, LevelMap& map, const data::World& worl
     touch(b, map, world);
     bounce(b);
     clamp_speeds(b);
+    // $6F7B6 (before drawing the ball): the continue point, while not
+    // falling. The counter is only reset by continue, so after a lost ball
+    // and a restart without continue it is not saved (kept from the original).
+    if (b.fall_updates == 0) {
+        b.continue_camera_x = b.camera_x;
+        b.continue_camera_y = b.camera_y;
+        b.continue_view_x = b.view_x;
+        b.continue_view_y = b.view_y;
+    }
+}
+
+void continue_after_fall(Ball& b) {
+    b.camera_x = b.continue_camera_x;
+    b.camera_y = b.continue_camera_y;
+    b.view_x = b.continue_view_x;
+    b.view_y = b.continue_view_y;
+    b.mode = BallMode::rolling;
+    b.fall_updates = 0;
+    b.friction = 400;
+    b.mouse_ignored = false;
+    b.collisions = true;
+    b.speed_x = b.speed_y = 0;
 }
 
 } // namespace rocknroll::game

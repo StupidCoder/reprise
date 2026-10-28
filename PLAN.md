@@ -1253,10 +1253,15 @@ rule of the original-width view.
    their "pressing" rule (a $D5 lock never opens). Recorder saves the map
    at row 0; replay follows a recording to the loop's end. Eight runs,
    1,252 updates, all equal.
-5. Next: the continue/restart prompt and the level loop's other exits,
-   the remaining cells (bridges $DD-$E0, shops, teleports from header
-   +$380, switches $26/$33, $22, …), objects from the level header, then
-   drawing (tiles, ball sprites, panel) and a playable level.
+5. **Done 2026-10-28: continue after a fall.** The prompt's rules read
+   (balls left, continue/restart/game over, what a restart clears),
+   the continue point ($6F7B6) and continue rebuilt; replay chains
+   recordings across the prompt (fall4+cont4 exact). Score/money corrected
+   ($719BA score, $719C2 money). Nine runs, 1,493 updates, all equal.
+6. Next: shops (purchase $6E1CA incl. paying with energy, items),
+   teleports ($22/$23), counters $24/$26, bridges $DD-$E0 and the other
+   cells; energy; objects from the level header; then drawing and a
+   playable level in the shell.
 
 Open items:
 - Level header fields +$000..+$3E7 (object lists, settings).

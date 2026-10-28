@@ -1,14 +1,16 @@
 // Rock 'n Roll research tool: runs the native rules against recordings of
 // the original (.analysis/rock_n_roll_amiga/harness/play.py record).
 //
-//   rock_n_roll_replay ball <content> <level> <recording> [all]
+//   rock_n_roll_replay ball <content> <level> <recording> [<recording> …] [all]
 //
 // The recording holds the original's state at the top of each update of
 // the in-level loop and the mouse counters the harness set for it. The
 // native ball starts from the first line's state and runs one update per
 // line; after each update its state is compared with the next line. The
 // first differing update is reported (all of them with "all"). A recording
-// that ends with the ball lost is followed to that update.
+// that ends with the ball lost is followed to that update; a further
+// recording then continues it as the prompt's "continue" does (the native
+// state carries over and must equal that recording's first row).
 
 #include "platform/files.hpp"
 #include "platform/host.hpp"
@@ -85,8 +87,8 @@ game::Pocket pocket_from(const Row& r) {
         p.keys[std::size_t(i)] = int(r.at(key_fields[i]));
         p.finds[std::size_t(i)] = int(r.at(find_fields[i]));
     }
-    p.money = int(r.at("money"));
-    p.energy = int(r.at("energy"));
+    p.score = int(r.at("money"));   // the recorder's "money" column is $719BA (the score)
+    p.money = int(r.at("energy"));  // and "energy" is $719C2 (the money)
     return p;
 }
 
@@ -104,8 +106,8 @@ int compare_pocket(const game::Pocket& p, const Row& r, std::int64_t update) {
         check(key_fields[i], p.keys[std::size_t(i)]);
         check(find_fields[i], p.finds[std::size_t(i)]);
     }
-    check("money", p.money);
-    check("energy", p.energy);
+    check("money", p.score);
+    check("energy", p.money);
     return differing;
 }
 
@@ -138,11 +140,18 @@ game::Ball ball_from(const Row& r) {
     b.roll_y = game::Fixed(r.at("phase_y"));
     if (r.count("fallcount")) b.fall_updates = int(r.at("fallcount"));
     if (r.count("ignore")) b.mouse_ignored = r.at("ignore") & 1;
+    if (r.count("save_cx")) {
+        b.continue_camera_x = game::Fixed(r.at("save_cx"));
+        b.continue_camera_y = game::Fixed(r.at("save_cy"));
+        b.continue_view_x = game::Fixed(r.at("save_vx"));
+        b.continue_view_y = game::Fixed(r.at("save_vy"));
+    }
     if (!rolling(r)) b.mode = game::BallMode::falling;
     return b;
 }
 
 int compare(const game::Ball& b, const Row& r, bool all, std::int64_t update) {
+    int differing_saved = 0;
     struct Field {
         const char* name;
         std::int64_t native;
@@ -154,6 +163,17 @@ int compare(const game::Ball& b, const Row& r, bool all, std::int64_t update) {
         {"phase_x", b.roll_x}, {"phase_y", b.roll_y}, {"slow", b.slow}, {"high", b.high_cell},
         {"f405", b.steered}, {"friction", b.friction}, {"collide", b.collisions},
     };
+    if (r.count("save_cx")) {
+        const Field saved[] = {{"save_cx", b.continue_camera_x}, {"save_cy", b.continue_camera_y},
+                               {"save_vx", b.continue_view_x}, {"save_vy", b.continue_view_y}};
+        for (const auto& f : saved) {
+            if (r.at(f.name) != f.native) {
+                std::printf("update %lld: %s native %llx original %llx\n", (long long)update, f.name,
+                            (unsigned long long)(std::uint32_t)f.native, (unsigned long long)(std::uint32_t)r.at(f.name));
+                ++differing_saved;
+            }
+        }
+    }
     int differing = 0;
     for (const auto& f : fields) {
         const auto want = r.at(f.name);
@@ -165,6 +185,7 @@ int compare(const game::Ball& b, const Row& r, bool all, std::int64_t update) {
             ++differing;
         }
     }
+    differing += differing_saved;
     if (r.count("fallcount") && r.at("fallcount") != b.fall_updates) {
         std::printf("update %lld: fall count native %d original %lld\n", (long long)update, b.fall_updates,
                     (long long)r.at("fallcount"));
@@ -190,43 +211,70 @@ int main(int argc, char** argv) {
     const std::string command = argc > 1 ? argv[1] : "";
     try {
         if (command == "ball" && argc >= 5) {
-            const bool all = argc > 5 && std::string(argv[5]) == "all";
+            std::vector<std::string> recordings;
+            bool all = false;
+            for (int i = 4; i < argc; ++i) {
+                if (std::string(argv[i]) == "all") all = true;
+                else recordings.push_back(argv[i]);
+            }
             const auto assets = data::load_assets(platform::utf8_path(argv[2]));
             const auto& level = assets.levels.at(std::size_t(std::stoi(argv[3]) - 1));
             const auto& world = assets.world(level.world);
             auto map = game::LevelMap::from(level);
-            // The original's map at the recording's first row, when saved
-            // beside it (pickups and earlier runs change the map).
-            if (const auto saved = std::filesystem::path(argv[4]).concat(".map"); std::filesystem::exists(saved)) {
+            // The original's map at the first recording's first row, when
+            // saved beside it (pickups and earlier runs change the map).
+            if (const auto saved = std::filesystem::path(recordings.front()).concat(".map"); std::filesystem::exists(saved)) {
                 const auto cells = platform::read_file(saved);
                 if (cells.size() == map.cells.size()) map.cells = cells;
             }
-            bool loop_left = false;
-            const auto rows = read_recording(argv[4], loop_left);
-            if (rows.size() < 2) throw std::runtime_error("The recording has fewer than two updates.");
-            auto ball = ball_from(rows.front());
-            auto pocket = pocket_from(rows.front());
+            game::Ball ball;
+            game::Pocket pocket;
             int bad_updates = 0;
             std::size_t checked = 0;
-            for (std::size_t n = 0; n + 1 < rows.size(); ++n) {
-                const auto joy = std::uint16_t(rows[n].at("joy"));
-                game::update_ball(ball, pocket, map, world, {std::uint8_t(joy & 0xFF), std::uint8_t(joy >> 8)});
-                ++checked;
-                if (compare(ball, rows[n + 1], all, rows[n].at("update")) +
-                        compare_pocket(pocket, rows[n + 1], rows[n].at("update")) > 0) {
-                    ++bad_updates;
-                    if (!all) break;
+            for (std::size_t k = 0; k < recordings.size() && bad_updates == 0; ++k) {
+                bool loop_left = false;
+                const auto rows = read_recording(recordings[k], loop_left);
+                if (rows.size() < 2) throw std::runtime_error("A recording has fewer than two updates.");
+                if (k == 0) {
+                    ball = ball_from(rows.front());
+                    pocket = pocket_from(rows.front());
+                } else {
+                    // A later recording starts at the loop top right after the
+                    // prompt was answered with "continue": the native ball goes
+                    // through the same and must equal its first row.
+                    if (ball.mode != game::BallMode::lost) throw std::runtime_error("Recordings chain only after a lost ball.");
+                    game::continue_after_fall(ball);
+                    // The recorder's first row comes after at least one update
+                    // of the resumed loop, with the mouse as the earlier
+                    // recording left it (an idle update: nothing moves).
+                    const auto idle = std::uint16_t(rows.front().at("prevjoy"));
+                    game::update_ball(ball, pocket, map, world, {std::uint8_t(idle & 0xFF), std::uint8_t(idle >> 8)});
+                    if (compare(ball, rows.front(), all, -1) + compare_pocket(pocket, rows.front(), -1) > 0) {
+                        std::printf("(the state right after continue differs)\n");
+                        ++bad_updates;
+                        break;
+                    }
                 }
-                if (ball.mode == game::BallMode::lost) break; // the level loop ends here
-            }
-            if (loop_left && bad_updates == 0 && ball.mode != game::BallMode::lost) {
-                const auto joy = std::uint16_t(rows.back().at("joy"));
-                game::update_ball(ball, pocket, map, world, {std::uint8_t(joy & 0xFF), std::uint8_t(joy >> 8)});
-                ++checked;
-                if (ball.mode != game::BallMode::lost) {
-                    std::printf("update %lld: the original left the level loop, the native ball is not lost\n",
-                                (long long)rows.back().at("update"));
-                    ++bad_updates;
+                for (std::size_t n = 0; n + 1 < rows.size(); ++n) {
+                    const auto joy = std::uint16_t(rows[n].at("joy"));
+                    game::update_ball(ball, pocket, map, world, {std::uint8_t(joy & 0xFF), std::uint8_t(joy >> 8)});
+                    ++checked;
+                    if (compare(ball, rows[n + 1], all, rows[n].at("update")) +
+                            compare_pocket(pocket, rows[n + 1], rows[n].at("update")) > 0) {
+                        ++bad_updates;
+                        if (!all) break;
+                    }
+                    if (ball.mode == game::BallMode::lost) break; // the level loop ends here
+                }
+                if (loop_left && bad_updates == 0 && ball.mode != game::BallMode::lost) {
+                    const auto joy = std::uint16_t(rows.back().at("joy"));
+                    game::update_ball(ball, pocket, map, world, {std::uint8_t(joy & 0xFF), std::uint8_t(joy >> 8)});
+                    ++checked;
+                    if (ball.mode != game::BallMode::lost) {
+                        std::printf("update %lld: the original left the level loop, the native ball is not lost\n",
+                                    (long long)rows.back().at("update"));
+                        ++bad_updates;
+                    }
                 }
             }
             std::printf("%zu updates checked, %d differ; %d unhandled cell visits%s\n", checked, bad_updates,
@@ -243,6 +291,6 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "%s\n", error.what());
         return 1;
     }
-    std::fprintf(stderr, "usage: rock_n_roll_replay ball <content> <level> <recording> [all]\n");
+    std::fprintf(stderr, "usage: rock_n_roll_replay ball <content> <level> <recording> [<recording> ...] [all]\n");
     return 2;
 }
