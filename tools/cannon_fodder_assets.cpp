@@ -1038,6 +1038,46 @@ int run(int argc, char** argv) {
         }
         return failures == 0 ? 0 : 1;
     }
+    if (command == "loadsave" && argc >= 5) {
+        // A launcher quick save (state.bin) run on headless: the status every
+        // 50 frames, the sound to a WAV file (16-bit stereo, 44100 Hz).
+        //   loadsave <content> <state.bin> <frames> [wav] [smooth]
+        const auto file = platform::read_file(argv[3]);
+        if (file.size() < 64) return 1;
+        state::Reader r(std::span(file).subspan(64));
+        std::string magic, game_id, content_key, screenshot;
+        std::int64_t version = 0, time = 0;
+        std::vector<std::pair<std::string, std::string>> saved_options;
+        std::vector<std::uint8_t> state_bytes;
+        r(magic, version, game_id, content_key, time, screenshot, saved_options, state_bytes);
+        auto game = fodder::game::start_game(argv[2], -1);
+        const auto options = game->options();
+        for (const auto& [name, choice] : saved_options)
+            for (std::size_t i = 0; i < options.size(); ++i)
+                if (options[i].name == name)
+                    for (std::size_t c = 0; c < options[i].choices.size(); ++c)
+                        if (options[i].choices[c] == choice) game->set_option(i, int(c));
+        game->read_state(state_bytes);
+        const int frames = std::stoi(argv[4]);
+        std::vector<float> audio(2 * 882), all;
+        for (int f = 0; f < frames; ++f) {
+            game->tick({});
+            game->audio(audio, 44100);
+            all.insert(all.end(), audio.begin(), audio.end());
+            if (f % 50 == 0) std::printf("%5d %s\n", f, fodder::game::describe(*game).c_str());
+        }
+        if (argc >= 6) {
+            std::vector<std::uint8_t> wav;
+            const auto put = [&](std::uint32_t v, int n) { for (int k = 0; k < n; ++k) wav.push_back(std::uint8_t(v >> (8 * k))); };
+            const std::uint32_t bytes = std::uint32_t(all.size() * 2);
+            wav.insert(wav.end(), {'R', 'I', 'F', 'F'}); put(36 + bytes, 4); wav.insert(wav.end(), {'W', 'A', 'V', 'E', 'f', 'm', 't', ' '});
+            put(16, 4); put(1, 2); put(2, 2); put(44100, 4); put(44100 * 4, 4); put(4, 2); put(16, 2);
+            wav.insert(wav.end(), {'d', 'a', 't', 'a'}); put(bytes, 4);
+            for (const float v : all) put(std::uint16_t(std::int16_t(std::clamp(v, -1.0f, 1.0f) * 32767)), 2);
+            platform::write_file(argv[5], wav);
+        }
+        return 0;
+    }
     if (command == "realtime" && argc >= 4) {
         // The shell's loop against the wall clock (research): pictures at
         // 120 Hz, ticks when due, a new game clicked through, the phase won

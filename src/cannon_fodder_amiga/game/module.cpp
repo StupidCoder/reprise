@@ -1071,6 +1071,10 @@ void Module::game_tick() {
     EndText started = EndText::none;
     const bool ended = run_mission_end(w, tables_.mission.last_of_mission(phase_.number), true, &started);
     end_music(started);
+    // $A3A30 plays no effect while the phase's end runs ($81DCE): the end's
+    // song (jon) has replaced the landscape's, whose effect patterns the
+    // requests name.
+    board_.silenced = w.end_count != 0;
     if (music_) board_.play_all(w, tables_.geometry, *music_);
     w.sounds.clear();
     board_.tick();

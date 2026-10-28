@@ -1164,9 +1164,13 @@ files RNC-packed. The image set is a cracked copy (CSL intro loaded by disk
    where it is instead of gliding: the leader's rank badge, hidden while a
    route is drawn ($954F6, its place not kept up meanwhile), slid in from
    where it was hidden. Save format 5.
-   Music reported to run about 2.2x fast at a mission's end in the app with
-   smooth motion on (120 Hz display); gone with 34cfdcf (confirmed by the
-   user, cause not found; never reproduced: the module's
+   The end music garbled (found with the user's quick save at the end of
+   map 3, `cannon_fodder_assets loadsave`): $A3A30 plays no effect while
+   the phase's end runs ($81DCE), the port's sound board never took that
+   flag, so effects requested during the end started on the end's song
+   (jon), whose patterns they misnamed; on the reference no effect starts
+   while $81DCE is set. Earlier report (about 2.2x fast with smooth
+   motion, 120 Hz): the same cause most likely; never reproduced: the module's
    sound is identical with and without the option at 120 pictures a
    second through a won mission, the debrief and the hill, a wall-clock
    loop gives 50 ticks and 44100 samples a second, and the victory song's
