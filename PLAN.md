@@ -1298,53 +1298,6 @@ Open items:
   the native module only needs the drawn picture, but check what the
   player sees there.
 
-## F/A-18 Interceptor (Amiga) milestones
-
-Notes: `.analysis/fa_18_interceptor_amiga/` (`disk.md` volume, program
-layout, harness; `formats.md` pictures, sounds, palettes, fonts, screen
-texts, messages, first look at shapes and world; `game.md` start-up,
-screens, input, display). No outside material on this game was used.
-
-An OS-friendly AmigaDOS program: a C front end (Aztec C) and a
-hand-written 68000 flight engine with a filled-polygon 3D view of the San
-Francisco bay, carrier, aircraft and missiles; sounds are raw samples on
-disk, everything else (shapes, texts, fonts, palettes, tables) is inside
-the 185-hunk load file.
-
-Design notes (owner, 2026-10-28): widescreen and smooth motion up to 120 Hz
-are planned, so the 3D view will be drawn by our own renderer from game
-state (wider field of view for widescreen) and the simulation will tick at
-the original's rate apart from drawing, with aircraft and camera
-interpolated between ticks. Keep state and drawing separate from the start.
-
-1. **Done 2026-10-28: import and assets.** `src/fa_18_interceptor_amiga`
-   (namespace `interceptor`): importer (release by the program's SHA-256,
-   20 data files by SHA-256), the program read through `amiga::LoadedImage`
-   at $100000, decoders for the ILBM pictures, raw sound files with their
-   slots and load periods, ten palettes ($119FCC), both fonts ($1328B8,
-   $132A24), 95 screen-text blocks ($133FFE, with the column table
-   $13635A) and 54 cockpit messages ($1321C8); launcher previews;
-   `fa_18_interceptor_assets import|export`. Checked: title picture and
-   main menu equal the reference captures pixel for pixel. Reference
-   machine on port 6868 (`harness/run.sh`, `f18.py attach|key`,
-   `screen.py`), Ghidra project (`ghidra/ghidra.sh`), listing
-   `work/all.dis`.
-2. Next: the 3D shapes (object table $115F4C, model and draw-list format,
-   primitives $113470) drawn natively and checked against demo captures;
-   then the world (map cells, object lists), the main loop's timing
-   ($107D48, timer.device), the flight model, front-end screens on the
-   screen-text interpreter, cockpit and HUD, sound driver and music.
-
-Open items:
-- Which palette each briefing screen uses (previews use palette 0).
-- Screen-text flags bit 0 and the speed nibble are hypotheses; entries
-  16–19, 25 and 111–116 of the text table are not block starts.
-- Cockpit message attribute byte; small-font advance (4 pixels assumed).
-- Sound roles (engine, catapult, wind, gear…) only suggested by file
-  names; synthesised slots 4 and 6; the music sequencer (hunks 74–86).
-- `pix/frnt5` (288 × 12) use; `config`, `textply`, `textctl` layouts.
-- Hunk 62 (chip) sprite data; maths tables in hunks 63 and 65.
-
 ## Launcher visual exploration (2026-10-26)
 
 Two AI-generated design proposals and their exact prompts are saved in
