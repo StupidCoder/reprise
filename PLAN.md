@@ -69,6 +69,7 @@ clicks during scrolling, and the asset backdrop.
 | Rock 'n Roll | Amiga | `Rock'n Roll (1989)(Rainbow Arts)[cr PNA].adf` (SHA-256 `1d89a8e7…228615e60`, a one-disk cracked copy) | disk import (program and all files unpacked and checked) and decoded data with launcher viewer: 33 level maps drawn from their worlds' tiles (checked against the original's drawn view), seven worlds' graphics banks and palettes, title and ending pictures; not playable yet |
 | Wings of Fury | Amiga | `Wings_of_Fury_v1.0_1990_Broderbund_cr_Hysteria.adf` (SHA-256 `638d9a9d…4620044`, a cracked copy) | disk import and decoded assets with launcher viewer (pictures, all 12 shape libraries, palettes, sounds, texts); the whole game playable and checked against the original: front end, all fifteen missions (islands, airfields, all four enemy ships, night), the promotion fireworks, game over and hall of fame, music, saved games (R&R), the original's keys and debug mode; cheats, widescreen, smooth motion and VHS look |
 | Tower of Babel | Amiga | `Tower of Babel v1.0 (1990)(Rainbird)[cr MAD].adf` (SHA-256 `0a8dff1a…8c8785c71`, a cracked copy) | disk import (packed program unpacked, every block range checked) and decoded data with launcher viewer: title screen, all 153 towers (maps, objects, colours, rules), sampled music and effect waveforms; the 3D tower view rebuilt and identical to the original (objects not yet); not playable yet |
+| F/A-18 Interceptor | Amiga | `FA-18 Interceptor (1988)(Electronic Arts)[cr A-Ha].adf` (SHA-256 `e28e9469…6f93bfa2`, a cracked copy) | disk import (program and 20 data files checked) and decoded data with launcher viewer: title and instrument pictures, menu and briefing screen texts (main menu identical to the original's screen), cockpit messages, both fonts, palettes, sampled sounds; not playable yet |
 
 ## Fort Apocalypse (C64) milestones
 
@@ -1297,6 +1298,99 @@ Open items:
 - READY state: the original copies whole buffers ($87A6) around its draws;
   the native module only needs the drawn picture, but check what the
   player sees there.
+
+## F/A-18 Interceptor (Amiga) milestones
+
+Notes: `.analysis/fa_18_interceptor_amiga/` (`disk.md` volume, program
+layout, harness; `formats.md` pictures, sounds, palettes, fonts, screen
+texts, messages, first look at shapes and world; `game.md` start-up,
+screens, input, display). No outside material on this game was used.
+
+An OS-friendly AmigaDOS program: a C front end (Aztec C) and a
+hand-written 68000 flight engine with a filled-polygon 3D view of the San
+Francisco bay, carrier, aircraft and missiles; sounds are raw samples on
+disk, everything else (shapes, texts, fonts, palettes, tables) is inside
+the 185-hunk load file.
+
+Design notes (owner, 2026-10-28): widescreen and smooth motion up to 120 Hz
+are planned, so the 3D view will be drawn by our own renderer from game
+state (wider field of view for widescreen) and the simulation will tick at
+the original's rate apart from drawing, with aircraft and camera
+interpolated between ticks. Keep state and drawing separate from the start.
+
+1. **Done 2026-10-28: import and assets.** `src/fa_18_interceptor_amiga`
+   (namespace `interceptor`): importer (release by the program's SHA-256,
+   20 data files by SHA-256), the program read through `amiga::LoadedImage`
+   at $100000, decoders for the ILBM pictures, raw sound files with their
+   slots and load periods, ten palettes ($119FCC), both fonts ($1328B8,
+   $132A24), 95 screen-text blocks ($133FFE, with the column table
+   $13635A) and 54 cockpit messages ($1321C8); launcher previews;
+   `fa_18_interceptor_assets import|export`. Checked: title picture and
+   main menu equal the reference captures pixel for pixel. Reference
+   machine on port 6868 (`harness/run.sh`, `f18.py attach|key`,
+   `screen.py`), Ghidra project (`ghidra/ghidra.sh`), listing
+   `work/all.dis`.
+2. Next: the 3D shapes (object table $115F4C, model and draw-list format,
+   primitives $113470) drawn natively and checked against demo captures;
+   then the world (map cells, object lists), the main loop's timing
+   ($107D48, timer.device), the flight model, front-end screens on the
+   screen-text interpreter, cockpit and HUD, sound driver and music.
+
+Open items:
+- Which palette each briefing screen uses (previews use palette 0).
+- Screen-text flags bit 0 and the speed nibble are hypotheses; entries
+  16–19, 25 and 111–116 of the text table are not block starts.
+- Cockpit message attribute byte; small-font advance (4 pixels assumed).
+- Sound roles (engine, catapult, wind, gear…) only suggested by file
+  names; synthesised slots 4 and 6; the music sequencer (hunks 74–86).
+- `pix/frnt5` (288 × 12) use; `config`, `textply`, `textctl` layouts.
+- Hunk 62 (chip) sprite data; maths tables in hunks 63 and 65.
+
+## Spindizzy Worlds (Amiga) milestones
+
+Notes: `.analysis/spindizzy_worlds_amiga/` (`disk.md` disk map, boot chain,
+world-file scramble, harness; `formats.md` title picture, world files,
+level commands, conditions, the developer's editor text left on the disk;
+`game.md` screens and code map). No outside material on this game was used.
+
+No file system: a sector loader reads byte ranges named by file records
+("A:\title.neo"); hand-written 68000, A5 = $616E8. 32 world files of
+levels built from command lists and macros into a 32 × 32 × 8 cell grid;
+isometric scrolling playfield.
+
+Design notes (owner, 2026-10-28): the goal is a modable re-implementation
+with widescreen and smooth motion up to 120 Hz, so levels stay data (built
+at run time from the world files, which mods can replace), the playfield is
+drawn by our own isometric renderer from game state with the camera in world
+units, and the rules tick at the original rate apart from drawing.
+
+1. **Done 2026-10-28: import and assets.** `src/spindizzy_worlds_amiga`
+   (namespace `spindizzy`): importer (release by the SHA-256 of `main`, six
+   ranges and the world block by SHA-256; worlds unscrambled), NEOchrome
+   title decoder (equal to the reference screen), world files (records,
+   names), the level builder `world/level_builder` (boxes, slopes, rotated
+   and varied macros, conditional macros with the switch tests, objects);
+   launcher previews (title, every level from above);
+   `spindizzy_worlds_assets import|export|gridcheck`. `gridcheck` against
+   the reference dump of Tutorial level 1: 8189 of 8192 cells equal, the
+   rest a column an object had changed. Reference machine on port 6870
+   (`harness/run.sh`, `sdw.py`: exact joystick by patching $104C2).
+2. **Next: block graphics and the isometric view.** Trace the drawing path
+   from the grid to the screen (block pieces at $30000-$40000, attribute
+   table $30BC0, palettes), decode sprites and fonts, then draw a level
+   natively and compare with screen dumps; renderer designed for any width.
+3. Explorer movement and physics ($13xxx: slopes, ice, falling, fuel),
+   level exits and level-to-level travel, then objects one kind at a time
+   (lifts, switches, jewels, aliens, …) and conditions/rebuilds, each
+   recorded on the reference machine and compared tick by tick.
+4. Front end: attract hints, menu, Easy/Hard and world maps, panel, saved
+   games; sound (effects module $3400, music module $432A8).
+5. Enhancements: widescreen, 120 Hz interpolation, mod loading of world files.
+
+Open items: object kind ↔ editor name mapping; level header words +0/+2/+6;
+world "setting" word; the 33rd unloaded world slot at $C0000; the disk's
+unloaded ranges $37400 and $42400; sd_game.dat and SELECT.SWP contents;
+second grid check with a conditional level (only Tutorial 1 checked).
 
 ## Launcher visual exploration (2026-10-26)
 

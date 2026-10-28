@@ -37,3 +37,9 @@ small abstract mechanical explorers on a foreground platform, thin luminous
 paths connecting architectural nodes; dramatic low viewpoint, offset isometric
 geometry, navy negative space and ivory disk; dry-ink grain and halftone; petrol
 blue, burnt orange, ochre and ivory. No lettering, logos, UI or copied box art.
+
+## F/A-18 Interceptor — 2026-10-28
+
+Original built-in image-generation illustration, saved as
+`fa_18_interceptor_amiga.png`. Full prompt and provenance:
+`design/planned-covers/amiga-additions.md`.

@@ -433,9 +433,9 @@ int main(int argc, char** argv) {
         shell.update(right, 1); check(shell.selected() == 1, "Right must select Bruce Lee");
         shell.update(up, 1); check(shell.selected() == 1, "Top boundary must preserve column");
         shell.update(down, 1); check(shell.selected() == 3, "Down must select Mindwalker in chronological order");
-        shell.update(down, 1); shell.update(down, 1); check(shell.selected() == 8, "Later releases must be reachable");
+        shell.update(down, 1); shell.update(down, 1); check(shell.selected() == 7, "Later releases must be reachable (F/A-18 Interceptor, 1988, comes first)");
         shell.draw(2); // includes the last row's covers, with selection scrolled into view
-        check(shell.update(enter, 1) == Request::none, "Wings of Fury opens details before import");
+        check(shell.update(enter, 1) == Request::none, "Tower of Babel opens details before import");
         shell.draw(2); shell.update(back, 1);
         shell.select(0); shell.update(left, 1); shell.update(down, 1); shell.update(down, 1);
         shell.update(right, 1); check(shell.selected() == 4, "Keyboard filter must select first Amiga entry");
@@ -445,8 +445,14 @@ int main(int argc, char** argv) {
         shell.update(click(40, 125), 1); // All games
         shell.select(0); shell.update(click(915, 80), 1);
         check(shell.selected() == 2, "Pointer paging must follow chronological order");
-        shell.update(click(600, 400), 2); check(shell.selected() == 8, "Pointer hit testing must follow scrolling");
+        shell.update(click(600, 400), 2); check(shell.selected() == 7, "Pointer hit testing must follow scrolling");
         shell.draw(2); shell.update(back, 1);
+        {
+            const auto& interceptor = library.games().at(9);
+            check(interceptor.machine == app::Machine::amiga && interceptor.import && interceptor.previews &&
+                      !interceptor.start && interceptor.release_year == 1988,
+                  "F/A-18 Interceptor imports and previews but is not playable yet");
+        }
         for (std::size_t i = 0; i < library.games().size(); ++i) {
             shell.select(i); const auto image = shell.draw(2);
             check(image.width == 960 && image.height == 640, "All cards must render in logical canvas");
@@ -531,6 +537,6 @@ int main(int argc, char** argv) {
         const auto font = platform::typeset("Joyport – café", 18, true);
         check(font.advance > 80 && !font.coverage.pixels.empty(), "Bundled font and UTF-8 must render");
         check(!std::filesystem::exists(root), "Tests must not create or change imported data");
-        std::cout << "Shell navigation, all nine covers, details, portable fonts, scrolling options and description checks passed.\n";
+        std::cout << "Shell navigation, all catalog covers, details, portable fonts, scrolling options and description checks passed.\n";
     } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }

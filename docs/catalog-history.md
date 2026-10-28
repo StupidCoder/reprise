@@ -100,6 +100,15 @@ No external implementation was consulted or used to change game behavior.
 - Description summarizes the squad game and its named casualties, rather than
   copying its original packaging or lyrics.
 
-All nine entries' brief on-screen source credits correspond to these references.
+All entries' brief on-screen source credits correspond to these references.
 Historical content is intentionally isolated in the catalogue; no lessons or
 reconstructed rules have been revised using these external accounts.
+
+## F/A-18 Interceptor — Amiga, 1988
+
+- [MobyGames releases](https://www.mobygames.com/game/8668/fa-18-interceptor/releases/): 1988 Amiga release, Electronic Arts and Intellisoft.
+- [Lemon Amiga credits](https://www.lemonamiga.com/game/f-a-18-interceptor): Bob Dinnerman, Moses Ma and Dave Warhol.
+
+The description and original illustration are editorial introductions, not
+evidence of reconstructed rules. Release metadata checked 2026-10-28; no
+external game implementation material used.
