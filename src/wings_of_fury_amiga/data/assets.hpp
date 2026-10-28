@@ -67,6 +67,10 @@ struct MissionMap {
         const int w = words[i];
         return {(w & 0x8000) != 0, (w >> 9) & 0x1C, (w >> 2) & 0x1FF, w & 3};
     }
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(name, carrier_value, words); }
 };
 
 // One entry of the scenery table $10535A builds: indices 0-183 name shapes of
@@ -83,6 +87,10 @@ struct HighScore {
     std::uint32_t score{};
     int rank{};
     std::string name;
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(score, rank, name); }
 };
 
 struct Assets {

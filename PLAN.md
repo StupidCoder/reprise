@@ -26,6 +26,25 @@ re-implementations. Rules for the work are in [AGENTS.md](AGENTS.md).
 5. **Platforms.** macOS first (app bundle with SDL), then Android (APK, same
    approach as the Picarat/Diorama Android builds).
 
+## Launcher motion (2026-10-28)
+
+Implemented in the portable SDL shell: 150 ms card emphasis, 240 ms cover
+travel, 180 ms documentation changes, button press/release, import settlement
+and a one-shot Ready light, save-preview fades, and native-resolution save/load
+notice fades/slides. Navigation takes effect immediately during transitions.
+Reduced Motion persists in the launcher preferences file; its front-page toggle was removed at the owner's request.
+Validation: shell navigation and dedicated motion checks cover interruption,
+stationary documentation identity and preference persistence;
+representative frames are rendered for visual review. Android device performance
+and touch interaction remain to be checked once the Android build is available.
+
+2026-10-28 follow-up: the library now scrolls a clipped continuous card strip
+with eased row motion, including wheel and page navigation. Hit testing follows
+visible card positions during movement. Asset-to-asset transitions preserve the
+dark backing and crossfade directly; other documentation transitions also avoid
+the intermediate paper flash. Regression checks cover intermediate scroll frames,
+clicks during scrolling, and the asset backdrop.
+
 ## Shared building blocks
 
 | Area | Contents | State |
@@ -1244,3 +1263,116 @@ Evidence, scenario construction, validation and limits are documented in
 `src/marble_madness_amiga/LESSONS.md`. Open: original-execution comparisons for
 these fabricated setups; a verified edge-lure replay; dedicated funnel/bird and
 two-player experiments. No original-equivalence claim is made for the new seeds.
+
+### Mind Walker player companion (2026-10-28)
+
+- Details > How to play: six SDL pages covering the complete loop, each of
+  the four sequences, and trail troubleshooting; available before import.
+- Explains the kite-like view locks, connected form-specific trail, 64x64
+  marking window, tunnel catches, arena pulse/target/exit and psyche hints.
+- Evidence and validation: `src/mindwalker_amiga/PLAYER_GUIDE.md`.
+- Open: the user's earlier trail stop cannot be diagnosed without its state;
+  local-window boundary analysis is from recovered code, not a fresh original
+  boundary replay. No gameplay behaviour was changed.
+
+### Quick-save persistence audit (2026-10-28)
+
+- Read-only implementation audit: Fort Apocalypse, Bruce Lee, Wizball, Marble
+  Madness, Mind Walker and Wings of Fury keep quick saves in their running
+  module only. Returning to the library destroys the slot. No fundamental
+  obstacle to disk persistence: explicit versioned state serialization and
+  asset rebinding are missing. Raw object dumps are unsuitable (references,
+  pointers, containers; Wings stores a MissionMap pointer explicitly).
+- Mind Walker separately writes original-style saved worlds to disk; its
+  tunnel/arena/psyche continuation restores a stage checkpoint, unlike the
+  exact running-stage quick snapshot.
+- Open: Cannon Fodder has no save/load overrides. The shared pause menu
+  ignores save() failure and displays "Saved." even when no save was made.
+- Proposed work, not implemented by this audit: per-game state codecs,
+  shared atomic file storage with game/content/schema identification,
+  validated loading, persistent Continue action, honest failure reporting,
+  and fresh-process round-trip checks including RNG/timers and transitions.
+
+### Persistent quick saves and details navigation (2026-10-28)
+
+- Implemented disk quick saves for Fort Apocalypse, Bruce Lee, Wizball and
+  Marble Madness. Each slot includes a PNG thumbnail, capture time, imported
+  release fingerprint, named option values and explicit versioned game state.
+  State includes random generators, timers, sound and visual enhancements;
+  imported assets and runtime references are rebound on a fresh module.
+- Saves live in `saves/<game-id>` alongside `games`, outside imported content.
+  A staged state/picture pair is checked before publishing by directory rename;
+  the previous generation remains available as a recovery copy. Loading is
+  transactional: errors leave the running game unchanged.
+- Details now retain the description and show Start, Continue, Documentation
+  and Delete game files. The save image/time appears on the main page.
+  Documentation collects assets, development notes and the available lessons
+  or How to play. Removing imported files preserves saved progress.
+- The shared save feedback now checks success. Unsupported saves no longer say
+  "Saved"; existing session-only saves explicitly say they last for this session.
+- Deliberately deferred: Mind Walker, Wings of Fury and Cannon Fodder codecs,
+  including Cannon Fodder's missing save implementation, to avoid overlapping
+  active game development. Their save behavior is otherwise unchanged.
+- Validation: isolated storage/failure/content tests; separate-process record
+  and restore of four games at four points with original/enhanced options,
+  comparing serialized state and rendered images immediately and after 120
+  further frames; launcher navigation and screenshots. Additional forced-finish
+  Marble Madness checks cover course transitions with the crowd enabled.
+- Save-format maintenance: `src/app/quick_save.cpp` owns schema version 1.
+  Any incompatible change to a persisted field order/type or interpretation
+  requires a version bump or explicit migration. These are reimplementation
+  snapshots, not original-machine memory images. Old incompatible snapshots
+  are rejected; future release-to-release migration is not yet implemented.
+- Packaging and validation are on macOS; format and storage use portable C++
+  and SDL only. Cross-device/Android runtime validation remains open.
+
+### Details navigation refinement (2026-10-28)
+
+- All library card activations open details; the library I shortcut is removed.
+- Overview and documentation share cover geometry, title and status placement.
+  Documentation opens assets directly; its sidebar switches to development
+  notes, lessons or How to play, with no redundant contents screen.
+- Cmd/Ctrl+S and +L keep gameplay visible with a brief SDL confirmation, including
+  failure feedback. They no longer open or pause in the menu.
+
+### Mind Walker persistent state and smaller notices (2026-10-28)
+
+- Added Mind Walker to the persistent-save wrapper: Continue, PNG thumbnail,
+  imported-release validation and transactional restore. Explicit value schemas
+  preserve the title/loading phases and all four gameplay stages, including
+  their maps, animation queues, generators, synthesized samples, filters and
+  sound cursors. Fresh constructors bind imported assets and the arena form;
+  title callbacks remain attached to the new module. Original saved-world slots
+  and Hall of Fame behavior are unchanged.
+- Validation: eight full-module snapshots across title/landscape and enhanced
+  options restored in a separate process with matching state and pictures after
+  120 more frames. Forty-two stage snapshots cover landscape, tunnel, all four
+  arena forms and psyche, at three points with pause/resume variants; serialized
+  state, pictures and subsequent audio match after fresh-process restoration.
+  Storage failure/content checks and existing four-game regressions also pass.
+- Save/load confirmations now use a small top-right box, sized to the message,
+  with success text "Saved state" / "Loaded state". Empty screenshot panels no
+  longer contain the aspirational title or placeholder instructions.
+- Wings of Fury and Cannon Fodder persistence remain deferred. Cross-platform
+  runtime validation and future save-format migrations remain open.
+
+### Wings of Fury persistent state (2026-10-28)
+
+- Added the game to the shared persistent-save/PNG/Continue flow. The explicit
+  schema keeps the mutable mission map, player/enemy state, effects, ticker,
+  frontend, keyboard edges, RNGs, cheats, music sequencer and sound playback.
+  Map, frontend picture, aircraft shapes and queued sound samples are rebound
+  to the fresh import by name; no paths or process pointers are stored.
+  Music samples remain imported resources; channel cursors, filters and track
+  state are retained rather than restarting a song on quick load.
+- Fresh-process record/restore checks compare state, pixels and 120 subsequent
+  frames of audio and simulation at six points, with default and enhanced
+  settings and an additional sustained-flight input scenario. Fixtures use an
+  isolated copy so original-style high scores/save slots cannot touch user data.
+- Library ZIP transfer is feasible but not implemented in this change. Proposed
+  archive: games (including original-style saves/high scores), persistent saves
+  and screenshots, per-game options and partial imports, with a versioned file
+  manifest/checksums. Import must validate paths, contents and compatibility in
+  staging before publishing, and explicitly resolve existing-progress conflicts.
+  Exclude temporary staging/build files. Android storage integration and on-device
+  cross-platform restoration remain open; matching save schemas are required.

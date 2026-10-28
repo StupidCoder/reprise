@@ -12,6 +12,10 @@ namespace bruce_lee::game {
 struct TerrainContact {
     std::uint8_t feet{}; // the flags over the mask's first 21 rows below its top offset ($B6)
     std::uint8_t body{}; // the same over the first 15 rows ($A7)
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(feet, body); }
 };
 
 // x and y are the actor's coordinates (x in pixel pairs, y in lines).

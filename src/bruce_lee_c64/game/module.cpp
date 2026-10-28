@@ -1,3 +1,4 @@
+#include "state/archive.hpp"
 #include "bruce_lee_c64/game/module.hpp"
 #include "bruce_lee_c64/enhanced/effects.hpp"
 #include "bruce_lee_c64/enhanced/wide_view.hpp"
@@ -61,6 +62,16 @@ public:
         }
     }
 
+    std::vector<std::uint8_t> write_state() override {
+        state::Writer a;
+        a(*game_, frames_, carnage_seen_, hit_stop_, shake_, shaken_, effects_, wide_view_);
+        return std::move(a.bytes);
+    }
+    void read_state(std::span<const std::uint8_t> bytes) override {
+        state::Reader a(bytes);
+        a(*game_, frames_, carnage_seen_, hit_stop_, shake_, shaken_, effects_, wide_view_);
+        a.finish();
+    }
     bool save() override {
         saved_.emplace(*game_);
         return true;

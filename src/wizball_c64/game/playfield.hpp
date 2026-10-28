@@ -94,6 +94,12 @@ public:
     struct Probe {
         std::uint8_t tile_column, tile_char, fraction, star_counter;
         std::array<std::uint8_t, 3> progress, role;
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(tile_column, tile_char, fraction, star_counter, progress, role);
+        }
     };
     Probe probe() const;
     // A drifting star ($B1B4 + 5 * band).
@@ -103,6 +109,10 @@ public:
         std::uint8_t speed_row{}; // row of the drift table ($B8A1): 0, 8, $10, $18
         std::uint8_t clock{};
         std::uint8_t twinkle{};  // 0, 4, 8, 12: brightness pattern row
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(offset, position, speed_row, clock, twinkle); }
     };
     const std::array<Star, sky_bands>& stars() const { return stars_; }
 
@@ -110,6 +120,10 @@ private:
     struct Screen {
         int left = 0;                        // map character column of screen column 0
         std::array<std::uint8_t, columns * rows> codes{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(left, codes); }
     };
     std::uint8_t map_tile(int row, std::uint8_t column) const;
     std::array<std::uint8_t, rows> map_column(std::uint8_t tile_column, int tile_char) const;
@@ -137,6 +151,14 @@ private:
     std::array<std::uint8_t, sky_codes * 8> sky_{}; // the sky characters' bytes, from code $01
     std::array<Star, sky_bands> stars_{};
     void sky_put(int charset_offset, std::uint8_t value); // offset from $F800
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(tile_base_, screens_, progress_, role_, shown_, tile_column_, map_row_, tile_char_, wrap_left_,
+           view_column_, fine_, fraction_, last_fine_, fine_scroll_, wiz_offset_, step_, pixel_delta_,
+           at_end_, blank_, screen_view_, opened_, star_counter_, sky_, stars_);
+    }
 };
 
 } // namespace wizball::game

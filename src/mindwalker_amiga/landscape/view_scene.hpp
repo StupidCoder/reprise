@@ -28,6 +28,10 @@ public:
     struct Status {
         bool ramp_closed{true};
         std::array<bool, 2> found{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(ramp_closed, found); }
     };
     void set_status(const Status& status) { status_ = status; }
 
@@ -62,6 +66,12 @@ public:
         int depth{};                     // $20B310: its depth + 24
         std::uint16_t terrain{};         // its cell's terrain word ($20B320)
         bool ramp_closed{true};          // $2099B6: the way on still closed
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(x, top, rows, feet, view_row, view_column, depth, terrain, ramp_closed);
+        }
     };
     std::vector<std::uint16_t> walker_mask(const ViewCells&, int direction, int floor_level, const WalkerPlace&,
                                            const std::array<DepthMask, 3>& masks) const;
@@ -70,6 +80,12 @@ private:
     struct Cell {
         std::uint16_t terrain{}, objects{}, shape{};
         int lattice_column{}, lattice_row{}, shade{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(terrain, objects, shape, lattice_column, lattice_row, shade);
+        }
     };
     using Turned = std::array<std::array<Cell, 4>, 4>; // [screen column][row]
     Turned turn(const ViewCells&, int direction) const;
@@ -82,6 +98,10 @@ private:
     const amiga::LoadedImage& a_;
     FixedCamera camera_;
     Status status_;
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(status_); }
 };
 
 } // namespace mindwalker::landscape

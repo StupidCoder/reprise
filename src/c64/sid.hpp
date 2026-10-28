@@ -33,6 +33,12 @@ private:
         int rate_counter{};
         int exponential_counter{};
         bool gate{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(accumulator, noise, last_bit19, stage, level, rate_counter, exponential_counter, gate);
+        }
     };
 
     void clock(int cycles);
@@ -43,6 +49,10 @@ private:
     double cycle_credit_{};
     // Filter state.
     double low_{}, band_{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(regs_, voices_, cycle_credit_, low_, band_); }
 };
 
 } // namespace c64

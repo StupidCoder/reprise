@@ -23,6 +23,7 @@ using Charset = std::array<Glyph, 128>;
 // A helicopter sprite shape: 16x18 single-colour pixels, bit 15 of each row
 // is the leftmost pixel. The game shows it with double-width pixels.
 struct SpriteShape {
+    template <class A> void persist(A &ar) { ar(rows); }
     static constexpr int width = 16, height = 18;
     std::array<std::uint16_t, height> rows{};
 
@@ -71,6 +72,7 @@ struct RadarImage {
 // that is ever visible is for the game code to settle; it is recorded here
 // exactly.
 struct Spill {
+    template <class A> void persist(A &ar) { ar(value, count); }
     std::uint8_t value{};
     int count{};
 };

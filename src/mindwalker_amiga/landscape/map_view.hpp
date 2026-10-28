@@ -71,6 +71,13 @@ private:
     std::uint16_t cycle_{};             // h7: colour 16's value
     std::deque<int> pending_;           // squares (column * 8 + row) to draw; -1: the view's box
     int wait_{};                        // frames until the next
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(canvas_, colours_, origin_x_, origin_y_, view_x_, view_y_, display_, open_, held_, fill_all_,
+           cycle_, pending_, wait_);
+    }
 };
 
 } // namespace mindwalker::landscape

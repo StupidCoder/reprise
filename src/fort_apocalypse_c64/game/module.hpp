@@ -25,6 +25,8 @@ public:
     void set_canvas(int width, int height) override;
     void audio(std::span<float> stereo, int sample_rate) override;
 
+    std::vector<std::uint8_t> write_state() override;
+    void read_state(std::span<const std::uint8_t>) override;
     bool save() override;
     bool load() override;
     bool has_save() const override { return saved_ != nullptr; }
@@ -66,6 +68,20 @@ private:
     enhanced::EnhancedView enhanced_;
     enhanced::WideSize wide_{};
     c64::Picture shown_{};
+    template <class A> void persist_runtime(A &a) {
+        bool crash = bool(world_);
+        a(crash);
+        if constexpr (A::reading) {
+            world_.reset();
+            if (crash)
+                world_ = std::make_unique<Game>(*assets_, *tables_);
+        }
+        a(*game_);
+        if (crash)
+            a(*world_);
+        a(holding_, held_this_crash_, hold_button_, after_hold_, skip_, hold_frames_, frames_, hit_stop_,
+          shake_, enhanced_, shown_);
+    }
     void draw();
     void crash_tick(const app::GameInput&, bool pressed);
     std::vector<float> mono_;

@@ -33,6 +33,10 @@ namespace mindwalker::arena {
 struct ArenaInput {
     bool up{}, down{}, left{}, right{}, fire{};
     bool button{}; // the left mouse button
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(up, down, left, right, fire, button); }
 };
 
 // Where C reads its inputs, in order: the left button each frame
@@ -48,6 +52,10 @@ public:
         int lives{3};          // +$6E
         std::uint32_t score{}; // +$66
         int form{};            // +$48: the walker's form (the player's figure)
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(seed, stage, lives, score, form); }
     };
     enum class Outcome { playing, won, left, died, quit };
 
@@ -74,6 +82,10 @@ public:
         int strength{0x15E};       // $40264A
         int frame{};               // $402646: the figure's frame (index into its set)
         bool has_target{};         // $401084
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(x, y, room_x, room_y, aim, strength, frame, has_target); }
     };
     const Player& player() const { return player_; }
     const ArenaMap& map() const { return map_; }
@@ -97,6 +109,12 @@ private:
         unsigned anim{};
         bool shown{};              // its sprite placed on screen
         std::array<std::uint16_t, 34> sprite{}; // 17 rows, two words each (its current image)
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(active, x, y, vx, vy, behaviour, dying, anim, shown, sprite);
+        }
     };
     // A sequence's frames (no input read): what each one does. (Plain data,
     // so that a stage can be copied for a quick save.)
@@ -104,6 +122,10 @@ private:
     struct Action {
         Act act{};
         int k{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(act, k); }
     };
 
     void tick(const ArenaReader&);
@@ -195,6 +217,21 @@ private:
     amiga::PaulaVoices voices_;
     std::vector<std::int8_t> drone_, noise_, squeal_, victory_wave_ = std::vector<std::int8_t>(64);
     int victory_count_{};                                  // $406800
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(maze_random_, fidget_random_, wind_seed_a_, wind_seed_b_, pulse_random_, wind_turn_, wind_pull_,
+           creature_random_, edge_random_, spawn_random_, map_, stage_, lives_, form_, seed_, score_,
+           colours_, shown_colours_, screen_, back_, overlay_, bar_, player_, figure_rows_, cell_x_, cell_y_,
+           sprite_shown_, stand_counter_, aim_counter_, stick_up_, stick_down_, stick_left_, stick_right_,
+           fire_, direction_, stop_spawning_, creatures_, creature_frames_, bolt_frames_, bolt_x_, bolt_y_,
+           bolt_turn_, wind_direction_, wind_strength_, line_pattern_, pulse_, pulse_wait_, pulse_runs_,
+           pulse_colour_, sound_wait_, period_history_, hit_noise_, death_noise_, death_pitch_, frozen_,
+           button_was_down_, paused_, continue_pass_, outcome_, cheats_, frame_count_, sequence_,
+           victory_fall_, victory_left_, victory_wait_, voices_, drone_, noise_, squeal_, victory_wave_,
+           victory_count_);
+    }
 };
 
 } // namespace mindwalker::arena

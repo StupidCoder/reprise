@@ -27,12 +27,20 @@ struct MazeRandom {
     world::ShiftRegister targets; // $401CC8: which room a run goes to; the target's room
     world::ShiftRegister rows;    // $401CCC: cells down; the rooms' creatures
     world::Mixer bolt;            // $4046A0
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(seed, columns, targets, rows, bolt); }
 };
 
 // C's tables the maze reads.
 struct MazeTables {
     std::array<std::uint16_t, 3> keys{};    // $401C50: mixed into the three generators' seeds
     std::array<int, 8> room_creatures{};    // $401C56: creatures per room, by a draw & 7
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(keys, room_creatures); }
 };
 
 struct ArenaMap {
@@ -55,6 +63,10 @@ struct ArenaMap {
     // $401D24: the target taken: the home room's middle walled in around
     // the exit (the way back has to cross walls).
     void wall_in_home();
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(cells, creatures, target_x, target_y, difficulty); }
 };
 
 // $401630 / $401656: a random cell of the room whose corner is (x, y),

@@ -49,6 +49,10 @@ private:
         std::uint32_t address{};
         std::int16_t count{}; // kind 3: sounds kept
         Handle kept;          // kind 3: the last of them
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(kind, link, address, count, kept); }
     };
 
     std::shared_ptr<const Memory> memory_;
@@ -59,8 +63,15 @@ private:
     struct Pending {
         int id{};
         bool right{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(id, right); }
     };
     std::vector<Pending> pending_;
+
+  public:
+    template <class A> void persist(A &ar) { ar(*effects_, *music_, entries_, until_tick_, pending_); }
 };
 
 } // namespace marble_madness::sound

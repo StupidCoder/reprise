@@ -1,3 +1,4 @@
+#include "state/archive.hpp"
 #include "mindwalker_amiga/game/module.hpp"
 #include "mindwalker_amiga/data/game_files.hpp"
 #include "mindwalker_amiga/screen/canvas.hpp"
@@ -413,6 +414,64 @@ public:
     // psyche screen: a copy of the running stage and of the game's record
     // (the stages hold no pointers into themselves, so a copy is the whole
     // state, sound and random generators included).
+    // Values only: imported resources and title callbacks belong to the fresh
+    // instance. Constructors establish those bindings before decoding a stage.
+    template <class A> void persist(A &ar) {
+        ar(state_, stage_start_, ended_, restore_, ended_where_, restart_phase_, phase_, next_, mouse_x_,
+           mouse_y_, button_was_down_, loading_frames_, loading_picture_, loading_colour_, keep_picture_,
+           message_, vhs_, cheats_);
+        if constexpr (A::reading) {
+            if (int(phase_) < 0 || int(phase_) > int(Phase::stopped) || int(next_) < 0 ||
+                int(next_) > int(Phase::stopped) || stage_start_.stage < 0 || stage_start_.stage > 42)
+                A::fail();
+            title_.emplace(files_, picture_, 0, true, session(ended_where_));
+        }
+        ar(*title_);
+        auto stage = [&](auto &value, auto construct) {
+            bool exists = value.has_value();
+            ar(exists);
+            if constexpr (A::reading) {
+                value.reset();
+                if (exists)
+                    construct();
+            }
+            if (exists)
+                ar(*value);
+        };
+        const auto &g = stage_start_;
+        stage(landscape_, [&] {
+            landscape_.emplace(files_, assets_,
+                               landscape::LandscapeStage::Start{g.seed, g.stage, g.lives, g.score, g.resume});
+        });
+        stage(tunnel_, [&] {
+            tunnel_.emplace(files_, assets_,
+                            tunnel::TunnelStage::Start{g.tunnel_seed, g.stage, g.lives, g.score});
+        });
+        stage(arena_, [&] {
+            arena_.emplace(files_, assets_,
+                           arena::ArenaStage::Start{g.tunnel_seed, g.stage, g.lives, g.score,
+                                                    g.resume ? g.resume->form : 0});
+        });
+        stage(psyche_, [&] {
+            psyche_.emplace(files_, assets_,
+                            psyche::PsycheStage::Start{g.seed, g.stage, g.lives, g.score, g.bonus, g.time});
+        });
+        if constexpr (A::reading) {
+            if ((phase_ == Phase::landscape && !landscape_) || (phase_ == Phase::tunnel && !tunnel_) ||
+                (phase_ == Phase::arena && !arena_) || (phase_ == Phase::psyche && !psyche_))
+                A::fail();
+        }
+    }
+    std::vector<std::uint8_t> write_state() override {
+        state::Writer ar;
+        persist(ar);
+        return std::move(ar.bytes);
+    }
+    void read_state(std::span<const std::uint8_t> bytes) override {
+        state::Reader ar(bytes);
+        persist(ar);
+        ar.finish();
+    }
     bool save() override {
         if (!in_game()) return false;
         auto snapshot = std::make_unique<Snapshot>();
@@ -511,6 +570,9 @@ private:
         std::uint32_t time{};          // +$62: seconds played
         std::uint32_t bonus{42000};    // +$308: the self-development bonus
         int time_frames{};
+        template <class A> void persist(A &ar) {
+            ar(seed, stage, lives, score, resume, tunnel_seed, time, bonus, time_frames);
+        }
     } state_;
     screen::Canvas loading_picture_;
     screen::Rgb4 loading_colour_{0x0F0};

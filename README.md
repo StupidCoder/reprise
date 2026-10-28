@@ -52,9 +52,10 @@ Android packaging and device testing remain future work.
 Use the sidebar to filter All games, Commodore 64, Amiga or Planned. Arrow keys
 navigate the cards; Left from the first column enters the filters and Right
 returns to the cards. Scroll, use Page Up/Down (gamepad shoulders), or click the
-page arrows to reach the rest of the library. Enter activates the selected game;
-I or Details opens its details, including planned titles. The details screen's
-Left/Right buttons browse decoded data and Up/Down scroll imported files.
+page arrows to reach the rest of the library. Enter or clicking a card opens its details, including planned titles. Start and Continue
+sit beside the game description and saved screenshot. Documentation opens the asset browser with sidebar links to development notes
+and available lessons or How to play. Within assets, Left/Right changes the page and Up/Down scrolls files.
+Delete game files removes the import while keeping saved progress.
 
 Pause and options use the same visual style. Long option lists scroll with the
 selection, mouse wheel, Page Up/Down or the on-screen Up/Down buttons. Read more
@@ -70,13 +71,26 @@ renderer: [stb_truetype](https://github.com/nothings/stb), MIT/public domain.
 
 Select a game and press Enter. Joystick: arrow keys or WASD, fire with Space
 or Z, or a gamepad. C64 keys: F1/F3/F5/F7 (or 1/3/5/7), P for the C64 space
-bar. I shows the decoded game data.
+bar.
 
 Esc (or the gamepad's Back/Guide button) opens the pause menu: resume,
 restart, quick save and load (also Cmd+S and Cmd+L), sound on/off (also M),
-the game's options and the way back to the launcher. The options you choose
+the game's options and the way back to the launcher. Quick-save/load shortcuts
+show a brief confirmation over gameplay without opening the pause menu. The options you choose
 are kept for each game (in `options/` in the data folder) and set again the
 next time you start it.
+
+Fort Apocalypse, Bruce Lee, Wizball, Marble Madness, Mind Walker and Wings of Fury
+keep quick saves on disk,
+with a screenshot and the settings used when saving. Continue in the details
+screen restores that moment after closing and reopening Joyport. Start begins
+fresh but preserves the old save until you explicitly save again. Saves live in
+`saves/` beside `games/` in the data folder, with the preceding save retained as
+a recovery copy. A save must match the imported release and save-format version;
+incompatible or damaged progress is rejected without replacing a running game.
+
+Cannon Fodder persistent saving remains deferred.
+The pause menu reports success, session-only storage or failure explicitly.
 
 ### Fort Apocalypse options
 
@@ -256,3 +270,18 @@ and reuse any part of it. One exception: `src/c64/character_rom.cpp` holds 64
 character shapes from the Commodore 64's character ROM (Bruce Lee shows its
 text with them); they are not Joyport's work and not covered by that licence. It contains no game data; the games stay the
 property of their rights holders.
+
+### Launcher motion
+
+The SDL collector's shelf lifts focused or hovered cards, carries their covers
+into Details, and transitions documentation content while keeping the cover
+still. Buttons compress on activation, successful imports settle onto the shelf
+with a brief Ready light, and changed save screenshots fade in on return.
+Quick-save/load notices slide and fade in the native-resolution app layer.
+Animations never delay navigation or game actions.
+
+The library scrolls continuously between rows with keyboard, controller, wheel
+or page navigation; pointer selection follows the moving cards. Asset images
+crossfade directly over their existing dark backdrop, without a paper flash.
+Reduced Motion remains supported through `Reduced motion = On` in
+`options/launcher.txt` in the app's data folder, without a front-page toggle.

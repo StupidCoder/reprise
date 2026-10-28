@@ -74,6 +74,7 @@
 #include "platform/files.hpp"
 #include "platform/host.hpp"
 #include "platform/sha256.hpp"
+#include "state/archive.hpp"
 #include <algorithm>
 #include <set>
 #include <cstdio>
@@ -815,6 +816,63 @@ int run(int argc, char** argv) {
         std::printf("%d walk orders checked, %d shots made on one side only (by chance)\n", walk_orders, chance_shots);
         return bad == 0 ? 0 : 1;
     }
+    if (command == "frontcheck" && argc >= 3) {
+        // Quick saves of the front end's screens: the debrief (heroes, then
+        // with a fallen recruit) and the load screen, saved after some
+        // frames, read into a fresh FrontEnd, both run on with the same
+        // input: the state and the screen must agree.
+        using namespace fodder;
+        const data::Content content(argv[2]);
+        const auto program = content.read("fodderc", 1);
+        const game::MissionTables tables(program);
+        const game::PanelArt panel(program, amiga::read_ilbm(content.read("pstuff.lbm", 1)));
+        game::Campaign campaign;
+        campaign.missions_started = 1;
+        for (int k = 0; k < 2; ++k) {
+            auto& r = campaign.roster[std::size_t(k)];
+            r.name = k;
+            r.served = 1;
+            r.on_map = true;
+        }
+        const auto input_at = [](int f) {
+            app::GameInput in;
+            in.pointer = true;
+            in.pointer_x = 150;
+            in.pointer_y = f % 200 < 100 ? 60 : 200; // (the load screen: UP, then DOWN)
+            in.mouse_button = f % 97 == 50;
+            return in;
+        };
+        int failures = 0;
+        for (int variant = 0; variant < 3; ++variant)
+            for (const int at : {30, 120, 300, 700}) {
+                const auto start = [&](game::FrontEnd& f) {
+                    auto c = campaign;
+                    if (variant == 1) c.heroes.push_back({5, 3});
+                    if (variant < 2) f.start_debrief(c);
+                    else f.start_save_list({"A", "B", "C", "D", "E", "F", "G", "H"});
+                };
+                game::FrontEnd a(content, program, panel), b(content, program, panel);
+                start(a);
+                for (int f = 0; f < at; ++f) a.tick(input_at(f));
+                state::Writer w;
+                a.persist(w, tables);
+                state::Reader r(w.bytes);
+                b.persist(r, tables);
+                r.finish();
+                state::Writer w2;
+                b.persist(w2, tables);
+                bool same = w2.bytes == w.bytes && a.indices() == b.indices();
+                for (int f = at; f < at + 200; ++f) {
+                    a.tick(input_at(f));
+                    b.tick(input_at(f));
+                    same = same && a.indices() == b.indices();
+                }
+                failures += !same;
+                std::printf("%s at %d: %s\n", variant == 0 ? "debrief" : variant == 1 ? "debrief with fallen" : "load screen", at,
+                            same ? "identical" : "DIFFERS");
+            }
+        return failures == 0 ? 0 : 1;
+    }
     if (command == "debrief" && argc >= 5) {
         // The debrief of mission 1 headless, for harness/debriefrec.py: the
         // recruits 0 and 1 back at rank 0 after a phase (and, with
@@ -894,6 +952,76 @@ int run(int argc, char** argv) {
         if (argc >= 6) platform::save_png(front.picture(), argv[5]);
         if (std::getenv("CF_IDX")) platform::write_file(std::getenv("CF_IDX"), front.indices());
         return 0;
+    }
+    if (command == "savecheck" && argc >= 4) {
+        // Quick saves: a new game run with scripted clicks; at each listed
+        // frame the state is written, read into a fresh game and both run on
+        // 120 frames: the state, the picture and the sound must agree.
+        //   savecheck <content> <frame>...
+        const auto input_at = [](int f) {
+            app::GameInput in;
+            in.pointer = true;
+            // A click every 100 frames: through the screens, then walking
+            // orders around the map (and the right button now and then).
+            in.pointer_x = 160 + (f / 100 % 5) * 20 - 40;
+            in.pointer_y = 60 + (f / 100 % 3) * 40;
+            in.mouse_button = f % 100 < 3;
+            in.mouse_right = f > 600 && f % 350 < 30;
+            if (f % 1000 >= 500 && f % 1000 < 503) { // the globe: the map's overview (closed by the next click)
+                in.pointer_x = 10;
+                in.pointer_y = 216;
+                in.mouse_right = false;
+            }
+            return in;
+        };
+        const auto picture_hash = [](const app::GameModule& g) {
+            const auto im = g.picture();
+            return platform::sha256({reinterpret_cast<const std::uint8_t*>(im.pixels.data()), im.pixels.size() * sizeof(platform::Color)});
+        };
+        const auto run = [&](app::GameModule& g, int from, int to) {
+            std::vector<float> audio(2 * 882);
+            std::vector<std::uint8_t> heard;
+            for (int f = from; f < to; ++f) {
+                g.tick(input_at(f));
+                g.audio(audio, 44100);
+                const auto* b = reinterpret_cast<const std::uint8_t*>(audio.data());
+                heard.insert(heard.end(), b, b + audio.size() * sizeof(float));
+            }
+            return platform::sha256(heard);
+        };
+        std::vector<int> points;
+        int first_phase = -1; // phase=N: straight into that phase (no screens)
+        for (int a = 3; a < argc; ++a) {
+            if (std::string(argv[a]).rfind("phase=", 0) == 0) first_phase = std::stoi(std::string(argv[a]).substr(6));
+            else points.push_back(std::stoi(argv[a]));
+        }
+        std::sort(points.begin(), points.end());
+        auto game = fodder::game::start_game(argv[2], first_phase);
+        int at = 0, failures = 0;
+        for (const int point : points) {
+            run(*game, at, point);
+            at = point;
+            const auto bytes = game->write_state();
+            const auto described = fodder::game::describe(*game);
+            if (const char* dir = std::getenv("CF_SHOTS"))
+                platform::save_png(game->picture(), std::string(dir) + "/save" + std::to_string(point) + ".png");
+            auto copy = fodder::game::start_game(argv[2], first_phase);
+            copy->read_state(bytes);
+            const bool same_state = copy->write_state() == bytes;
+            const bool same_picture = picture_hash(*copy) == picture_hash(*game);
+            // Continue both from here (the original game goes on afterwards).
+            const auto heard_copy = run(*copy, at, at + 120);
+            const auto heard = run(*game, at, at + 120);
+            at += 120;
+            const bool same_after = copy->write_state() == game->write_state() && picture_hash(*copy) == picture_hash(*game);
+            const bool same_sound = heard == heard_copy;
+            const bool ok = same_state && same_picture && same_after && same_sound;
+            failures += !ok;
+            std::printf("frame %6d: %zu bytes, %s%s%s%s%s | %s\n", point, bytes.size(), ok ? "identical" : "DIFFERS:",
+                        same_state ? "" : " state", same_picture ? "" : " picture", same_after ? "" : " continued",
+                        same_sound ? "" : " sound", described.c_str());
+        }
+        return failures == 0 ? 0 : 1;
     }
     if (command == "play" && argc >= 5) {
         // The launcher's game module, headless: frames with scripted mouse

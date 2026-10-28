@@ -36,6 +36,10 @@ struct Marble {
     struct Cover {
         std::int32_t cell{-1}; // 5 << 16 | cell number
         std::int16_t x{}, y{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(cell, x, y); }
     };
     std::array<Cover, 5> covers{};
     std::uint8_t bounce{};           // +$60
@@ -77,6 +81,10 @@ struct Marble {
     // sprite builder shows them instead of the marble.
     struct Sparkle {
         std::int16_t cell{}, x{}, y{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(cell, x, y); }
     };
     std::array<Sparkle, 8> sparkles{};
     std::uint8_t sparkle_count{};
@@ -106,6 +114,18 @@ struct Marble {
         returning = 0x23,
         knocked = 0x24,
     };
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(vx, vy, vz, x, y, z, status, player, mode, feature, sprite_flag, saved_feature, screen,
+           fall_start_z, edge_cell_x, edge_cell_y, cell_x, cell_y, air, edge_sides, covers, bounce, delay,
+           region_code, region_timer, animation, dust_animation, dust_tick, dust_shown, animation_tick,
+           animation_period, time, clock_flash, tenths, finish_feature, timer_frames, bonus_wobble,
+           bonus_wobble_step, bonus_time, shine_x, shine_y, shine_z, shine_dots, score, roll_sound,
+           shine_phase, stunned, dizzy_animation, dizzy_tick, dizzy_shown, respawns, bonus_picture, bonus_on,
+           sparkles, sparkle_count, sparkles_shown);
+    }
 };
 
 // A steelie: a black enemy marble ($100BD6, $86 bytes each, two of them),
@@ -120,6 +140,12 @@ struct Steelie {
     std::uint32_t path{};       // +$7C: its path's first waypoint
     std::int16_t band_from{}, band_to{}; // +$80, +$82: the scroll bands it lives in
     std::int16_t target{};      // +$84: the player it goes for
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(body, speed, chase_time, waypoint, path, band_from, band_to, target);
+    }
 };
 
 // A slinky: a green worm on Beginner, Intermediate and Ultimate ($101548,
@@ -153,6 +179,13 @@ struct Slinky {
     std::int16_t band_from{}, band_to{}; // +$5C, +$5E
     std::int16_t target{};            // +$60: the player it goes for
     std::uint32_t frame{}, animation{}; // +$62, +$66: animation list position and start
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(vx, vy, x, y, z, status, index, state, zone, knock_vx, knock_vy, tick, period, step, hop, screen,
+           covers, waypoint, path, band_from, band_to, target, frame, animation);
+    }
 };
 
 // An acid puddle: green ooze on Intermediate and Ultimate ($1016F0, $42 bytes
@@ -172,6 +205,13 @@ struct Acid {
     std::uint32_t waypoint{}, path{}; // +$2C, +$30 (3-byte waypoints: x, y, next)
     std::int16_t band_from{}, band_to{}; // +$34, +$36
     std::uint32_t frame{}, animation{}; // +$3A, +$3E: animation list position and start
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(vx, vy, x, y, z, status, index, zone, tick, period, screen, waypoint, path, band_from, band_to,
+           frame, animation);
+    }
 };
 
 // Aerial's pistons ($1018BE, 16 bytes each, 36 of them): three groups of
@@ -181,6 +221,10 @@ struct Piston {
     std::int16_t state{};   // +$2: -1 raised, else the group's wait
     std::int8_t cell_x{}, cell_y{}; // +$4, +$5
     std::int16_t z{};       // +$6: the floor's height at its foot
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(index, state, cell_x, cell_y, z); }
 };
 
 // A group of pistons (Track region block +$23C, $14 bytes each, three):
@@ -195,6 +239,10 @@ struct PistonGroup {
     std::int16_t x{}, line{};    // +$A, +$C
     std::int16_t column{}, row{}; // +$E, +$10
     std::int16_t pattern{};      // +$12
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(picture, frame, timer, x, line, column, row, pattern); }
 };
 
 // Silly's critters ($101AFE, $28 bytes each, nine): three each of kinds 7, 8
@@ -214,6 +262,12 @@ struct Critter {
     std::uint8_t tick{};             // +$24
     std::uint8_t kind{};             // +$25
     std::uint8_t direction{};        // +$26: 0-15 (a sixteenth turn each), $10 standing
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(vx, vy, vz, x, y, z, status, index, state, steps, animation, screen, tick, kind, direction);
+    }
 };
 
 // Silly's birds ($101C66, $3E bytes each, ten): they drop in at the top of
@@ -231,6 +285,12 @@ struct Bird {
     std::int32_t screen{};           // +$20
     std::uint8_t tick{}, period{};   // +$24, +$25
     std::array<Marble::Cover, 5> covers{}; // +$26: three used
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(vy, x, y, z, status, index, state, count, animation, screen, tick, period, covers);
+    }
 };
 
 } // namespace marble_madness::game

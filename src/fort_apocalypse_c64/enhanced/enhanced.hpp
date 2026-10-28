@@ -49,6 +49,10 @@ public:
         bool particles{}; // debris, fire, tossed turrets, wrecks
         bool smooth{};    // smooth banking, tanks and mines gliding, tanks rocking
         int wide_columns{}; // more on each side, for a widescreen view
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(particles, smooth, wide_columns); }
     };
     // Frames the shot-down craft's wreck has lain still (large without one).
     int craft_wreck_rest() const;
@@ -70,6 +74,12 @@ private:
         bool smoke{};     // fades from white to grey, drifting up
         bool dark{};      // (smoke) dark from the start: a fire's
         bool free{};      // has left solid ground (it starts inside a hit)
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(x, y, vx, vy, colour, life, age, fire, smoke, dark, free);
+        }
     };
     // A piece thrown off as a whole and spinning: a tank's turret (it
     // bounces, rolls and settles) or a shot-down mine (it blows up where it
@@ -89,12 +99,23 @@ private:
         int origin{-1};                        // a fragment's helicopter (0, 1)
         std::optional<data::SpriteShape> shape; // a helicopter's look
         u8 colour{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(bitmap, x, y, vx, vy, angle, spin, half_width, half_height, age, rest, gravity, explodes,
+               sprite, origin, shape, colour);
+        }
     };
     struct TankLook {
         int column{-1}, row{};
         double x{};                       // drawn at, in world pixels
         double rise{};                    // pixels still under the ground
         double pitch{}, spin{}, target{}; // degrees, degrees per frame
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(column, row, x, rise, pitch, spin, target); }
     };
 
     // World pixel solid: the map character there has a set pixel pair.
@@ -187,6 +208,15 @@ private:
     std::array<double, 2> craft_velocity_{}, enemy_velocity_{};
     bool enemy_was_exploding_{};
     std::uint32_t rng_{0x9E3779B9};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(picture_, particles_, wrecks_, tanks_, mines_, shells_, prisoners_, tanks_known_, settings_,
+           ticks_, flash_, depot_drop_, sink_drop_, window_, bank_, bank_eased_, craft_colour_,
+           craft_wreck_sprite_, craft_shape_, craft_angle_, was_crashing_, craft_at_, enemy_at_,
+           craft_velocity_, enemy_velocity_, enemy_was_exploding_, rng_);
+    }
 };
 
 } // namespace fort_apocalypse::enhanced

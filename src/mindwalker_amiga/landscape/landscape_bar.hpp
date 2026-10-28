@@ -25,6 +25,10 @@ public:
 
 private:
     screen::GadgetBar bar_;
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(bar_); }
 };
 
 } // namespace mindwalker::landscape

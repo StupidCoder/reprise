@@ -15,6 +15,10 @@ namespace mindwalker::landscape {
 
 struct ScreenPoint {
     int x{}, y{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(x, y); }
 };
 
 class FixedCamera {

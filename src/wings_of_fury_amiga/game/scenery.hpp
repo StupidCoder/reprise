@@ -18,6 +18,10 @@ struct IndexedCanvas {
     // left, -$469C right; bottom and right exclusive), set with -$7C98.
     struct Clip {
         int left{}, top{}, right{}, bottom{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(left, top, right, bottom); }
     };
 
     int width{};
@@ -59,6 +63,10 @@ struct IndexedCanvas {
 
 private:
     bool inside(int x, int y) const { return x >= clip.left && x < clip.right && y >= clip.top && y < clip.bottom; }
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(width, height, pixels, clip); }
 };
 
 // The islands of a map: each runs from a column drawn with `bchl` (scenery
@@ -68,6 +76,10 @@ private:
 struct Island {
     int left_column{};
     int right_column{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(left_column, right_column); }
 };
 std::vector<Island> islands(const data::MissionMap&);
 
@@ -92,6 +104,10 @@ struct BackdropState {
     // the vertical scroll lower; on no ship, it is drawn unmoved.
     struct Ship {
         int first{}, last{}, bob{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(first, last, bob); }
     };
     std::vector<Ship> ships; // active ones, in the game's search order
     // Map specials ($103B1C), state kept by the game:
@@ -101,6 +117,13 @@ struct BackdropState {
     int enemy_flag_counter{};  // 0..2 (-$5C7E) before the frame; each enemy
                                //   flag column steps it once
     std::vector<bool> island_flag_up; // per island (-$5BAE words); an island not listed = up
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(camera, ground_line, eighth_scale, wave_frame, vertical_scroll, ships, us_flag_step, crew_pose_a,
+           crew_pose_b, enemy_flag_counter, island_flag_up);
+    }
 };
 
 // How many of each animated special the next backdrop draws: the flags and
@@ -108,6 +131,10 @@ struct BackdropState {
 struct SpecialsShown {
     int us_flag{}, deck_crew{}, enemy_flag{};
     std::vector<int> wrecked_huts; // the drawn wrecked huts' column offsets ($104E18, in both views)
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(us_flag, deck_crew, enemy_flag, wrecked_huts); }
 };
 SpecialsShown specials_shown(const data::MissionMap&, const BackdropState&);
 

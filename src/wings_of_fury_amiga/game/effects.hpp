@@ -32,10 +32,18 @@ namespace wings::game {
 struct CRandom {
     std::mt19937 engine{0x57494E47u};
     int next() { return int(engine() & 0x7FFF); }
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(engine); }
 };
 struct BeamRandom {
     std::mt19937 engine{0x46555259u};
     int next() { return int(engine() & 0xFFFF); }
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(engine); }
 };
 
 // A slot of the object table. Positions and speeds are 16.16 fixed point;
@@ -66,6 +74,13 @@ struct FlyingObject {
     int pixel_y() const { return std::int16_t(y >> 16); }
     void set_pixel_x(int v) { x = std::int32_t(std::uint32_t(std::uint16_t(v)) << 16 | std::uint16_t(x)); }
     void set_pixel_y(int v) { y = std::int32_t(std::uint32_t(std::uint16_t(v)) << 16 | std::uint16_t(y)); }
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(kind, listed, shown_x, shown_y, x, y, dx, dy, thrust_x, thrust_y, picture, surface, frame,
+           ignition, angle, speed, weapon, run, wake_frame);
+    }
 };
 
 struct Splash {
@@ -73,6 +88,10 @@ struct Splash {
     int left{};       // +2: frames left (6 water, 4 dust); drawn as it counts down
     bool dust{};      // +3 = 2: over an island
     int shown{};      // the frame drawn this frame (0: none)
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(x, left, dust, shown); }
 };
 
 struct Puff {
@@ -81,6 +100,10 @@ struct Puff {
     int size{};               // +$10: 6 .. 1 (`smk5`..`smk0`), 0 free
     int count{};              // +$12: frames until it shrinks (7 per size)
     int shown_x{}, shown_y{}, shown_size{}; // where it was drawn this frame
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(x, y, dx, dy, size, count, shown_x, shown_y, shown_size); }
 };
 
 struct Effects {
@@ -106,6 +129,10 @@ struct Effects {
         std::int32_t dx{}, dy{}; // +8, +$C: 1.0 .. 3.0 a tick, up and to the right
         int kind{};              // +$10: 0..2 (scenery entries 12..14)
         bool active{};           // +$11
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(x, y, dx, dy, kind, active); }
     };
     std::array<Spark, 20> sparks{};
 
@@ -139,6 +166,10 @@ struct Effects {
     // their frame (ending at 8).
     void advance();
     void clear() { *this = Effects{}; }
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(objects, enemy_torpedo, splashes, puffs, sparks); }
 };
 
 // The view the effects are drawn into ($105174's inputs).
@@ -147,12 +178,20 @@ struct EffectView {
     int ground_line{};   // -$60CC ($4B8 in the 1/8 view)
     bool eighth_scale{};
     int smoke_clip_bottom{-1}; // $100EE0: at the deck while the elevator moves
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(camera, ground_line, eighth_scale, smoke_clip_bottom); }
 };
 // $10557C: the fireworks (scenery entries 12..14), over the effects.
 void draw_sparks(IndexedCanvas&, const data::Assets&, const Effects&, const EffectView&);
 // A scenery-table entry drawn at a world place (the islands' soldiers and guns).
 struct WorldSprite {
     int entry{}, x{}, y{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(entry, x, y); }
 };
 // Smoke, then `between` (the soldiers, $103EEE), then splashes and blasts.
 void draw_effects(IndexedCanvas&, const data::Assets&, const Effects&, const EffectView&,
@@ -165,6 +204,10 @@ void draw_world_sprite(IndexedCanvas&, const data::Assets&, const EffectView&, c
 // which swings between the two ends the signal's table entry gives.
 struct CrewTables {
     std::array<std::array<int, 2>, 6> a{}, b{}; // -$59A2, -$598A (by signal)
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(a, b); }
 };
 CrewTables read_crew_tables(const amiga::LoadedImage& wings);
 
@@ -174,6 +217,10 @@ struct DeckCrew {
     int phase{};                  // -$5972: the signal the targets were taken for
     // Once per drawn frame in which a crew column is on screen.
     void step(const CrewTables&, int signal);
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(pose_a, pose_b, target_a, target_b, phase); }
 };
 
 } // namespace wings::game

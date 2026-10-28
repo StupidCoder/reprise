@@ -14,6 +14,10 @@ struct Controls {
     bool up{}, down{}, left{}, right{}, fire{};
     FunctionKey key{FunctionKey::none};
     bool space{}; // the space bar, alone in its keyboard column ($19 = $EF)
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(up, down, left, right, fire, key, space); }
 };
 
 inline Controls read_controls(const app::GameInput& in) {

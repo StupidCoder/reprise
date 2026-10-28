@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <span>
 #include <string>
+#include <stdexcept>
 #include <vector>
 
 // The contract between the Joyport launcher and a running game. The launcher
@@ -81,7 +82,14 @@ public:
         (void)sample_rate;
     }
 
-    // Quick save and load (kept while the game runs).
+    // Quick save/load; the application wrapper persists supported modules to disk.
+    // Portable state for disk saves. Empty means this module is not ready yet.
+    virtual std::vector<std::uint8_t> write_state() { return {}; }
+    // Called on a fresh instance; a failed decode is discarded by the host.
+    virtual void read_state(std::span<const std::uint8_t>) {
+        throw std::runtime_error("Persistent saves are not available for this game yet.");
+    }
+    virtual std::string save_error() const { return {}; }
     virtual bool save() { return false; }
     virtual bool load() { return false; }
     virtual bool has_save() const { return false; }

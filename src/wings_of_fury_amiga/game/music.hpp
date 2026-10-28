@@ -63,6 +63,13 @@ public:
         bool active{};
         std::uint32_t pattern{}, entry{}, voice{}, loop_start{};
         int left{}, release{}, stage{}, volume{}, period{}, loop_words{}, hold{}, tie{}, note{}, slid{}, slide_step{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(active, pattern, entry, voice, loop_start, left, release, stage, volume, period, loop_words,
+               hold, tie, note, slid, slide_step);
+        }
     };
     std::array<TrackView, 4> view() const {
         std::array<TrackView, 4> out{};
@@ -80,6 +87,10 @@ private:
         std::uint32_t body{};   // +4: its BODY
         int notes_per_octave{}; // +8: $53 / octaves
         std::uint32_t address{};// the voice struct (its slide and arpeggio settings)
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(vhdr, body, notes_per_octave, address); }
     };
     struct Track {
         bool active{};               // +0
@@ -99,12 +110,23 @@ private:
         int note{};                  // +$40
         int slid{};                  // +$42: the period with the slide
         int slide_step{};            // +$44
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(active, list, pattern, entry, left, release, stage, voice, volume, period, loop_words,
+               loop_start, hold, tie, note, slid, slide_step);
+        }
     };
 
     // Per instrument (the voice struct, shared by the tracks using it).
     struct Voice {
         int slide_counter{};   // +$1C
         int arpeggio_step{};   // +$2C
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(slide_counter, arpeggio_step); }
     };
 
     void timer_tick();                 // SongInt
@@ -133,6 +155,13 @@ private:
     double until_tick_ = 0;
     double research_time_ = 0;      // samples (at the render rate) to the next interrupt
     amiga::PaulaChannels channels_;
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(instrument_table_, known_, voice_state_, tracks_, song_, state_, fade_count_, fade_speed_, alive_,
+           timer_latch_, until_tick_, research_time_, channels_);
+    }
 };
 
 } // namespace wings::game

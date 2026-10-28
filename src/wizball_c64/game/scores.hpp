@@ -25,6 +25,10 @@ public:
     struct Entry {
         bool one_player_table;
         std::array<std::uint8_t, 6> digits; // 0-9
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(one_player_table, digits); }
     };
     std::array<std::uint8_t, 2> enter(const Entry& first, const Entry* second);
     // $BD32: the name typed (seven characters) to the record marked with
@@ -50,6 +54,10 @@ private:
     std::array<std::uint8_t, 6> top_{};            // $BFEB-$BFF0 (characters)
     std::array<std::uint8_t, 10> top_name_{};      // $B6AA-$B6B3
     std::array<std::array<Record, 6>, 2> block_{}; // the rows of the $BEB5 block (at $BEDF + 40 * row + 20 * column)
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(records_, best_table_, top_, top_name_, block_); }
 };
 
 } // namespace wizball::game

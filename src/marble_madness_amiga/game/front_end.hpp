@@ -29,6 +29,10 @@ namespace marble_madness::game {
 struct TextLine {
     int column{}, row{};
     std::string text;
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(column, row, text); }
 };
 std::vector<TextLine> read_text_list(const amiga::LoadedImage& program, std::uint32_t list);
 std::string read_string(const amiga::LoadedImage& program, std::uint32_t address);
@@ -42,6 +46,10 @@ struct Settings {
     int difficulty{};         // 0-7: the course times (table $102350)
     std::array<int, 2> device{}; // per player: Joy Stick, Trackball 1, Trackball 2, Mouse
     int port{};               // the red player's: Rear Port, Front Port
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(players, difficulty, device, port); }
 };
 
 // The player's controls as the front end reads them: the joystick for the
@@ -49,6 +57,10 @@ struct Settings {
 struct Controls {
     bool up{}, down{}, left{}, right{}, fire{};
     Push push{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(up, down, left, right, fire, push); }
 };
 
 // An owned object that copies with its owner (for quick saves).
@@ -174,12 +186,46 @@ private:
     // The end's bouncing marbles ($100CE2, 10 bytes each, $11E9A8).
     struct Ball {
         std::int16_t x{}, y{}, vx{}, vy{}, ramp{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(x, y, vx, vy, ramp); }
     };
     std::vector<Ball> balls_;
     Random random_;
     bool crowd_{};
     bool crowd_close_{true};
     int crowd_skill_{Race::normal};
+
+  public:
+    template <class A> void persist(A &a) {
+        // During a loading transition the next course is selected before
+        // the old race, renderer and audio bank have been replaced.
+        auto loaded_course = race_->course();
+        a(course_, loaded_course);
+        if constexpr (A::reading) {
+            if (int(course_) < 0 || int(course_) > 5 || int(loaded_course) < 0 || int(loaded_course) > 5)
+                A::fail();
+            const auto next_course = course_;
+            load_course(loaded_course);
+            course_ = next_course;
+        }
+        a(*race_, *view_, *sounds_);
+        for (auto &board : crowd_sounds_) {
+            bool exists = bool(board);
+            a(exists);
+            if constexpr (A::reading) {
+                board.reset();
+                if (exists)
+                    board = std::make_unique<sound::SoundBoard>(*files_, loaded_course);
+            }
+            if (exists)
+                a(*board);
+        }
+        a(cheats, crowd_gain_, crowd_mix_, stage_, step_, wait_, settings_, score_, time_, respawns_,
+          pointer_x_, pointer_y_, fire_held_, title_blanks_, overlay_, count_, total_, balls_, random_,
+          crowd_, crowd_close_, crowd_skill_);
+    }
 };
 
 } // namespace marble_madness::game

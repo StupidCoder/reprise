@@ -109,6 +109,15 @@ private:
     int rumble_{};                      // $20BBE8
     // timer.device.
     int timer_left_{80000};             // microseconds until the request comes back
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(voices_, channel_kind_, wave_, pulse_wave_, noise_, square_, song_, step_, lengths_, notes_,
+           periods_, ticks_left_, volume_, decay_, period_, slide_, ring_periods_, ring_volumes_, ring_at_,
+           loops_, saved_song_, saved_loops_, key_, request_, blip_, blip_base_, pulse_, pitch_, vibrato_,
+           level_, bolt_, bolt_pitch_, aim_, hit_, noise_random_, rumble_, timer_left_);
+    }
 };
 
 } // namespace mindwalker::landscape

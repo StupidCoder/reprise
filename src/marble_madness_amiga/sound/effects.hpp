@@ -46,6 +46,10 @@ struct Wave {
     std::uint32_t words{};
     std::uint16_t period{}, volume{};
     std::uint32_t data{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(words, period, volume, data); }
 };
 
 // A segment (14 bytes: next, count, skip, wave): the wave played `count`
@@ -55,6 +59,10 @@ struct Segment {
     std::int16_t count{};
     std::uint32_t skip{};
     Wave wave{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(next, count, skip, wave); }
 };
 using Chain = std::vector<Segment>;
 
@@ -64,6 +72,10 @@ struct Handle {
     int slot{-1};
     std::uint16_t generation{};
     bool valid() const { return slot >= 0; }
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(slot, generation); }
 };
 
 class Effects {
@@ -93,6 +105,10 @@ private:
     struct Envelope { // $1217F8 / $121888: a value stepped along a list
         std::int32_t value{};
         std::uint32_t list{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(value, list); }
     };
     struct Channel {
         std::uint8_t owner{0xFF}; // $1217B8: $FF free, 4 reserved, else the slot
@@ -104,6 +120,13 @@ private:
         std::uint16_t pan_scale{0x100};             // $12179C
         std::uint16_t last_period{}, last_volume{}; // $1217AC, $1217A4
         Envelope volume, pitch;                     // $121918, $121928
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(owner, ended, chain, segment, state, base_period, base_volume, pan_scale, last_period,
+               last_volume, volume, pitch);
+        }
     };
     struct Slot {
         bool free{true};          // $1217EC
@@ -114,6 +137,12 @@ private:
         std::int16_t pan{};       // $1217D4
         std::uint16_t duration{}; // $1217DC
         bool positional{};        // $121944
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(free, active, generation, mask, priority, pan, duration, positional);
+        }
     };
 
     std::uint16_t reserve(std::int8_t priority, std::int16_t pan); // $120BAE / $120A4E
@@ -132,6 +161,13 @@ private:
     amiga::Paula paula_;
     std::array<Channel, 4> channels_{};
     std::array<Slot, 4> slots_{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(channels_, slots_);
+        paula_.persist_samples(ar, [this](std::uint32_t address) { return &memory_->at(address); });
+    }
 };
 
 } // namespace marble_madness::sound

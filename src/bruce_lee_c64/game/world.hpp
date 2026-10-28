@@ -23,11 +23,19 @@ struct Random {
     std::uint8_t counter{};
     // Overrides for checking against the original: the values it drew, in order.
     std::function<std::optional<std::uint8_t>()> replay;
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(counter); }
 };
 
 struct RoomProgress {
     std::vector<bool> lanterns; // per lantern of the room's list: still hanging
     std::uint8_t remaining{};   // $2A + room: lanterns left
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(lanterns, remaining); }
 };
 
 // The things the room scripts ($3A5C) move.
@@ -37,12 +45,20 @@ struct RoomProgress {
 // 6 it waits (a negative frame counting up) and starts again.
 struct Mover {
     std::uint8_t frame{}, column{}, row{}; // $77 + i, $71 + i, $74 + i
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(frame, column, row); }
 };
 
 // A slider ($6E-$70): one piece moving a column per step along a row,
 // drawn over its last place.
 struct Slider {
     std::uint8_t at{}, was{}, row{}; // $6E, $70, $6F
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(at, was, row); }
 };
 
 // The lift ($2C5D, $60-$66, $430E): the glyphs $61-$63 scroll their
@@ -54,12 +70,20 @@ struct Lift {
     std::uint8_t down{};     // $65
     std::uint8_t rounds{1};  // $66: steps left at this speed
     std::uint8_t speed{7};   // $430E: index into the speed table
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(timer, phase, down, rounds, speed); }
 };
 
 // Room 13's moving pieces ($1042, $010F-$014A): nine along their rows, each
 // wrapping between two columns; mode 0 off, bit 7 rightwards.
 struct Slide {
     std::uint8_t mode{}, at{}, row{}, low{}, high{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(mode, at, row, low, high); }
 };
 
 // Room 18's fireballs ($4120, $431B-$4322, sprites 6 and 7): they come
@@ -71,6 +95,10 @@ struct Fireball {
     std::uint8_t x{}, y{};        // $431F + i, $4321 + i (x in pixel pairs)
     std::uint8_t colour{};        // $D02D + i
     std::array<std::uint8_t, 4> shape{}; // first byte of rows 0-3 ($8340 / $8380)
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(active, wait, x, y, colour, shape); }
 };
 
 // A floor cell of code $60 Bruce has stepped on ($3068, $4FEB-$4FF3): from
@@ -79,6 +107,10 @@ struct Fireball {
 struct Crumble {
     std::uint8_t timer{}; // 0: free
     int row{}, column{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(timer, row, column); }
 };
 
 // What a pass asks the game flow to do.
@@ -86,6 +118,10 @@ struct PassEvents {
     std::optional<int> room_change; // new room (Bruce took an exit)
     bool bruce_died{};              // the dying move ended or Bruce's energy is gone
     bool back_to_start{};           // bumped with nothing to undo: the room's start
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(room_change, bruce_died, back_to_start); }
 };
 
 class World {
@@ -128,6 +164,10 @@ public:
             bool active{};
             double x{}, y{}, vx{}, vy{}; // actor units (x in pixel pairs, y in lines), per frame
             int age{};
+
+          public:
+            // Save schema v1: explicit values; imported resources stay bound to this instance.
+            template <class A> void persist(A &ar) { ar(active, x, y, vx, vy, age); }
         };
         std::array<Flight, 3> flights{};
         int combo{}, combo_frames{}; // hits in the run; frames since the last
@@ -139,6 +179,10 @@ public:
             double x{}, y{}, vx{}, vy{};
             std::array<std::uint8_t, 4> shape{};
             std::uint8_t colour{};
+
+          public:
+            // Save schema v1: explicit values; imported resources stay bound to this instance.
+            template <class A> void persist(A &ar) { ar(active, x, y, vx, vy, shape, colour); }
         };
         std::array<Returned, 2> returned{};
         // Decoration that lost what it stood on, falling as one piece.
@@ -146,11 +190,19 @@ public:
             struct Cell {
                 int column{}, row{}; // within the piece
                 data::Glyph glyph{};
+
+              public:
+                // Save schema v1: explicit values; imported resources stay bound to this instance.
+                template <class A> void persist(A &ar) { ar(column, row, glyph); }
             };
             std::uint32_t id{};
             double x{}, y{}, vy{};   // picture pixels: its top left
             int columns{}, rows{};
             std::vector<Cell> cells;
+
+          public:
+            // Save schema v1: explicit values; imported resources stay bound to this instance.
+            template <class A> void persist(A &ar) { ar(id, x, y, vy, columns, rows, cells); }
         };
         std::vector<Chunk> chunks;
         std::uint32_t next_chunk{1};
@@ -165,10 +217,20 @@ public:
             int row{};                // smash: the cell's screen row
             data::Glyph glyph{};      // smash: the pixels that broke off
             double vx{};              // which way the body flew
+
+          public:
+            // Save schema v1: explicit values; imported resources stay bound to this instance.
+            template <class A> void persist(A &ar) { ar(kind, id, x, y, strength, row, glyph, vx); }
         };
         std::vector<Event> events;
         std::uint32_t next_id{1};
         std::uint32_t seed{0x2545F491};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(on, flights, combo, combo_frames, wave, returned, chunks, next_chunk, events, next_id, seed);
+        }
     } carnage;
     bool carnage_on() const { return carnage.on && playing; }
     bool flying(int slot) const { return carnage_on() && carnage.flights[std::size_t(slot)].active; }
@@ -206,6 +268,10 @@ public:
     struct Cheats {
         bool infinite_lives{};
         bool harmless_enemies{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(infinite_lives, harmless_enemies); }
     } cheats;
     // Frame counters ($7F, and $80/$81 every 256 frames) and the idle count
     // ($82): only the random numbers read them.
@@ -253,6 +319,10 @@ public:
         std::array<RoomProgress, 20> progress{};
         bool flag40{};
         std::uint32_t score{}, next_life_at{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(lives, room, progress, flag40, score, next_life_at); }
     };
     PlayerState player_state() const;
     void set_player_state(const PlayerState&);
@@ -360,6 +430,18 @@ private:
     void step_fireballs();                // $4120
     void start_fireball(int i);           // $41EE / $420D
     void erase_extra_fall();              // $2FEC
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(field, charsets, actors, random, room, progress, playing, two_players, flag40, clock_low, clock,
+           ninja_timer, yamo_timer, score, lives, flame_timers, hazard_deaths, carnage, fall_hits,
+           fall_hit_refresh, sprite_owner, lift, crumbles, room_counters, movers, slider, off_beat, slides,
+           slides_set, drop_bonus, extra_falls, fireballs, countdown, pending_sounds, demo_position,
+           first_visit, player, top_score, next_life_at, first_extra_life, band_counter, blink,
+           collision_latch, cheats, frames_low, frames_high, idle, effect_streams, blink_printed,
+           yamo_arrived, sprite_pointers, second_blocks, shown_charset, probe_charset);
+    }
 };
 
 } // namespace bruce_lee::game

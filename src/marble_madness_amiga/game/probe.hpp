@@ -76,6 +76,13 @@ private:
     // The four vertices around the cell, in the game's order: (cx, cy + 1),
     // (cx + 1, cy + 1), (cx + 1, cy), (cx, cy).
     std::array<Vertex, 4> v_{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(slope_x, slope_y, side_kind, side_height, corner_bits, corner_height, x_, y_, z_, cell_x_, cell_y_,
+           fx_, fy_, v_);
+    }
 };
 
 } // namespace marble_madness::game

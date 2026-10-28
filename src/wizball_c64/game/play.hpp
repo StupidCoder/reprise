@@ -29,18 +29,30 @@ struct Ports {
     std::uint8_t port2{0xFF}; // $DC00 ($B256)
     std::uint8_t port1{0xFF}; // $DC01 ($B257)
     KeyMatrix keys{};         // the keyboard ($7429 reads three of its rows)
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(port2, port1, keys); }
 };
 
 // A per-player score: six shown digits, the last always 0 (points count in
 // tens), and the digit above them that catches an overflow ($BFDA + 7p).
 struct Score {
     std::array<std::uint8_t, 7> digits{}; // [0] overflow, [1..6] shown
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(digits); }
 };
 
 // An entry of a place's spawn list ($9F9B): the view column at which it
 // comes, the kind of thing, and whether it has come already (bit 7).
 struct SpawnEntry {
     std::uint8_t column{}, kind{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(column, kind); }
 };
 
 class Play {
@@ -80,6 +92,10 @@ public:
     struct RightRun {
         std::uint8_t clock, index;
         std::array<std::uint8_t, 13> colours;
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(clock, index, colours); }
     };
     RightRun right_run() const { return {colour_run_clock_, colour_run_index_, colour_run_}; }
     void set_right_run(const RightRun& r) {
@@ -133,6 +149,12 @@ public:
         // The title's colour run ($98BE), which the lab's words reuse.
         std::uint8_t run_clock{}, run_index{};
         std::array<std::uint8_t, 13> run{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(hud_clock, hud_flash, panel_clock, panel_flash, run_clock, run_index, run);
+        }
     };
     void set_clocks(const Clocks& c) {
         hud_clock_ = c.hud_clock;
@@ -177,6 +199,10 @@ public:
         int combo{}, combo_timer{}; // kills in a row, passes left to add one
         float meter{};              // the overdrive meter, 0-1
         int overdrive{};            // passes left
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(combo, combo_timer, meter, overdrive); }
     };
     const CarnageScore& carnage_score() const { return carnage_score_; }
     std::size_t carnage_bodies() const { return bodies_.size(); } // falling now (for tests)
@@ -213,6 +239,10 @@ public:
     struct Template {
         std::array<std::uint8_t, 0x17> bytes{};
         std::vector<std::array<std::uint8_t, 3>> random;
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(bytes, random); }
     };
     const std::array<Template, 18>& templates() const { return templates_; }
     std::uint8_t sprite_mask() const { return sprite_mask_; } // $E7D9
@@ -248,6 +278,10 @@ public:
         int x{}, y{};
         std::uint8_t colour{}, pointer{};
         bool multicolour{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(x, y, colour, pointer, multicolour); }
     };
     const ObjectSprite& object_sprite_of(int slot) const { return object_sprites_[std::size_t(slot)]; }
     bool in_lab() const { return in_lab_; }
@@ -259,6 +293,10 @@ public:
     struct LabSprite {
         int x{}, y{};
         std::uint8_t pointer{}, colour{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(x, y, pointer, colour); }
     };
     const LabSprite& lab_sprite(int n) const { return lab_sprites_[std::size_t(n)]; } // sprites 2-4
     const std::array<Object, 6>& objects() const { return objects_; }
@@ -283,6 +321,10 @@ public:
 private:
     struct CauldronImage {
         std::array<std::array<std::uint8_t, 3>, 21> rows{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(rows); }
     };
     void new_spawn_list(int place);       // $9F9B
     void first_spawn_list(int place);     // $A0EC
@@ -440,6 +482,10 @@ private:
         std::array<std::uint8_t, 10> painted{};
         std::uint8_t place{}, levels_done{}, rounds{};
         std::array<std::uint8_t, 3> colour{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(retained, painted, place, levels_done, rounds, colour); }
     };
     std::array<Progress, 3> saved_{};
     void save_progress();
@@ -496,6 +542,10 @@ private:
         std::uint8_t mask{};
         Catellite::Sprite catellite{};
         std::array<ObjectSprite, 6> objects{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(mask, catellite, objects); }
     };
     ShownSprites shown_sprites_{};
     std::array<PlayerShot, 6> shots_{};
@@ -531,6 +581,10 @@ private:
         std::uint8_t offset{}; // $BB02 (the sound's last-effect byte, borrowed as a counter)
         int slide_x{};         // $E7CA
         bool back_to_play{};   // from the lab: the play loop starts over ($AE0C)
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(stage, count, offset, slide_x, back_to_play); }
     };
     std::optional<Arrival> arrival_;
     bool finished_arrival_back_to_play_{};
@@ -604,12 +658,20 @@ private:
         float x{}, y{}, dx{}, dy{}; // VIC x, raster line
         std::uint8_t colour{};
         int life{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(x, y, dx, dy, colour, life); }
     };
     std::vector<Tracer> tracers_;
     struct PaintBlob {
         float x{}, y{}, dx{}, dy{};
         std::uint8_t colour{};
         int life{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(x, y, dx, dy, colour, life); }
     };
     std::vector<PaintBlob> blobs_;
     // Landscape cut loose: its pixels (pair values as in the cells' art,
@@ -617,17 +679,29 @@ private:
     struct BodyPixel {
         std::int16_t dx{}, dy{};
         std::uint8_t value{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(dx, dy, value); }
     };
     struct Body {
         std::vector<BodyPixel> pixels; // round the pivot
         float x{}, y{}, vx{}, vy{}, angle{}, spin{};
         int age{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(pixels, x, y, vx, vy, angle, spin, age); }
     };
     std::vector<Body> bodies_;
     std::vector<Body> new_bodies_;       // cut loose during the walk over the falling ones
     float last_hit_x_{};                 // where the last bite was (which way a cut-off part tips)
     struct Wave {
         float x{}, y{}, radius{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(x, y, radius); }
     };
     std::vector<Wave> waves_;            // the smart bomb's shockwave
     CarnageScore carnage_score_{};
@@ -663,6 +737,41 @@ private:
     void impact(int strength) { carnage_impact_ = std::max(carnage_impact_, strength); }
     void carnage_flail();                 // the catellite on a tether (update_catellite)
     void carnage_smart_bomb();            // its shockwave (activate_token)
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(playfield_, wiz_, powers_, hum_clock_, controls_, player_, lives_, scores_, high_score_, new_high_,
+           saved_, painted_, retained_, place_, furthest_, levels_done_, rounds_, colour_, slot_of_place_,
+           spawn_lists_, aliens_left_, level_cleared_, cleared_at_loop_top_, templates_, shared1_, shared2_,
+           character_, panel_extra_, sprite_mask_, token_selected_, token_pointer_, token_colour_,
+           token_flash_clock_, token_flash_, hud_clock_, hud_flash_, panel_clock_, panel_flash_,
+           panel_flash_base_, panel_colour0_, panel_colour_shown_, token_colour_shown_, waggle_mask_,
+           waggle_idle_, waggles_, flash_background_, cauldron_clock_, cauldrons_, place_digit_,
+           letters_inverted_, fire_held_, port_select_, catellite_fire_, wiz_stick_, catellite_stick_,
+           objects_, object_sprites_, shown_sprites_, shots_, enemy_shots_, cell_colours_, cursor_,
+           landscape_slot_, beeping_, beeping_last_, beep_clock_, beep_effect_, kills_, pearl_kills_,
+           pearl_kill_limit_, pearl_count_, special_at_, timer_ticks_, timer_seconds_, filler_burst_,
+           filler_burst_clock_, shots_full_, shot_half_, wiz_hit_, catellite_hit_, dying_, death_clock_,
+           pearls_, clear_sequence_, flash_colours_, fire_pressed_, fire_latch_, beam_side_, blazer_set_,
+           spray_clock_, spray_step_, spray_colour_, spray_top_, spray_bottom_, spray_tint_, shield_,
+           shield_clock_, shield_warned_, shield_blink_, wiz_colour_, catellite_, arrival_,
+           finished_arrival_back_to_play_, pending_, pending_count_, pending_inner_, stage_, bonus_templates_,
+           wave_script_, wave_at_, wave_wait_, bonus_speed_, bonus_speed_fraction_, accelerating_,
+           message_state_, message_clock_, message_id_, message_flash_, message_colour_, message_chars_,
+           kills_counted_, kill_toggle_, kill_digits_, bonus_tune_toggle_, font_in_field_, field_font_,
+           in_lab_, lab_return_place_, saved_powers_, saved_icons_, saved_token_, weapon_chosen_,
+           chosen_weapon_, weapon_select_, stick_last_, hung_, keys_, paused_, quit_, game_over_done_,
+           edge_last_, game_over_timer_, game_over_clock_, columns40_, sprite_shared_, perch_state_,
+           perch_clock_, perch_step_, lab_wiz_state_, lab_clock_, lab_step_, lab_tick_, lab_wait_,
+           paint_left_, lab_sprites_, hud_text_, hud_text_shown_, colour_run_clock_, colour_run_index_,
+           colour_run_, hud_band_colour_, charset_place_, panel_slot1_, level_digit_, flight_colour_,
+           flying_text_, unshown_byte_, shot_volume_, work_sprites_, wander_colours_, flash_show_,
+           field_dark_, invincible_, infinite_lives_, catellite_protected_, catellite_ai_, carnage_, damage_,
+           tracers_, blobs_, bodies_, new_bodies_, last_hit_x_, waves_, carnage_score_, kills_seen_,
+           carnage_impact_, banner_timer_, flail_x_, flail_y_, flail_vx_, flail_vy_, flail_on_, gun_clock_,
+           gun_colour_, carnage_seed_, flood_radius_, flood_x_, flood_y_);
+    }
 };
 
 } // namespace wizball::game

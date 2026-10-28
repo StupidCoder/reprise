@@ -17,6 +17,10 @@ namespace mindwalker::world {
 // per hex digit of the coordinate, the top digit first) ends with two words.
 struct ChainLevel {
     std::uint16_t a{}, b{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(a, b); }
 };
 
 // One axis of the coarse landscape (A $209482 for u-like rows with keys 0 and
@@ -34,6 +38,10 @@ public:
 
 private:
     std::uint16_t key_a_{}, key_b_{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(key_a_, key_b_); }
 };
 
 // A platform cell (A $209206): bands 0 of u and of v are open space between
@@ -43,6 +51,10 @@ struct Platform {
     bool centre{};       // band 2 of both u and v (the block's middle)
     bool beacon{};       // the block's exact middle (u and v 40 within the block)
     bool marked{};       // the block the game has marked (see World::marked)
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(height, centre, beacon, marked); }
 };
 
 class World {
@@ -80,6 +92,13 @@ private:
     Chain rows_, columns_;
     int floor_{}, plain_{}, ceiling_{}, alternate_{};
     std::uint16_t start_x_{}, start_y_{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(marked_u, marked_v, keys_, rows_, columns_, floor_, plain_, ceiling_, alternate_, start_x_,
+           start_y_);
+    }
 };
 
 } // namespace mindwalker::world

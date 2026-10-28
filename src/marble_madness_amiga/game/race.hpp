@@ -23,6 +23,10 @@ namespace marble_madness::game {
 struct Push {
     std::int16_t forward{}; // adds to vx (joystick down)
     std::int16_t side{};    // subtracts from vy (joystick right is negative)
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(forward, side); }
 };
 
 // What the sound code is asked to play: an entry of the course's sound
@@ -32,6 +36,10 @@ struct SoundEvent {
     int id{};
     bool right{};
     int marble{-1}; // a crowd race marble's sound (its slot), or -1
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(id, right, marble); }
 };
 
 class Race {
@@ -100,6 +108,10 @@ public:
         std::int16_t x{}, y{}, z{};
         std::int32_t screen{};
         std::int8_t kind{-1};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(x, y, z, screen, kind); }
     };
     const std::array<DropMark, 2>& drop_marks() const { return drop_marks_; }
 
@@ -118,6 +130,10 @@ public:
     struct Cheats {
         bool stop_timer{};  // the race clock stands still
         bool safe_falls{};  // drops onto the course never break the marble
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(stop_timer, safe_falls); }
     };
     Cheats cheats;
 
@@ -247,6 +263,10 @@ private:
         std::int16_t left, top, bottom; // the sprite on the screen
         int centre_shift;              // added to the sprite's centre column
         bool lists;                    // use the Track's hand-placed covers
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(x, y, z, left, top, bottom, centre_shift, lists); }
     };
     unsigned find_covers(const CoverArea&, int& columns, std::array<Marble::Cover, 5>& out);
     // A racer's marble, not a steelie's body (the crowd's marbles race by
@@ -340,6 +360,36 @@ private:
     std::uint32_t respawn_points_{}; // header +4: x, y (cells), zone; $FF ends
     std::uint32_t zones_{};        // header +8: zone boundary lines
     std::uint32_t marble_data_{};  // marbdat's table
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(marbles, steelies, slinkies, acids, pistons, piston_groups, critters, birds, random, crowd_close,
+           crowd_skill, bot_drives_player, game_mode, cheats, course_, players_, terrain_, regions_, probe_,
+           push_, marble_count_, crowd_, sound_source_, planning_, drivers_, home_order_, sounds_, start_x_,
+           start_y_, start_z_, start_cell_x_, start_cell_y_, bounce_x_, bounce_y_, respawn_x_, respawn_y_,
+           respawn_feature_, view_, first_view_, scroll_, scroll_limit_, vacuum_start_dx_, vacuum_start_dy_,
+           birds_on_, pistons_on_, piston_pattern_, piston_blits_, zone_sound_timer_, zone_sounds_,
+           surprise_armed_, surprise_roll_, first_home_, score_changed_, copper_colours_, colour_count_,
+           colour_phase_, drop_marks_, display_, drop_bonus_taken_, frame_, first_update_, scrolling_,
+           scroll_direction_, scroll_speed_, scroll_goal_, descriptor_, respawn_points_, zones_,
+           marble_data_);
+        // This route map was built when the crowd joined. Rebuilding it
+        // from today's animated terrain can give the bots a different route.
+        bool has_map = bool(crowd_map_);
+        ar(has_map);
+        if constexpr (A::reading) {
+            crowd_map_.reset();
+            if (has_map) {
+                auto map = std::make_shared<CrowdMap>(*files_, course_, terrain_);
+                ar(*map);
+                crowd_map_ = std::move(map);
+            }
+        } else if (has_map) {
+            auto map = *crowd_map_;
+            ar(map);
+        }
+    }
 };
 
 } // namespace marble_madness::game

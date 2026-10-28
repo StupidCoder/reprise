@@ -48,12 +48,20 @@ struct SoundRequest {
     int length{};  // bytes (played as whole words)
     int period{}, volume{};
     int repeat{};  // 1: once; $FFFF: on and on
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(active, sample, length, period, volume, repeat); }
 };
 struct SoundBoard {
     struct Channel {
         std::array<SoundRequest, 2> request{};
         Sample playing{};         // +$10: the sample last started
         int playing_period{}, playing_volume{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(request, playing, playing_period, playing_volume); }
     };
     std::array<Channel, 4> channels{};
     // The engine's drone: loudness and pitch ease toward targets the flight
@@ -67,8 +75,18 @@ struct SoundBoard {
         enum class Kind : std::uint8_t { start, retune, stop } kind{};
         int channel{};
         SoundRequest request{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(kind, channel, request); }
     };
     std::vector<Command> commands;
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(channels, engine_level, engine_target, engine_period, engine_base, lengths, commands);
+    }
 };
 
 // What the flight code needs from the map and the ships.
@@ -109,7 +127,20 @@ struct FlightTables {
         std::string island_taken;  // -$7604 "All enemy forces on island have been destroyed . . . Bonus %ld points . . ."
         std::string next_mission;  // -$7660 ". . . Good work ! You are ordered to return to carrier ..."
         std::string promoted;      // -$75A4 ". . . Congratulations! You have completed your mission!! ..."
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(island_taken, next_mission, promoted); }
     } messages;
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(wheel_height, gear_height, turn_height, turn_speed, sine, attitude, flying_names, turn_left_names,
+           turn_right_names, deck_names, wheel_left_names, wheel_right_names, deck_front, deck_back,
+           obstacle_height, sea_motion, pitch_rate, weapon_loads, wreck_names, sine_quarter, slope,
+           arctangent, islands, enemies, ships, gun_angles, messages);
+    }
 };
 FlightTables read_flight_tables(const amiga::LoadedImage& wings);
 
@@ -122,6 +153,10 @@ struct ShipGun {
     bool destroyed{};     // +8
     int smoke_left{};     // +$A
     int smoke_timer{};    // +$C
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(x, lift, destroyed, smoke_left, smoke_timer); }
 };
 // A ship's parked planes (lists -$5F68 + $40 n, $10252C): they take off
 // as lone fighters while the player is between `low` and `high`.
@@ -133,9 +168,17 @@ struct ShipPlanes {
         int flag{};       // +0 ($8000 parked; the carrier's: 1 rolling)
         int x{}, altitude{}; // +2, +4
         int facing{};     // +6
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(flag, x, altitude, facing); }
     };
     std::vector<Plane> planes;
     int shown_count{};    // the frame start's copy ($10102C)
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(count, limit, low, high, planes, shown_count); }
 };
 
 struct ShipState {
@@ -152,6 +195,13 @@ struct ShipState {
     int overlay{};        // +$1C: its library's first scenery index
     std::vector<ShipGun> guns; // +6, +$A
     ShipPlanes planes;
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(first, last, present, afloat, ready, deck, value, sunk, sink_timer, sink_delay, bob, overlay, guns,
+           planes);
+    }
 };
 
 struct PlayerFlight {
@@ -195,6 +245,16 @@ struct PlayerFlight {
     int sink_step{};      // $1159F8: sinking drops a pixel every third tick
     int wreck_time{};     // $1159FA: ticks since the plane came to rest wrecked
     int next_blast{};     // $1159FC: the wreck's next blast is due at this wreck_time
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(altitude, x, shape, mode, fuel, spare, oil, facing, speed_x, speed_y, extra, enemy_timer, climb,
+           speed, throttle, engine_loud, turn, smoothed_climb, climb_kick, pulling_up, lift, gear, signal,
+           fresh_on_deck, wire_x, attitude, eighth_scale, wheels, wheel_attitude, deck_low, deck_high,
+           oil_counter, fuel_counter, fuel_period, sea_step, sea_counter, sea_period, sea, turn_delay,
+           sink_step, wreck_time, next_blast);
+    }
 };
 
 struct FlightWorld {
@@ -272,6 +332,10 @@ struct FlightWorld {
     struct Snapshot {
         int speed_y{}, speed_x{}, x{}, altitude{};
         int pitch{}; // -$5BFA: the smoothed climb in the game's angle steps (1024 to the circle)
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(speed_y, speed_x, x, altitude, pitch); }
     } last;
     // Set by the tick, for the game around it.
     int blackout{};                   // -$3BAC: a plane was lost; the view goes black this many waits
@@ -280,6 +344,21 @@ struct FlightWorld {
     // -$5A3C: drawn frames left before the game is over (the carrier went
     // down with the plane on deck: $64); 0 when not counting.
     int game_over_countdown{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(mission_map, islands, enemies, night, infinite_lives, enemy_duds, rank, mission,
+           mission_accomplished, celebration, vblank_clock, smoke_tick, message, message_new, ships,
+           carrier_x, elevator, lift, menu, menu_repeat, input_delay, weapon, weapon_load, spare_planes,
+           score, kills, caught_wire_x, draw_counter, elevator_seen, random_load, effects, random, beam,
+           sound, crew, gauges, guns, gun_supply, gravity, pitch_adjust, frame_camera, frame_altitude,
+           frame_eighth, frame_drawn, last, blackout, game_over, the_end, game_over_countdown);
+        bool bound = map != nullptr;
+        ar(bound);
+        if constexpr (A::reading)
+            map = bound ? &mission_map : nullptr;
+    }
 };
 
 // A new plane below deck ($103684 with the record set-up $10B7EC): the

@@ -24,6 +24,10 @@ namespace wizball::game {
 struct Controls {
     Ports ports;     // the two joysticks
     KeyMatrix keys{}; // the keyboard
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(ports, keys); }
 };
 
 class FrontEnd {
@@ -51,6 +55,12 @@ public:
         bool invincible{}, infinite_lives{}, any_start_place{};
         bool carnage{}; // carnage mode (not the original game)
         bool catellite_ai{}; // the automatic catellite (not the original game)
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(invincible, infinite_lives, any_start_place, carnage, catellite_ai);
+        }
     };
     void set_cheats(const Cheats& cheats);
 
@@ -61,6 +71,10 @@ public:
         std::vector<std::array<int, 3>> sprites; // x, y, 1 for the top half's mirror (shown above line 136)
         SpriteShape shape{};
         std::uint8_t colour{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(sprites, shape, colour); }
     };
     StarSprites star_sprites() const;
 
@@ -138,6 +152,10 @@ private:
     bool tips_double_{};                                     // two passes in the page's first frame
     struct Star {
         std::uint8_t x{}, x_fraction{}, y{}, y_fraction{}, dx{}, dy{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(x, x_fraction, y, y_fraction, dx, dy); }
     };
     std::array<Star, 4> stars_{};                            // $EB9A
     std::uint8_t start_place_{}, start_limit_{};             // $AF7E, $AF7D
@@ -164,6 +182,27 @@ private:
     int scores_wait_{};                                      // frames blanked before the entry runs
     std::array<std::uint8_t, 2> ranks_{};                    // $BFF2, $BFF3
     std::array<std::uint8_t, 10> name_{};                    // $BFF4: the name being made
+
+  public:
+    template <class A> void persist(A &a) {
+        bool playing = play_.has_value();
+        a(playing);
+        if constexpr (A::reading) {
+            play_.reset();
+            if (playing)
+                play_.emplace(assets_, image_, random_, sound_);
+        }
+        if (playing)
+            a(*play_);
+        a(sound_, colours_, scores_, screen_, codes_, cells_, sprites_, dot_sprite_, letters_inverted_,
+          big_inverted_, keys_, stick_last_, timer_, timer_clock_, mode_, tips_page_, shot_volume_,
+          tips_wait_, tips_double_, stars_, start_place_, start_limit_, cheat_step_, cheat_, cheats_, border_,
+          loading_wait_, loading_in_play_, sprite_flash_clock_, sprite_flash_, sprite_colour_,
+          player_background_, player_background_top_, tips_clock_, tips_phase_, tips_cat_clock_,
+          tips_cat_phase_, tips_token_colour_, token_clock_, token_flash_, entry_player_, entry_marker_,
+          entry_rank_, entry_step_, typed_, typed_length_, typed_limit_, typed_column_, typed_row_,
+          scores_wait_, ranks_, name_);
+    }
 };
 
 } // namespace wizball::game

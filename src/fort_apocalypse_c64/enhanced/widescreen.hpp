@@ -21,6 +21,10 @@ struct WideSize {
     int width{};    // of the picture to show (0: not widescreen)
     int margin_y{}; // border above and below, in windows narrower than the
                     // display window's shape
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(columns, width, margin_y); }
 };
 // For a canvas (window) of this size, with C64 pixels this wide for their
 // height.
@@ -35,6 +39,10 @@ struct ScreenCodes {
     int extension{}; // columns left of the original window
     std::vector<u8> codes;
     u8 at(int column, int row) const { return codes[std::size_t(row * columns + column)]; }
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(columns, extension, codes); }
 };
 ScreenCodes screen_codes(const game::Game&, int columns);
 

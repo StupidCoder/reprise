@@ -54,6 +54,13 @@ private:
         std::uint8_t top_octave{}, bottom_octave{};
         std::uint16_t total_words{}, repeat_words{};
         std::uint32_t base{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(time, event, pattern, repeats, flags, sound, last_note, restart, volume, volume_envelope,
+               pitch_envelope, top_octave, bottom_octave, total_words, repeat_words, base);
+        }
     };
 
     void set_instrument(int voice, std::uint32_t samples, std::uint32_t header, std::uint32_t volume_envelope,
@@ -78,6 +85,12 @@ private:
     std::uint32_t step_{};           // $120238: 16.16 per tick
     std::uint32_t blanks_{5};        // $1200BC (the task has waited for a while)
     std::uint32_t played_to_{};      // the task's count at its last steps
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(voices_, running_, finished_, score_, score_repeats_, transpose_, step_, blanks_, played_to_);
+    }
 };
 
 } // namespace marble_madness::sound

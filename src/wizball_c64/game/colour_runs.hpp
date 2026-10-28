@@ -38,6 +38,10 @@ public:
     struct RightRun {
         std::uint8_t clock, index;
         std::array<std::uint8_t, 13> colours;
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(clock, index, colours); }
     };
     RightRun right_run() const;
     void set_right_run(const RightRun& r);
@@ -54,6 +58,13 @@ private:
     std::uint8_t d2_index_{}, f1_clock_{}, f1_index_{}, f2_clock_{};    // $EBBB-$EBBE
     std::uint8_t f2_index_{}, logo_index_{};                            // $EBBF, $EBC0
     std::uint8_t schedule_{};                                           // $EBF3
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(table_, logo_clock_, d7_clock_, e4_clock_, d2_clock_, e4_index_, d7_index_, d1_index_, d1_clock_,
+           d2_index_, f1_clock_, f1_index_, f2_clock_, f2_index_, logo_index_, schedule_);
+    }
 };
 
 } // namespace wizball::game

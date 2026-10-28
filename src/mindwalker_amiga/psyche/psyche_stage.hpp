@@ -31,6 +31,10 @@ namespace mindwalker::psyche {
 struct PsycheInput {
     int x{}, y{};    // the pointer on the screen
     bool button{};   // the left mouse button
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(x, y, button); }
 };
 // P reads the button ($500418) before each tile it draws and once a pass.
 using PsycheReader = std::function<PsycheInput()>;
@@ -44,6 +48,10 @@ public:
         std::uint32_t score{};      // +$66
         std::uint32_t bonus{42000}; // +$308: the self-development bonus
         std::uint32_t time{};       // +$62: playing time (seconds)
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(world_seed, stage, lives, score, bonus, time); }
     };
     enum class Outcome { playing, done, quit };
 
@@ -79,6 +87,10 @@ private:
     struct Action {
         Act act{};
         int a{}, b{}, c{}, d{}, e{}, f{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(act, a, b, c, d, e, f); }
     };
     void run(const Action&);
     void layout(std::uint32_t world_seed); // h11 / $5022EA: the shuffle and the first places
@@ -150,6 +162,17 @@ private:
     int top_{10};                                    // $500CF0
     Outcome outcome_{Outcome::playing};
     std::vector<Action> sequence_;
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(stage_, lives_, score_, bonus_, time_, colours_, screen_, back_, bar_, button_image_, big_image_,
+           cursor_, sound_, place_, order_, slot_, grid_, target_, bar_pace_, held_, hint_, humming_, blits_,
+           bar_wait_, shuffle_random_, shuffle_extra_, wobble_, steer_, flip_, x_, y_, vx_, vy_, pen_,
+           kaleido_count_, whole_, lives_bonus_, time_bonus_, cursor_x_, cursor_y_, mouse_x_, mouse_y_,
+           button_down_, paused_, message_, resume_pass_, resume_tile_, next_tile_, pass_home_, pass_started_,
+           waited_, whole_wait_, top_, outcome_, sequence_);
+    }
 };
 
 } // namespace mindwalker::psyche

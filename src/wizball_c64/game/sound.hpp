@@ -70,6 +70,14 @@ public:
         std::uint8_t pulse_up{}, pulse_down{};
         std::uint8_t rising{}, count{}, pulse_rising{}, pulse_count{};
         std::uint8_t sustain_release{}, spare{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(voice, priority, gate1, gate2, waveform, attack_decay, started, frequency, frequency_step,
+               up_time, down_time, pulse, pulse_step, pulse_up, pulse_down, rising, count, pulse_rising,
+               pulse_count, sustain_release, spare);
+        }
     };
     const std::array<Slot, 3>& slots() const { return slots_; }
     // For checks against the original: a slot set from its 25 bytes.
@@ -89,6 +97,13 @@ private:
     std::uint8_t fade_direction_{}, fade_level_{0x0F}; // $45CE, $45CF
     Music music_;
     c64::Sid sid_;
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(slots_, records_, last_effect_, toggle_, music_mode_, music_speed_, fade_direction_, fade_level_,
+           music_, sid_);
+    }
 };
 
 } // namespace wizball::game

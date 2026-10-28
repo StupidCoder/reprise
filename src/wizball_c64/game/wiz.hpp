@@ -18,6 +18,10 @@ struct Stick {
     bool left() const { return !(bits & 4); }
     bool right() const { return !(bits & 8); }
     bool fire() const { return !(bits & 16); }
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(bits); }
 };
 
 struct Powers {
@@ -30,6 +34,12 @@ struct Powers {
     bool blazers{};     // $B237
     bool blazers_on_catellite{}; // $B238: the catellite fires them, not the wiz
     bool smart_bomb{};  // $B239 (hypothesis)
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(thrust, antigravity, beam, catellite, spray, doubled, blazers, blazers_on_catellite, smart_bomb);
+    }
 };
 
 class Wiz {
@@ -104,6 +114,13 @@ public:
     struct Probe {
         std::uint8_t y_fraction, vy, vy_fraction, falling, vy_direct, spin, spin_fraction, vx, last_vx;
         std::uint8_t appear, appear_frame, appear_clock, trail_index;
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(y_fraction, vy, vy_fraction, falling, vy_direct, spin, spin_fraction, vx, last_vx, appear,
+               appear_frame, appear_clock, trail_index);
+        }
     };
     Probe probe() const;
     const std::array<std::uint8_t, 8>& trail_y() const { return trail_y_; }
@@ -140,6 +157,15 @@ private:
     std::array<std::uint8_t, 8> probe_offsets_{};
     std::array<std::array<std::uint16_t, 2>, 8> probe_handlers_{};
     Stick stick_{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(x_, y_, y_fraction_, vy_, vy_fraction_, falling_, vy_direct_, spin_, spin_fraction_, vx_, last_vx_,
+           appear_, appear_frame_, appear_clock_, tunnel_, gravity_, direct_clock_, speed_index_, frame_,
+           behind_, place_change_, bumped_, trail_index_, trail_y_, trail_x_, probe_offsets_, probe_handlers_,
+           stick_);
+    }
 };
 
 } // namespace wizball::game

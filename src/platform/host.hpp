@@ -57,6 +57,8 @@ struct Controls {
     bool quit{}, toggle_mute{}, quick_save{}, quick_load{};
     // Mouse position of a click, in the UI design space.
     int mouse_x{}, mouse_y{};
+    // Current hover position, independent of edge-triggered clicks.
+    std::optional<std::array<int, 2>> ui_pointer;
     // Files dropped onto the window this frame (several for a multi-disk game).
     std::vector<std::filesystem::path> dropped_files;
     // The mouse over the last game frame shown (present_game), in the frame's
@@ -87,7 +89,8 @@ public:
     // transparency) is drawn unscaled in the frame's top-right corner, above
     // the game and without taking the mouse.
     void present_game(const Image& frame, double pixel_aspect, const Image* overlay = nullptr,
-                      bool dim = false, const Image* note = nullptr);
+                      bool dim = false, const Image* note = nullptr, float note_opacity = 1.0f,
+                      int note_offset = 0);
     // Whether the game shown draws its own mouse pointer; the system's is
     // then hidden while over the game frame (not over an overlay).
     void set_game_draws_pointer(bool draws);

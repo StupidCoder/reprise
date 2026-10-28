@@ -24,12 +24,23 @@ struct ShipKind {
     std::vector<int> gun_lift;   // (the cruise ship's second and third: 5)
     std::vector<int> plane_counts; // by bonus row: (parked, limit) pairs ($10252C)
     std::vector<int> plane_template; // low, high, then (flag, x, altitude, facing) per plane
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(marker, slot, deck, value, hits, sink_timer, first_from, span, overlay, gun_x, gun_lift,
+           plane_counts, plane_template);
+    }
 };
 
 struct ShipTables {
     std::array<ShipKind, 4> kinds{};
     std::array<std::string, 4> names{}; // -$7456: by value $1194, $1770, $9C4, other
     std::string sunk;                    // -$7526: ". . . %s sunk . . . BONUS %ld points . . ."
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(kinds, names, sunk); }
 };
 ShipTables read_ship_tables(const amiga::LoadedImage& wings);
 

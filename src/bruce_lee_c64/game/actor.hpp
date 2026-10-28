@@ -76,6 +76,14 @@ struct Actor {
 
     bool present() const { return flags & 1; }
     int kind() const { return flags >> 6; } // $2998: 0 Bruce, 1 Ninja, 2 Yamo
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(flags, stick, fire, x, y, facing, terrain, move, last_move, repeat, step, delay, fall_steps,
+           climb_lock, ride_flag, ride_wait, posed, steps, frame, previous_frame, pose, sprite_wide, d1,
+           carried_x, carried_y, carried_energy, sprite_codes);
+    }
 };
 
 // What the actors' rules read besides the actors themselves.
@@ -88,6 +96,12 @@ struct ActorWorld {
     std::vector<std::uint8_t> sounds; // effects requested this pass ($24F6)
     bool death_finished{};       // Bruce's dying move ended ($1830): the flow takes over
     bool restart_position{};     // a bump with no steps to undo ($24C8): back to the room's start (flow)
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(clock, flag40, two_players, lift, lift_down, sounds, death_finished, restart_position);
+    }
 };
 
 class Actors {
@@ -98,6 +112,12 @@ public:
         bool sampled{}, supported{}, level{}, facing{};
         int horizontal{}, vertical{};
         std::string_view outcome{"Waiting for a decision"};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(sampled, supported, level, facing, horizontal, vertical, outcome);
+        }
     };
     std::array<Decision, 3> decisions{};
 
@@ -133,10 +153,18 @@ private:
     void walk_on(Actor&, ActorWorld&);              // $1EC0 / $1E7F
     struct Distance {
         std::uint8_t y{}, x{}; // $62, $63
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(y, x); }
     };
     Distance distance_to_bruce(const Actor&) const; // $2DCA
 
     int budget_{8}; // $86: rounds of undoing left in this actor's pass
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(slots, budget_); }
 };
 
 } // namespace bruce_lee::game

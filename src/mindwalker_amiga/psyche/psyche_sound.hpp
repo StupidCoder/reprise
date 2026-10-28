@@ -39,6 +39,10 @@ public:
     // For replays: each voice's period and volume, the tick count.
     struct Voice {
         int period{200}, volume{}, step{}, wait{}, envelope{0x10};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(period, volume, step, wait, envelope); }
     };
     const std::array<Voice, 4>& voices() const { return voice_; }
     int ticks() const { return ticks_; }
@@ -61,11 +65,24 @@ private:
         int list{1}, step{}, wait{}, envelope{0xF}, curve{}, quieter{};
         bool slide{};
         int period{200};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(pattern, list, step, wait, envelope, curve, quieter, slide, period);
+        }
     };
     bool finale_{};
     std::array<FinaleVoice, 4> finale_voice_{};
     int finale_ticks_{}, finale_quieter_{1};   // $503684, $503685
     std::array<std::vector<std::int8_t>, 10> finale_waves_; // h19 $5035F4 on
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(voices_, sample_, wave_, voice_, ticks_, fast_, timer_left_, finale_, finale_voice_, finale_ticks_,
+           finale_quieter_, finale_waves_);
+    }
 };
 
 } // namespace mindwalker::psyche

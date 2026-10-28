@@ -17,6 +17,10 @@ namespace wings::game {
 struct SavedGame {
     FlightWorld world;   // the map set (from `maps` by name), its columns as saved
     PlayerFlight plane;
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(world, plane); }
 };
 
 std::string save_game_text(const FlightWorld&, const PlayerFlight&);

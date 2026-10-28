@@ -28,6 +28,10 @@ struct Settings {
     bool particles{};
     bool lights{};    // the lanterns' glow and flames, the flash of a blow that lands
     bool gibs{};      // defeated enemies burst into bloody pieces (not in the original)
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(smooth, particles, lights, gibs); }
 };
 
 class Effects {
@@ -43,6 +47,10 @@ private:
         double vx{}, vy{};
         int frames_left{};
         std::uint8_t target_x{}, target_y{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(valid, x, y, vx, vy, frames_left, target_x, target_y); }
     };
     struct Particle {
         double x{}, y{};          // picture pixels
@@ -53,6 +61,20 @@ private:
         bool bounces{};           // lands on the room's graphics and stays a while
         bool resting{};
         int size{1};              // in double-wide pixels (square)
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        int palette_code() const;
+        bool use_palette(int);
+        template <class A> void persist(A &ar) {
+            int palette = A::reading ? 0 : palette_code();
+            if (palette < 0)
+                A::fail();
+            ar(x, y, vx, vy, gravity, age, life, colour_count, bounces, resting, size, palette);
+            if constexpr (A::reading)
+                if (!use_palette(palette))
+                    A::fail();
+        }
     };
     void glide(Glide&, bool present, std::uint8_t x, std::uint8_t y, bool snap);
     bool smooth_lift(const game::World&, data::Charset&);
@@ -117,6 +139,10 @@ private:
         double x{}, y{};
         std::string text;
         int age{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(x, y, text, age); }
     };
     std::vector<Popup> popups_;
     // Falling decoration as it looked (0xFF: nothing), where it was last.
@@ -125,12 +151,25 @@ private:
         int width{}, height{};
         std::vector<std::uint8_t> pixels;
         double x{}, y{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(id, width, height, pixels, x, y); }
     };
     std::vector<ChunkPicture> chunks_;
     void draw_chunks(const game::World&);
     bool bruce_burst_{};                       // Bruce in pieces until his dying move ends
 
     c64::Picture picture_;
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(actors_, fireballs_, particles_, rng_, known_, room_, lanterns_, moves_, crumble_timers_,
+           fragment_colour_, flash_, flash_moves_, frame_, lift_phase_, lift_changed_, charset_, flame_rows_,
+           flame_old_, flame_inbetween_, glow_level_, was_present_, was_defeated_, last_place_,
+           hazard_deaths_, carnage_seen_, popups_, chunks_, bruce_burst_, picture_);
+    }
 };
 
 } // namespace bruce_lee::enhanced

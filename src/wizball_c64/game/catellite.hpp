@@ -19,6 +19,10 @@ public:
     struct Sprite {
         int x{}, y{};
         std::uint8_t pointer{}, colour{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(x, y, pointer, colour); }
     };
 
     void lose();  // $8645: off, at 0, 0, no shield
@@ -83,6 +87,13 @@ public:
     struct Probe {
         std::uint8_t stick_dx, stick_dy, vx, vy, anim_clock, anim_frame, following, steer_clock, offset, colour_clock;
         std::uint8_t wander_clock, wander_value, shield, shield_clock, shield_blink, shield_warned;
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(stick_dx, stick_dy, vx, vy, anim_clock, anim_frame, following, steer_clock, offset,
+               colour_clock, wander_clock, wander_value, shield, shield_clock, shield_blink, shield_warned);
+        }
     };
     Probe probe() const {
         return {std::uint8_t(stick_dx_), std::uint8_t(stick_dy_), std::uint8_t(vx_), std::uint8_t(vy_), anim_clock_,
@@ -106,6 +117,14 @@ private:
     std::uint8_t wander_clock_{}, wander_value_{}; // $8619, $861B
     std::uint8_t shield_{}, shield_clock_{}, shield_blink_{}, shield_warned_{}; // $89B6-$89B9
     Sprite sprite_{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(x_, y_, stick_dx_, stick_dy_, vx_, vy_, anim_clock_, anim_frame_, offset_, following_,
+           steer_clock_, hits_, colour_clock_, wandering_, wander_clock_, wander_value_, shield_,
+           shield_clock_, shield_blink_, shield_warned_, sprite_);
+    }
 };
 
 } // namespace wizball::game

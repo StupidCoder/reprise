@@ -62,26 +62,38 @@ struct Settings {
         return explosions || splashes || shots || stars || pickups || wiz || catellite || cauldrons || tunnels || blackout ||
                flight || lab || front || lights;
     }
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(explosions, splashes, shots, stars, pickups, wiz, catellite, cauldrons, tunnels, blackout, flight,
+           lab, front, lights);
+    }
 };
 
 class Effects {
 public:
-    // Once per frame, after the game's tick (play: the current game or null).
-    void update(const game::Play* play, const Settings& settings);
-    // The front end's screens (the flying stars' trails).
-    void update_front(const game::FrontEnd& front, const Settings& settings);
-    void draw_front(platform::Image& image, const game::Display& display, const game::FrontEnd& front) const;
-    // For the play picture: the blacked-out landscape's fade (0: none).
-    int blackout_fade() const { return blackout_fade_; }
-    // Over the rendered picture of `display` (side columns: its extension).
-    void draw(platform::Image& image, const game::Display& display, const game::Play& play,
-              const Settings& settings) const;
+  void rebind(const game::Play *play) { last_play_ = play; }
+  // Once per frame, after the game's tick (play: the current game or null).
+  void update(const game::Play *play, const Settings &settings);
+  // The front end's screens (the flying stars' trails).
+  void update_front(const game::FrontEnd &front, const Settings &settings);
+  void draw_front(platform::Image &image, const game::Display &display, const game::FrontEnd &front) const;
+  // For the play picture: the blacked-out landscape's fade (0: none).
+  int blackout_fade() const { return blackout_fade_; }
+  // Over the rendered picture of `display` (side columns: its extension).
+  void draw(platform::Image &image, const game::Display &display, const game::Play &play,
+            const Settings &settings) const;
 
 private:
     struct Particle {
         float x{}, y{}, dx{}, dy{}; // VIC coordinates (x) and raster lines (y)
         int colour{}, life{}, age{};
         float floor{1e9f};          // lands (ends) on this line
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(x, y, dx, dy, colour, life, age, floor); }
     };
     // Pieces flying out from a point; `upwards` keeps them to the top half
     // and lets them land again `floor` lines below where they started.
@@ -101,14 +113,26 @@ private:
         bool active{};
         int x{}, y{}, colour{};
         std::uint8_t state{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(active, x, y, colour, state); }
     };
     std::array<LastSprite, 6> last_sprites_{};
     struct Light {
         int x{}, y{}, colour{}, age{};
         float size{1.0f}; // the wiz's burst is larger
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(x, y, colour, age, size); }
     };
     struct Wave {
         int x{}, y{}, age{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(x, y, age); }
     };
     std::vector<Wave> waves_;
     std::uint8_t last_flash_{}, last_dying_{};
@@ -119,6 +143,10 @@ private:
         int cauldron{}, x{}, row{}; // x: pixel within the sprite, row: 0-20 from the top
         int clock{};
         bool popped{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(cauldron, x, row, clock, popped); }
     };
     std::vector<Bubble> bubbles_;
     long frame_{};
@@ -133,6 +161,10 @@ private:
         int x{}, y{}, dx{}, dy{}; // the cell's top left (VIC x, raster), direction
         int colour{};             // as shown (a multicolour cell's low three bits)
         bool blazer{};            // slots 3-5 ($850A)
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(active, x, y, dx, dy, colour, blazer); }
     };
     std::array<ShotTrace, 6> shots_{};
     struct EnemyTrace {
@@ -140,11 +172,24 @@ private:
         int x{}, y{};     // the shot's cell, top left (VIC x, raster)
         int dx{}, dy{};   // its step (1/32 cells a move)
         int colour{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(active, x, y, dx, dy, colour); }
     };
     std::array<EnemyTrace, 16> enemy_shots_{};
     std::array<std::vector<std::array<int, 2>>, 6> trails_{}; // recent cell positions per shot
     std::uint32_t seed_{0x2468ACE1};
     const game::Play* last_play_{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(particles_, free_particles_, last_weapon_, last_painted_, object_state_, last_sprites_, waves_,
+           last_flash_, last_dying_, last_catellite_hits_, spray_tint_, last_paint_, bubbles_, frame_,
+           star_history_, blackout_fade_, last_catellite_on_, last_catellite_, lights_, falling_, shots_,
+           enemy_shots_, trails_, seed_);
+    }
 };
 
 } // namespace wizball::enhanced

@@ -24,11 +24,21 @@ struct GadgetImage {
     int left{}, top{}, width{}, height{}, depth{};
     std::uint32_t data{};               // address in the program (0: none)
     int plane_pick{}, plane_on_off{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(left, top, width, height, depth, data, plane_pick, plane_on_off);
+    }
 };
 
 struct GadgetText {
     int front{}, back{}, mode{}, left{}, top{};
     std::string text;
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(front, back, mode, left, top, text); }
 };
 
 struct Gadget {
@@ -46,6 +56,13 @@ struct Gadget {
 
     // GRELRIGHT counts from the window's last column (Width - 1).
     int x() const { return relative_right ? Canvas::width - 1 + left : left; }
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(id, left, top, width, height, relative_right, proportional, images, texts, enabled, selected,
+           complement, horizontal_pot, free_horizontal);
+    }
 };
 
 class GadgetBar {
@@ -71,6 +88,10 @@ private:
     void draw_gadget(Canvas&, const Gadget&, int background) const;
     std::vector<Gadget> gadgets_;
     std::map<std::uint32_t, std::vector<std::uint8_t>> data_; // image data by its address
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(gadgets_, data_); }
 };
 
 } // namespace mindwalker::screen

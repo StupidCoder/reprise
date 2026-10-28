@@ -1,6 +1,7 @@
 // Interaction checks against the real catalog, without importing or changing any
 // user data. A fake module isolates menu navigation from game rules.
 #include "app/catalog.hpp"
+#include "mindwalker_amiga/game/player_guide.hpp"
 #include "marble_madness_amiga/game/mechanics_chapter.hpp"
 #include "bruce_lee_c64/game/room_chapter.hpp"
 #include "bruce_lee_c64/game/background_article.hpp"
@@ -15,6 +16,7 @@
 #include <stdexcept>
 #include <set>
 #include <cstring>
+#include <fstream>
 
 void check(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
@@ -38,15 +40,156 @@ platform::Controls click(int x, int y) {
 }
 int main(int argc, char** argv) {
     try {
+        if (argc >= 2 && std::string(argv[1]) == "--motion") {
+            const auto root = std::filesystem::temp_directory_path() / ("joyport-motion-" + std::to_string(SDL_GetTicksNS()));
+            struct Cleanup { std::filesystem::path path; ~Cleanup() { std::filesystem::remove_all(path); } } cleanup{root};
+            app::Library library(root, app::catalog());
+            app::Launcher shell(library);
+            const auto different = [](const auto& a, const auto& b) {
+                return std::memcmp(a.pixels.data(), b.pixels.data(), a.pixels.size() * sizeof(platform::Color)) != 0;
+            };
+            platform::Controls enter, back, left, down;
+            enter.accept = true; back.back = true; left.nav_left = true; down.nav_down = true;
+            shell.select(0); shell.update({}, 0); shell.update({}, .2);
+            const auto shelf = shell.draw(.2);
+            platform::Controls hover;
+            hover.ui_pointer = std::array<int, 2>{650, 160};
+            shell.update(hover, .3); shell.update(hover, .5);
+            check(shell.selected() == 0, "Mouse hover must not steal controller selection");
+            check(different(shelf, shell.draw(.5)), "Hover lifts a card without activating it");
+            shell.update({}, .7); shell.update({}, .9);
+            shell.update(enter, 1);
+            const auto opening = shell.draw(1.08);
+            const auto details = shell.draw(1.3);
+            check(different(opening, details), "Cover must move into details before settling");
+            shell.update(back, 2);
+            shell.update(enter, 2.04); // Reverse before the closing motion has finished.
+            check(shell.update(enter, 2.05) == app::Launcher::Request::choose_image,
+                  "Interrupted animation must not delay the active detail action");
+            shell.draw(2.4);
+            shell.update(click(80, 450), 3); shell.draw(3.3);
+            shell.update(click(80, 435), 4);
+            const auto doc_mid = shell.draw(4.06), doc_end = shell.draw(4.3);
+            check(different(doc_mid, doc_end), "Documentation content must transition");
+            for (int y = 106; y < 360; ++y) for (int x = 24; x < 264; ++x) {
+                const auto at = std::size_t(y * 960 + x);
+                check(std::memcmp(&doc_mid.pixels[at], &doc_end.pixels[at], sizeof(platform::Color)) == 0,
+                      "Documentation keeps its cover and identity still");
+            }
+            shell.update(back, 5); shell.update(back, 5.3);
+            shell.select(0);
+            shell.update(down, 6); shell.update(down, 6.3);
+            const auto scroll_start = shell.draw(6.3), scroll_mid = shell.draw(6.4), scroll_end = shell.draw(6.6);
+            check(different(scroll_start, scroll_mid) && different(scroll_mid, scroll_end),
+                  "Rows must travel continuously instead of flipping pages");
+            shell.select(0); shell.update(down, 7); shell.update(down, 7.3);
+            shell.update(click(650, 180), 7.3);
+            check(shell.selected() == 1, "During scroll, a click selects the visible card, not the destination row");
+            // Reduced Motion remains available as a saved preference, without a front-page control.
+            std::filesystem::create_directories(root / "options");
+            { std::ofstream out(root / "options" / "launcher.txt"); out << "Reduced motion = On\n"; }
+            app::Launcher restored(library);
+            check(restored.reduced_motion(), "Reduced Motion survives restarting the launcher");
+            restored.select(0); restored.update(enter, 8);
+            const auto still = restored.draw(8), later = restored.draw(9);
+            check(!different(still, later), "Reduced Motion removes all transition and press animation");
+            if (argc == 3) {
+                std::filesystem::create_directories(argv[2]);
+                platform::save_png(scroll_mid, std::string(argv[2]) + "/scroll-moving.png");
+                platform::save_png(shelf, std::string(argv[2]) + "/shelf.png");
+                platform::save_png(opening, std::string(argv[2]) + "/cover-moving.png");
+                platform::save_png(details, std::string(argv[2]) + "/details.png");
+                platform::save_png(doc_mid, std::string(argv[2]) + "/document-moving.png");
+            }
+            // Exercise import and save-preview animation using generated fixtures only.
+            struct MotionGame : Module {
+                bool changed{};
+                void tick(const app::GameInput&) override { changed = true; }
+                platform::Image picture() const override {
+                    platform::Image image(160, 100);
+                    ui::fill(image, changed ? ui::shelf::green : ui::shelf::cobalt);
+                    return image;
+                }
+                std::vector<std::uint8_t> write_state() override { return {1}; }
+            };
+            auto entries = app::catalog();
+            entries[0].import = [](std::span<const std::uint8_t>) {
+                app::ImportResult result; result.release = "Generated motion fixture";
+                result.files.push_back({"fixture.bin", {1, 2, 3}}); return result;
+            };
+            entries[0].previews = [](const std::filesystem::path&) {
+                platform::Image a(160, 100), b(160, 100);
+                ui::fill(a, ui::shelf::cobalt); ui::fill(b, ui::shelf::green);
+                return std::vector<app::Preview>{{"First asset", std::move(a)}, {"Second asset", std::move(b)}};
+            };
+            entries[0].start = [](const std::filesystem::path&) { return std::make_unique<MotionGame>(); };
+            app::Library fixture(root / "fixture", entries);
+            app::Launcher importing(fixture);
+            const auto source = root / "generated.bin";
+            { std::ofstream out(source); out << "test fixture"; }
+            importing.import({source}, 10);
+            check(fixture.installed(0), "Fixture imports through the normal library path");
+            check(different(importing.draw(10.05), importing.draw(11)), "Imported card settles and Ready light flashes once");
+            auto game = app::with_quick_save(fixture.games()[0], fixture.content_directory(0));
+            check(game->save(), "Fixture saves a screenshot");
+            importing.open_details(); importing.draw(12); importing.draw(13);
+            game->tick({}); check(game->save(), "Fixture updates its screenshot");
+            importing.refresh_save();
+            const auto old_save = importing.draw(14), new_save = importing.draw(14.3);
+            check(different(old_save, new_save), "A changed save screenshot fades when returning to Details");
+            check(!different(new_save, importing.draw(15)), "Screenshot settles without idle animation");
+            importing.open_assets(1); importing.draw(16);
+            platform::Controls right; right.nav_right = true;
+            importing.update(right, 17);
+            const auto asset_mid = importing.draw(17.04);
+            const auto backdrop = asset_mid.pixels[162 * 960 + 306];
+            check(backdrop.r == 20 && backdrop.g == 30 && backdrop.b == 34,
+                  "Asset transitions preserve the dark backdrop without a paper flash");
+            if (argc == 3) platform::save_png(asset_mid, std::string(argv[2]) + "/asset-moving.png");
+            std::cout << "Motion, continuous scrolling, moving-card hit testing, flash-free assets and saved preference checks passed.\n";
+            return 0;
+        }
+        if (argc == 4 && std::string(argv[1]) == "--details-preview") {
+            app::Library library(argv[2], app::catalog());
+            std::filesystem::create_directories(argv[3]);
+            for (const int game : {1, 3, 4}) {
+                app::Launcher shell(library);
+                shell.select(std::size_t(game));
+                shell.open_details();
+                const auto prefix = std::string(argv[3]) + "/details-" + std::to_string(game);
+                platform::save_png(shell.draw(0), prefix + ".png");
+                if (game == 1 || game == 4) {
+                    platform::Controls enter;
+                    enter.accept = true;
+                    check(shell.update(enter, 0) == app::Launcher::Request::continue_game,
+                          "Saved game defaults to Continue");
+                    check(shell.update(click(50, 390), 0) == app::Launcher::Request::play,
+                          "Start remains a separate action");
+                }
+                shell.update(click(100, 450), 0);
+                platform::save_png(shell.draw(0), prefix + "-docs.png");
+                shell.open_history();
+                platform::save_png(shell.draw(0), prefix + "-history.png");
+                shell.open_lessons();
+                platform::save_png(shell.draw(0), prefix + "-lessons.png");
+                shell.open_assets();
+                platform::save_png(shell.draw(0), prefix + "-assets.png");
+            }
+            std::cout << "Saved Continue, Start and documentation previews passed.\n";
+            return 0;
+        }
         if(argc==4 && std::string(argv[1])=="--marble") {
             using namespace marble_madness::game;
             std::filesystem::create_directories(argv[3]);
             app::Library library(std::filesystem::path(argv[2]).parent_path().parent_path(),app::catalog());
-            app::Launcher browser(library);browser.select(4);browser.open_details();browser.update(click(50,490),0);
-            const auto list=browser.draw(0);
+            app::Launcher browser(library);
+            browser.select(4);
+            browser.open_details();
+            browser.open_lessons();
+            const auto list=browser.draw(1);
             platform::save_png(list,std::string(argv[3])+"/browser.png");
             for(int i=0;i<3;++i){browser.update(click(450,210+i*106),0);
-                const auto page=browser.draw(0);MechanicsChapter expected(argv[2],i);const auto actual=expected.draw();
+                const auto page=browser.draw(1);MechanicsChapter expected(argv[2],i);const auto actual=expected.draw();
                 check(std::memcmp(page.pixels.data(),actual.pixels.data(),page.pixels.size()*sizeof(platform::Color))==0,"Browser must open the selected Marble lesson");
                 platform::Controls back;back.back=true;browser.update(back,1);
             }
@@ -110,7 +253,7 @@ int main(int argc, char** argv) {
             std::cout<<"Marble lesson scenarios, pause, stepping and reset passed.\n";
             return 0;
         }
-        if (argc == 3) {
+        if (argc == 3 && std::string(argv[1]) != "--mindwalker-guide") {
             using namespace bruce_lee::game;
             const auto assets=bruce_lee::data::load_assets(argv[1]);
             auto decision=[&](bool yamo,int gap,int height,bool facing) {
@@ -153,7 +296,7 @@ int main(int argc, char** argv) {
             platform::save_png(chapter.draw(), std::string(argv[2])+"-height.png");
             app::Library installed(std::filesystem::path(argv[1]).parent_path().parent_path(),app::catalog());
             app::Launcher launcher(installed); launcher.select(1); launcher.open_details();
-            launcher.update(click(50,490),12);
+            launcher.open_lessons();
             platform::save_png(launcher.draw(12),std::string(argv[2])+"-lessons.png");
             launcher.update(click(450,210),12);
             platform::save_png(launcher.draw(12),std::string(argv[2])+"-entry.png");
@@ -163,16 +306,20 @@ int main(int argc, char** argv) {
                 // Remove asks first; Cancel, Esc and Enter (on Cancel) keep the files.
                 app::Launcher remover(installed); remover.select(1); remover.open_details();
                 const auto before=remover.draw(14);
-                remover.update(click(50,535),14);
+                remover.update(click(50, 510), 14);
                 check(installed.installed(1),"Remove must ask before deleting");
                 const auto dialog=remover.draw(14);
                 platform::save_png(dialog,std::string(argv[2])+"-remove-confirm.png");
                 check(std::memcmp(before.pixels.data(),dialog.pixels.data(),before.pixels.size()*sizeof(platform::Color))!=0,"Remove must show the confirmation");
                 platform::Controls enter; enter.accept=true; remover.update(enter,15);
                 check(installed.installed(1),"Enter on Cancel must keep the files");
-                remover.open_details(); remover.update(click(50,535),16); remover.update(back,16);
+                remover.open_details();
+                remover.update(click(50, 510), 16);
+                remover.update(back, 16);
                 check(installed.installed(1),"Esc must cancel the removal");
-                remover.open_details(); remover.update(click(50,535),17); remover.update(click(500,375),17);
+                remover.open_details();
+                remover.update(click(50, 510), 17);
+                remover.update(click(500, 375), 17);
                 check(installed.installed(1)&&std::memcmp(before.pixels.data(),remover.draw(17).pixels.data(),before.pixels.size()*sizeof(platform::Color))==0,"Cancel must close the confirmation");
             }
             bruce_lee::game::RoomChapter room(argv[1]);
@@ -233,45 +380,108 @@ int main(int argc, char** argv) {
         }
         const auto root = std::filesystem::temp_directory_path() / ("joyport-shell-test-" + std::to_string(SDL_GetTicksNS()));
         app::Library library(root, app::catalog()); // read-only, deliberately nonexistent
+        {
+            app::Launcher guide(library);
+            guide.select(3);
+            guide.open_details();
+            guide.open_lessons();
+            const bool capture = argc == 3 && std::string(argv[1]) == "--mindwalker-guide";
+            if (capture)
+                std::filesystem::create_directories(argv[2]);
+            for (int i = 0; i < 6; ++i) {
+                platform::Controls open;
+                open.accept = true;
+                guide.update(open, 0);
+                mindwalker::game::PlayerGuide expected(i);
+                const auto actual = guide.draw(1), wanted = expected.draw();
+                check(actual.pixels.size() == wanted.pixels.size() &&
+                          std::memcmp(actual.pixels.data(), wanted.pixels.data(),
+                                      actual.pixels.size() * sizeof(platform::Color)) == 0,
+                      "Mind Walker guide must open each selected section without an import");
+                if (capture)
+                    platform::save_png(actual, std::string(argv[2]) + "/guide-" + std::to_string(i) + ".png");
+                platform::Controls back;
+                back.back = true;
+                guide.update(back, 0);
+                platform::Controls next;
+                next.nav_down = true;
+                guide.update(next, 0);
+            }
+            mindwalker::game::PlayerGuide pages;
+            pages.update(click(50, 108 + 5 * 56 + 12), 0);
+            check(pages.page() == 5, "Guide sidebar reaches last page");
+            platform::Controls next;
+            next.page_down = true;
+            pages.update(next, 0);
+            check(pages.page() == 5, "Guide page boundary clamps");
+            pages.update(click(750, 590), 0);
+            check(pages.page() == 4, "Guide previous button works");
+        }
         app::Launcher shell(library);
         using Request = app::Launcher::Request;
         platform::Controls right, left, down, up, enter, back, info, pgdown;
         right.nav_right = true; left.nav_left = true; down.nav_down = true; up.nav_up = true;
         enter.accept = true; back.back = true; info.info = true; pgdown.page_down = true;
-        check(shell.update(enter, 1) == Request::choose_image, "Uninstalled supported game must request import");
+        const auto library_picture = shell.draw(2);
+        check(shell.update(info, 1) == Request::none, "I must not activate a game");
+        check(std::memcmp(library_picture.pixels.data(), shell.draw(2).pixels.data(),
+                          library_picture.pixels.size() * sizeof(platform::Color)) == 0,
+              "I no longer opens details from the library");
+        check(shell.update(enter, 1) == Request::none, "Uninstalled game must open details before import");
+        check(shell.update(enter, 1) == Request::choose_image, "Import starts only from details");
+        shell.update(back, 1);
         shell.update(right, 1); check(shell.selected() == 1, "Right must select Bruce Lee");
         shell.update(up, 1); check(shell.selected() == 1, "Top boundary must preserve column");
         shell.update(down, 1); check(shell.selected() == 3, "Down must select Mindwalker in chronological order");
         shell.update(down, 1); shell.update(down, 1); check(shell.selected() == 8, "Later releases must be reachable");
-        shell.draw(1); // includes the last row's covers, with selection scrolled into view
-        check(shell.update(enter, 1) == Request::choose_image, "Wings of Fury (importable) must request import");
-        shell.draw(1); shell.update(back, 1);
+        shell.draw(2); // includes the last row's covers, with selection scrolled into view
+        check(shell.update(enter, 1) == Request::none, "Wings of Fury opens details before import");
+        shell.draw(2); shell.update(back, 1);
         shell.select(0); shell.update(left, 1); shell.update(down, 1); shell.update(down, 1);
         shell.update(right, 1); check(shell.selected() == 4, "Keyboard filter must select first Amiga entry");
         shell.update(left, 1); shell.update(down, 1); shell.update(right, 1);
         check(shell.selected() == 6, "Planned filter must select Rock 'n Roll (the first planned game)");
         check(shell.update(enter, 1) == Request::none, "Planned game must not start or import");
-        shell.draw(1); shell.update(back, 1);
+        shell.draw(2); shell.update(back, 1);
         shell.update(click(40, 125), 1); // All games
         shell.select(0); shell.update(click(915, 80), 1);
         check(shell.selected() == 2, "Pointer paging must follow chronological order");
-        shell.update(click(600, 400), 1); check(shell.selected() == 8, "Pointer hit testing must follow scrolling");
-        shell.update(info, 1); shell.draw(1); shell.update(back, 1);
+        shell.update(click(600, 400), 2); check(shell.selected() == 8, "Pointer hit testing must follow scrolling");
+        shell.draw(2); shell.update(back, 1);
         for (std::size_t i = 0; i < library.games().size(); ++i) {
-            shell.select(i); const auto image = shell.draw(1);
+            shell.select(i); const auto image = shell.draw(2);
             check(image.width == 960 && image.height == 640, "All cards must render in logical canvas");
             const auto& game=library.games()[i];
             check(game.release_year >= 1983 && game.release_year <= 1993, "Every release needs its platform year");
             check(!game.description.empty() && !game.history.empty() && !game.history_sources.empty(), "Every game needs sourced editorial content");
-            shell.open_details(); const auto about=shell.draw(1);
-            shell.update(right,1); const auto assets=shell.draw(1);
-            check(std::memcmp(about.pixels.data(), assets.pixels.data(), about.pixels.size()*sizeof(platform::Color)) != 0, "Right must open assets from About");
-            shell.update(left,1);
-            check(std::memcmp(shell.draw(1).pixels.data(), about.pixels.data(), about.pixels.size()*sizeof(platform::Color)) == 0, "Left from the file list must restore About");
+            shell.open_details();
+            const auto overview = shell.draw(2);
+            check(shell.update(click(200, 390), 1) == Request::none,
+                  "Continue without a save must do nothing");
+            shell.update(click(80, 450), 1);
+            const auto docs = shell.draw(2);
+            check(std::memcmp(overview.pixels.data(), docs.pixels.data(),
+                              overview.pixels.size() * sizeof(platform::Color)) != 0,
+                  "Documentation opens assets directly");
+            shell.update(click(80, 435), 1);
+            const auto history = shell.draw(2);
+            check(std::memcmp(history.pixels.data(), docs.pixels.data(),
+                              docs.pixels.size() * sizeof(platform::Color)) != 0,
+                  "Documentation sidebar opens development notes");
+            for (int y = 106; y < 360; ++y)
+                for (int x = 24; x < 264; ++x) {
+                    const auto at = std::size_t(y * overview.width + x);
+                    check(std::memcmp(&overview.pixels[at], &history.pixels[at], sizeof(platform::Color)) == 0,
+                          "Details and documentation share the same cover and identity layout");
+                }
+            shell.update(back, 1);
+            check(std::memcmp(shell.draw(2).pixels.data(), overview.pixels.data(),
+                              overview.pixels.size() * sizeof(platform::Color)) != 0,
+                  "Returning to details focuses Documentation");
             shell.update(back, 1);
         }
         shell.select(0); shell.open_details();
-        check(shell.update(click(50, 440), 1) == Request::choose_image, "Detail import button must work");
+        check(shell.update(click(50, 390), 1) == Request::choose_image, "Detail import button must work");
         shell.update(back, 1);
         check(shell.update(click(820, 35), 1) == Request::choose_image, "Global import button must work");
         Module module;

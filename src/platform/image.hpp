@@ -12,6 +12,10 @@ struct Color {
     std::uint8_t g{};
     std::uint8_t b{};
     std::uint8_t a{255};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(r, g, b, a); }
 };
 
 // A plain RGBA pixel buffer. Every game module renders into one of these, and the
@@ -30,6 +34,10 @@ struct Image {
             pixels[std::size_t(y) * std::size_t(width) + std::size_t(x)] = color;
         }
     }
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(width, height, pixels); }
 };
 
 } // namespace platform

@@ -51,6 +51,14 @@ struct PlayerPicture {
     // without it (see gun_flash_shape).
     const data::Shape* gun_flash{};
     bool eighth_scale{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(altitude, ground_line, vertical_scroll, hidden, clip_at_deck, carrier_deck, carrier_bob, caught,
+           wire_screen_x, facing_left, plane_mirrored, deck_part_mirrored, gear_mirrored, deck_part_shown,
+           gear_shown, gear_offset, upset, eighth_scale);
+    }
 };
 
 // The muzzle flash for a frame ($10063A): while the guns fire (-$5C94) and
@@ -97,6 +105,13 @@ struct CarrierDeckPicture {
     // The 1/8 view: 8thscale planes at ((ground + scroll + bob) >> 3), x
     // scaled the same way; no elevator ($10409C draws only at full scale).
     bool eighth_scale{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(camera, ground_line, vertical_scroll, carrier_x, afloat, deck, bob, spare_planes, elevator_state,
+           lift, eighth_scale);
+    }
 };
 void draw_carrier_deck(IndexedCanvas&, const data::Assets&, const CarrierDeckPicture&);
 

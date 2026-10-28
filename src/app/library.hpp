@@ -20,6 +20,8 @@ class Library {
 public:
     Library(std::filesystem::path data_directory, std::vector<GameEntry> games);
 
+    const std::filesystem::path& data_directory() const { return root_; }
+
     const std::vector<GameEntry>& games() const { return games_; }
 
     // Installed and intact (every file matches the manifest).

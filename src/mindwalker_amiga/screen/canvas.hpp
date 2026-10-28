@@ -47,6 +47,10 @@ public:
 
 private:
     std::vector<std::uint8_t> pens_;
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(pens_); }
 };
 
 platform::Color to_color(Rgb4);

@@ -39,6 +39,10 @@ struct LandscapeInput {
     bool up{}, down{}, left{}, right{}, fire{};
     bool button{};      // the left mouse button
     int pointer_x{}, pointer_y{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(up, down, left, right, fire, button, pointer_x, pointer_y); }
 };
 
 // Where the original reads its inputs, in order: the left button once per
@@ -76,6 +80,16 @@ struct Walker {
     int edge_push{};            // $20B382: frames pushed at a held view's edge
     bool aiming{};              // $20B376: fire held (the target cursor shown, colours 19-31 lit)
     int cursor_x{}, cursor_y{}; // $20B37A/$20B37E: the target (drawing rows)
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(form, height, x, z, level, cell_x, cell_y, screen_x, screen_y, terrain, objects, column, row,
+           last_column, last_row, next_terrain, next_objects, next_mix, next_x, next_z, next_column, next_row,
+           next_cell_x, next_cell_y, sprite_rows, in_water, frame, frame_base, frame_counter, speed,
+           speed_counter, last_dx, last_dz, view_row, view_column, depth, visible, hidden_frames, edge_push,
+           aiming, cursor_x, cursor_y);
+    }
 };
 
 class LandscapeStage {
@@ -94,6 +108,13 @@ public:
         std::uint16_t view_x{}, view_y{};                               // +$50/$54
         int damage{};                                                   // +$58
         bool ramp_closed{true};                                         // +$60
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(home_x, home_y, marked_u, marked_v, direction, cell_x, cell_y, x, level, z, slow, found, form,
+               view_x, view_y, damage, ramp_closed);
+        }
     };
     struct Start {
         std::uint32_t seed{};
@@ -101,6 +122,10 @@ public:
         int lives{3};
         std::uint32_t score{};
         std::optional<Resume> resume; // (none: a new game's landscape)
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(seed, stage, lives, score, resume); }
     };
     // $20B056: the state to resume from, as the stage stands.
     Resume resume_state() const;
@@ -206,6 +231,10 @@ private:
     // The minimap (a cheat): cells cached by 4 x 4 block, the nearest target.
     struct MiniBlock {
         std::array<std::array<std::uint16_t, 4>, 4> terrain{}, objects{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(terrain, objects); }
     };
     const MiniBlock& mini_block(std::uint16_t x, std::uint16_t y) const;
     void mini_cell(std::uint16_t x, std::uint16_t y, std::uint16_t& terrain, std::uint16_t& objects) const;
@@ -256,6 +285,19 @@ private:
     bool paused_{};                       // $204D70
     int resume_wait_{};
     std::array<std::uint16_t, 32> map_palette_{}; // $2004AC as the map's view building leaves it
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(world_, stage_, lives_, score_, view_x_, view_y_, home_x_, home_y_, direction_, inputs_, cheats_,
+           mini_blocks_, mini_key_, mini_cell_x_, mini_cell_y_, mini_target_dx_, mini_target_dy_,
+           mini_target_, cells_, colours_, walker_, fidget_, bolt_, map_, map_centre_x_, map_centre_y_,
+           map_x0_, map_x1_, map_y0_, map_y1_, map_wrap_x_, map_wrap_y_, frozen_, button_was_down_, finished_,
+           out_of_lives_, caught_, damage_, flash_, ramp_closed_, next_seed_, slow_creatures_, slow_count_,
+           pyramid_steps_, clock_frames_, clock_mark_, printed_score_, aim_colours_, view_canvas_, bar_,
+           painter_, masks_, creatures_, interlude_, sound_, stick_held_, catch_lost_, was_catching_,
+           map_view_, map_frames_left_, queued_gadget_, map_closing_, paused_, resume_wait_, map_palette_);
+    }
 };
 
 } // namespace mindwalker::landscape

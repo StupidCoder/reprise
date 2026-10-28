@@ -29,6 +29,10 @@ private:
     std::uint8_t counter_{};
     std::uint32_t timer_{0xFFFF};
     std::uint32_t drift_{0x1234567};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(table_, counter_, timer_, drift_); }
 };
 
 } // namespace wizball::game

@@ -1,3 +1,4 @@
+#include "state/archive.hpp"
 #include "wizball_c64/game/module.hpp"
 #include "wizball_c64/enhanced/effects.hpp"
 #include "wizball_c64/data/assets.hpp"
@@ -117,6 +118,17 @@ public:
     }
 
     // Quick save and load: the whole game, the random numbers' state with it.
+    std::vector<std::uint8_t> write_state() override {
+        state::Writer a;
+        a(random_, *front_, frames_, hit_stop_, shake_, effects_);
+        return std::move(a.bytes);
+    }
+    void read_state(std::span<const std::uint8_t> bytes) override {
+        state::Reader a(bytes);
+        a(random_, *front_, frames_, hit_stop_, shake_, effects_);
+        a.finish();
+        effects_.rebind(shown_play());
+    }
     bool save() override {
         saved_ = {random_, front_->copy()};
         return true;

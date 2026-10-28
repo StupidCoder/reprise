@@ -32,6 +32,13 @@ struct LineSettings {
     const Charset* charset{};  // null: no character graphics (blank)
     int screen{};              // which character matrix a row starting here fetches
     bool wide{};               // widescreen: the window runs on into the side columns
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(border, background, shared1, shared2, sprite_shared1, sprite_shared2, multicolour, columns38,
+           xscroll, screen, wide);
+    }
 };
 
 // One hardware sprite's registers.
@@ -41,6 +48,12 @@ struct SpriteSettings {
     SpriteShape shape{};
     std::uint8_t colour{};
     bool multicolour{}, expand_x{}, expand_y{}, behind{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(enabled, x, y, shape, colour, multicolour, expand_x, expand_y, behind);
+    }
 };
 
 class Display {
@@ -51,6 +64,10 @@ public:
 
     struct Matrix {
         std::array<std::uint8_t, 1000> codes{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(codes); }
     };
 
     Display();
@@ -84,6 +101,10 @@ public:
     struct Dot {
         int x{}, y{};
         std::uint8_t colour{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(x, y, colour); }
     };
     std::vector<Dot> dots;
 
@@ -97,12 +118,23 @@ private:
     struct SpriteChange {
         int line;
         SpriteSettings settings;
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(line, settings); }
     };
     std::array<LineSettings, raster_lines> lines_{};
     std::vector<std::uint8_t> side_codes_, side_colours_; // 25 rows x 2 * extension
     std::vector<std::pair<int, CellArt>> cell_art_;       // (row * 128 + column + 64, art)
     int side_index(int row, int column) const;
     std::array<std::vector<SpriteChange>, 8> sprites_{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(screens, colours, vertical_border_open, extension, dots, lines_, side_codes_, side_colours_,
+           cell_art_, sprites_);
+    }
 };
 
 } // namespace wizball::game

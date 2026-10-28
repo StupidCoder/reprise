@@ -27,6 +27,10 @@ struct NewGame {
     std::uint32_t field_6a{};  // +$6A (use not read yet)
     int lives{3};              // +$6E (hypothesis: lives)
     std::uint32_t bonus{42000};// self-development bonus (+$308, +$30C)
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(seed, stage, progress, score, field_6a, lives, bonus); }
 };
 
 // The Hall of Fame (MindHighs): 32 entries of a score and three initials.
@@ -34,10 +38,18 @@ struct HallOfFame {
     struct Entry {
         std::uint32_t score{};
         std::string initials;
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(score, initials); }
     };
     std::array<Entry, 32> entries{};
     static HallOfFame from_file(std::span<const std::uint8_t> bytes); // 32 x (long score, 4 chars)
     std::vector<std::uint8_t> to_file() const;
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(entries); }
 };
 
 // What T is handed and what it may do with the game in memory: the score
@@ -52,12 +64,20 @@ struct Session {
     std::function<bool(int world)> save_world;             // $6026AE: the game in memory saved
     std::function<bool(int world, bool same_world)> restart; // $602248: Continue Game / New Game, Same World
     std::function<void(const HallOfFame&)> fame_changed;   // h11: MindHighs written
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(score, where, fame); }
 };
 
 // The pointer and left button as the stage reads them each frame.
 struct Pointer {
     int x{}, y{};
     bool button{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(x, y, button); }
 };
 
 class TitleStage {
@@ -190,6 +210,18 @@ private:
     // $601626: paused; the frames of the shrink (15) and of the way back (30).
     bool paused_{};
     int shrink_frames_{}, resume_frames_{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(clock_seed_, first_, canvas_, loading_, bar_, colours_, title_colours_, twinkle_work_,
+           read_colours_, phase_, phase_frames_, seed_, new_game_seed_, pillar_random_, pillar_offset_,
+           twinkle_pick_, twinkle_colour_pick_, twinkle_colour_, twinkle_last_, twinkle_level_,
+           twinkle_delay_, button_was_down_, slider_held_, slider_grab_, choice_, new_game_, session_,
+           ranked_, rank_, new_entry_, typed_, wait_, fame_count_, fame_step_, small_image_, initials_,
+           forget_, item_text_, item_back_, command_, confirm_world_, draw_items_, confirming_, restarted_,
+           paused_, shrink_frames_, resume_frames_);
+    }
 };
 
 } // namespace mindwalker::title

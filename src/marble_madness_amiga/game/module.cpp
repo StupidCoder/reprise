@@ -1,3 +1,4 @@
+#include "state/archive.hpp"
 #include "marble_madness_amiga/game/module.hpp"
 #include "marble_madness_amiga/data/assets.hpp"
 #include "marble_madness_amiga/data/game_files.hpp"
@@ -120,6 +121,16 @@ public:
 
     // Quick save and load: the whole game where it is (screen, race, sound
     // and random numbers); the options stay as they are now.
+    std::vector<std::uint8_t> write_state() override {
+        state::Writer a;
+        a(flow_, next_push_);
+        return std::move(a.bytes);
+    }
+    void read_state(std::span<const std::uint8_t> bytes) override {
+        state::Reader a(bytes);
+        a(flow_, next_push_);
+        a.finish();
+    }
     bool save() override {
         saved_.emplace(flow_);
         saved_push_ = next_push_;

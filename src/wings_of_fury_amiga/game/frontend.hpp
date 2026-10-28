@@ -29,6 +29,10 @@ struct ScoreEntry {
     long score{};
     int rank{};
     std::string name;
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(score, rank, name); }
 };
 
 class FrontEnd {
@@ -79,6 +83,10 @@ private:
     struct StoryLine {
         std::string text;
         bool justified{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(text, justified); }
     };
     std::vector<StoryLine> story_;
     std::vector<std::vector<bool>> story_bits_; // each line's pixels, 640 x 12
@@ -95,6 +103,10 @@ private:
     struct Shown {
         const amiga::IlbmPicture* picture{};
         std::vector<std::uint16_t> colours;  // what the screen shows now
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(colours); }
     } shown_;
     std::vector<std::uint16_t> fade_from_, fade_to_;
     int fade_step_ = -1;      // 0..15 while fading
@@ -140,6 +152,38 @@ private:
     std::string busy_;       // "Saving game..." / "Loading game..." while it fades
     Result after_fade_ = Result::back;
     std::filesystem::path saved_game_file(const std::string& name) const;
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        std::string picture_name;
+        if constexpr (!A::reading) {
+            if (shown_.picture) {
+                for (const auto &item : assets_->pictures)
+                    if (&item.picture == shown_.picture)
+                        picture_name = item.name;
+                if (picture_name.empty())
+                    A::fail();
+            }
+        }
+        ar(picture_name);
+        if constexpr (A::reading) {
+            shown_.picture = nullptr;
+            if (!picture_name.empty()) {
+                for (const auto &item : assets_->pictures)
+                    if (item.name == picture_name)
+                        shown_.picture = &item.picture;
+                if (!shown_.picture)
+                    A::fail();
+            }
+        }
+        ar(screen_, frame_, fire_was_, keys_were_, song_request_, story_, story_bits_, story_y_, scroll_,
+           drawn_, row_counter_, ring_, left_, fade_lines_, ending_, shown_, fade_from_, fade_to_, fade_step_,
+           phase_, wait_, selection_, idle_, repeat_, load_chosen_, rank_canvas_, scores_, new_score_,
+           new_rank_, name_, cursor_, keys_, left_was_, right_was_, saving_, game_text_, loaded_game_, slots_,
+           slots_found_, edited_, found_, slot_, slot_cursor_, up_was_, down_was_, return_was_, busy_,
+           after_fade_);
+    }
 };
 
 } // namespace wings::game

@@ -25,6 +25,10 @@ namespace mindwalker::tunnel {
 struct TunnelInput {
     bool up{}, down{}, left{}, right{}, fire{};
     bool button{}; // the left mouse button
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(up, down, left, right, fire, button); }
 };
 
 // Where B reads its inputs, in order: the left button each frame
@@ -39,6 +43,10 @@ public:
         int stage{};          // +$5C
         int lives{3};         // +$6E
         std::uint32_t score{}; // +$66
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(seed, stage, lives, score); }
     };
     enum class Outcome { playing, caught, ran_out, quit };
 
@@ -64,6 +72,10 @@ public:
     const world::Mixer& wander() const { return wander_; }
     struct Rect {
         int size{}, x{}, y{}, shown_x{}, shown_y{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(size, x, y, shown_x, shown_y); }
     };
     const std::array<Rect, 4>& rects() const { return rects_; }
     const std::array<world::Mixer, 12>& rect_random() const { return rect_random_; }
@@ -82,6 +94,10 @@ private:
     void collapse_step();                      // $300CFE, one ring
     struct Box {
         int x0, x1, y0, y1;
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(x0, x1, y0, y1); }
     };
     Box box(int x, int y, int size) const;     // $302C84
 
@@ -111,6 +127,15 @@ private:
     int collapse_{-1}, collapse_frame_{};      // the closing collapse: ring, frame in its step
     amiga::PaulaVoices voices_;
     std::array<int, 4> last_volume_{};         // $3034C4
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(stage_, lives_, score_, tunnel_, rect_layer_, colours_, shown_colours_, bar_, seed_, wander_,
+           rect_random_, rects_, pan_x_, pan_y_, pace_, ticks_, laps_, frame_count_, growth_, frozen_,
+           button_was_down_, stick_left_, stick_right_, stick_up_, stick_down_, paused_, resume_wait_,
+           outcome_, collapse_, collapse_frame_, voices_, last_volume_);
+    }
 };
 
 } // namespace mindwalker::tunnel

@@ -34,6 +34,7 @@ namespace marble_madness::game {
 // The heights a vertex gives the four cells around it, indexed by the
 // cell's direction from the vertex.
 struct Vertex {
+    template <class A> void persist(A &ar) { ar(height); }
     enum Quadrant { minus_x_plus_y = 0, plus_x_plus_y = 1, plus_x_minus_y = 2, minus_x_minus_y = 3 };
     std::array<std::int16_t, 4> height{};
 };
@@ -75,6 +76,11 @@ private:
     std::vector<std::int16_t> row_base_;   // reference height per diagonal row
     std::vector<std::uint16_t> codes_;     // per row and column, after the dictionary
     int view_offset_{};
+
+  public:
+    template <class A> void persist(A &ar) {
+        ar(animated, patterns_, rows_, row_base_, codes_, view_offset_);
+    }
 };
 
 } // namespace marble_madness::game

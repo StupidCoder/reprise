@@ -34,6 +34,10 @@ public:
 
 private:
     std::mt19937 engine_;
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(engine_); }
 };
 
 } // namespace marble_madness::game

@@ -32,6 +32,12 @@ struct ViewCells {
     bool find{};           // $2099AA
     int creature_places{}; // $2099AC
     int landmarks{};       // $2099B8: cells marked $400
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(terrain, objects, mix, colours, water, marker_2000, beacon, find, creature_places, landmarks);
+    }
 };
 
 // What the builder takes besides the world and the cell: the stage (+$5C), the
@@ -46,6 +52,12 @@ struct ViewInputs {
     std::uint16_t colour17{}, colour18{};
     std::uint16_t home_x{}, home_y{};
     std::function<bool(std::uint16_t x, std::uint16_t y)> visited = [](std::uint16_t, std::uint16_t) { return false; };
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(stage, previous_x, previous_y, found, colour17, colour18, home_x, home_y);
+    }
 };
 
 // The view whose first column is x and first row y (the original calls the

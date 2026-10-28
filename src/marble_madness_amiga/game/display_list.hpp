@@ -26,6 +26,10 @@ public:
 
     struct Box {
         std::int16_t x0{}, y0{}, z0{}, x1{}, y1{}, z1{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(x0, y0, z0, x1, y1, z1); }
     };
     struct Slot {
         std::uint8_t type{}, index{};
@@ -34,6 +38,10 @@ public:
         // the same update compare with what their slots held before (a
         // free slot's box, all $7FFF, at first).
         Box box{0x7FFF, 0x7FFF, 0x7FFF, 0x7FFF, 0x7FFF, 0x7FFF};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(type, index, box); }
     };
     using BoxOf = std::function<Box(std::uint8_t type, std::uint8_t index)>;
 
@@ -54,6 +62,10 @@ private:
     std::array<Slot, max_capacity> slots_{};
     std::array<std::uint8_t, max_capacity + 1> order_{};
     int limit_{capacity};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(slots_, order_, limit_); }
 };
 
 } // namespace marble_madness::game

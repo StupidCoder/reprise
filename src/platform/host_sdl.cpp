@@ -274,6 +274,8 @@ Controls Host::poll() {
     input.mouse_held = (buttons & SDL_BUTTON_LMASK) != 0;
     input.mouse_right_held = (buttons & SDL_BUTTON_RMASK) != 0;
     float rx = 0, ry = 0;
+    if (i.ui_shown && SDL_GetMouseFocus() == i.window && SDL_RenderCoordinatesFromWindow(i.renderer, mx, my, &rx, &ry))
+        input.ui_pointer = std::array<int, 2>{int(std::floor(rx)), int(std::floor(ry))};
     if (!i.ui_shown && i.game_box.w > 0 && SDL_RenderCoordinatesFromWindow(i.renderer, mx, my, &rx, &ry)) {
         const float fx = (rx - i.game_box.x) * float(i.game_width) / i.game_box.w;
         const float fy = (ry - i.game_box.y) * float(i.game_height) / i.game_box.h;
@@ -311,7 +313,7 @@ void Host::present(const Image& image) {
     SDL_RenderPresent(i.renderer);
 }
 
-void Host::present_game(const Image& frame, double pixel_aspect, const Image* overlay, bool dim, const Image* note) {
+void Host::present_game(const Image& frame, double pixel_aspect, const Image* overlay, bool dim, const Image* note, float note_opacity, int note_offset) {
     auto& i = *impl_;
     i.ui_shown = false;
     i.upload(frame);
@@ -346,8 +348,9 @@ void Host::present_game(const Image& frame, double pixel_aspect, const Image* ov
         }
         SDL_UpdateTexture(i.note_texture, nullptr, note->pixels.data(), note->width * int(sizeof(Color)));
         const float margin = float(std::max(4, int(std::min(w, h) / 60)));
-        const SDL_FRect at{float(int(target.x + w - note->width - margin)), float(int(target.y + margin)),
+        const SDL_FRect at{float(int(target.x + w - note->width - margin)), float(int(target.y + margin) - note_offset),
                            float(note->width), float(note->height)};
+        SDL_SetTextureAlphaMod(i.note_texture, Uint8(std::clamp(note_opacity, 0.0f, 1.0f) * 255));
         SDL_RenderTexture(i.renderer, i.note_texture, nullptr, &at);
     }
     i.overlay_box = {};

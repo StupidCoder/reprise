@@ -21,6 +21,10 @@ struct TickerFont {
     int first{}, last{};
     std::vector<int> widths;
     std::vector<std::vector<std::uint16_t>> glyphs; // by character - first: height x words
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(height, first, last, widths, glyphs); }
 };
 TickerFont read_ticker_font(const std::vector<std::uint8_t>& file);
 
@@ -53,6 +57,10 @@ private:
     bool running_{};
     int scroll_{};  // -$5A36: blanks the strip still scrolls
     int wait_{};    // -$5A1E: blanks to the next character
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(strip_, text_, next_, running_, scroll_, wait_); }
 };
 
 } // namespace wings::game

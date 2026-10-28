@@ -31,6 +31,10 @@ struct Bitmap {
             pixels[std::size_t(y * width + x)] = colour;
         }
     }
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(width, height, pixel_width, pixels); }
 };
 
 // A character as it shows: multicolour pairs (00 clear, 01 and 10 the shared
@@ -67,12 +71,22 @@ private:
     double origin_x_{}, origin_y_{};
     int parity_{};
     int first_line_{-1}, last_line_{-1}, left_{0}, right_{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(origin_x_, origin_y_, parity_, first_line_, last_line_, left_, right_);
+    }
 };
 
 // Where a layer may draw, and whether foreground graphics cover it.
 struct Clip {
     int first_line{}, last_line{}, left{}, right{};
     const c64::Layers* behind{}; // non-null: foreground pixels cover the layer
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(first_line, last_line, left, right); }
 };
 
 // One double-wide pixel whose left half is at x (x on the grid).

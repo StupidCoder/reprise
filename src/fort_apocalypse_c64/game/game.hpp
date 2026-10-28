@@ -71,6 +71,10 @@ struct Settings {
     int value(int setting) const {
         return setting == 0 ? gravity : setting == 1 ? pilot_skill : robo_pilots;
     }
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(gravity, pilot_skill, robo_pilots); }
 };
 
 // Changes the player can switch on (all off is the original).
@@ -99,6 +103,13 @@ struct Options {
     // tracers end at the edges of what is seen, as the original's shots end
     // at its window's.
     int wide_view{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(fixed_enemy_climb, widescreen, infinite_lives, infinite_fuel, no_lasers, enemies_hold_fire,
+           slow_walls, carnage, wide_view);
+    }
 };
 
 class Game {
@@ -126,6 +137,10 @@ public:
     // $76), before the HUD's ($F9), after it.
     struct Steps {
         int runs{}, returns{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(runs, returns); }
     };
     void set_next_steps(Steps before_playfield, Steps before_hud, Steps after_hud) {
         scheduled_ = true;
@@ -155,26 +170,46 @@ public:
     // happened in the frame. Nothing here changes the game.
     struct MapCell {
         int column{}, row{}; // the map's own column (0-255) and row
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(column, row); }
     };
     struct ShotImpact {
         MapCell cell;     // the cell the shot hit
         u8 direction{};   // 1-5, as the shot flew (bullet_dx/dy)
         u8 code{};        // the character it hit
         bool by_player{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(cell, direction, code, by_player); }
     };
     struct TankDestroyed {
         MapCell body;     // the left cell of the tank's three
         u8 turret{};      // the turret character above its middle
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(body, turret); }
     };
     struct MineDestroyed {
         MapCell cell;     // the left of its two cells
         std::array<u8, 2> look{}; // the two characters it showed
         int direction{};  // 1 or -1, as it was flying
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(cell, look, direction); }
     };
     struct ShellBurst {
         MapCell cell;     // where the tank's shell burst
         int direction{};  // -1 flying left, 1 right
         u8 code{};        // the character it hit or lay over
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(cell, direction, code); }
     };
     // Carnage mode: a pixel the gun carved out of the rock, in map pixels
     // (8 per column and row; a multicolour pixel is two wide), with its
@@ -184,11 +219,19 @@ public:
         u8 pair{};
         double dx{}, dy{};
         bool bite{}; // the first of a tracer's bite
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(x, y, pair, dx, dy, bite); }
     };
     struct Tracer {
         double x{}, y{}, dx{}, dy{}; // map pixels, per frame
         int age{};
         u8 direction{}; // as the original's shot would fly (1-5)
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(x, y, dx, dy, age, direction); }
     };
     struct Happenings {
         std::vector<ShotImpact> impacts; // the craft's shots and the enemy's
@@ -197,6 +240,10 @@ public:
         std::vector<MineDestroyed> mines;
         std::vector<CarvedPixel> carved;
         std::vector<MapCell> depot_blasts; // a depot blew up (its middle, in pixels)
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(impacts, shells, tanks, mines, carved, depot_blasts); }
     };
     const Happenings& happenings() const { return happenings_; }
     // The last picture as drawn: its character frame (cells, lines,
@@ -245,6 +292,13 @@ public:
         // unturned, and where it ends this frame.
         double beam_angle{}, beam_ex{}, beam_ey{};
         bool beam_on{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(kind, x, y, vx, vy, width, height, pixels, codes, spin, age, pivot_x, pivot_y, angle, omega,
+               ox, oy, ovx, ovy, pivoting, resting, beam_angle, beam_ex, beam_ey, beam_on);
+        }
     };
     const std::vector<FallingBody>& falling() const { return falling_; }
     // Carnage mode: towers rocking on their base from the gun's hits (cells,
@@ -253,6 +307,10 @@ public:
     struct TowerView {
         int column{}, row{}, width{}, height{};
         double lean{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(column, row, width, height, lean); }
     };
     std::vector<TowerView> rocking_towers() const;
     // Carnage mode: fuel depots under fire (0 untouched, 1 about to blow; a
@@ -260,6 +318,10 @@ public:
     struct DepotView {
         MapCell cell; // its top left
         double damage{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(cell, damage); }
     };
     std::vector<DepotView> depot_damage() const;
     // Carnage mode's arcade layer: kills within a short time of each other
@@ -271,6 +333,10 @@ public:
         double meter{};               // 0-1
         int overdrive{};              // frames left
         int impact{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(combo, combo_timer, meter, overdrive, impact); }
     };
     const CarnageState& carnage_state() const { return carnage_state_; }
     struct TankView {
@@ -278,24 +344,40 @@ public:
         bool exploding{};
         MapCell body;
         std::array<u8, 3> saved{}; // what its body covers
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(on_map, exploding, body, saved); }
     };
     std::array<TankView, 6> tank_views() const;
     struct MineView {
         bool flying{};
         MapCell cell;     // the left of its two cells
         int phase{};      // 0-3: two pixels further right each ($957B)
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(flying, cell, phase); }
     };
     std::array<MineView, 39> mine_views() const;
     struct ShellView {
         bool flying{};
         MapCell cell;
         u8 look{};        // its character, by the way it flies
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(flying, cell, look); }
     };
     std::array<ShellView, 6> shell_views() const;
     struct PrisonerView {
         bool running{};   // or boarding: he shows until he is taken in
         MapCell feet;     // his lower cell (the torso is the one above)
         bool left{};      // running left
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(running, feet, left); }
     };
     std::array<PrisonerView, 8> prisoner_views() const;
     // The fuel depots: their left top cell, and the stage of their sinking
@@ -309,6 +391,10 @@ public:
         MapCell top_left;
         std::array<u8, 30> look{};
         int rows{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(active, top_left, look, rows); }
     };
     const SinkView& sink_view() const { return sink_view_; }
     // A widescreen view: the map cells around the playfield window as they
@@ -322,6 +408,10 @@ public:
     struct WideEnemy {
         bool placed{};
         int sprite_x{}, sprite_y{}; // VIC coordinates, past the window too
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(placed, sprite_x, sprite_y); }
     };
     WideEnemy shown_wide_enemy() const { return shown_wide_enemy_; }
     // The last picture had the playfield part (rows 9-24 show the map).
@@ -379,6 +469,10 @@ private:
         int stage{};
         int frames{};
         Mode mode{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(kind, stage, frames, mode); }
     };
     void wait(Task::Kind, int stage, int frames);
     void run_task();
@@ -496,6 +590,10 @@ private:
         u8 code{};
         c64::Glyph glyph{};
         bool painted{}; // a fallen tower painted in (joined by whole cells)
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(code, glyph, painted); }
     };
     bool carnage() const { return cheat(options_.carnage); }
     // The rock the gun carves: the brown rock and its edges.
@@ -537,6 +635,10 @@ private:
     struct Tower {
         int column{}, row{}, width{}, height{}; // cells, contiguous copy
         double lean{}, spin{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(column, row, width, height, lean, spin); }
     };
     Tower* tower_at(int column, int row); // (and starts rocking it)
     void push_tower(Tower&, double x, double y, double dx);
@@ -643,6 +745,10 @@ private:
     u8 x_{}, y_{}, bank_{}, column_{}, row_{};
     struct Checkpoint {
         u8 camera_column, camera_row, fine_x, fine_y, x, y, bank;
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(camera_column, camera_row, fine_x, fine_y, x, y, bank); }
     } checkpoint_{};
     u8 attract_step_{}; // $51
     // The camera ($56-$59) and the playfield window ($11, $46, $13, $14).
@@ -659,6 +765,10 @@ private:
     struct Bullet {
         u8 state{}; // 0 free, 1-5 flying (direction), 7 splash
         u8 x{}, y{}, saved{}, column{}, row{}, timer{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(state, x, y, saved, column, row, timer); }
     };
     std::array<Bullet, 3> bullets_{}; // 0-1 the player's, 2 the enemy's
 
@@ -667,6 +777,12 @@ private:
         u8 sprite{1}; // $6D: 1 hidden, 2 on screen
         u8 x{}, y{}, bank{}, column{}, row{}, sub_x{}, sub_y{};
         u8 timer{}, reload{}, watchdog{}, colour{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(state, sprite, x, y, bank, column, row, sub_x, sub_y, timer, reload, watchdog, colour);
+        }
     } enemy_;
     u8 enemy_blip_on_{}; // $B297
     u8 rotor_bit_{};     // $2C
@@ -676,6 +792,12 @@ private:
         u8 column{}, row{}, direction{1};
         std::array<u8, 3> saved{};
         u8 home_column{}, home_row{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(state, column, row, direction, saved, home_column, home_row);
+        }
     };
     std::array<Tank, 6> tanks_{};
     u8 tank_countdown_{1}, tank_explosion_{}; // $F0, $41
@@ -683,6 +805,10 @@ private:
     struct Missile {
         u8 state{1}; // 1 idle, 7 launching, 4 left, 8 right
         u8 column{}, row{}, fuel{}, saved{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(state, column, row, fuel, saved); }
     };
     std::array<Missile, 6> missiles_{};
     u8 missile_countdown_{1}, missiles_active_{}; // $F2, $4E
@@ -690,6 +816,10 @@ private:
     struct Mine {
         u8 state{1}; // low nibble: 1 dormant, 2 flying, 7 to appear; bits 4-5 phase
         u8 column{}, row{}, saved_left{}, saved_right{}, direction{1};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(state, column, row, saved_left, saved_right, direction); }
     };
     std::array<Mine, 39> mines_{};
     u8 mine_cursor_{}; // $E8
@@ -697,6 +827,10 @@ private:
     struct Prisoner {
         u8 state{1}; // 1 gone, 2 running, $0B boarding
         u8 column{}, row{}, motion{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(state, column, row, motion); }
     };
     std::array<Prisoner, 8> prisoners_{};
     u8 prisoner_cursor_{}; // $EA
@@ -744,6 +878,13 @@ private:
         bool rows25{true}, columns40{true};
         bool playfield_charset{};
         u8 sprites{1};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(shared1, shared2, background, border, xscroll, yscroll, rows25, columns40, playfield_charset,
+               sprites);
+        }
     };
     Display vic_{};                  // the registers now
     Display top_{}, split_{}, lower_{}; // as they apply to this frame's parts
@@ -753,6 +894,10 @@ private:
     struct SpriteRegister {
         int x{}, y{};
         u8 pointer{}, colour{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(x, y, pointer, colour); }
     };
     std::array<SpriteRegister, 5> sprite_regs_{};
 
@@ -770,6 +915,34 @@ private:
     Happenings happenings_;
     int depot_shown_stage_{4};
     SinkView sink_view_{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(options_, rng_, pass_rate_, pass_credit_, pass_step_, step_waiting_, step_scheduled_, play_pass_,
+           scheduled_, steps_early_, steps_before_, steps_after_, steps_pending_, task_, mode_, frame_,
+           play_kind_, settings_, selected_, idle_, title_timer_, title_irq_, main_loop_running_,
+           main_loop_starting_, miss_interrupt_, controls_, stick_, fire_, fire_latch_, key_, last_key_,
+           space_down_, space_event_, paused_mode_, gravity_mask_, enemy_mask_, barrier_step_, last_mine_,
+           tank_period_, missile_period_, sweep_period_, score_, high_score_, bonus_, fuel_, lives_, rank_,
+           rescued_, men_left_, level_, fort_, barriers_off_, engine_, depot_stage_, depot_timer_,
+           refuel_sound_, teleport_grace_, message_timer_, crash_timer_, spawn_grace_, level_colour_,
+           playfield_colour_, shot_sound_, explosion_sound_, engine_pitch_, engine_sound_timer_, tone_timer_,
+           sink_index_, rock_draws_, scanned_cells_, craft_, x_, y_, bank_, column_, row_, checkpoint_,
+           attract_step_, camera_column_, camera_row_, fine_x_, fine_y_, copy_now_, copy_timer_, xscroll_,
+           yscroll_, interrupt_cut_short_, sprite_hits_, background_hits_, latched_sprite_hits_,
+           latched_background_hits_, graphics_hits_, latched_graphics_hits_, bullets_, enemy_, enemy_blip_on_,
+           rotor_bit_, tanks_, tank_countdown_, tank_explosion_, missiles_, missile_countdown_,
+           missiles_active_, mines_, mine_cursor_, prisoners_, prisoner_cursor_, barrier_a_, barrier_b_,
+           sweep_timer_, sweep_phase_, sweep_direction_, life_kept_, carved_, tracers_, gun_cooldown_,
+           carnage_seed_, enemy_shot_down_, falling_, born_, moving_falling_, craters_, size_held_,
+           emitter_hits_, crushed_, towers_, depot_hits_, carnage_state_, frame_kills_, frame_impact_,
+           enemy_was_down_, doomed_timer_, doomed_, glide_speed_, glide_step_, map_, spill_terrain_, radar_,
+           glyphs_, radar_glyphs_, screen_, colour_ram_, vic_, top_, split_, lower_, split_layout_,
+           playfield_part_installed_, split_active_, sprite_regs_, sid_, picture_, shown_frame_,
+           shown_screen_, window_, shown_window_, wide_window_, shown_wide_window_, wide_enemy_,
+           shown_wide_enemy_, happenings_, depot_shown_stage_, sink_view_);
+    }
 };
 
 } // namespace fort_apocalypse::game

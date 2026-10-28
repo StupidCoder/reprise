@@ -30,6 +30,13 @@ struct Creature {
     // by row (bit 15 = left), as last built ($206DD4 / $203384).
     std::array<std::uint16_t, 14> visible{};
     std::uint16_t visible_row{}; // its sprite word (row 11, plane A) as last built
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(present, enabled, x, y, top, bottom, dx, speed_x, dy, speed_y, kind, depth, tether_x, tether_y,
+           shown_x, shown_y, visible, visible_row);
+    }
 };
 
 class Creatures {
@@ -42,6 +49,10 @@ public:
         int head{};                  // the walker's head offset by form ($206B7E)
         int stage{};                 // +$5C
         const std::array<ViewPainter::DepthMask, 3>* masks{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(walker_x, walker_y, head, stage); }
     };
 
     // $206D4A: every creature gone, none attached.
@@ -136,6 +147,10 @@ private:
     struct ViewMemory {
         std::uint16_t x{0xFFFF}, y{};
         std::array<int, 5> kinds{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(x, y, kinds); }
     };
     std::array<ViewMemory, 8> history_{}; // $208034, 24 bytes each
     int history_next_{};                   // $2080F4
@@ -144,6 +159,14 @@ private:
     int tether_clock_{}, tether_round_{};  // $200520 / $200524
     bool tethers_drawn_{};                 // $200528
     std::vector<std::pair<int, int>> catchers_;
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(creatures_, random_a_, random_b_, random_c_, attached_, timer_, appear_chance_, kind_mask_,
+           score_bonus_, quiet_, peaceful_, history_, history_next_, current_x_, current_y_, tethers_,
+           tether_clock_, tether_round_, tethers_drawn_, catchers_);
+    }
 };
 
 } // namespace mindwalker::landscape

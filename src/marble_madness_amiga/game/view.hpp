@@ -46,6 +46,10 @@ public:
         std::string text;
         int pen{7}, paper{4};     // palette registers
         std::optional<platform::Color> colour{}; // instead of the pen (the crowd race's results)
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(x, top, text, pen, paper, colour); }
     };
     // A marble's colour for texts: its light shade (the crowd race).
     platform::Color marble_colour(int marble) const;
@@ -54,17 +58,31 @@ public:
         Base base{Base::course};
         struct Box {
             int x{}, y{}, width{}, height{}, pen{4};
+
+          public:
+            // Save schema v1: explicit values; imported resources stay bound to this instance.
+            template <class A> void persist(A &ar) { ar(x, y, width, height, pen); }
         };
         std::vector<Box> boxes;
         std::vector<Text> texts;
         struct Ball {
             int x{}, height{}, ramp{}; // sprite position (heights count upwards), ramp index
+
+          public:
+            // Save schema v1: explicit values; imported resources stay bound to this instance.
+            template <class A> void persist(A &ar) { ar(x, height, ramp); }
         };
         std::vector<Ball> balls;
         bool title{};             // the bar shows "Marble Madness!!" ($10C980)
         int title_blanks{};       // vertical blanks since its colours began to pulse
         std::optional<std::int32_t> bar_score; // the bar as last drawn (the end does not redraw it)
         std::optional<int> bar_time;
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(base, boxes, texts, balls, title, title_blanks, bar_score, bar_time);
+        }
     };
     platform::Image draw(const Race&, const Overlay&) const;
 
@@ -102,6 +120,10 @@ private:
         std::array<std::uint16_t, 2>& at(int column, int line) {
             return words[std::size_t(column * rows + line)];
         }
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(x, y, columns, rows, words); }
     };
     bool make_sprite(Sprite&, const amiga::LoadedImage& source, std::uint32_t record, int screen_x, int screen_y,
                      data::Course) const;
@@ -124,10 +146,18 @@ private:
     struct Move {
         std::uint32_t instruction{}; // Track address of the copper MOVE
         int colour{};                // register 0-15
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(instruction, colour); }
     };
     struct Band {
         int first_line{};            // in scroll lines
         std::vector<Move> moves;
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(first_line, moves); }
     };
     void read_display_block(const Race&);
 
@@ -152,6 +182,12 @@ private:
     // The shine dots each marble's sprite gets this frame (taken from the
     // marble's records, which drawing consumes: $10694C).
     std::array<std::array<std::array<std::int16_t, 4>, 4>, Race::max_marbles> dots_{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(course_, canvas_, links_, base_palette_, bands_, top_row_, picture_row_, dots_);
+    }
 };
 
 } // namespace marble_madness::game

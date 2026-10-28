@@ -20,6 +20,10 @@ namespace wings::game {
 struct BriefingTables {
     std::array<std::uint16_t, 8> palette{};  // -$56D2: the screen's colours
     std::vector<std::string> rank_names;     // -$56EE: seven pointers
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(palette, rank_names); }
 };
 BriefingTables read_briefing_tables(const amiga::LoadedImage& wings);
 

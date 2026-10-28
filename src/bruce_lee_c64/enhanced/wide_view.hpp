@@ -25,6 +25,10 @@ struct WideSize {
     int width{};    // of the picture to show (0: not widescreen)
     int margin_y{}; // border above and below, in windows narrower than the
                     // display window's shape
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(width, margin_y); }
 };
 // For a canvas (window) of this size, with C64 pixels this wide for their
 // height: up to 21:9; the narrowest is the original screen with its border.
@@ -46,6 +50,10 @@ private:
         c64::Picture picture = c64::Picture();
         std::vector<std::pair<int, int>> anchors; // Bruce's y here at a door, dy there
         double shown_dy{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(room, dy, picture, anchors, shown_dy); }
     };
     // Something drawn into the view: a room picture with its top-left corner
     // at x, y, lit from 0 (dimmed) to 1.
@@ -53,6 +61,10 @@ private:
         const c64::Picture* picture{};
         int x{}, y{};
         double lit{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(x, y, lit); }
     };
     struct Transition {
         bool active{};
@@ -61,6 +73,10 @@ private:
         c64::Picture from = c64::Picture(); // the old room, without anyone in it
         Glimpse far;                // the old room's neighbour on the other side
         int came_side{-1};          // the new room's side the old one is on
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(active, frame, dx, dy, from, far, came_side); }
     };
 
     Glimpse glimpse(const game::World&, int side, int hint_y, const Glimpse* forced) const;
@@ -77,6 +93,12 @@ private:
     std::uint8_t bruce_x_{}, bruce_y_{};
     c64::Picture last_centre_;
     c64::Picture picture_;
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(sides_, transition_, known_, room_, remaining_, bruce_x_, bruce_y_, last_centre_, picture_);
+    }
 };
 
 } // namespace bruce_lee::enhanced

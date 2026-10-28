@@ -27,6 +27,12 @@ struct Shelter {
     int leave_timer{};   // +$B: frames.. ticks to the next one
     int gun_delay{};     // +$C: a dugout's new crew waits this long before firing; a wrecked hut's puffs of smoke left
     int refill{};        // +$E: an empty dugout calls for a soldier when this runs out; a wrecked hut's frames to the next puff
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(dugout, offset, left_x, right_x, inside, island, leaving, leave_timer, gun_delay, refill);
+    }
 };
 
 // A pillbox ($103236, $E bytes; none on the first mission's map).
@@ -36,6 +42,10 @@ struct Pillbox {
     bool destroyed{};    // +8 = $FFFF
     int smoke_left{};    // +$A: puffs of smoke still to come
     int smoke_timer{};   // +$C
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(offset, island, destroyed, smoke_left, smoke_timer); }
 };
 
 // A soldier (list -$5AFE, 8 bytes).
@@ -46,12 +56,20 @@ struct Soldier {
     int timer{};         // +4: frames per dying step
     int island{};        // +5
     int state{};         // +6: 0 none, 1 running, 2 dying, 3 dead
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(x, direction, step, timer, island, state); }
 };
 
 struct IslandTargets {
     int soldiers{};      // -$5BAE + 4i: alive, inside or out
     int pillboxes{};     //            + 2
     int first_dugout{}, last_dugout{}; // -$5BBE + 4i: the outermost dugouts' offsets
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(soldiers, pillboxes, first_dugout, last_dugout); }
 };
 
 // `wings` data the islands read.
@@ -61,6 +79,12 @@ struct IslandTables {
     std::vector<int> bonus;                   // -$7B82: row x 4 + island (words)
     std::array<int, 12> smoke_shift{};        // -$640E: a smoke puff's x shift while turning
     std::array<std::uint8_t, 40> damage_smoke{}; // -$5A34: when a damaged plane smokes
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(missions_per_rank, bonus_row, bonus, smoke_shift, damage_smoke);
+    }
 };
 IslandTables read_island_tables(const amiga::LoadedImage& wings);
 
@@ -87,8 +111,19 @@ struct Islands {
     struct Sprite {
         int entry{}, x{}, y{};
         bool gun{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(entry, x, y, gun); }
     };
     std::vector<Sprite> sprites;
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(huts, dugouts, pillboxes, soldiers, targets, islands_left, ships_left, soldiers_killed,
+           flash_frames, flash_colour, guns_heard, gun_distance, gun_sound, gun_volume, sprites);
+    }
 };
 
 // $102DE8: the islands' targets on a map.

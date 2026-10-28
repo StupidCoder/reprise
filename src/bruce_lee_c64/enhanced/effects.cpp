@@ -62,6 +62,32 @@ bool struck(std::uint8_t move) {
 
 } // namespace
 
+int Effects::Particle::palette_code() const {
+    const std::uint8_t *palettes[] = {spark_colours,     lantern_colours, ember_colours, gib_colours,
+                                      light_gib_colours, spray_colours,   dust_colours};
+    for (int i = 0; i < 7; ++i)
+        if (colours == palettes[i])
+            return i;
+    for (int i = 0; i < 16; ++i)
+        if (colours == debris_colours_.data() + i)
+            return 16 + i;
+    return -1;
+}
+bool Effects::Particle::use_palette(int code) {
+    const std::uint8_t *palettes[] = {spark_colours,     lantern_colours, ember_colours, gib_colours,
+                                      light_gib_colours, spray_colours,   dust_colours};
+    constexpr int lengths[] = {5, 6, 6, 10, 10, 5, 5};
+    if (code >= 0 && code < 7 && colour_count == lengths[code]) {
+        colours = palettes[code];
+        return true;
+    }
+    if (code >= 16 && code < 32 && colour_count == 1) {
+        colours = debris_colours_.data() + code - 16;
+        return true;
+    }
+    return false;
+}
+
 double Effects::random(double low, double high) {
     return std::uniform_real_distribution<double>(low, high)(rng_);
 }

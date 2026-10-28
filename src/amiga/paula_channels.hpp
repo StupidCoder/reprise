@@ -43,11 +43,21 @@ private:
         bool on{};
         std::uint32_t block{}, block_bytes{}; // the block playing
         double position{};                    // bytes into it
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(location, length, period, volume, on, block, block_bytes, position);
+        }
     };
     void load(int channel);
     std::span<const std::int8_t> memory_;
     std::array<Channel, 4> channels_{};
     std::array<float, 2> filter_{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(channels_, filter_); }
 };
 
 } // namespace amiga

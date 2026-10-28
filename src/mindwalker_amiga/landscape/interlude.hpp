@@ -25,6 +25,7 @@ struct Display {
     screen::Canvas planes;
     std::vector<std::uint8_t> plane4 = std::vector<std::uint8_t>(320 * 200);
     std::array<std::uint16_t, 32> colours{};
+    template <class A> void persist(A &ar) { ar(planes, plane4, colours); }
 };
 
 class Interlude {
@@ -87,8 +88,14 @@ private:
         Display next;
         Repaint kind;
         int repeats, star_x, star_y;
+        template <class A> void persist(A &ar) { ar(next, kind, repeats, star_x, star_y); }
     };
     std::vector<Queued> queued_; // repaints asked for while one plays (one cell's events)
+  public:
+    template <class A> void persist(A &ar) {
+        ar(display_, next_, phase_, step_, frames_left_, level_, lost_, fading_, repaint_, repeats_, frame_,
+           star_x_, star_y_, blackened_, grab_colours_, queued_);
+    }
 };
 
 } // namespace mindwalker::landscape

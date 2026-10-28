@@ -16,6 +16,10 @@ struct ShiftRegister {
         state = (((old << 16 ^ old) & 0x80000u) << 12) | old >> 1;
         return std::uint16_t(old >> 1);
     }
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(state); }
 };
 
 // A mixing generator of three words (A $2099C8 seeds it, $209A20 steps it): a
@@ -40,6 +44,10 @@ struct Mixer {
         mix = std::uint16_t(mix ^ (reg & count));
         return mix;
     }
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(reg, mix, counter); }
 };
 
 } // namespace mindwalker::world

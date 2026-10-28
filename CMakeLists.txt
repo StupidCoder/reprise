@@ -183,6 +183,7 @@ add_library(mindwalker_amiga
     src/mindwalker_amiga/screen/area_fill.cpp
     src/mindwalker_amiga/screen/gadget_bar.cpp
     src/mindwalker_amiga/title/title_stage.cpp
+    src/mindwalker_amiga/game/player_guide.cpp
     src/mindwalker_amiga/game/module.cpp
     src/mindwalker_amiga/landscape/view_cells.cpp
     src/mindwalker_amiga/landscape/view_scene.cpp
@@ -248,10 +249,10 @@ add_library(cannon_fodder_amiga
     src/cannon_fodder_amiga/game/explosives.cpp
     src/cannon_fodder_amiga/game/mission.cpp
     src/cannon_fodder_amiga/game/scenery.cpp
-    src/cannon_fodder_amiga/game/dispatch.cpp
     src/cannon_fodder_amiga/game/vehicles.cpp
     src/cannon_fodder_amiga/game/campaign.cpp
     src/cannon_fodder_amiga/game/front_end.cpp
+    src/cannon_fodder_amiga/game/dispatch.cpp
     src/cannon_fodder_amiga/game/module.cpp
     src/cannon_fodder_amiga/sound/rjp1.cpp
     src/cannon_fodder_amiga/sound/board.cpp
@@ -271,7 +272,7 @@ add_executable(joyport
     src/bruce_lee_c64/game/chapter.cpp
     src/bruce_lee_c64/game/room_chapter.cpp
     src/bruce_lee_c64/game/background_article.cpp
-    src/app/launcher.cpp
+    src/app/launcher.cpp src/app/quick_save.cpp
     src/app/pause_menu.cpp
     src/app/saved_options.cpp)
 target_link_libraries(joyport PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga ui)
@@ -347,13 +348,21 @@ if(BUILD_TESTING)
         src/bruce_lee_c64/game/chapter.cpp
     src/bruce_lee_c64/game/room_chapter.cpp
     src/bruce_lee_c64/game/background_article.cpp
-    src/app/launcher.cpp src/app/pause_menu.cpp)
+    src/app/launcher.cpp src/app/quick_save.cpp src/app/pause_menu.cpp)
     target_link_libraries(shell_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga ui)
     target_compile_options(shell_checks PRIVATE ${PROJECT_WARNINGS})
     add_dependencies(shell_checks joyport_resources)
     add_test(NAME shell_navigation COMMAND shell_checks)
+    add_test(NAME shell_motion COMMAND shell_checks --motion)
 endif()
 
 add_executable(marble_madness_replay tools/marble_madness_replay.cpp)
 target_link_libraries(marble_madness_replay PRIVATE marble_madness_amiga)
 target_compile_options(marble_madness_replay PRIVATE ${PROJECT_WARNINGS})
+
+if(BUILD_TESTING)
+    add_executable(persistence_checks tests/persistence.cpp src/app/catalog.cpp src/app/quick_save.cpp)
+    target_link_libraries(persistence_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga ui)
+    target_compile_options(persistence_checks PRIVATE ${PROJECT_WARNINGS})
+    add_test(NAME persistent_saves COMMAND persistence_checks)
+endif()

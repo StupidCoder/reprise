@@ -1,3 +1,4 @@
+#include "state/archive.hpp"
 #include "fort_apocalypse_c64/game/module.hpp"
 #include "c64/program.hpp"
 #include "platform/files.hpp"
@@ -150,6 +151,16 @@ void Module::audio(std::span<float> stereo, int sample_rate) {
     }
 }
 
+std::vector<std::uint8_t> Module::write_state() {
+    state::Writer a;
+    persist_runtime(a);
+    return std::move(a.bytes);
+}
+void Module::read_state(std::span<const std::uint8_t> bytes) {
+    state::Reader a(bytes);
+    persist_runtime(a);
+    a.finish();
+}
 bool Module::save() {
     saved_ = std::make_unique<Game>(*game_);
     return true;

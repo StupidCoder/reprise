@@ -29,6 +29,10 @@ private:
         std::uint8_t wait{};     // frames to the next command
         std::uint16_t stream{};
         std::uint8_t priority{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(state, position, wait, stream, priority); }
     };
     void run(c64::Sid&, int voice);
     std::uint8_t at(std::uint16_t address) const { return assets_.sound_byte(address); }
@@ -36,6 +40,10 @@ private:
     const data::Assets& assets_;
     std::array<Channel, 3> channels_{};
     std::array<std::uint8_t, 16> priorities_{}; // $255F
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(channels_, priorities_); }
 };
 
 // The title music ($E300-$E7BE): three voices read note and command streams
@@ -64,6 +72,13 @@ private:
         std::uint8_t attack_decay{}, sustain_release{}, waveform{}; // $E110, $E113, $E116
         std::uint8_t style{};     // $E119: how much of a note sounds (0 most, 1 half, 2 all but a tick)
         std::array<std::uint8_t, 6> envelopes{}; // $E11C + 6v: three attack/decay, sustain/release pairs
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(stream, legato, count, gap, length, next_gap, attack_decay, sustain_release, waveform, style,
+               envelopes);
+        }
     };
     std::uint8_t at(std::uint16_t address) const { return assets_.sound_byte(address); }
     void silence(c64::Sid&);                  // $E3DA
@@ -90,6 +105,13 @@ private:
     std::uint8_t long_notes_{};               // $E2E7: the second half of the length table
     std::array<std::uint8_t, 2> list_{};      // $E870
     std::uint8_t list_position_{}, list_start_{}; // $E86C, $E86D
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(voices_, look_ahead_, tune_, tempo_, tempo_count_, transpose_, playing_, ended_, end_action_,
+           filter_mode_, volume_, resonance_, filter_voice_, long_notes_, list_, list_position_, list_start_);
+    }
 };
 
 } // namespace bruce_lee::game

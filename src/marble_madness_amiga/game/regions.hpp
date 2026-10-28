@@ -41,6 +41,14 @@ struct Region {
     std::int16_t band_from{}, band_to{};        // +$52, +$54
     std::int32_t vx{}, vy{};  // +$0, +$4 (16.16 per step, or screen pixels for pictured regions)
     std::int32_t x{}, y{}, z{}; // +$C, +$10, +$14 reference point (16.16)
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(active, player, state, feature, count, kind, code, move_tick, move_period, anim_tick, anim_period,
+           loop, loop2, width, height, loop_pc, loop2_pc, return_pc, pc, script, frame, shown_frame,
+           anim_frames, move_frames, screen_x, screen_y, band_from, band_to, vx, vy, x, y, z);
+    }
 };
 
 class Regions {
@@ -66,6 +74,10 @@ public:
         bool racing{};            // record +$18 == 1
         std::int32_t x{}, y{};
         std::int8_t feature{};    // +$1B
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(racing, x, y, feature); }
     };
     std::array<Racer, 2> racers{};
     int racer_count{1};           // $1005F0
@@ -83,6 +95,10 @@ public:
         // drawn over (outside its mask) instead of the playfield ($110A46
         // links it into the picture's cell record), else -1.
         std::int16_t background{-1};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(item, x, y, wave_end, background); }
     };
     std::vector<Blit> take_blits() { return std::move(blits_); }
     // (view - the descriptor's first view), set by the race whenever the
@@ -102,6 +118,10 @@ public:
     struct Sound {
         int id{};
         bool right{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(id, right); }
     };
     std::vector<Sound> take_sounds() { return std::exchange(sounds_, {}); }
     // The regions registered for Aerial's course occlusions ($110338):
@@ -115,6 +135,10 @@ public:
     struct DisplayEvent {
         bool add{};
         std::uint8_t type{}, index{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(add, type, index); }
     };
     std::vector<DisplayEvent> take_display_events() { return std::exchange(display_events_, {}); }
 
@@ -189,7 +213,21 @@ private:
         int shown_row{-1};
         int home_row{-1};
         int cover_set{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(wanted, rendering, swap_due, render_left, rendering_row, shown_row, home_row, cover_set);
+        }
     } picture_;
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(racers, racer_count, view_scroll, view, forced_render_times, block_, course_, regions_,
+           drawbridge_, code10_, codes11_13_, codes12_, sounds_, wave_ready_, waves_, display_events_, blits_,
+           picture_);
+    }
 };
 
 } // namespace marble_madness::game

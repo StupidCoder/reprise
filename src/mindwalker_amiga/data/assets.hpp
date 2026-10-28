@@ -22,6 +22,8 @@ struct Bitmap {
     int planes{};
     std::vector<std::uint8_t> pixels;
 
+    template <class A> void persist(A &ar) { ar(width, height, planes, pixels); }
+
     std::uint8_t at(int x, int y) const { return pixels[std::size_t(y * width + x)]; }
 };
 

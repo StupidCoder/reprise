@@ -41,6 +41,14 @@ struct EnemyPlane {
     int flash{};         // +$2C: the gun flash's frame counter (drawing)
     int picture{};       // +$30: japplane.shp table entry (+$1C facing right)
     int turn_delay{};    // +$32: a turn steps every third call
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(state, mode, side, hit, oil, hit_timer, order, attack_timer, firing, facing, turn, turn_wait,
+           loops, speed, target_speed, x, fall_speed, target_altitude, altitude, distance, flash, picture,
+           turn_delay);
+    }
 };
 
 // An enemy airfield (list -$5D04, $14 bytes; `cama` columns between a $114
@@ -54,6 +62,12 @@ struct Airfield {
     int speed{};           // +$C: its speed x 8
     int direction{};       // +$E: the second marker's: $114 -1 (to the left), $115 +1
     int shown_parked{}, shown_takeoff{}; // +$10, +$12: the frame start's copies ($101008)
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(left, right, limit, parked, takeoff_x, speed, direction, shown_parked, shown_takeoff);
+    }
 };
 
 struct Enemies {
@@ -66,6 +80,13 @@ struct Enemies {
     int attacker_step{};       // -$3198: how many attackers ahead were spaced out this tick
     int skid_counter{};        // -$4368: a falling plane skidding on the water loses height every second tick
     bool invulnerable{};       // -$408C: the debug mode key $64 toggles it ($10D184): fighters ($10DE36) and flak ($104F96) do not hurt
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(planes, airfields, launch_cooldown, deck_roll, fighters_out, wrecks, attacker_step, skid_counter,
+           invulnerable);
+    }
 };
 
 // `wings` data the enemy planes read.
@@ -77,6 +98,12 @@ struct EnemyTables {
     std::array<std::string, 4> flash_names{};   // $114520 + $40: fc10, fd10, fc1a, fd1a
     std::array<std::string, 2> parked_names{};  // $114520 + $50: jp21 (taking off to the left), jp22
     std::vector<int> airfield_bytes;            // -$7B0A: per bonus row 4 bytes (parked, limit for two airfields)
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(min_speed, max_speed, climb_step, names, eighth_names, flash_names, parked_names, airfield_bytes);
+    }
 };
 EnemyTables read_enemy_tables(const amiga::LoadedImage& wings);
 
@@ -85,6 +112,10 @@ struct EnemySprite {
     const data::Shape* shape{};
     int x{}, y{};       // screen place of the shape's origin
     bool xor_drawn{};   // the gun flash
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(x, y, xor_drawn); }
 };
 struct EnemyView {
     int camera{};       // -$60CE
@@ -98,6 +129,10 @@ struct EnemyView {
         const int m = original ? 0 : margin;
         return x >= -0x80 - m && x <= 0x1C0 + m;
     }
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(camera, ground_line, eighth_scale); }
 };
 // $102C84: the map's airfields (the $114/$115 column pairs) with the
 // parked planes and the limit for this rank and mission (`row`: the bonus

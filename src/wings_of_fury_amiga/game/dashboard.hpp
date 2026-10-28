@@ -37,6 +37,13 @@ struct DashboardTables {
     // pictures (left, then right), the third letter of each name the size.
     std::vector<std::string> enemy_names;
     std::array<int, 11> enemy_band{};      // -$696C: added to the picture by band (the farthest last)
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(part_names, band_distance, band_frame, ship_frame, deck_band, deck_y, deck_clip, deck_frame,
+           digit_y, enemy_names, enemy_band);
+    }
 };
 DashboardTables read_dashboard_tables(const amiga::LoadedImage& wings);
 
@@ -62,6 +69,10 @@ struct DashboardInput {
     struct Enemy {
         int column{}, picture{}, altitude{};
         int x{}, mode{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(column, picture, altitude, x, mode); }
     };
     std::vector<Enemy> enemies;
     // The ships the forward view can see on the map ($104A52): enemy slots
@@ -70,8 +81,19 @@ struct DashboardInput {
         int first{}, last{};
         int overlay{};   // +$1C
         int state{};     // +$12
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(first, last, overlay, state); }
     };
     std::vector<Ship> ships;
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(mode, oil, fuel, engine, weapon, load, spare_planes, score, kills, camera, altitude, facing,
+           eighth_scale, night, enemies, ships);
+    }
 };
 
 // The parts that move a step per drawn frame.
@@ -92,6 +114,13 @@ struct DashboardGauges {
     // `$10EE16`'s steps for one drawn frame; `random` stands for the beam
     // position the empty fuel needle flickers by.
     void step(const DashboardInput&, int random);
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(oil_needle, fuel_needle, oil_blink, fuel_blink, oil_lit, fuel_lit, load_tens, load_units,
+           load_settled, spares_roll, spares_settled);
+    }
 };
 
 IndexedCanvas draw_dashboard(const data::Assets&, const DashboardTables&, const DashboardGauges&,

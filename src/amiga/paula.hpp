@@ -1,6 +1,7 @@
 #pragma once
 #include "amiga/hunk.hpp"
 #include <array>
+#include <stdexcept>
 #include <cstdint>
 #include <deque>
 #include <functional>
@@ -49,6 +50,10 @@ public:
         int command{};  // 3 write, 8 flush, 12 period and volume
         int channel{};
         Write write{};  // period and volume also for command 12
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(command, channel, write); }
     };
     std::vector<Request>* log{};
 
@@ -62,11 +67,56 @@ private:
         int played{};            // cycles done
         std::uint16_t period{0x1AC}, volume{};
         bool started{};          // the front write has taken its period and volume
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(queue, position, played, period, volume, started); }
     };
     void start_front(Channel&);
 
     std::array<Channel, 4> channels_{};
     std::array<float, 2> filter_{};
+
+  public:
+    template <class A, class Resolve> void persist_samples(A &a, Resolve resolve) {
+        for (auto &channel : channels_) {
+            std::uint32_t count = std::uint32_t(channel.queue.size());
+            a(count);
+            if (count > 4096)
+                A::fail();
+            if constexpr (A::reading)
+                channel.queue.resize(count);
+            for (auto &w : channel.queue) {
+                if (!w.samples.empty())
+                    throw std::runtime_error("Unsupported audio sample binding in save.");
+                a(w.data, w.length, w.period, w.volume, w.cycles, w.set_period_volume, w.tag);
+                if constexpr (A::reading)
+                    w.image = resolve(w.data);
+            }
+            a(channel.position, channel.played, channel.period, channel.volume, channel.started);
+        }
+        a(filter_);
+    }
+    // File-backed samples use a caller-owned stable name; the callback binds
+    // each decoded span to the new game's imported sample bank.
+    template <class A, class Bind> void persist_files(A &ar, Bind bind) {
+        for (auto &channel : channels_) {
+            std::uint32_t count = std::uint32_t(channel.queue.size());
+            ar(count);
+            if (count > 4096)
+                A::fail();
+            if constexpr (A::reading)
+                channel.queue.resize(count);
+            for (auto &w : channel.queue) {
+                bind(ar, w);
+                ar(w.data, w.length, w.period, w.volume, w.cycles, w.set_period_volume, w.tag);
+                if (w.data > w.samples.size() || w.length > w.samples.size() - w.data)
+                    A::fail();
+            }
+            ar(channel.position, channel.played, channel.period, channel.volume, channel.started);
+        }
+        ar(filter_);
+    }
 };
 
 } // namespace amiga

@@ -42,6 +42,15 @@ struct Object {
 
     // The template's numbering (offsets $00-$1C as the data uses them).
     std::uint8_t& field(int offset);
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(x, x_fraction, y, y_fraction, dx, dx_fraction, dy, dy_fraction, motion, acceleration, path_lo,
+           path_hi, path_period, landscape, fire, fire_period, kind, animation, anim_a, anim_b, anim_c, state,
+           score, mx, mx_fraction, my, my_fraction, path_index, path_clock, box_left, box_right, box_top,
+           box_bottom, fire_clock, fire_angle, anim_clock, frame, hit, spare26, spare27, entry, entry_slot);
+    }
 };
 
 // A shot drawn as a character into the screen ($0480 + 12 * n for the
@@ -56,6 +65,13 @@ struct PlayerShot {
     std::uint8_t second_saved{};
     int drawn_column{-1}, drawn_row{}; // where it was drawn ($0487-$0489)
     int drawn_screen{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(column, row, dx, dy, code, colour, saved, second_code, second_saved, drawn_column, drawn_row,
+           drawn_screen);
+    }
 };
 
 struct EnemyShot {
@@ -66,6 +82,12 @@ struct EnemyShot {
     std::uint8_t state{};          // 0 free, 2 just fired, 1 flying
     std::uint8_t clock{};
     int drawn_column{-1}, drawn_row{}, drawn_screen{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(column, row, sub_x, sub_y, dx, dy, saved, state, clock, drawn_column, drawn_row, drawn_screen);
+    }
 };
 
 } // namespace wizball::game

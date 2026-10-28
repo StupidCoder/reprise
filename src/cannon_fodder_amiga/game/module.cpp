@@ -21,6 +21,7 @@
 #include "cannon_fodder_amiga/sound/board.hpp"
 #include "cannon_fodder_amiga/sound/music_director.hpp"
 #include "cannon_fodder_amiga/sound/rjp1.hpp"
+#include "state/archive.hpp"
 #include <algorithm>
 #include <fstream>
 #include <iterator>
@@ -128,6 +129,17 @@ public:
     void audio(std::span<float> stereo, int rate) override {
         std::fill(stereo.begin(), stereo.end(), 0.0f);
         if (music_) paula_.render(stereo, rate);
+    }
+
+    std::vector<std::uint8_t> write_state() override {
+        state::Writer a;
+        persist(a);
+        return std::move(a.bytes);
+    }
+    void read_state(std::span<const std::uint8_t> bytes) override {
+        state::Reader a(bytes);
+        persist(a);
+        a.finish();
     }
 
 private:

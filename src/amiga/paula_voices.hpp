@@ -34,10 +34,18 @@ private:
         std::vector<std::int8_t> samples;
         double position{};
         int period{0x1AC}, volume{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(samples, position, period, volume); }
     };
     std::array<Channel, 4> channels_{};
     std::array<float, 2> filter_{};
     bool dma_{true};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(channels_, filter_, dma_); }
 };
 
 } // namespace amiga

@@ -20,6 +20,10 @@ struct TitleText {
     void toggle_alternate(bool now_on);   // $0E59
     void toggle_yamo_player(bool now_on); // $0E40
     void print(const data::Assets&, int text, int row_index, int column); // $17FA, single height
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(rows); }
 };
 
 c64::TextFrame title_frame(const data::Assets&, const TitleText&);

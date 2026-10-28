@@ -1,3 +1,4 @@
+#include "state/archive.hpp"
 #include "wings_of_fury_amiga/game/module.hpp"
 #include "amiga/paula.hpp"
 #include "wings_of_fury_amiga/data/assets.hpp"
@@ -312,6 +313,86 @@ public:
     // flight, effects, ticker); the sound effects start again from the next
     // tick, a front-end song from its start.
 
+    template <class A> void persist(A &ar) {
+        std::string map_name = map_->name;
+        ar(map_name);
+        if constexpr (A::reading) {
+            map_ = nullptr;
+            for (const auto &m : assets_.maps)
+                if (m.name == map_name)
+                    map_ = &m;
+            if (!map_)
+                A::fail();
+        }
+        ar(world_, plane_, blackout_, random_, vblank_, press_start_, fire_down_, tapped_, held_,
+           gear_offset_, us_flag_step_, flash_, flash_counter_, channels_, enemy_sprites_, front_end_, music_,
+           song_pending_, ticker_, mission_over_, end_fade_, quit_, ctrl_was_, saves_in_game_, exited_,
+           inverted_, plain_was_, debug_step_, debug_invulnerable_, leave_after_fade_, ranks_after_briefing_,
+           playing_song_, vhs_, cheats_, briefing_, briefing_fade_, briefing_out_, frame_facing_,
+           enemy_flag_counter_, enemy_flags_drawn_);
+        // A visible enemy sprite retains its exact imported shape across a
+        // frame boundary; drawing again must not advance its animation.
+        for (auto &sprite : enemy_sprites_) {
+            std::string library, shape;
+            if constexpr (!A::reading) {
+                if (sprite.shape) {
+                    for (const auto &lib : assets_.libraries)
+                        for (const auto &item : lib.library.shapes)
+                            if (&item == sprite.shape) {
+                                library = lib.name;
+                                shape = item.name;
+                            }
+                    if (library.empty())
+                        A::fail();
+                }
+            }
+            ar(library, shape);
+            if constexpr (A::reading) {
+                sprite.shape = nullptr;
+                if (!library.empty()) {
+                    for (const auto &lib : assets_.libraries)
+                        if (lib.name == library)
+                            sprite.shape = lib.library.find(shape);
+                    if (!sprite.shape)
+                        A::fail();
+                }
+            }
+        }
+        paula_.persist_files(ar, [&](auto &a, auto &w) {
+            std::string name;
+            if constexpr (!A::reading) {
+                if (w.image)
+                    A::fail();
+                for (const auto &sample : assets_.samples)
+                    if (sample.data.data() == w.samples.data() && sample.data.size() == w.samples.size())
+                        name = sample.name;
+                if (name.empty())
+                    A::fail();
+            }
+            a(name);
+            if constexpr (A::reading) {
+                w.image = nullptr;
+                w.samples = {};
+                for (const auto &sample : assets_.samples)
+                    if (sample.name == name)
+                        w.samples = sample.data;
+                if (w.samples.empty())
+                    A::fail();
+            }
+        });
+        if constexpr (A::reading)
+            set_lighting();
+    }
+    std::vector<std::uint8_t> write_state() override {
+        state::Writer ar;
+        persist(ar);
+        return std::move(ar.bytes);
+    }
+    void read_state(std::span<const std::uint8_t> bytes) override {
+        state::Reader ar(bytes);
+        persist(ar);
+        ar.finish();
+    }
     bool save() override {
         saved_.emplace(Snapshot{world_, plane_, map_, blackout_, random_, vblank_, press_start_, fire_down_, tapped_, held_,
                                 gear_offset_, us_flag_step_, flash_, flash_counter_, enemy_sprites_, front_end_,
@@ -955,6 +1036,7 @@ private:
     amiga::Paula paula_;
     struct ChannelState {
         std::uint16_t period{}, volume{};
+        template <class A> void persist(A &ar) { ar(period, volume); }
     };
     std::array<ChannelState, 4> channels_{};
     std::vector<EnemySprite> enemy_sprites_;
@@ -993,6 +1075,9 @@ private:
     int canvas_width_ = 0, canvas_height_ = 0;
     struct Cheats {
         bool infinite_lives{}, infinite_fuel{}, bullet_proof{}, infinite_ammo{}, enemy_duds{};
+        template <class A> void persist(A &ar) {
+            ar(infinite_lives, infinite_fuel, bullet_proof, infinite_ammo, enemy_duds);
+        }
     } cheats_;
     struct Snapshot {
         FlightWorld world;

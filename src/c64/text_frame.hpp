@@ -33,6 +33,10 @@ struct Picture {
     // or `width` of its columns from `left`.
     platform::Image to_image(int margin_x, int margin_y) const;
     platform::Image to_image(int margin_x, int margin_y, int left, int width) const;
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(width, pixels, border); }
 };
 
 // The colours, window and scroll that apply to one raster line.
@@ -58,6 +62,13 @@ struct LineSetup {
     // left of this x still show the background and border colours before.
     int background_from_x{0};
     std::uint8_t background_before{}, border_before{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(background, shared1, shared2, border, multicolour, narrow, covered, xscroll, yscroll,
+           yscroll_before, sprites, background_from_x, background_before, border_before);
+    }
 };
 
 // A hardware sprite as the VIC shows it: 24x21 single-colour pixels (three
@@ -73,6 +84,12 @@ struct Sprite {
     bool drawn{true};
     std::uint8_t colour{};
     std::array<std::uint8_t, 63> data{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(shown, x, y, expand_x, behind_foreground, drawn, colour, data);
+    }
 };
 
 // The VIC's collision registers for one frame: sprites touching each other,
@@ -83,6 +100,10 @@ struct Collisions {
     // Not a VIC register: sprites over any graphics pixel, also multicolour
     // pair 01 (which the VIC counts as background), for enhancements.
     std::uint8_t sprite_graphics{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(sprite_sprite, sprite_background, sprite_graphics); }
 };
 
 // What a picture is made of, for layers drawn on top of it: which pixels
@@ -97,6 +118,10 @@ struct Layers {
     // lines, the vertical border).
     std::array<std::int16_t, Picture::height> source_line{};
     std::array<std::uint8_t, Picture::height> xscroll{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(foreground, source_line, xscroll); }
 };
 
 class TextFrame {
@@ -112,6 +137,10 @@ public:
     struct Cell {
         Glyph glyph{};             // a copy, so frames can be kept and copied
         std::uint8_t colour{};     // cell colour; bit 3 selects multicolour
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(glyph, colour); }
     };
 
     // A null glyph is an empty cell (all pixels background).
@@ -151,6 +180,10 @@ private:
     std::array<LineSetup, Picture::height> lines_{};
     std::uint8_t idle_pattern_{};
     std::array<Sprite, 8> sprites_{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(columns_, cells_, lines_, idle_pattern_, sprites_); }
 };
 
 } // namespace c64

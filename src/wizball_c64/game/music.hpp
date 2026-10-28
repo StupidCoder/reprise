@@ -43,6 +43,13 @@ public:
         std::array<std::uint8_t, 29> instrument{}; // $87 / $4680 / $A4 on
         std::array<std::uint8_t, 35> work{};       // $469D / $46C0 / $C1 on
         std::uint16_t pulse{}, frequency{};        // $29, $2F (voice 1); $2B, $15; $2D, $17
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(active, duration, pointer, transpose, depth, return_to, count, instrument, work, pulse,
+               frequency);
+        }
     };
     const std::array<Voice, 3>& voices() const { return voices_; }
     void set_duration(int voice, std::uint8_t d) { voices_[std::size_t(voice)].duration = d; } // checks only
@@ -73,6 +80,13 @@ private:
     std::array<std::uint8_t, 4> filter_count_{};   // $53-$56
     std::uint8_t filter_owner_{0xFF};              // $57
     std::uint8_t filter_mode_{0x10};               // $B94D
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(voices_, durations_, tempo_, filter_params_, filter_work_, cutoff_, filter_count_, filter_owner_,
+           filter_mode_);
+    }
 };
 
 } // namespace wizball::game

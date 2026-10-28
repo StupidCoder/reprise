@@ -43,6 +43,10 @@ struct KeyLatch {
             code = 0;
         }
     }
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(last, code); }
 };
 
 // Key numbers the game tests.

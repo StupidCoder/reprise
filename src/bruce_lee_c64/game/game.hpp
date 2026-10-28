@@ -20,6 +20,10 @@ struct Options {
     bool yamo_player{};                   // F5: a second player is the Yamo ($42B7)
     std::array<bool, 2> left_handed{};    // joystick turned for left-handed play ($139B/$139C = 0)
     bool title_music{true};               // the S key turns it off ($139D)
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(alternate, yamo_player, left_handed, title_music); }
 };
 
 class Game {
@@ -54,6 +58,10 @@ private:
         int frames{};
         Next then{Next::none};
         bool active() const { return then != Next::none; }
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(release, frames, then); }
     };
     bool run_wait(const app::GameInput&); // true while waiting
     void step(Next);
@@ -89,6 +97,14 @@ private:
     int frames_to_pass_{1};
     std::uint16_t yamo_idle_{};           // $89/$8A: the Yamo player holding fire without moving
     c64::Picture picture_;
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(options, world, sid_, effects_, music_, phase_, wait_, title_text_, countdown_, music_wait_,
+           player_frames_, player_shown_, game_over_score_, other_player_, last_keys_, paused_, pause_guard_,
+           frames_to_pass_, yamo_idle_, picture_);
+    }
 };
 
 } // namespace bruce_lee::game

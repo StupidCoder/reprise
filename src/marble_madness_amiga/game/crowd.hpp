@@ -60,6 +60,10 @@ public:
     struct Lane {
         int from_x, from_y, to_x, to_y;
         double along;
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(from_x, from_y, to_x, to_y, along); }
     };
     std::optional<Lane> run_up(int cx, int cy) const;
     // If the cell is within 2 of a funnel's way in: its way out (course
@@ -69,6 +73,10 @@ public:
         int x, y, zone;
         int push_x, push_y; // the funnel's push out, pixels an update
         int alt_x, alt_y;   // its spot when the exit is taken (-1: none, a bridge)
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(x, y, zone, push_x, push_y, alt_x, alt_y); }
     };
     std::optional<Exit> funnel_exit(int cx, int cy) const;
     // Whether the cell is next to a funnel's way in (not the bridge's: on
@@ -83,6 +91,10 @@ private:
         std::uint8_t moves{}; // bit d: can roll to the neighbour in direction d
         bool flat{};          // no wall or drop at any side
         std::uint8_t room{};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) { ar(floor, moves, flat, room); }
     };
     const Cell* cell(int cx, int cy) const;
     std::vector<std::uint16_t> flood(const std::vector<std::pair<int, int>>& seeds) const;
@@ -107,8 +119,20 @@ private:
         bool bridge{};
         int push_x{}, push_y{};
         int alt_x{-1}, alt_y{-1};
+
+      public:
+        // Save schema v1: explicit values; imported resources stay bound to this instance.
+        template <class A> void persist(A &ar) {
+            ar(in_x, in_y, out_x, out_y, from_x, from_y, zone_out, bridge, push_x, push_y, alt_x, alt_y);
+        }
     };
     std::vector<Portal> portals_;
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(cells_, animated_, wave_, extra_, fields_, ranks_, goal_field_, starts_, portals_);
+    }
 };
 
 // A crowd marble's driver.
@@ -140,6 +164,14 @@ struct CrowdDriver {
     std::int16_t lapse_forward{}, lapse_side{};
     bool run_up_fire{true}; // Easy: whether this run-up gets fire (else it misses the jump)
     std::int16_t trial_forward{}, trial_side{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) {
+        ar(top_speed, seed, best, best_zone, stuck, wiggle, wiggle_forward, wiggle_side, plan_left,
+           plan_steer, plan_forward, plan_side, running, backing, trial_left, plan_best, plan_stall, bold,
+           lapse, lapse_careless, lapse_forward, lapse_side, run_up_fire, trial_forward, trial_side);
+    }
 };
 
 } // namespace marble_madness::game

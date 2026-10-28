@@ -30,6 +30,10 @@ struct Program {
     bool contains(std::uint16_t address) const {
         return address >= load_address && address - load_address < bytes.size();
     }
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(load_address, bytes); }
 };
 
 } // namespace c64

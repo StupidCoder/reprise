@@ -12,6 +12,10 @@ namespace bruce_lee::game {
 struct Cell {
     std::uint8_t code{};   // character
     std::uint8_t colour{}; // cell colour; bit 3 multicolour
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(code, colour); }
 };
 
 class Playfield {
@@ -23,6 +27,10 @@ public:
 
 private:
     std::array<Cell, columns * rows> cells_{};
+
+  public:
+    // Save schema v1: explicit values; imported resources stay bound to this instance.
+    template <class A> void persist(A &ar) { ar(cells_); }
 };
 
 } // namespace bruce_lee::game

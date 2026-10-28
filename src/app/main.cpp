@@ -1,3 +1,4 @@
+#include "app/quick_save.hpp"
 // Joyport: the launcher and its main loop.
 //
 // Command line (for testing without the window):
@@ -13,6 +14,7 @@
 #include "app/saved_options.hpp"
 #include "platform/files.hpp"
 #include "ui/draw.hpp"
+#include "ui/shelf.hpp"
 #include "platform/host.hpp"
 #include <algorithm>
 #include <cstdio>
@@ -128,6 +130,8 @@ int run(const Options& options) {
     std::size_t playing = 0;
     app::PauseMenu menu;
     double game_clock = 0, sample_credit = 0;
+    std::string quick_message;
+    double quick_message_until{};
     // The frames run (for the VHS look's noise) and the picture last shown,
     // over which the host reports the mouse.
     long frames_run = 0;
@@ -176,20 +180,31 @@ int run(const Options& options) {
                         game_clock = now;
                         break;
                     case app::PauseMenu::Action::restart:
-                        game = entry.start(library.content_directory(playing));
+                        game = app::with_quick_save(entry, library.content_directory(playing));
                         restore_options(*game);
                         host.pause_audio(false);
                         game_clock = now;
                         break;
                     case app::PauseMenu::Action::save:
-                        game->save();
-                        menu.set_message("Saved.", now);
+                        if (game->save())
+                            menu.set_message(app::persistent_saves(entry.id) ? "Saved state"
+                                                                             : "Saved for this session only.",
+                                             now);
+                        else
+                            menu.set_message(game->save_error().empty() ? "Quick save is not available here."
+                                                                        : game->save_error(),
+                                             now);
                         break;
                     case app::PauseMenu::Action::load:
-                        menu.set_message(game->load() ? "Loaded." : "No quick save yet.", now);
+                        if (game->load())
+                            menu.set_message("Loaded state", now);
+                        else
+                            menu.set_message(
+                                game->save_error().empty() ? "No quick save yet." : game->save_error(), now);
                         break;
                     case app::PauseMenu::Action::quit:
                         game.reset();
+                        launcher.refresh_save();
                         host.pause_audio(false);
                         continue;
                     case app::PauseMenu::Action::none:
@@ -213,12 +228,16 @@ int run(const Options& options) {
                     menu.toggle_muted();
                     host.mute(menu.muted());
                 }
-                if (controls.quick_save) {
-                    game->save();
-                }
-                if (controls.quick_load) {
-                    game->load();
+                if (controls.quick_save || controls.quick_load) {
+                    const bool ok = controls.quick_save ? game->save() : game->load();
+                    const std::string message =
+                        ok ? (controls.quick_save ? "Saved state" : "Loaded state")
+                           : (game->save_error().empty() ? "Quick save or load is not available here."
+                                                         : game->save_error());
+                    quick_message = message;
+                    quick_message_until = now + 3;
                     game_clock = now;
+                    sample_credit = 0;
                 }
                 // Fixed steps at the original's frame rate; at most a few per
                 // displayed frame, so a stall does not fast-forward the game.
@@ -258,7 +277,30 @@ int run(const Options& options) {
                 game->set_frame_fraction((now - game_clock) / game->step_seconds());
                 shown = app::shown_picture(*game, frames_run);
                 host.set_game_draws_pointer(game->draws_pointer());
-                host.present_game(shown.image, game->pixel_aspect());
+                // The app's note, above the game picture (and its VHS
+                // filter), drawn at the window's own pixels.
+                std::optional<platform::Image> note;
+                if (now < quick_message_until) {
+                    const auto canvas = host.canvas_size();
+                    const double scale = std::max(1.0, std::min(double(canvas[0]) / platform::ui_width,
+                                                                double(canvas[1]) / platform::ui_height));
+                    const int font = int(16 * scale + .5), pad = int(10 * scale + .5);
+                    const int text_width = std::min(canvas[0] / 2, ui::shelf::width(quick_message, font));
+                    const int lines = ui::shelf::width(quick_message, font) > text_width ? 3 : 1;
+                    note.emplace(text_width + 2 * pad, font * lines + pad * 3 / 2);
+                    ui::fill(*note, {0, 0, 0, 0});
+                    ui::rounded(*note, 0, 0, note->width, note->height, int(6 * scale), ui::shelf::card);
+                    ui::shelf::wrap(*note, quick_message, pad, pad * 3 / 4, text_width, lines, font,
+                                    ui::shelf::ink);
+                }
+                // Native-resolution app feedback, independent of the game's pixel shape.
+                const double age = now - (quick_message_until - 3);
+                const double enter = std::clamp(age / .16, 0.0, 1.0);
+                const double leave = std::clamp((quick_message_until - now) / .18, 0.0, 1.0);
+                const float opacity = launcher.reduced_motion() ? 1.0f : float(enter * leave);
+                const int offset = launcher.reduced_motion() ? 0 : int(8 * (1 - enter) * (1 - enter));
+                host.present_game(shown.image, game->pixel_aspect(), nullptr, false, note ? &*note : nullptr,
+                                  opacity, offset);
             } catch (const std::exception& e) {
                 game.reset();
                 menu.hide();
@@ -277,16 +319,30 @@ int run(const Options& options) {
                 launcher.show_error(choice->error, now);
             }
         }
-        switch (launcher.update(controls, now)) {
+        const auto request = launcher.update(controls, now);
+        switch (request) {
         case app::Launcher::Request::choose_image:
             host.choose_image();
             break;
         case app::Launcher::Request::play:
+        case app::Launcher::Request::continue_game:
             try {
                 playing = launcher.selected();
-                game = library.games()[playing].start(library.content_directory(playing));
-                restore_options(*game);
+                auto next =
+                    app::with_quick_save(library.games()[playing], library.content_directory(playing));
+                const auto canvas = host.canvas_size();
+                next->set_canvas(canvas[0], canvas[1]);
+                if (request == app::Launcher::Request::continue_game) {
+                    if (!next->load())
+                        throw std::runtime_error(next->save_error());
+                } else
+                    restore_options(*next);
+                game = std::move(next);
+                quick_message_until = 0;
+                menu.hide();
                 game_clock = now;
+                sample_credit = 0;
+                launcher.refresh_save();
             } catch (const std::exception& e) {
                 launcher.show_error(std::string("The game could not start: ") + e.what(), now);
             }
