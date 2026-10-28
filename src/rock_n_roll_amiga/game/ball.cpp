@@ -47,6 +47,12 @@ struct Steered {
 // $7040C: the mouse changes the speed; the camera moves by it.
 Steered steer(Ball& b, MouseCounters mouse) {
     Fixed vx = b.speed_x, vy = b.speed_y;
+    if (b.carried) { // $70788: on a bridge only the camera moves (slow is not cleared)
+        b.carried = false;
+        b.camera_x += vx;
+        b.camera_y += vy;
+        return Steered{vx, vy};
+    }
     const auto finish = [&] {
         b.slow = false;
         b.speed_x = vx;
@@ -260,7 +266,232 @@ bool presses_lock(const Ball& b, std::uint8_t v, int n) {
     return touching && result != 0;
 }
 
-// $6D0FA and the cell handlers (table $733C4) rebuilt so far.
+// $6E1CA: paying at a shop whose price stands in the next cell ($34-$37:
+// 100, 300, 500, 900). Short of money, the ball must stay on the same spot
+// for 50 updates; then twice the missing money comes out of the energy if
+// there is that much, and the money goes to 0.
+bool pay(Ball& b, Pocket& pocket, std::uint8_t price_cell) {
+    static constexpr int prices[4] = {100, 300, 500, 900};
+    if (price_cell < 0x34 || price_cell > 0x37) return false;
+    const int price = prices[price_cell - 0x34];
+    if (std::uint32_t(pocket.money) >= std::uint32_t(price)) {
+        pocket.money -= price;
+        return true;
+    }
+    ++b.shop_wait;
+    const Fixed spot = b.camera_x + b.view_x;
+    if (spot != b.shop_spot) {
+        b.shop_spot = spot;
+        b.shop_wait = 0;
+    }
+    if (b.shop_wait < 50) return false;
+    const std::int16_t from_energy = std::int16_t(std::uint16_t((price - pocket.money) << 1));
+    b.shop_wait = 0;
+    if (from_energy > std::int16_t(pocket.energy)) return false;
+    pocket.energy = std::uint16_t(pocket.energy - from_energy);
+    pocket.money = 0;
+    return true;
+}
+
+// A bought shop shows $43 here and $44 to the right ($6DE90 ff.); the value
+// left behind afterwards is the level's refill again.
+void close_shop(LevelMap& map, long index) {
+    map.left_behind = 0x43;
+    map.clear(index);
+    map.left_behind = 0x44;
+    map.clear(index + 1);
+}
+
+void start_kind(Ball& b, BallKind kind) {
+    b.kind = kind;
+    (kind == BallKind::protective ? b.protective : b.ice_proof) = true;
+    b.kind_running = true;
+    b.kind_updates = 0x800;
+}
+
+// $6F4FC via $6B166, first thing each update: the bought ball's time.
+void count_kind(Ball& b) {
+    if (!b.kind_running) {
+        b.protective = b.ice_proof = false;
+        return;
+    }
+    if (b.kind_updates - 1 == 0) {
+        b.kind_running = false;
+        b.kind = BallKind::normal;
+        return;
+    }
+    --b.kind_updates;
+}
+
+// $70B7A: a bridge's cross position snaps to 2 pixels into its tile (or the
+// next tile when past the middle).
+Fixed snap_to_rail(Fixed v) {
+    const std::uint16_t fraction = low_word(v);
+    if (fraction == 0x2000) return v;
+    if (fraction > 0x8000) v += tile_size;
+    return Fixed((std::uint32_t(v) & 0xFFFF0000u) | 0x2000);
+}
+
+// $6D1C6/$6D2BC: riding a bridge along x or y at 2 pixels an update; the
+// mouse is not read next update ($70406) and "slow" stays set ($6D4FC).
+void ride(Ball& b, bool along_x) {
+    if (along_x) {
+        b.speed_y = 0;
+        b.view_x = Fixed(std::uint32_t(b.view_x) & 0xFFFFE000u);
+        b.camera_x = Fixed(std::uint32_t(b.camera_x) & 0xFFFFE000u);
+        b.speed_x = b.speed_x >= 0 ? 0x2000 : -0x2000;
+    } else {
+        b.speed_x = 0;
+        b.view_y = Fixed(std::uint32_t(b.view_y) & 0xFFFFE000u);
+        b.camera_y = Fixed(std::uint32_t(b.camera_y) & 0xFFFFE000u);
+        b.speed_y = b.speed_y >= 0 ? 0x2000 : -0x2000;
+    }
+    b.slow = true;
+    b.carried = true;
+}
+
+// $6CB6C/$6CC26: the camera jumps to a point, one tile to its right (left
+// when moving left); speeds 0.
+void beam(Ball& b, Fixed x, Fixed y) {
+    b.camera_x = x + (b.speed_x < 0 ? -tile_size : tile_size);
+    b.camera_y = y;
+    b.speed_x = b.speed_y = 0;
+    b.teleported = true;
+}
+
+// $6CC26: a $22 cell matches the camera's whole tile x (not y, not the
+// ball) against the pair points in order and jumps to the partner.
+bool beam_by_pair(Ball& b, const LevelMap& map, std::uint16_t camera_tile) {
+    for (std::size_t i = 0; i < 8; ++i) {
+        if (high_word(map.pair_x[i]) == camera_tile) {
+            beam(b, map.pair_x[i ^ 1], map.pair_y[i ^ 1]);
+            return true;
+        }
+    }
+    return false;
+}
+
+// One cell's rule ($6D114: the handler from table $733C4[v-1]); `index` is
+// the cell, `n` its place 1-4 in the block under the ball.
+void apply_cell(Ball& b, Pocket& pocket, LevelMap& map, long index, std::uint8_t v, int n) {
+    const bool centre = n == b.centre_cell;
+    if (v >= 0x34 && v <= 0x37) { // a shop's price ($6E32A): under the centre, the shop to the left is used
+        if (centre) apply_cell(b, pocket, map, index - 1, map.cell(index - 1), n);
+        return;
+    }
+    if (v == 0x21) { // abyss $6E378 → $6C9C0 (repair sets not rebuilt)
+        if (centre && b.collisions) start_fall(b, n);
+    } else if (v >= 0x01 && v <= 0x04) { // keys $6E5B0-$6E670: one more unless 9, then gone
+        if (centre && pocket.keys[v - 1] != 9) {
+            ++pocket.keys[v - 1];
+            map.clear(index);
+        }
+    } else if (v >= 0xD1 && v <= 0xD8) { // locks $6E882-$6E94E (any of the four cells)
+        static constexpr int key_for[4] = {0, 1, 2, 3}; // $D1/$D5 key 1 … $D4/$D8 key 4
+        auto& keys = pocket.keys[std::size_t(key_for[(v - 0xD1) % 4])];
+        if (presses_lock(b, v, n) && keys != 0) {
+            --keys;
+            map.clear(index);
+        }
+    } else if (v >= 0x05 && v <= 0x08) { // finds $6E9D0-$6EA84, with points
+        if (centre) {
+            static constexpr int points[4] = {30, 400, 150, 70};
+            ++pocket.finds[v - 5];
+            pocket.score += points[v - 5];
+            map.clear(index);
+        }
+    } else if (v >= 0x11 && v <= 0x13) { // coins $6EB7E-$6EBAE
+        if (centre) {
+            static constexpr int value[3] = {100, 300, 500};
+            pocket.money = std::min(pocket.money + value[v - 0x11], 0x26AC);
+            map.clear(index);
+        }
+    } else if (v == 0x0D || v == 0x0E) { // magic-map piece, two cells wide ($6EADE/$6EB00)
+        if (centre) {
+            map.clear(index + (v == 0x0D ? 1 : -1)); // the other half first ($6EC1C/$6EC3E)
+            ++pocket.map_pieces;
+            map.clear(index);
+        }
+    } else if (v >= 0x09 && v <= 0x0C) { // arrows $6E444 up, $6E582 right, $6E4AE down, $6E518 left
+        if (centre) (v == 0x09 ? push_up : v == 0x0A ? push_right : v == 0x0B ? push_down : push_left)(b);
+    } else if (v >= 0x3D && v <= 0x40) { // dome quarters $6D58E-$6D612: away from its middle
+        if (centre) {
+            (v <= 0x3E ? push_up : push_down)(b);
+            (v == 0x3D || v == 0x3F ? push_left : push_right)(b);
+        }
+    } else if (v >= 0x65 && v <= 0x6C) {
+        if (centre) slope_left(b);
+    } else if (v >= 0x6F && v <= 0x76) {
+        if (centre) slope_right(b);
+    } else if (v >= 0x1D && v <= 0x20) { // ice $6E38E: not with the ice-proof ball
+        if (centre && !b.ice_proof) b.slow = true;
+    } else if (v == 0x0F || v == 0x31 || v == 0x2F || v == 0x30 || v == 0x32 || v == 0x33) { // shops
+        if (!centre) return;
+        if (v == 0x2F && b.extra_speed >= 0x400) return; // $6DEF8: no more speed for sale
+        if (!pay(b, pocket, map.cell(index + 1))) return;
+        close_shop(map, index);
+        if (v == 0x33) ++pocket.repair_sets;
+        else if (v == 0x0F || v == 0x31) ++pocket.eyes;
+        else if (v == 0x30) start_kind(b, BallKind::protective);
+        else if (v == 0x32) start_kind(b, BallKind::ice_proof);
+        else { // $2F
+            b.max_speed_x += 0x200;
+            b.max_speed_y += 0x200;
+            b.min_speed_x -= 0x200;
+            b.min_speed_y -= 0x200;
+            b.extra_speed += 0x100;
+        }
+    } else if (v == 0x22) { // teleport by pair
+        if (centre && !beam_by_pair(b, map, high_word(b.camera_x)))
+            beam_by_pair(b, map, std::uint16_t(high_word(b.camera_x) + 1));
+    } else if (v == 0x23) { // teleport to one point, view centred
+        if (centre) {
+            beam(b, map.beam_x, map.beam_y);
+            b.view_x = view_centre_x;
+            b.view_y = view_centre_y;
+        }
+    } else if (v == 0x26) { // $6D810: worn by rolling over, counts toward the secret warp
+        if (centre && map.warp_count != 0xFFFF) {
+            if (--map.warp_count == 0) {
+                if (map.reward_count == map.reward_count_start) b.secret_warp = true;
+                map.warp_count = 0x1FFF;
+            } else {
+                map.left_behind = 0x25;
+                map.clear(index);
+            }
+        }
+    } else if (v == 0x24) { // $6D880: smashed, counts toward the reward
+        if (centre && map.reward_count != 0xFFFF) {
+            if (--map.reward_count == 0) {
+                b.reward_due = true;
+                map.reward_count = 0x1FFF;
+            }
+            map.left_behind = 0x25;
+            map.clear(index);
+        }
+    } else if (v == 0xDD || v == 0xDE) { // bridges along x / y ($6D18C/$6D282)
+        if (centre) {
+            b.on_bridge = true;
+            ride(b, v == 0xDD);
+        }
+    } else if (v >= 0xDF && v <= 0xE2) { // bridge ends ($6D142/$6D230): snap across, then ride
+        if (centre) {
+            b.on_bridge = true;
+            const bool along_x = v <= 0xE0;
+            if (along_x) b.camera_y = snap_to_rail(b.camera_y);
+            else b.camera_x = snap_to_rail(b.camera_x);
+            ride(b, along_x);
+        }
+    } else if (v == 0x14 || v == 0x43 || v == 0x44 || (v >= 0x8D && v <= 0x9B) || is_floor(v)) {
+        // $43/$44: a bought shop ($6DE8C/$6DE8E: nothing)
+        // $14: only the repair-set rule ($6D510); railings $6E3A0: none
+    } else {
+        ++b.unhandled_cells;
+        b.unhandled_kinds[v] = true;
+    }
+}
+
+// $6CFC6/$6D0FA: the four cells under the ball, in order.
 void cell_rules(Ball& b, Pocket& pocket, LevelMap& map) {
     const long first = first_cell_of(b, map);
     b.high_cell = false;
@@ -269,59 +500,7 @@ void cell_rules(Ball& b, Pocket& pocket, LevelMap& map) {
     for (int n = 1; n <= 4; ++n) {
         const std::uint8_t v = map.cell(cells[n - 1]);
         if (v >= 0x50) b.high_cell = true;
-        const bool centre = n == b.centre_cell;
-        if (v == 0x21) { // abyss $6E378 → $6C9C0 (repair sets not rebuilt)
-            if (centre && b.collisions) start_fall(b, n);
-        } else if (v >= 0x01 && v <= 0x04) { // keys $6E5B0-$6E670: one more unless 9, then gone
-            if (centre && pocket.keys[v - 1] != 9) {
-                ++pocket.keys[v - 1];
-                map.clear(cells[n - 1]);
-            }
-        } else if (v >= 0xD1 && v <= 0xD8) { // locks $6E882-$6E94E (any of the four cells)
-            static constexpr int key_for[4] = {0, 1, 2, 3}; // $D1/$D5 key 1 … $D4/$D8 key 4
-            auto& keys = pocket.keys[std::size_t(key_for[(v - 0xD1) % 4])];
-            if (presses_lock(b, v, n) && keys != 0) {
-                --keys;
-                map.clear(cells[n - 1]);
-            }
-        } else if (v >= 0x05 && v <= 0x08) { // finds $6E9D0-$6EA84, with points
-            if (centre) {
-                static constexpr int points[4] = {30, 400, 150, 70};
-                ++pocket.finds[v - 5];
-                pocket.score += points[v - 5];
-                map.clear(cells[n - 1]);
-            }
-        } else if (v >= 0x11 && v <= 0x13) { // coins $6EB7E-$6EBAE
-            if (centre) {
-                static constexpr int value[3] = {100, 300, 500};
-                pocket.money = std::min(pocket.money + value[v - 0x11], 0x26AC);
-                map.clear(cells[n - 1]);
-            }
-        } else if (v == 0x0D || v == 0x0E) { // magic-map piece, two cells wide ($6EADE/$6EB00)
-            if (centre) {
-                map.clear(cells[n - 1] + (v == 0x0D ? 1 : -1)); // the other half first ($6EC1C/$6EC3E)
-                ++pocket.map_pieces;
-                map.clear(cells[n - 1]);
-            }
-        } else if (v >= 0x09 && v <= 0x0C) { // arrows $6E444 up, $6E582 right, $6E4AE down, $6E518 left
-            if (centre) (v == 0x09 ? push_up : v == 0x0A ? push_right : v == 0x0B ? push_down : push_left)(b);
-        } else if (v >= 0x3D && v <= 0x40) { // dome quarters $6D58E-$6D612: away from its middle
-            if (centre) {
-                (v <= 0x3E ? push_up : push_down)(b);
-                (v == 0x3D || v == 0x3F ? push_left : push_right)(b);
-            }
-        } else if (v >= 0x65 && v <= 0x6C) {
-            if (centre) slope_left(b);
-        } else if (v >= 0x6F && v <= 0x76) {
-            if (centre) slope_right(b);
-        } else if (v >= 0x1D && v <= 0x20) { // ice $6E38E ($719E8 item not rebuilt)
-            if (centre) b.slow = true;
-        } else if (v == 0x14 || (v >= 0x8D && v <= 0x9B) || is_floor(v)) {
-            // $14: only the repair-set rule ($6D510); railings $6E3A0: none
-        } else {
-            ++b.unhandled_cells;
-            b.unhandled_kinds[v] = true;
-        }
+        apply_cell(b, pocket, map, cells[n - 1], v, n);
     }
 }
 
@@ -380,7 +559,7 @@ constexpr int disc_x = 128, disc_y = 456, disc_rows = 13;
 void touch(Ball& b, const LevelMap& map, const data::World& world) {
     b.contact_rows = b.contact_columns = 0;
     b.grip = true;
-    if (!b.collisions || !b.high_cell) return;
+    if (!b.collisions || b.on_bridge || !b.high_cell) return;
     const int fine_x = (std::uint16_t(low_word(b.camera_x) + low_word(b.view_x)) & 0xF000) >> 12;
     const int left = (int(std::uint16_t(high_word(b.camera_x) + high_word(b.view_x))) - 2) * 16 + fine_x;
     const int top = (b.camera_y >> 12) + (b.view_y >> 12);
@@ -458,7 +637,9 @@ Ball Ball::at_start(const LevelMap& map) {
 }
 
 void update_ball(Ball& b, Pocket& pocket, LevelMap& map, const data::World& world, MouseCounters mouse) {
-    if (b.mode == BallMode::lost) return;
+    if (b.mode == BallMode::lost || b.mode == BallMode::warped) return;
+    b.teleported = false;
+    count_kind(b);
     const Steered s = steer(b, mouse);
     halve_along_contact(b);
     keep_in_view(b, s);
@@ -475,12 +656,14 @@ void update_ball(Ball& b, Pocket& pocket, LevelMap& map, const data::World& worl
     // $6F7B6 (before drawing the ball): the continue point, while not
     // falling. The counter is only reset by continue, so after a lost ball
     // and a restart without continue it is not saved (kept from the original).
-    if (b.fall_updates == 0) {
+    if (b.fall_updates == 0 && !b.on_bridge) {
         b.continue_camera_x = b.camera_x;
         b.continue_camera_y = b.camera_y;
         b.continue_view_x = b.view_x;
         b.continue_view_y = b.view_y;
     }
+    b.on_bridge = false; // $6ACE6
+    if (b.secret_warp) b.mode = BallMode::warped; // $69F8A sets $6FDEA: the loop ends
 }
 
 void continue_after_fall(Ball& b) {

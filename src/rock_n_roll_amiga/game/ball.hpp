@@ -28,6 +28,9 @@ struct Pocket {
     int score{};                  // $719BA: finds add to it
     int money{};                  // $719C2: coins $11-$13, at most 9,900 ($26AC); shops take it
     int map_pieces{};             // cells $0D/$0E: pieces of the magic map ($6EB22, not rebuilt)
+    int repair_sets{};            // $719C6: bought at $33 shops
+    int eyes{};                   // $71A1C: bought at $0F/$31 shops (meaning not read yet)
+    int energy{0x7FF};            // $6F45A: shops take twice the missing money from it
 
     // Restarting a level clears $719C6-$71A23 (keys, finds, map pieces and
     // more); score and money lie below that range and stay.
@@ -35,10 +38,19 @@ struct Pocket {
         keys = {};
         finds = {};
         map_pieces = 0;
+        repair_sets = 0;
+        eyes = 0;
     }
 };
 
-enum class BallMode { rolling, falling, lost };
+// rolling ($6C274), falling ($6C3D6), lost: the fall is over and the level
+// loop ends for the continue/restart prompt ($6FDEA); warped: a secret warp
+// ended the level ($69F8A).
+enum class BallMode { rolling, falling, lost, warped };
+
+// The ball bought at a shop for $800 updates ($6F45C): protective ($30:
+// energy losses halved, $719EA) or ice-proof ($32: no slow on ice, $719E8).
+enum class BallKind { normal, protective, ice_proof };
 
 struct Ball {
     Fixed camera_x{}, camera_y{};     // $71A30/$71A34
@@ -74,6 +86,32 @@ struct Ball {
     int fall_updates{};               // $6C3C4: counts on through falls; reset at level start and on continue
     bool mouse_ignored{};             // $6C3C6: reads see no movement (while falling)
     Fixed falling_friction{0x800};    // $6C3C8
+
+    // Bought speed ($2F shops): each purchase widens all four limits by $200
+    // and adds $100 here ($71A68 low word, at most $400 = $71A6C).
+    int extra_speed{};
+
+    // A bought ball and its time ($6F45C; $6B164 set = none running). The
+    // kind's effects ($719E8/$719EA) end one update after the time does.
+    BallKind kind{BallKind::normal};
+    bool ice_proof{}, protective{};
+    int kind_updates{1};
+    bool kind_running{};
+
+    // Shops: updates spent on the same spot without enough money ($6E27C)
+    // and that spot (camera x + view x, $6E27E).
+    int shop_wait{};
+    Fixed shop_spot{};
+
+    // Bridges ($DD-$E2): this update ($6FDE6, cleared by $6ACE6) and the
+    // next update's steering only moves the camera ($70406).
+    bool on_bridge{};
+    bool carried{};
+
+    // Events for the game: a secret warp (the level ends, $69F8A) and the
+    // level's reward ($6D8CE, table $78008), not carried out here.
+    bool secret_warp{}, reward_due{};
+    bool teleported{};                // this update, $6F8B8 (the picture flashes)
 
     // Where "continue" puts the ball back ($6C476: camera and view, saved by
     // $6F7B6 at the end of each update while the fall counter is 0).

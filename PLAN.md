@@ -1258,10 +1258,17 @@ rule of the original-width view.
    the continue point ($6F7B6) and continue rebuilt; replay chains
    recordings across the prompt (fall4+cont4 exact). Score/money corrected
    ($719BA score, $719C2 money). Nine runs, 1,493 updates, all equal.
-6. Next: shops (purchase $6E1CA incl. paying with energy, items),
-   teleports ($22/$23), counters $24/$26, bridges $DD-$E0 and the other
-   cells; energy; objects from the level header; then drawing and a
-   playable level in the shell.
+6. **Done 2026-10-28: shops, teleports, countdowns, bridges.** Purchase
+   with money or (after 50 updates on the spot) energy, price cells, shop
+   items (repair sets, speed, protective and ice-proof balls with their
+   $800-update time), teleports $22/$23, the countdown cells $24/$26 with
+   secret-warp/reward events, bridges $DD-$E2 (incl. the ice-like update
+   after leaving one). Thirteen runs, 1,819 updates, all equal; $23,
+   $24/$26, speed shops and bought balls checked against the instructions
+   only (not in level 1).
+7. Next: the remaining cells ($DA, $29-$2E, $38-$3A, …), repair sets on
+   the abyss, energy losses, objects from the level header (small balls,
+   moving things), then drawing and a playable level in the shell.
 
 Open items:
 - Level header fields +$000..+$3E7 (object lists, settings).

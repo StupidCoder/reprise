@@ -1,5 +1,6 @@
 #pragma once
 #include "rock_n_roll_amiga/data/assets.hpp"
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -20,6 +21,17 @@ struct LevelMap {
     Fixed camera_limit_x{}, camera_limit_y{}; // +$3D0, +$3D4 ($71A50/$71A54)
     Fixed camera_start_x{}, camera_start_y{}; // +$3D8, +$3DC ($71A30/$71A34)
     Fixed view_start_x{}, view_start_y{};     // +$3E0, +$3E4 ($71A38/$71A3C)
+
+    // Teleports: $22 cells jump between the points of a pair (+$380, four
+    // pairs of camera x, y), $23 cells to one point (+$3C0, +$3C4).
+    std::array<Fixed, 8> pair_x{}, pair_y{};
+    Fixed beam_x{}, beam_y{};
+
+    // The level's two puzzle countdowns, from the header at set-up ($6C754):
+    // $6D80E (+$1BE; cells $26, repair sets on $14, small balls) ends in the
+    // secret warp, $6D87E (+$1C8; cells $24) in the level's reward.
+    std::uint16_t warp_count_start{}, reward_count_start{};
+    std::uint16_t warp_count{}, reward_count{};
 
     // The value a collected item leaves in its cell ($6EC00): from header
     // +$1D5 at the start, refilled from +$1D4 after each use ($6EC02).

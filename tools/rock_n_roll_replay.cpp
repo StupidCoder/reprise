@@ -29,9 +29,17 @@ namespace {
 using namespace rocknroll;
 using Row = std::map<std::string, std::int64_t>;
 
+// Research pokes the recorder made after a row ("# poke ADDR HEX after row
+// N"); the native state gets the same change.
+struct Poke {
+    std::int64_t after_row;
+    std::uint32_t address;
+    std::uint64_t value;
+};
+
 // Rows of a recording; `loop_left` tells whether it ends with the level
 // loop left (the ball lost after the last row's update).
-std::vector<Row> read_recording(const std::string& path, bool& loop_left) {
+std::vector<Row> read_recording(const std::string& path, bool& loop_left, std::vector<Poke>* pokes = nullptr) {
     loop_left = false;
     std::ifstream in(path);
     std::string line;
@@ -47,8 +55,15 @@ std::vector<Row> read_recording(const std::string& path, bool& loop_left) {
             while (words >> w) names.push_back(w);
             continue;
         }
-        if (line[0] == '#') { // "# loop left before update n"
+        if (line[0] == '#') { // "# loop left before update n", "# poke …"
             loop_left = loop_left || line.find("loop left") != std::string::npos;
+            if (pokes && line.rfind("# poke ", 0) == 0) {
+                std::istringstream w(line.substr(7));
+                std::string address, value, after, row_word;
+                std::int64_t row = 0;
+                w >> address >> value >> after >> row_word >> row;
+                pokes->push_back({row, std::uint32_t(std::stoul(address, nullptr, 16)), std::stoull(value, nullptr, 16)});
+            }
             continue;
         }
         Row row;
@@ -61,7 +76,10 @@ std::vector<Row> read_recording(const std::string& path, bool& loop_left) {
             // 32-bit fields are signed; narrower ones are kept as they are.
             row[name] = name == "grip" || name == "count" || name == "prevjoy" || name == "centre" || name == "joy" ||
                                 name.rfind("f4", 0) == 0 || name == "collide" || name == "high" ||
-                                name == "fallcount" || name == "lost" || name == "mappieces"
+                                name == "fallcount" || name == "lost" || name == "mappieces" ||
+                                name == "energy2" || name == "kindtime" || name == "kindoff" || name == "iceproof" ||
+                                name == "protect" || name == "warpcount" || name == "rewardcount" ||
+                                name == "shopwait" || name == "carried"
                             ? std::int64_t(v)
                             : std::int64_t(std::int32_t(std::uint32_t(v)));
         }
@@ -87,6 +105,11 @@ game::Pocket pocket_from(const Row& r) {
         p.keys[std::size_t(i)] = int(r.at(key_fields[i]));
         p.finds[std::size_t(i)] = int(r.at(find_fields[i]));
     }
+    if (r.count("repairs")) {
+        p.repair_sets = int(r.at("repairs"));
+        p.eyes = int(r.at("eyes"));
+        p.energy = int(r.at("energy2"));
+    }
     p.score = int(r.at("money"));   // the recorder's "money" column is $719BA (the score)
     p.money = int(r.at("energy"));  // and "energy" is $719C2 (the money)
     return p;
@@ -105,6 +128,11 @@ int compare_pocket(const game::Pocket& p, const Row& r, std::int64_t update) {
     for (int i = 0; i < 4; ++i) {
         check(key_fields[i], p.keys[std::size_t(i)]);
         check(find_fields[i], p.finds[std::size_t(i)]);
+    }
+    if (r.count("repairs")) {
+        check("repairs", p.repair_sets);
+        check("eyes", p.eyes);
+        check("energy2", p.energy);
     }
     check("money", p.score);
     check("energy", p.money);
@@ -140,6 +168,18 @@ game::Ball ball_from(const Row& r) {
     b.roll_y = game::Fixed(r.at("phase_y"));
     if (r.count("fallcount")) b.fall_updates = int(r.at("fallcount"));
     if (r.count("ignore")) b.mouse_ignored = r.at("ignore") & 1;
+    if (r.count("repairs")) {
+        b.extra_speed = int(r.at("extra"));
+        b.kind_updates = int(r.at("kindtime"));
+        b.kind_running = !(r.at("kindoff") & 1);
+        b.ice_proof = r.at("iceproof") != 0;
+        b.protective = r.at("protect") != 0;
+        b.shop_wait = int(r.at("shopwait"));
+        b.shop_spot = game::Fixed(r.at("shopspot"));
+        b.carried = r.at("carried") != 0;
+        b.max_speed_x = b.max_speed_y = game::Fixed(r.at("maxvx"));
+        b.min_speed_x = b.min_speed_y = game::Fixed(r.at("minvx"));
+    }
     if (r.count("save_cx")) {
         b.continue_camera_x = game::Fixed(r.at("save_cx"));
         b.continue_camera_y = game::Fixed(r.at("save_cy"));
@@ -163,6 +203,19 @@ int compare(const game::Ball& b, const Row& r, bool all, std::int64_t update) {
         {"phase_x", b.roll_x}, {"phase_y", b.roll_y}, {"slow", b.slow}, {"high", b.high_cell},
         {"f405", b.steered}, {"friction", b.friction}, {"collide", b.collisions},
     };
+    if (r.count("repairs")) {
+        const Field more[] = {{"extra", b.extra_speed}, {"kindtime", b.kind_updates}, {"kindoff", !b.kind_running},
+                              {"iceproof", b.ice_proof}, {"protect", b.protective}, {"shopwait", b.shop_wait},
+                              {"shopspot", b.shop_spot}, {"carried", b.carried}, {"maxvx", b.max_speed_x},
+                              {"minvx", b.min_speed_x}};
+        for (const auto& f : more) {
+            if (r.at(f.name) != f.native) {
+                std::printf("update %lld: %s native %llx original %llx\n", (long long)update, f.name,
+                            (unsigned long long)(std::uint32_t)f.native, (unsigned long long)(std::uint32_t)r.at(f.name));
+                ++differing_saved;
+            }
+        }
+    }
     if (r.count("save_cx")) {
         const Field saved[] = {{"save_cx", b.continue_camera_x}, {"save_cy", b.continue_camera_y},
                                {"save_vx", b.continue_view_x}, {"save_vy", b.continue_view_y}};
@@ -233,7 +286,8 @@ int main(int argc, char** argv) {
             std::size_t checked = 0;
             for (std::size_t k = 0; k < recordings.size() && bad_updates == 0; ++k) {
                 bool loop_left = false;
-                const auto rows = read_recording(recordings[k], loop_left);
+                std::vector<Poke> pokes;
+                const auto rows = read_recording(recordings[k], loop_left, &pokes);
                 if (rows.size() < 2) throw std::runtime_error("A recording has fewer than two updates.");
                 if (k == 0) {
                     ball = ball_from(rows.front());
@@ -256,6 +310,11 @@ int main(int argc, char** argv) {
                     }
                 }
                 for (std::size_t n = 0; n + 1 < rows.size(); ++n) {
+                    for (const auto& poke : pokes) {
+                        if (poke.after_row != rows[n].at("update")) continue;
+                        if (poke.address == 0x719C2) pocket.money = int(poke.value); // the money
+                        else throw std::runtime_error("The recording pokes an address the replay does not know.");
+                    }
                     const auto joy = std::uint16_t(rows[n].at("joy"));
                     game::update_ball(ball, pocket, map, world, {std::uint8_t(joy & 0xFF), std::uint8_t(joy >> 8)});
                     ++checked;
