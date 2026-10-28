@@ -1,6 +1,8 @@
 #include "fa_18_interceptor_amiga/data/preview.hpp"
 #include "ui/draw.hpp"
 #include <algorithm>
+#include <map>
+#include <tuple>
 
 namespace interceptor::data {
 namespace {
@@ -100,6 +102,40 @@ platform::Image message_sheet(const Assets& assets) {
         }
     }
     return image;
+}
+
+std::shared_ptr<const ui::Model> shape_model(const Shape& shape, const Palette& palette) {
+    auto model = std::make_shared<ui::Model>();
+    std::map<std::tuple<double, double, double>, int> index;
+    const auto point = [&](const ShapePoint& p) {
+        const auto key = std::tuple{p.x, p.y, p.z};
+        const auto found = index.find(key);
+        if (found != index.end()) return found->second;
+        model->points.push_back({float(p.x), float(p.y), float(-p.z)}); // nose away from the viewer at rest
+        return index[key] = int(model->points.size()) - 1;
+    };
+    for (const auto& face : shape.faces) {
+        ui::Model::Face out{{}, to_color(palette[std::size_t(face.colour)])};
+        for (const auto& corner : face.corners) out.corners.push_back(point(corner));
+        model->faces.push_back(std::move(out));
+    }
+    for (const auto& line : shape.lines) {
+        model->lines.push_back({point(line.from), point(line.to), to_color(palette[std::size_t(line.colour)])});
+    }
+    return model;
+}
+
+std::string shape_title(const Shape& shape) {
+    // Identified from how they look and from the mission texts (hypotheses
+    // except type 4, the aircraft the demo flies).
+    static const std::map<int, std::string> names = {
+        {0, "missile"}, {1, "missile, second kind"}, {2, "pilot under a parachute"},
+        {3, "single-fin jet, light"}, {4, "twin-fin jet, the player's F/A-18"}, {5, "four-engined airliner"},
+        {6, "single-fin jet, dark"}, {8, "aircraft carrier"}, {10, "cruise missile"},
+        {11, "pod under a parachute"}, {12, "submarine"},
+    };
+    const auto found = names.find(shape.type);
+    return "type " + std::to_string(shape.type) + (found == names.end() ? std::string() : ": " + found->second);
 }
 
 platform::Image waveform_image(const Sound& sound) {

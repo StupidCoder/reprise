@@ -7,10 +7,11 @@
 // The export writes the pictures, every screen-text block (and the main
 // menu put together), the cockpit messages, fonts and palettes as PNG, the
 // sounds as WAV (8-bit, at the rate their load-time period gives), and a
-// listing of the texts and sounds on stdout.
+// listing of the texts, 3D shapes and sounds on stdout.
 
 #include "fa_18_interceptor_amiga/data/assets.hpp"
 #include "fa_18_interceptor_amiga/data/preview.hpp"
+#include "fa_18_interceptor_amiga/data/shapes.hpp"
 #include "fa_18_interceptor_amiga/import/disk_import.hpp"
 #include "platform/files.hpp"
 #include "platform/host.hpp"
@@ -80,6 +81,11 @@ int main(int argc, char** argv) {
             platform::save_png(message_sheet(assets), out / "messages.png");
             platform::save_png(font_sheet(assets), out / "fonts.png");
             platform::save_png(palette_sheet(assets), out / "palettes.png");
+            for (const auto& shape : read_vehicle_shapes(assets.program)) {
+                std::printf("shape %-45s model $%06X levels %d faces %3zu lines %3zu\n", shape_title(shape).c_str(),
+                            shape.model, shape.detail_levels, shape.faces.size(), shape.lines.size());
+                for (const auto& problem : shape.problems) std::printf("    stopped: %s\n", problem.c_str());
+            }
             for (const auto& sound : assets.sounds) {
                 const int rate = int(pal_clock / sound.period + 0.5);
                 std::printf("sound %-14s slot %2d period %3d (%5d Hz) %6zu bytes\n", sound.file.c_str(), sound.slot,

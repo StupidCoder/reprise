@@ -299,6 +299,7 @@ add_library(fa_18_interceptor_amiga
     src/fa_18_interceptor_amiga/entry.cpp
     src/fa_18_interceptor_amiga/data/assets.cpp
     src/fa_18_interceptor_amiga/data/preview.cpp
+    src/fa_18_interceptor_amiga/data/shapes.cpp
     src/fa_18_interceptor_amiga/import/disk_import.cpp)
 target_include_directories(fa_18_interceptor_amiga PUBLIC ${SOURCE_ROOT})
 target_link_libraries(fa_18_interceptor_amiga PUBLIC amiga platform ui)

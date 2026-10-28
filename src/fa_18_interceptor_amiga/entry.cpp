@@ -1,6 +1,7 @@
 #include "fa_18_interceptor_amiga/entry.hpp"
 #include "fa_18_interceptor_amiga/data/assets.hpp"
 #include "fa_18_interceptor_amiga/data/preview.hpp"
+#include "fa_18_interceptor_amiga/data/shapes.hpp"
 #include "fa_18_interceptor_amiga/import/disk_import.hpp"
 #include <cstdio>
 #include <string>
@@ -36,6 +37,10 @@ std::vector<app::Preview> previews(const std::filesystem::path& content) {
         if (in_menu || title.empty()) continue; // blank blocks are filled in at run time (e.g. the call sign, $10370A)
         result.push_back({"Screen text " + std::to_string(block.number) + ": " + title,
                           text_screen(assets, {block.number}, 0)});
+    }
+    for (const auto& shape : read_vehicle_shapes(assets.program)) {
+        result.push_back({"3D shape: " + shape_title(shape), platform::Image(1, 1), std::nullopt,
+                          shape_model(shape, assets.palettes.at(flight_palette))});
     }
     result.push_back({"Cockpit messages", message_sheet(assets)});
     result.push_back({"Fonts (cockpit, menus)", font_sheet(assets)});

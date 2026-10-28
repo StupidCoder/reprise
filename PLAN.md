@@ -1379,6 +1379,13 @@ state (wider field of view for widescreen) and the simulation will tick at
 the original's rate apart from drawing, with aircraft and camera
 interpolated between ticks. Keep state and drawing separate from the start.
 
+Planned enhancement (owner, 2026-10-28): the original simplifies distant
+objects and hides far ones (each shape has a list of detail levels chosen
+by distance, and draw lists skip parts beyond a distance). An option,
+off by default, will always draw the full model at any distance. The
+renderer must therefore keep the detail choice separate from drawing, so
+the option only swaps which level is picked.
+
 1. **Done 2026-10-28: import and assets.** `src/fa_18_interceptor_amiga`
    (namespace `interceptor`): importer (release by the program's SHA-256,
    20 data files by SHA-256), the program read through `amiga::LoadedImage`
@@ -1391,11 +1398,18 @@ interpolated between ticks. Keep state and drawing separate from the start.
    machine on port 6868 (`harness/run.sh`, `f18.py attach|key`,
    `screen.py`), Ghidra project (`ghidra/ghidra.sh`), listing
    `work/all.dis`.
-2. Next: the 3D shapes (object table $115F4C, model and draw-list format,
-   primitives $113470) drawn natively and checked against demo captures;
-   then the world (map cells, object lists), the main loop's timing
-   ($107D48, timer.device), the flight model, front-end screens on the
-   screen-text interpreter, cockpit and HUD, sound driver and music.
+2. **Done 2026-10-28: 3D shapes, vehicles.** `data/shapes.cpp`: object
+   type table, detail levels, point blocks, the facing-test tree, polygon
+   lists (every opcode the vehicles use) and the eight vertex builders; the 11
+   vehicle shapes (F/A-18, two single-fin jets, airliner, carrier,
+   submarine, three missiles, two parachutes) turn in the asset viewer.
+   Checked: the F/A-18's points equal the game's own rotated copies;
+   C++ and research decoders agree on every face and line count.
+3. Next: the scenery shapes (types 33-35, 43-59; flat and generated
+   points) and types 36-42, then the world (map cells, object lists), the
+   main loop's timing ($107D48, timer.device), the flight model, front-end
+   screens on the screen-text interpreter, cockpit and HUD, sound driver
+   and music.
 
 Open items:
 - Which palette each briefing screen uses (previews use palette 0).
@@ -1406,6 +1420,10 @@ Open items:
   names; synthesised slots 4 and 6; the music sequencer (hunks 74–86).
 - `pix/frnt5` (288 × 12) use; `config`, `textply`, `textctl` layouts.
 - Hunk 62 (chip) sprite data; maths tables in hunks 63 and 65.
+- Shapes: scenery types and types 36-42 not decoded; discs, dots,
+  lights, deck stripes ($80/$50) and shadows not shown in the viewer;
+  vertex builders do not round like the original; the drawing order
+  (facing tree) and distance bands are not modelled for a renderer yet.
 
 ## Spindizzy Worlds (Amiga) milestones
 
