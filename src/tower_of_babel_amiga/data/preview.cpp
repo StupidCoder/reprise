@@ -1,4 +1,6 @@
 #include "tower_of_babel_amiga/data/preview.hpp"
+#include "tower_of_babel_amiga/data/model.hpp"
+#include "tower_of_babel_amiga/data/shape.hpp"
 #include "tower_of_babel_amiga/game/tower_map.hpp"
 #include "tower_of_babel_amiga/view/tower_view.hpp"
 #include "ui/draw.hpp"
@@ -87,7 +89,7 @@ platform::Image tower_image(const Tower& tower, const Memory& program) {
     return image;
 }
 
-std::optional<platform::Image> start_view_image(const Tower& tower, const Memory& program) {
+std::optional<platform::Image> start_view_image(const Tower& tower, const Memory& program, const Memory& main) {
     // $1362A: the selected spider is the first one the tower does not leave out.
     int kind = -1;
     for (int spider = 0; spider < 3 && kind < 0; ++spider)
@@ -107,9 +109,41 @@ std::optional<platform::Image> start_view_image(const Tower& tower, const Memory
             if (object.floor == floor && object.x == x && object.z == z) return floor * 0x200;
         return std::nullopt;
     };
+    // The objects as the unpacker places them ($13440): spiders in slots 4-6
+    // (their kind), the others from slot 7 on in record order; each with
+    // its kind's type and first shape (the kind table $13742).
+    const auto kinds = kind_shapes(program);
+    std::vector<Shape> shapes;
+    shapes.reserve(tower.objects.size());
+    std::vector<view::SceneObject> objects;
+    objects.reserve(tower.objects.size());
+    int next_slot = 7;
+    for (const auto& object : tower.objects) {
+        const std::uint32_t address = kinds.at(std::size_t(object.kind - 4)).address;
+        try {
+            shapes.push_back(decode_shape(main, address));
+        } catch (const std::exception&) {
+            continue;
+        }
+        view::SceneObject o;
+        o.slot = object.kind < 7 ? object.kind : next_slot++;
+        o.type = program.u16(0x13742 + std::uint32_t(object.kind) * 10);
+        o.shape = &shapes.back();
+        o.x = place(object.x);
+        o.y = object.floor * 0x200;
+        o.z = place(object.z);
+        objects.push_back(o);
+    }
+    const view::ObjectAt object_at = [&](int floor, int x, int z) -> const view::SceneObject* {
+        for (std::size_t i = 0; i < objects.size(); ++i) {
+            const auto& o = objects[i];
+            if (o.y == floor * 0x200 && o.x == place(x) && o.z == place(z)) return &o;
+        }
+        return nullptr;
+    };
     view::Canvas canvas(320, 200);
     const view::Window window{16, 303, 16, 127};
-    view::TowerView(view::read_pens(program)).draw(canvas, window, 160, 72, map, camera, lift_height);
+    view::TowerView(view::read_pens(program)).draw(canvas, window, 160, 72, map, camera, lift_height, object_at);
     platform::Image image(window.right - window.left + 1, window.bottom - window.top + 1);
     for (int y = 0; y < image.height; ++y)
         for (int x = 0; x < image.width; ++x)

@@ -4,6 +4,7 @@
 //   tower_of_babel_assets import <image.adf> <content folder>
 //   tower_of_babel_assets export <content folder> <output folder>
 //   tower_of_babel_assets models <content folder> <out.png>   (contact sheet of the shapes)
+//   tower_of_babel_assets animcheck <content folder> <animrec.txt>   (harness/animrec.py)
 //   tower_of_babel_assets viewcheck <content folder> <memory.bin> <group> <tower> <out.png>
 //
 // viewcheck (research): takes the camera from a reference machine's chip
@@ -21,13 +22,16 @@
 #include "tower_of_babel_amiga/data/model.hpp"
 #include "tower_of_babel_amiga/data/preview.hpp"
 #include "ui/draw.hpp"
+#include "tower_of_babel_amiga/game/animation.hpp"
 #include "tower_of_babel_amiga/game/tower_map.hpp"
 #include "tower_of_babel_amiga/view/polygon.hpp"
 #include "tower_of_babel_amiga/view/tower_view.hpp"
 #include "tower_of_babel_amiga/import/disk_import.hpp"
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <map>
+#include <sstream>
 #include <exception>
 #include <string>
 
@@ -173,7 +177,7 @@ int main(int argc, char** argv) {
                     char name[32];
                     std::snprintf(name, sizeof name, "tower%03d.png", number);
                     platform::save_png(tower_image(t, assets.program), out / name);
-                    if (auto view = start_view_image(t, assets.program)) {
+                    if (auto view = start_view_image(t, assets.program, assets.main)) {
                         std::snprintf(name, sizeof name, "tower%03d-view.png", number);
                         platform::save_png(*view, out / name);
                     }
@@ -210,6 +214,50 @@ int main(int argc, char** argv) {
                 ++i;
             }
             platform::save_png(sheet, platform::utf8_path(argv[3]));
+            return 0;
+        }
+        if (command == "animcheck" && argc == 4) {
+            const auto assets = load_assets(platform::utf8_path(argv[2]));
+            const babel::game::Animation animation(assets.program);
+            std::ifstream in(platform::utf8_path(argv[3]));
+            std::string line;
+            std::vector<babel::game::AnimationState> before(60);
+            std::vector<std::uint32_t> shown(60);
+            std::map<int, std::pair<int, int>> per_type; // type -> (checked, differ)
+            int frames = 0;
+            while (std::getline(in, line)) {
+                std::istringstream fields(line);
+                int frame, running, phase, switch_state, flag, setting;
+                std::string hex;
+                fields >> frame >> running >> phase >> switch_state >> flag >> setting >> hex;
+                const babel::game::AnimationClock clock{frame, running >= 0, phase, switch_state};
+                const auto byte = [&](std::size_t i) { return std::stoi(hex.substr(2 * i, 2), nullptr, 16); };
+                const auto word = [&](std::size_t i) { return int(std::int16_t(byte(i) << 8 | byte(i + 1))); };
+                bool live = true; // $BEE4 stops at the first record with a negative type
+                for (std::size_t n = 0; n < 60; ++n) {
+                    const std::size_t r = n * 32;
+                    if (word(r) < 0) live = false;
+                    const babel::game::AnimationState now{word(r), word(r + 0xC), word(r + 0xE), word(r + 0x10),
+                                                          word(r + 0x1A), word(r + 0x1C), word(r + 0x1E)};
+                    const auto pointer = std::uint32_t(word(r + 2) & 0xFFFF) << 16 | std::uint32_t(word(r + 4) & 0xFFFF);
+                    if (live && frames > 0 && now.type >= 0 && now.type < 0x1A && before[n].type == now.type) {
+                        const auto native = animation.shape(now, before[n], clock, int(n));
+                        auto& count = per_type[now.type];
+                        ++count.first;
+                        const auto expected = native ? *native : shown[n];
+                        if (expected != pointer) {
+                            if (++count.second <= 3)
+                                std::printf("frame %d slot %zu type %d: original $%X native $%X (state %d progress %d)\n",
+                                            frames, n + 4, now.type, pointer, expected, now.state, now.progress);
+                        }
+                    }
+                    before[n] = now;
+                    shown[n] = pointer;
+                }
+                ++frames;
+            }
+            for (const auto& [type, count] : per_type)
+                std::printf("type %2d: %d of %d frames differ\n", type, count.second, count.first);
             return 0;
         }
         if (command == "viewcheck" && argc == 7) {

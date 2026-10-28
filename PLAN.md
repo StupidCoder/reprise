@@ -1316,11 +1316,20 @@ apart from drawing, so spiders and camera can be interpolated between ticks.
    differences found: the READY caption when Run All did not start the
    game). Launcher: each object kind's shape in the shared 3D model viewer
    (`data/model`, `tower_of_babel_assets models`).
-4. Next: animation frames (per-type display update $BEE4/$BF16: frame
-   choice from state and the frame counter $FBE, tables $BD9A-$BED4),
-   particles ($14C18, type $1A), stars, moon, lightning, meteors, copper
-   sky bands, overlays; then spider movement and programs, object
-   behaviour, panel, front end, designer, sound effects.
+4. **Done 2026-10-28: animation frames.** `game/animation`: the frame
+   choice of the display update ($BEE4, handlers by type at $BF16) as a
+   pure function of the object's state, the frame counter and two globals,
+   with "keep the shape" where the original leaves it; the counters,
+   decisions and sounds the handlers also do belong to the behaviour step.
+   Checked with harness/animrec.py (records each frame of the demo
+   sequence) and `tower_of_babel_assets animcheck`: 0 differences in 3,800
+   frames for the spiders (walking, turning, standing), Zapper, Rotating
+   Zapper, Worm, Hopper, Proximity Mine, Lizard, Klondike and Wiper.
+   Launcher start views now show the objects in their first shapes.
+5. Next: particles ($14C18, type $1A), stars, moon, lightning, meteors,
+   copper sky bands, overlays; then spider movement and programs, object
+   behaviour (incl. the handlers' counters and decisions), panel, front
+   end, designer, sound effects.
 
 Open items:
 - Tower record fields $E2E, $E34–$E42, flags 3, 4, 6–9, the last 4 bits
@@ -1331,6 +1340,10 @@ Open items:
 - Disk blocks $538–$6DF are not referenced (noise from $540).
 - Ghidra seeds: add the jump table entries $E2CC–$E310.
 - Demonstrations: where the demo spiders' programs come from.
+- Animation not yet seen in a recording: Pusher, Rotating Pusher,
+  Watcher (only its walk is in the frame choice), Time Bomb, Bonus Flag,
+  Convertor, both Forcers, Freezer; the spiders' $1218 turn variant.
+- Object pens 23 and 24 ($892(a6)) change at run time.
 - READY state: the original copies whole buffers ($87A6) around its draws;
   the native module only needs the drawn picture, but check what the
   player sees there.

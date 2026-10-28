@@ -34,7 +34,7 @@ std::vector<app::Preview> previews(const std::filesystem::path& content) {
                                 (tower.name.empty() ? "(no name)" : tower.name);
             if (!tower.author.empty()) title += " (" + tower.author + ")";
             result.push_back({title, tower_image(tower, assets.program)});
-            if (auto view = start_view_image(tower, assets.program)) result.push_back({title + ", start view", *view});
+            if (auto view = start_view_image(tower, assets.program, assets.main)) result.push_back({title + ", start view", *view});
         }
     }
     return result;
