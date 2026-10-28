@@ -1047,11 +1047,14 @@ files RNC-packed. The image set is a cracked copy (CSL intro loaded by disk
    its column, the parallax intro, the briefing, the debrief, the ending,
    LOAD/SAVE); the panel's counts and squads (select, pick, split, join);
    engine sounds. Playable from the presentation to the ending in the shell.
-   Open: no recording yet checks a vehicle, hostage or power-up; the hill's
-   graves and the recruits walking down the road; the parallax bands and
-   the debrief's scrolling are laid out from captures (their copper and
-   blitter work is not traced); LOAD/SAVE keeps one game (the original
-   names and lists saves); joining squads not tried headless.
+   Since: the hill's graves and the recruits walking down the road
+   (rebuilt from `$A5C3A`/`$A5DC4`/`$A5EEE` and their tables), saves listed
+   by mission and phase, a recording of map 21 (turrets, jeeps) that the
+   vehicles replay without differences. Open: hostage and power-up
+   recordings; the parallax bands and the debrief's scrolling are laid out
+   from captures; saves are named by mission/phase (the original lets the
+   player type a name; the shell has no text entry); joining squads not
+   tried headless.
 
 Open: the panel's ammunition counts, lit-box condition, vehicle icons and
 mini-map; object drawing with hidden lines, negative/positive layers and y

@@ -125,6 +125,7 @@ private:
     void split_squad();
     void front_frame(const app::GameInput& input);
     void between_phases();
+    void call_up_preview();
     void finish_phase();
     void end_music(EndText started);
     void start_jon(int song, bool warx = false);
@@ -143,8 +144,9 @@ private:
     World world_;
     Campaign campaign_;
     bool called_up_{};
+    std::vector<std::string> save_names_;
     std::optional<FrontEnd> front_;
-    enum class AfterFront { hill, parallax, briefing, mission, next_phase, new_game, stop } after_front_{AfterFront::mission};
+    enum class AfterFront { hill, parallax, briefing, mission, loaded, next_phase, new_game, stop } after_front_{AfterFront::mission};
     CameraMotion motion_;
     Point target_{};
     std::optional<sound::Rjp1> music_;
@@ -311,8 +313,22 @@ void Module::between_phases() {
         start_phase(campaign_.phase);
         return;
     }
+    call_up_preview();
     front_->start_hill(campaign_);
     after_front_ = AfterFront::parallax;
+}
+
+// $9E19A … as the original runs it before the hill of a new mission and
+// again after the map loads: who goes into the phase (the hill and the
+// briefing show it; a second run changes nothing).
+void Module::call_up_preview() {
+    const int map_number = campaign_.phase + 1;
+    const auto placements =
+        data::read_placements(content_.read("mapm" + std::to_string(map_number) + ".spt", data::map_disk(map_number)));
+    int placed = 0;
+    for (std::size_t i = 0; i < placements.size() && i < 30; ++i) placed += placements[i].words[4] == 0;
+    campaign_.call_up(placed);
+    called_up_ = true;
 }
 
 void Module::front_frame(const app::GameInput& input) {
@@ -325,6 +341,7 @@ void Module::front_frame(const app::GameInput& input) {
     if (front_->active()) return;
     switch (after_front_) {
     case AfterFront::hill:
+        call_up_preview();
         front_->start_hill(campaign_);
         after_front_ = AfterFront::parallax;
         break;
@@ -344,30 +361,31 @@ void Module::front_frame(const app::GameInput& input) {
         // $A9E56: the hill's LOAD and SAVE (one saved game in the game's
         // folder); after a load the game goes on as after a won phase
         // ($8794C).
-        const auto saved = content_.folder() / "saved_game.txt";
+        // $A9E56: the hill's SAVE (a saved game named by its mission and
+        // phase, in the game's folder) and LOAD (the list of them); after a
+        // load the game goes on as after a won phase ($8794C).
         if (front_->hill_choice() == FrontEnd::HillChoice::save) {
-            std::ofstream(saved) << campaign_.write();
+            const auto folder = content_.folder() / "saves";
+            std::filesystem::create_directories(folder);
+            const std::string name = "MISSION " + std::to_string(campaign_.missions_started) + " PHASE " +
+                                     std::to_string(campaign_.phase_in_mission + 1);
+            std::ofstream(folder / (name + ".txt")) << campaign_.write();
             front_->start_hill(campaign_);
             after_front_ = AfterFront::parallax;
             return;
         }
         if (front_->hill_choice() == FrontEnd::HillChoice::load) {
-            std::ifstream in(saved);
-            const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-            if (campaign_.read(text)) campaign_.next_phase(tables_.mission);
-            front_->start_hill(campaign_);
-            after_front_ = AfterFront::parallax;
+            save_names_.clear();
+            std::error_code error;
+            for (const auto& e : std::filesystem::directory_iterator(content_.folder() / "saves", error)) {
+                if (e.path().extension() == ".txt") save_names_.push_back(e.path().stem().string());
+            }
+            std::sort(save_names_.begin(), save_names_.end());
+            front_->start_save_list(save_names_);
+            after_front_ = AfterFront::loaded;
             return;
         }
-        // $9E19A … during the loading: who goes into the phase (the briefing
-        // tells it).
-        const int map_number = campaign_.phase + 1;
-        const auto placements =
-            data::read_placements(content_.read("mapm" + std::to_string(map_number) + ".spt", data::map_disk(map_number)));
-        int placed = 0;
-        for (std::size_t i = 0; i < placements.size() && i < 30; ++i) placed += placements[i].words[4] == 0;
-        campaign_.call_up(placed);
-        called_up_ = true;
+        if (!called_up_) call_up_preview();
         front_->start_briefing(campaign_, tables_.mission);
         after_front_ = AfterFront::mission;
         break;
@@ -375,6 +393,21 @@ void Module::front_frame(const app::GameInput& input) {
     case AfterFront::mission:
         start_phase(campaign_.phase);
         break;
+    case AfterFront::loaded: {
+        const int k = front_->picked_save();
+        if (k >= 0 && k < int(save_names_.size())) {
+            std::ifstream in(content_.folder() / "saves" / (save_names_[std::size_t(k)] + ".txt"));
+            const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            // (The original's saved block resumes through its "phase won"
+            // path; here the saved campaign is the hill's own, so it goes on
+            // with that phase.)
+            campaign_.read(text);
+        }
+        call_up_preview();
+        front_->start_hill(campaign_);
+        after_front_ = AfterFront::parallax;
+        break;
+    }
     case AfterFront::next_phase:
         campaign_.promote();
         campaign_.next_phase(tables_.mission);

@@ -73,6 +73,7 @@
 #include "cannon_fodder_amiga/import/disk_import.hpp"
 #include "platform/files.hpp"
 #include "platform/host.hpp"
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -213,6 +214,26 @@ int run(int argc, char** argv) {
                 o.on_screen = B(b, r + 0x5c) != 0;
                 s.fire_delay = W(b, r + 0x4a); s.skill = W(b, r + 0x62);
                 s.target = W(b, r + 0x5e);
+                {
+                    // Vehicles and the like (game/vehicles.cpp).
+                    const auto slot_of = [&](std::uint32_t p) {
+                        return p >= 0xfdb2c && p < 0xfdb2c + 44 * 0x76 ? int((p - 0xfdb2c) / 0x76) : -1;
+                    };
+                    const int k = W(b, r + 0x18);
+                    s.vehicle_type = B(b, r + 0x6f); s.is_vehicle = B(b, r + 0x65) != 0;
+                    s.rest_x = W(b, r + 0x46); s.rest_y = W(b, r + 0x48); s.patrol = W(b, r + 0x62);
+                    s.fire_held = B(b, r + 0x57) != 0; s.fire_request = B(b, r + 0x54) != 0;
+                    s.barrel = B(b, r + 0x5b) != 0; s.gun_toggle = B(b, r + 0x55) != 0; s.sink = B(b, r + 0x56);
+                    s.flags75 = B(b, r + 0x75); s.hits = B(b, r + 0x74);
+                    s.crashing = (W(b, r + 0x26) & 0xffff) == 0x7171;
+                    s.boarding = slot_of(std::uint32_t(L(b, r + 0x66)));
+                    s.vehicle = slot_of(std::uint32_t(L(b, r + 0x6a)));
+                    if (k != 0) s.land = B(b, r + 0x6e) != 0;
+                    if (k == 0x2e || k == 0x61) s.homing_target = slot_of(std::uint32_t(L(b, r + 0x1a)));
+                    if (k == 0x2d || k == 0x2e || k == 0x61) { s.thrust = L(b, r + 0x6a); s.wall_check = W(b, r + 0x32) != 0; }
+                    static const int by_offset[] = {0x4e, 0x4f, 0x54, 0x55, 0x69, 0x50, 0x51, 0x52, 0x3f, 0x40};
+                    if (std::find(std::begin(by_offset), std::end(by_offset), k) != std::end(by_offset)) s.target = W(b, r + 0x5e) / 0x76;
+                }
                 s.shot_by_roster = std::min((W(b, r + 0x5e) & 0xfff) / 12, 8) % 8; s.shot_by_mark = B(b, r + 0x5d);
                 const auto building = std::uint32_t(L(b, r + 0x70));
                 s.building = building >= 0xfdb2c && building < 0xfdb2c + 44 * 0x76 ? int((building - 0xfdb2c) / 0x76) : -1;
@@ -276,6 +297,23 @@ int run(int argc, char** argv) {
                 world.squads[n].rockets = W(before, 0x81f52 + n * 2);
             }
             world.landscape = W(before, 0x8278c);
+            {
+                const auto slot_of = [&](std::uint32_t p) {
+                    return p >= 0xfdb2c && p < 0xfdb2c + 44 * 0x76 ? int((p - 0xfdb2c) / 0x76) : -1;
+                };
+                world.driven_vehicle = slot_of(std::uint32_t(L(before, 0x82798)));
+                world.tick_counter = W(before, 0x8061a);
+                world.enemy_helicopter = W(before, 0x82702) != 0;
+                world.skill_average = W(before, 0x80628);
+                world.rescue_x = W(before, 0x82a6c) < 0 ? -1 : W(before, 0x82a6c);
+                world.rescue_y = W(before, 0x82a6e);
+                world.target_distance = W(before, 0x81fd8);
+                world.target_distance2 = W(before, 0x82704);
+                world.civilian_house = slot_of(std::uint32_t(L(before, 0x82a18)));
+                world.rescue_tent = slot_of(std::uint32_t(L(before, 0x82b96)));
+                world.hostage_held = W(before, 0x8287a) != 0;
+                for (std::uint32_t n = 0; n < 3; ++n) world.boarding_count[n] = W(before, 0x82a02 + n * 2);
+            }
             for (std::uint32_t n = 0; n < 3; ++n) world.route_window[n] = W(before, 0x81dde + n * 2);
             const auto load_mission = [&](std::span<const std::uint8_t> b, game::World& m) {
                 m.skill_min = W(b, 0x8062a); m.skill_max = W(b, 0x8062c); m.skill_next = W(b, 0x8062e); m.skill_step = W(b, 0x80630);
@@ -355,7 +393,7 @@ int run(int argc, char** argv) {
                 }
             }
             const auto report = [&](int i, const char* name, long native, long original) {
-                if (native != original && ++bad <= 40)
+                if (native != original && ++bad <= (std::getenv("CF_ALL") ? 100000 : 40))
                     std::printf("tick %d slot %d %s: native %ld original %ld\n", tick, i, name, native, original);
             };
             for (int i = 0; i < game::object_slots; ++i) {

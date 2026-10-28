@@ -54,7 +54,7 @@ class FrontEnd {
 public:
     FrontEnd(const data::Content& content, std::span<const std::uint8_t> program, const PanelArt& panel);
 
-    enum class Screen { none, intro, hill, parallax, briefing, debrief, ending };
+    enum class Screen { none, intro, hill, parallax, briefing, debrief, ending, saves };
     Screen screen() const { return screen_; }
     // The hill's answer ($A58F8): go on, or the LOAD or SAVE icon.
     enum class HillChoice { go_on, load, save };
@@ -70,6 +70,10 @@ public:
     // over it, the mission's name coming in (jon song 7); a click (or the
     // helicopter reaching the left) ends it.
     void start_parallax(const Campaign& campaign, const std::string& landscape);
+    // $A9E56 (LOAD): the saved games by name; a click on one picks it
+    // (picked_save()), a click elsewhere goes back.
+    void start_save_list(const std::vector<std::string>& names);
+    int picked_save() const { return picked_; }
     // $A6614: the briefing of the phase.
     void start_briefing(const Campaign& campaign, const MissionTables& tables);
 
@@ -127,6 +131,7 @@ private:
     std::span<const std::uint8_t> program_;
     FrontScreen screen_buffer_;
     std::map<std::uint32_t, amiga::IlbmPicture> loaded_; // pictures by the original's load address
+    amiga::IlbmPicture sheet_; // the hill's sheet of scaled graves and recruits ($A5C3A)
     Screen screen_{Screen::none};
     std::vector<Step> steps_;
     std::size_t step_{};
@@ -138,6 +143,7 @@ private:
     bool music_fade_{};
     HillChoice hill_choice_{HillChoice::go_on};
     bool save_allowed_{};
+    int picked_{-1};
 };
 
 } // namespace fodder::game

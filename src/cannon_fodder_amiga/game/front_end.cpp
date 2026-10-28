@@ -302,23 +302,83 @@ void FrontEnd::start_intro() {
 void FrontEnd::start_hill(const Campaign& campaign) {
     loaded_.clear();
     auto hills = amiga::read_ilbm(content_.read("hills.lbm", 2));
-    loaded_.emplace(at_sheet, hills);
     screen_buffer_.clear();
     screen_buffer_.palette.fill(0);
     // The hill picture's colours (0-15) and the panel's (16-31, pstuff).
     for (std::size_t i = 0; i < hills.palette.size() && i < 32; ++i) screen_buffer_.palette[i] = hills.palette[i];
-    // The background: the hill itself, from the picture's right part.
-    for (int y = 0; y < FrontScreen::height && y < hills.height; ++y) {
+    // $A5A7E: the hill (rows 29-212, from x 48) goes to the screen 4 lines
+    // higher and is cleared in the picture, which then serves as a sheet.
+    auto sheet = hills;
+    for (int y = 29; y < 213 && y < hills.height; ++y) {
         for (int x = 48; x < FrontScreen::width && x < hills.width; ++x) {
-            if (y < 0x1b || y >= 0xd5) continue;
-            screen_buffer_.pixels[std::size_t(y * FrontScreen::width + x)] =
-                hills.pixels[std::size_t(y * hills.width + x)];
+            screen_buffer_.pixels[std::size_t((y - 4) * FrontScreen::width + x)] = hills.pixels[std::size_t(y * hills.width + x)];
+            sheet.pixels[std::size_t(y * sheet.width + x)] = 0;
         }
     }
     const FrontFrames frames(program_, hill_table);
-    // (The graves of the fallen, $A5CC4 with the table $90F10 and the
-    // positions $A5110, are not drawn yet: their frames lie in a buffer
-    // whose layout is still open.)
+    const auto source = [&](int group, int index, auto&& each) {
+        const auto f = frames.frame(group, index);
+        if (!f || f->address < at_sheet) return;
+        const auto offset = f->address - at_sheet;
+        each(int(offset % 40) * 8, int(offset / 40), (f->width_words - 1) * 16, f->height);
+    };
+    // $A5C3A: the graves (group 0, frames 0-8 by rank) and the walking
+    // recruits (groups 1-12, two frames) scaled to the percentages of their
+    // lists ($90D3E), each centred on its place, the next 16 to the right.
+    for (auto at = file_offset(0x90d3e); at + 12 <= program_.size() && std::int16_t(amiga::read_be16(program_, at)) >= 0; at += 12) {
+        const int group = amiga::read_be16(program_, at), index = amiga::read_be16(program_, at + 2);
+        int cx = std::int16_t(amiga::read_be16(program_, at + 4)) + 8;
+        const int cy = std::int16_t(amiga::read_be16(program_, at + 6));
+        auto list = file_offset(0x80000 + amiga::read_be32(program_, at + 8));
+        source(group, index, [&](int sx, int sy, int sw, int sh) {
+            const auto original = sheet; // (the scaled copies read the unscaled ones)
+            for (; list + 2 <= program_.size(); list += 2) {
+                const int percent = std::int16_t(amiga::read_be16(program_, list));
+                if (percent < 0) break;
+                const int w = sw * percent / 100, h = sh * percent / 100;
+                for (int v = 0; v < h; ++v) {
+                    for (int u = 0; u < w; ++u) {
+                        const int c = original.pixels[std::size_t((sy + v * sh / h) * original.width + sx + u * sw / w)];
+                        const int dx = cx - w / 2 + u, dy = cy - h / 2 + v;
+                        if (c != 0 && dx >= 0 && dy >= 0 && dx < sheet.width && dy < sheet.height)
+                            sheet.pixels[std::size_t(dy * sheet.width + dx)] = std::uint8_t(c);
+                    }
+                }
+                cx += 16;
+            }
+        });
+    }
+    // $A5B46: the standing recruits' pieces ($A5BC0: group, frame, x, y),
+    // copied whole.
+    for (auto at = file_offset(0xa5bc0); at + 8 <= program_.size() && std::int16_t(amiga::read_be16(program_, at)) >= 0; at += 8) {
+        const int x = amiga::read_be16(program_, at + 4) & ~15, y = amiga::read_be16(program_, at + 6);
+        source(amiga::read_be16(program_, at), amiga::read_be16(program_, at + 2), [&](int sx, int sy, int sw, int sh) {
+            for (int v = 0; v < sh; ++v)
+                for (int u = 0; u < sw; ++u)
+                    if (x + u < sheet.width && y + v < sheet.height && sy + v < hills.height)
+                        sheet.pixels[std::size_t((y + v) * sheet.width + x + u)] =
+                            hills.pixels[std::size_t((sy + v) * hills.width + sx + u)];
+        });
+    }
+    sheet_ = sheet;
+    const FrontFrames graves(program_, 0x90f10);
+    // $A5CC4: a grave per fallen recruit, the newest at place 360 - n of the
+    // table $A5110 (x, y) and the older ones after it; the cell by rank
+    // (min(rank / 2, 8)) and by its height on the hill (min((y - 20) / 32, 4)).
+    loaded_.clear();
+    loaded_.emplace(at_sheet, sheet);
+    {
+        const int count = std::min<int>(int(campaign.heroes.size()), 360);
+        for (int j = 0; j < count; ++j) {
+            const auto& hero = campaign.heroes[campaign.heroes.size() - 1 - std::size_t(j)];
+            const auto at = file_offset(0xa5110 + std::uint32_t(360 - count + j) * 4);
+            if (at + 4 > program_.size()) break;
+            const int x = std::int16_t(amiga::read_be16(program_, at)), y = std::int16_t(amiga::read_be16(program_, at + 2));
+            draw_frame(graves, std::min(hero.rank >> 1, 8), std::min(std::max((y - 0x14) >> 5, 0), 4), x, y);
+        }
+    }
+    loaded_.clear();
+    loaded_.emplace(at_sheet, hills);
     // $A622E: the header.
     draw_frame(frames, 0x16, 0, 0, 0);                        // LOAD
     const auto save_at = file_offset(0xa9e26 + std::uint32_t(std::max(campaign.missions_started - 1, 0)) * 2);
@@ -334,25 +394,183 @@ void FrontEnd::start_hill(const Campaign& campaign) {
     };
     number(campaign.away, 0x9a, true);
     number(campaign.home, 0xa6, false);
-    // $A63BA: the column on the left (the panel's sprites, colours 16-31 from
-    // pstuff), from line 26.
-    HillColumn column;
-    for (const auto& f : campaign.fame) {
-        if (f.name >= 0) column.fame.push_back({f.name, f.rank, f.kills});
-    }
-    for (std::size_t k = 0; k < campaign.roster.size() && int(k) < campaign.soldiers; ++k) {
-        const auto& r = campaign.roster[k];
-        if (r.name >= 0) column.squad.push_back({r.name, r.rank, r.kills});
-    }
-    const auto panel = compose_hill_column(panel_, column);
     const auto& pstuff = panel_.pstuff();
     for (std::size_t i = 0; i < 16 && i < pstuff.palette.size(); ++i) screen_buffer_.palette[16 + i] = pstuff.palette[i];
-    for (int y = 0; y < panel_height && y + 26 < FrontScreen::height; ++y) {
-        for (int x = 0; x < panel_width; ++x) {
-            const auto c = panel[std::size_t(y * panel_width + x)];
-            if (c != 0) screen_buffer_.pixels[std::size_t((y + 26) * FrontScreen::width + x)] = std::uint8_t(16 + c);
+    // $A63BA: the column on the left (the panel's sprites, colours 16-31 from
+    // pstuff), from line 26: the hall of fame, and the recruits going (those
+    // coming back at once, each new one when he arrives, $A60A4).
+    struct Hill {
+        FrontScreen background;
+        HillColumn column;
+        std::vector<HillColumn::Entry> arriving;
+        std::vector<std::array<int, 3>> path;  // $92FC8: x, y, state
+        std::array<int, 15> walkers{};         // $8275C: path offsets (entries), < 0 not out
+        int joining{};                         // $8277E
+        bool queued{};                         // $8277C: the walkers have closed up
+        std::uint32_t toggle{};                // $82758 (its high word the walking frame)
+        int queue{};                           // $80652: recruits waiting from before
+        int grave_variety{};                   // $80A0E - $8073C
+    };
+    auto hill = std::make_shared<Hill>();
+    for (const auto& f : campaign.fame) {
+        if (f.name >= 0) hill->column.fame.push_back({f.name, f.rank, f.kills});
+    }
+    int going = 0;
+    for (std::size_t k = 0; k < campaign.roster.size() && int(k) < campaign.soldiers; ++k) {
+        const auto& r = campaign.roster[k];
+        if (r.name < 0) continue;
+        if (going++ < campaign.returning) hill->column.squad.push_back({r.name, r.rank, r.kills});
+        else hill->arriving.push_back({r.name, r.rank, r.kills});
+    }
+    for (auto at = file_offset(0x92fc8); at + 6 <= program_.size() && std::int16_t(amiga::read_be16(program_, at)) >= 0; at += 6) {
+        hill->path.push_back({std::int16_t(amiga::read_be16(program_, at)), std::int16_t(amiga::read_be16(program_, at + 2)),
+                              std::int16_t(amiga::read_be16(program_, at + 4))});
+    }
+    // $A5D6E: the walkers' places, $B4 bytes in and then by the gaps $A5DA4.
+    {
+        int at = 0xb4;
+        for (std::size_t k = 0; k < hill->walkers.size(); ++k) {
+            hill->walkers[k] = at >= 0 ? at / 6 : -1;
+            at -= amiga::read_be16(program_, file_offset(0xa5da4 + std::uint32_t(k) * 2));
         }
     }
+    hill->joining = int(hill->arriving.size());
+    hill->queue = campaign.pool_at_mission;
+    hill->grave_variety = (int(campaign.heroes.size()) & 0x1e) >> 1; // ($80A0E - $8073C) / 2 & $1E
+    hill->background = screen_buffer_;
+    const auto look = [this](int k) { return int(amiga::read_be16(program_, file_offset(0xa5ece + std::uint32_t(k & 15) * 2))); };
+    const auto draw_hill = [this, hill] {
+        const auto palette = screen_buffer_.palette;
+        const int low = screen_buffer_.fade_low, high = screen_buffer_.fade_high;
+        screen_buffer_ = hill->background;
+        screen_buffer_.palette = palette;
+        screen_buffer_.fade_low = low;
+        screen_buffer_.fade_high = high;
+        // $A5FBC: every path point with a recruit: the picture by his look
+        // and step and the road's turn, the size by how far down the road.
+        loaded_.clear();
+        loaded_.emplace(at_sheet, sheet_);
+        const FrontFrames sheet(program_, 0x90f10);
+        for (std::size_t k = 0; k < hill->path.size(); ++k) {
+            const auto& p = hill->path[k];
+            if (p[2] == 0) continue;
+            int group = p[2] - 1 < 3 ? 9 : 6 + p[2];
+            if (p[2] - 1 >= 3) {
+                if (p[1] >= 0xb7) group += 4;
+                else if (p[1] > 0x7c) group += 2;
+            }
+            const auto offset = int(k + 1) * 6;
+            draw_frame(sheet, group, offset <= 0x1a4 ? 0 : offset <= 0x2dc ? 1 : 2, p[0], p[1]);
+        }
+        const auto panel = compose_hill_column(panel_, hill->column);
+        for (int y = 0; y < panel_height && y + 26 < FrontScreen::height; ++y) {
+            for (int x = 0; x < panel_width; ++x) {
+                const auto c = panel[std::size_t(y * panel_width + x)];
+                if (c != 0) screen_buffer_.pixels[std::size_t((y + 26) * FrontScreen::width + x)] = std::uint8_t(16 + c);
+            }
+        }
+    };
+    const auto walk = [hill, look] {
+        auto& path = hill->path;
+        const int end = int(path.size()) - 1;
+        const auto state = [&](int k) -> int& { return path[std::size_t(std::clamp(k, 0, end))][2]; };
+        if (!hill->queued) {
+            // $A5D50: the recruits are placed afresh each frame.
+            for (auto& p : path) {
+                if (p[2] >= 4) p[2] = 0;
+            }
+            // $A5DC4: those waiting stand at the road's end, every 4th place.
+            int variety = hill->grave_variety;
+            int at = 0x660 / 6;
+            for (int n = 0; n < hill->queue; ++n) {
+                if (state(at) != 0) --at;
+                state(at) = look(variety);
+                variety = (variety + 1) & 15;
+                at -= 4;
+            }
+            // Blocked when the first walker is within 5 free places of the
+            // end or of someone standing.
+            bool blocked = false;
+            for (int k = hill->walkers[0], free = 5; free > 0;) {
+                const int s = state(k);
+                if (s == 0) {
+                    if (k >= 0x660 / 6) {
+                        blocked = true;
+                        break;
+                    }
+                    ++k;
+                    --free;
+                } else if (s <= 3) {
+                    ++k;
+                } else {
+                    blocked = true;
+                    break;
+                }
+            }
+            if (!blocked) {
+                hill->toggle += 0x8000;
+                hill->toggle = (hill->toggle & 0xffff) | ((hill->toggle & 0x10000) ? 0x10000 : 0);
+            } else {
+                hill->toggle = (hill->toggle & 0xffff) | 0x10000;
+            }
+            const int frame = int(hill->toggle >> 16) & 1;
+            int table = 0;
+            for (auto& w : hill->walkers) {
+                if (w < 0) continue;
+                int k = w;
+                const int s = frame + look(table++);
+                if (k > end || path[std::size_t(k)][0] < 0) k = 0;
+                if (state(k) != 0) ++k;
+                state(k) = s;
+                if (!blocked) ++k;
+                w = k;
+            }
+            if (blocked) hill->queued = true;
+            return false;
+        }
+        // $A5EEE: closed up: the front one (from the road's end) goes into
+        // the squad while new recruits are due; the others close up.
+        bool joined = false;
+        if (hill->joining > 0) {
+            int k = end + 1;
+            while (k > 0) {
+                --k;
+                if (path[std::size_t(k)][2] >= 4) break;
+                if (k == 0) return false;
+            }
+            const int s = path[std::size_t(k)][2] ^ 1;
+            path[std::size_t(k)][2] = 0;
+            if (k + 1 > end) {
+                --hill->joining;
+                joined = true;
+            } else {
+                path[std::size_t(k + 1)][2] = s;
+            }
+        }
+        hill->toggle ^= 0xffff0000u;
+        for (int k = end; k >= 0; --k) {
+            if (path[std::size_t(k)][2] < 4 || k >= 0x65a / 6) continue;
+            bool free = true;
+            for (int n = 1; n <= 4 && k + n <= end; ++n) {
+                const int s = path[std::size_t(k + n)][2];
+                if (s > 3) {
+                    free = false;
+                    break;
+                }
+            }
+            if (!free) continue;
+            int s = path[std::size_t(k)][2];
+            path[std::size_t(k)][2] = 0;
+            if (hill->toggle & 0x80000000u) s ^= 1;
+            if (path[std::size_t(k + 1)][2] == 0) path[std::size_t(k + 1)][2] = s;
+            else if (k + 2 <= end) path[std::size_t(k + 2)][2] = s;
+        }
+        return joined;
+    };
+    // Twice before the colours come up ($A5A64 x 2), then a frame each.
+    walk();
+    walk();
+    draw_hill();
     song_ = -1;
     std::vector<Step> steps;
     steps.push_back(fade_in());
@@ -361,7 +579,12 @@ void FrontEnd::start_hill(const Campaign& campaign) {
     // it), anywhere below the header goes on.
     hill_choice_ = HillChoice::go_on;
     save_allowed_ = save == 0;
-    steps.push_back([this](const app::GameInput& input) {
+    steps.push_back([this, hill, walk, draw_hill](const app::GameInput& input) {
+        if (walk() && !hill->arriving.empty()) { // $A60A4: his name comes up
+            hill->column.squad.push_back(hill->arriving.front());
+            hill->arriving.erase(hill->arriving.begin());
+        }
+        draw_hill();
         if (!(input.mouse_button && !left_was_down_ && input.pointer)) return false;
         const int x = input.pointer_x - 16, y = input.pointer_y + 4;
         if (y < 0x1b) {
@@ -680,6 +903,32 @@ void FrontEnd::start_parallax(const Campaign& campaign, const std::string& land)
 int FrontEnd::tables_sine(int direction) const { // $A168E
     const auto at = file_offset(0xa168e + std::uint32_t(direction & 0x1fe));
     return std::int16_t(amiga::read_be16(program_, at));
+}
+
+// ---- the saved games ($A9E56) ----
+
+void FrontEnd::start_save_list(const std::vector<std::string>& names) {
+    loaded_.clear();
+    loaded_.emplace(at_font, data::read_raw_screen(content_.read("font.raw", 1)));
+    screen_buffer_.clear();
+    screen_buffer_.palette.fill(0);
+    for (int i = 1; i < 16; ++i) screen_buffer_.palette[std::size_t(i)] = amiga::Rgb4(0xfff - 0x111 * (i - 1));
+    const FrontFrames font(program_, text_font_table);
+    draw_centred(font, 0, text_font_widths, "LOAD", 8);
+    const int shown = std::min<int>(int(names.size()), 10);
+    for (int k = 0; k < shown; ++k) draw_centred(font, 0, text_font_widths, names[std::size_t(k)], 40 + 20 * k);
+    if (names.empty()) draw_centred(font, 0, text_font_widths, "no saved games", 40);
+    picked_ = -1;
+    std::vector<Step> steps;
+    steps.push_back(fade_in());
+    steps.push_back([this, shown](const app::GameInput& input) {
+        if (!(input.mouse_button && !left_was_down_ && input.pointer)) return false;
+        const int k = (input.pointer_y - 36) / 20;
+        if (input.pointer_y >= 36 && k < shown) picked_ = k;
+        return true;
+    });
+    steps.push_back(fade_out());
+    run(Screen::saves, std::move(steps));
 }
 
 } // namespace fodder::game
