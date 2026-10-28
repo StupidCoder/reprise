@@ -1266,12 +1266,9 @@ rule of the original-width view.
    after leaving one). Thirteen runs, 1,819 updates, all equal; $23,
    $24/$26, speed shops and bought balls checked against the instructions
    only (not in level 1).
-7. In progress (read, not rebuilt; notes in `game.md` "Remaining cells,
-   clock, switches"): the exit $3B, two-cell shops $45-$47, breakable walls,
-   energy cells and the once-per-two-seconds rule, pushable blocks $C0,
-   crumbling floor $38-$3A, switches $29-$2E with the header's cell-change
-   lists (+$218 ff., the "object lists"), the clock and out of time. Next:
-   rebuild these with recordings, then drawing and a playable level.
+7. Next: the remaining cells ($DA, $29-$2E, $38-$3A, …), repair sets on
+   the abyss, energy losses, objects from the level header (small balls,
+   moving things), then drawing and a playable level in the shell.
 
 Open items:
 - Level header fields +$000..+$3E7 (object lists, settings).
@@ -1415,20 +1412,11 @@ the option only swaps which level is picked.
    submarine, three missiles, two parachutes) turn in the asset viewer.
    Checked: the F/A-18's points equal the game's own rotated copies;
    C++ and research decoders agree on every face and line count.
-3. **Done 2026-10-28: main loop and timing.** One main-loop pass
-   ($107D48) is one frame and one simulation step; nothing scales by
-   elapsed time (checked: the aircraft moves the same distance per frame
-   at 120-180 ms frames); the pacer $119876 caps it at 15 frames per
-   second; a few counters run on real seconds. A stock A500 reaches about
-   4-7 fps. Port: rules at a fixed 15 Hz, drawing apart, interpolated
-   (`game.md` "Main loop and timing").
-4. **In progress: the world.** Scene builder, the three maps (format,
-   contents, placement: coarse cells 65536 units, fine 16384), ground
-   shapes (clean outlines); see `formats.md` "World". Next: how ground
-   shapes' points relate to world positions (measure at $112D76), scenery
-   shapes, a world view checked against the original's screens; then the
-   flight model, front-end screens, cockpit and HUD, sound driver and
-   music.
+3. Next: the scenery shapes (types 33-35, 43-59; flat and generated
+   points) and types 36-42, then the world (map cells, object lists), the
+   main loop's timing ($107D48, timer.device), the flight model, front-end
+   screens on the screen-text interpreter, cockpit and HUD, sound driver
+   and music.
 
 Open items:
 - Which palette each briefing screen uses (previews use palette 0).
@@ -1439,10 +1427,6 @@ Open items:
   names; synthesised slots 4 and 6; the music sequencer (hunks 74–86).
 - `pix/frnt5` (288 × 12) use; `config`, `textply`, `textctl` layouts.
 - Hunk 62 (chip) sprite data; maths tables in hunks 63 and 65.
-- Timing: roles of the real-second counters ($13AB74, $13AB75, $13AB79,
-  the 10-second flag) not traced.
-- World: ground shapes' point frame (they add the camera position too),
-  the run-time cell bitmaps, visible-object list layout.
 - Shapes: scenery types and types 36-42 not decoded; discs, dots,
   lights, deck stripes ($80/$50) and shadows not shown in the viewer;
   vertex builders do not round like the original; the drawing order
@@ -1477,10 +1461,16 @@ units, and the rules tick at the original rate apart from drawing.
    the reference dump of Tutorial level 1: 8189 of 8192 cells equal, the
    rest a column an object had changed. Reference machine on port 6870
    (`harness/run.sh`, `sdw.py`: exact joystick by patching $104C2).
-2. **Next: block graphics and the isometric view.** Trace the drawing path
-   from the grid to the screen (block pieces at $30000-$40000, attribute
-   table $30BC0, palettes), decode sprites and fonts, then draw a level
-   natively and compare with screen dumps; renderer designed for any width.
+2. **Done 2026-10-28: block graphics and the isometric view.** Tiles
+   ($314F0), masks ($30CC0), block pieces ($2EBC0) and palettes ($110AE)
+   decoded; the builder keeps the cell looks (aux grid, equal to the
+   original's); `view/tile_map` (front-to-back tile map with 4 layers,
+   equal to the original's map in all 641 cells of Tutorial 1) and
+   `view/playfield` (composition through masks, any window size: the
+   camera is a pixel position on the 1024 × 1024 map, ready for
+   widescreen). `viewcheck` against three screen dumps (Tutorial 1 twice,
+   Gargoyle 1): only sprites and runtime object states differ. Launcher
+   previews show every level as the game draws it.
 3. Explorer movement and physics ($13xxx: slopes, ice, falling, fuel),
    level exits and level-to-level travel, then objects one kind at a time
    (lifts, switches, jewels, aliens, …) and conditions/rebuilds, each
@@ -1489,10 +1479,23 @@ units, and the rules tick at the original rate apart from drawing.
    games; sound (effects module $3400, music module $432A8).
 5. Enhancements: widescreen, 120 Hz interpolation, mod loading of world files.
 
-Open items: object kind ↔ editor name mapping; level header words +0/+2/+6;
+   **Done 2026-10-28: sprites in the view.** Sprite frames
+   (`read_sprite_frame`: mask + 4 planes, 16 or 32 px), the projection
+   $128CE (`view/sprites`: `project`, `explorer_place`), occlusion by the
+   tile map's depth keys and masks; explorer exact in four screen dumps.
+   Object kinds named from the editor's menu (`world/object_kind`, all
+   objects of all levels covered); level header word 0 = start cell;
+   previews show the explorer at the start.
+
+Next: each object kind's code (frames, place offsets, behaviour), one kind
+at a time with its drawing (jewels, exits, buttons first; the lift's
+column drawing $14EF6; stars; heads), then milestone 3.
+
+Open items: level header start height and words +2/+6;
 world "setting" word; the 33rd unloaded world slot at $C0000; the disk's
 unloaded ranges $37400 and $42400; sd_game.dat and SELECT.SWP contents;
-second grid check with a conditional level (only Tutorial 1 checked).
+second grid check with a conditional level (Tutorial 1 and Gargoyle 1
+checked); bit 15 on tile-map slots; palettes 1-3 use ("New palette" object).
 
 ## Launcher visual exploration (2026-10-26)
 

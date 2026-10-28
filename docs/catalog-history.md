@@ -109,6 +109,11 @@ reconstructed rules have been revised using these external accounts.
 - [MobyGames releases](https://www.mobygames.com/game/8668/fa-18-interceptor/releases/): 1988 Amiga release, Electronic Arts and Intellisoft.
 - [Lemon Amiga credits](https://www.lemonamiga.com/game/f-a-18-interceptor): Bob Dinnerman, Moses Ma and Dave Warhol.
 
-The description and original illustration are editorial introductions, not
-evidence of reconstructed rules. Release metadata checked 2026-10-28; no
-external game implementation material used.
+## Spindizzy Worlds — Amiga, 1990
+
+- [MobyGames releases](https://www.mobygames.com/game/23964/spindizzy-worlds/releases/): 1990 Amiga release.
+- [Lemon Amiga credits](https://www.lemonamiga.com/game/spindizzy-worlds): Electric Dreams, Paul Shirley, Debbie Sorrell and Martin Walker.
+
+The descriptions and original illustrations of these two entries are
+editorial introductions, not evidence of reconstructed rules. Release
+metadata checked 2026-10-28; no external game implementation material used.

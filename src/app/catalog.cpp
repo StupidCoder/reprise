@@ -1,5 +1,6 @@
 #include "app/catalog.hpp"
 #include "fa_18_interceptor_amiga/entry.hpp"
+#include "spindizzy_worlds_amiga/entry.hpp"
 #include "bruce_lee_c64/entry.hpp"
 #include "cannon_fodder_amiga/entry.hpp"
 #include "fort_apocalypse_c64/entry.hpp"
@@ -26,6 +27,7 @@ std::vector<GameEntry> catalog() {
         babel::entry(),
         wings::entry(),
         interceptor::entry(),
+        spindizzy::entry(),
     };
     // Platform-specific release dates, not franchise debuts or reissue dates.
     // This editorial material is sourced separately in docs/catalog-history.md.

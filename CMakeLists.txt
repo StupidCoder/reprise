@@ -305,6 +305,20 @@ target_include_directories(fa_18_interceptor_amiga PUBLIC ${SOURCE_ROOT})
 target_link_libraries(fa_18_interceptor_amiga PUBLIC amiga platform ui)
 target_compile_options(fa_18_interceptor_amiga PRIVATE ${PROJECT_WARNINGS})
 
+# --- spindizzy_worlds_amiga: Spindizzy Worlds (Amiga) -------------------------
+add_library(spindizzy_worlds_amiga
+    src/spindizzy_worlds_amiga/entry.cpp
+    src/spindizzy_worlds_amiga/data/assets.cpp
+    src/spindizzy_worlds_amiga/data/preview.cpp
+    src/spindizzy_worlds_amiga/import/disk_import.cpp
+    src/spindizzy_worlds_amiga/view/playfield.cpp
+    src/spindizzy_worlds_amiga/view/sprites.cpp
+    src/spindizzy_worlds_amiga/view/tile_map.cpp
+    src/spindizzy_worlds_amiga/world/level_builder.cpp)
+target_include_directories(spindizzy_worlds_amiga PUBLIC ${SOURCE_ROOT})
+target_link_libraries(spindizzy_worlds_amiga PUBLIC amiga platform ui)
+target_compile_options(spindizzy_worlds_amiga PRIVATE ${PROJECT_WARNINGS})
+
 # --- joyport: the launcher application -----------------------------------------
 add_executable(joyport
     src/app/main.cpp
@@ -316,7 +330,7 @@ add_executable(joyport
     src/app/launcher.cpp src/app/quick_save.cpp
     src/app/pause_menu.cpp
     src/app/saved_options.cpp)
-target_link_libraries(joyport PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga ui)
+target_link_libraries(joyport PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga spindizzy_worlds_amiga ui)
 target_compile_options(joyport PRIVATE ${PROJECT_WARNINGS})
 
 # --- tools ---------------------------------------------------------------------
@@ -380,6 +394,9 @@ target_compile_options(tower_of_babel_assets PRIVATE ${PROJECT_WARNINGS})
 add_executable(fa_18_interceptor_assets tools/fa_18_interceptor_assets.cpp)
 target_link_libraries(fa_18_interceptor_assets PRIVATE fa_18_interceptor_amiga)
 target_compile_options(fa_18_interceptor_assets PRIVATE ${PROJECT_WARNINGS})
+add_executable(spindizzy_worlds_assets tools/spindizzy_worlds_assets.cpp)
+target_link_libraries(spindizzy_worlds_assets PRIVATE spindizzy_worlds_amiga)
+target_compile_options(spindizzy_worlds_assets PRIVATE ${PROJECT_WARNINGS})
 
 add_executable(wings_of_fury_assets tools/wings_of_fury_assets.cpp)
 target_link_libraries(wings_of_fury_assets PRIVATE wings_of_fury_amiga)
@@ -403,7 +420,7 @@ if(BUILD_TESTING)
     src/bruce_lee_c64/game/room_chapter.cpp
     src/bruce_lee_c64/game/background_article.cpp
     src/app/launcher.cpp src/app/quick_save.cpp src/app/pause_menu.cpp)
-    target_link_libraries(shell_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga ui)
+    target_link_libraries(shell_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga spindizzy_worlds_amiga ui)
     target_compile_options(shell_checks PRIVATE ${PROJECT_WARNINGS})
     add_dependencies(shell_checks joyport_resources)
     add_test(NAME shell_navigation COMMAND shell_checks)
@@ -416,7 +433,7 @@ target_compile_options(marble_madness_replay PRIVATE ${PROJECT_WARNINGS})
 
 if(BUILD_TESTING)
     add_executable(persistence_checks tests/persistence.cpp src/app/catalog.cpp src/app/quick_save.cpp)
-    target_link_libraries(persistence_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga ui)
+    target_link_libraries(persistence_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga spindizzy_worlds_amiga ui)
     target_compile_options(persistence_checks PRIVATE ${PROJECT_WARNINGS})
     add_test(NAME persistent_saves COMMAND persistence_checks)
 endif()
