@@ -140,11 +140,19 @@ public:
     std::vector<app::GameOption> options() const override {
         return {{"Widescreen", {"Off", "On"}, widescreen_ ? 1 : 0,
                  "Fills the window to its edges and shows more of the map left and right, up to 21:9; the "
-                 "panel stays at the left edge and the map's edges can be clicked. The game plays the same."}};
+                 "panel stays at the left edge and the map's edges can be clicked. The game plays the same."},
+                {"Smooth motion", {"Off", "On"}, smooth_ ? 1 : 0,
+                 "Soldiers, vehicles, shots and the scrolling map glide at the display's own rate instead of "
+                 "stepping about 17 times a second. The game plays the same."}};
     }
     void set_option(std::size_t index, int value) override {
         if (index == 0) widescreen_ = value != 0;
+        if (index == 1) {
+            smooth_ = value != 0;
+            motion_state_.have_before = motion_state_.have_camera = false;
+        }
     }
+    void set_frame_fraction(double fraction) override { frame_fraction_ = std::clamp(fraction, 0.0, 1.0); }
     void set_canvas(int width, int height) override {
         canvas_width_ = width;
         canvas_height_ = height;
@@ -199,10 +207,11 @@ private:
     // camera's place near a map's edge, so the map fills it beside the
     // panel (the camera, which the rules read, stays where it is): the
     // picture's column 0 shows map column camera.x - 31 - margin + slide.
-    int slide() const {
+    int slide() const { return slide(world_.camera); }
+    int slide(Camera camera) const {
         const int m = margin(view_height);
         if (m == 0 || !phase_.picture) return 0;
-        const int width = view_width + 2 * m, origin = world_.camera.x - view_column_of_camera - m;
+        const int width = view_width + 2 * m, origin = camera.x - view_column_of_camera - m;
         const int low = -panel_width - origin, high = phase_.picture->width() - width - origin;
         if (low > high) return (low + high) / 2;
         return std::clamp(0, low, high);
@@ -242,6 +251,26 @@ private:
         int marker_x{}, marker_y{};          // $82B84, $82B86 (-1: no leader)
         template <class A> void persist(A& a) { a(requested, mode, frames, blink, marker_x, marker_y); }
     } overview_;
+    // Smooth motion (an option; drawing only): the game moves the objects
+    // every third frame and the camera every frame; each picture places
+    // them between their last two places by the time it is shown.
+    struct Motion {
+        struct Place {
+            bool used{};
+            int kind{}, height{};
+            std::int32_t x{}, y{};
+            template <class A> void persist(A& a) { a(used, kind, height, x, y); }
+        };
+        std::array<Place, object_slots> before{}; // the objects a tick earlier
+        bool have_before{};
+        std::int32_t camera_x{}, camera_y{};      // the camera (16.16) a frame earlier
+        bool have_camera{};
+        template <class A> void persist(A& a) { a(before, have_before, camera_x, camera_y, have_camera); }
+    } motion_state_;
+    bool smooth_{};
+    double frame_fraction_{}; // the time since the last frame, in frames (the host's)
+    bool smooth_now() const { return smooth_ && !(front_ && front_->active()) && overview_.mode == Overview::Mode::off; }
+    void smooth_view(Camera& camera, MissionObjects& objects) const;
     bool widescreen_{};
     int canvas_width_{}, canvas_height_{};
     bool pointer_on_panel_{}; // the pointer over the panel (widescreen: the picture's left edge)
@@ -326,6 +355,7 @@ void Module::start_phase(int number) {
     end_song_delay_ = 0;
     board_ = sound::SoundBoard{};
     frames_since_tick_ = 0;
+    motion_state_ = Motion{};
     build_overview();
 }
 
@@ -427,9 +457,9 @@ void Module::open_music(int source) {
 // map, tiles and sheets are read again from the files by its number (only
 // the cells map damage changed are kept), the music from its files.
 template <class A> void Module::persist(A& a) {
-    int version = 2; // 2: the pointer over the panel
+    int version = 3; // 2: the pointer over the panel; 3: smooth motion's places
     a(version);
-    if (version != 1 && version != 2) A::fail();
+    if (version < 1 || version > 3) A::fail();
     bool in_phase = phase_.terrain.has_value();
     int number = phase_.number;
     a(in_phase, number);
@@ -453,6 +483,7 @@ template <class A> void Module::persist(A& a) {
     }
     a(overview_);
     if (version >= 2) a(pointer_on_panel_);
+    if (version >= 3) a(motion_state_);
     a(world_, campaign_, called_up_, save_names_, after_front_, motion_, target_, director_, jon_playing_,
       end_song_delay_, end_song_, engine_.volume, engine_.effect, engine_.param, engine_.phase, engine_.last, board_,
       frames_since_tick_, snapshot_tick_, left_was_down_, right_was_down_, pointer_image_, pointer_offset_,
@@ -915,6 +946,9 @@ void Module::frame(const app::GameInput& input) {
     cf.frozen = map_fits_screen(phase_.map);
     cf.tick_overdue = frames_since_tick_ == 2;
     cf.target = target_;
+    motion_state_.camera_x = motion_.x; // (smooth motion: the camera a frame earlier)
+    motion_state_.camera_y = motion_.y;
+    motion_state_.have_camera = true;
     step_camera(motion_, tables_.geometry, cf);
     world_.camera = motion_.camera();
     if (music_) {
@@ -939,6 +973,12 @@ void Module::frame(const app::GameInput& input) {
 }
 
 void Module::game_tick() {
+    // (smooth motion: the objects' places before the tick moves them)
+    for (int i = 0; i < object_slots; ++i) {
+        const auto& o = world_.objects.slots[std::size_t(i)];
+        motion_state_.before[std::size_t(i)] = {o.used && !o.removed && whole(o.x) >= 0, o.kind, o.height, o.x, o.y};
+    }
+    motion_state_.have_before = true;
     auto& w = world_;
     ++w.tick_counter; // $8061A
     w.engine = World::Engine{}; // $A3AD0
@@ -1003,6 +1043,34 @@ void Module::game_tick() {
     if (ended) finish_phase();
 }
 
+// Smooth motion: the camera between its last two frames' places by the
+// time since the last frame; each object that was in the same slot with the
+// same kind a tick ago, and moved no further than a tick's reach (32 pixels
+// each way), between its two places by the time since the tick (the game
+// ticks every third frame). Anything that appeared, went or jumped is drawn
+// where the game has it. Copies only: the game is not touched.
+void Module::smooth_view(Camera& camera, MissionObjects& objects) const {
+    const auto& st = motion_state_;
+    const auto between = [](std::int32_t a, std::int32_t b, double t) {
+        return std::int32_t(std::llround(double(a) + (double(b) - double(a)) * t));
+    };
+    if (st.have_camera && !map_fits_screen(phase_.map)) {
+        camera.x = int(between(st.camera_x, motion_.x, frame_fraction_) >> 16);
+        camera.y = int(between(st.camera_y, motion_.y, frame_fraction_) >> 16);
+    }
+    if (!st.have_before) return;
+    const double t = std::clamp((frames_since_tick_ + frame_fraction_) / 3.0, 0.0, 1.0);
+    for (int i = 0; i < object_slots; ++i) {
+        auto& o = objects.slots[std::size_t(i)];
+        const auto& was = st.before[std::size_t(i)];
+        if (!was.used || !o.used || o.removed || whole(o.x) < 0 || o.kind != was.kind) continue;
+        if (std::abs(whole(o.x) - whole(was.x)) > 32 || std::abs(whole(o.y) - whole(was.y)) > 32) continue;
+        o.x = between(was.x, o.x, t);
+        o.y = between(was.y, o.y, t);
+        o.height = int(std::lround(was.height + (o.height - was.height) * t));
+    }
+}
+
 // Widescreen: a screen of the original's width in the middle, black on
 // both sides.
 platform::Image Module::widened(const platform::Image& middle, int height) const {
@@ -1021,15 +1089,24 @@ platform::Image Module::picture() const {
     // ring quirk (columns left of 31 show the line above, under the panel)
     // gives way to the map's own pixels, and objects in the margins (not in
     // the draw list, which the rules read) are drawn as well.
-    const int m = margin(view_height), width = view_width + 2 * m, origin = world_.camera.x - view_column_of_camera - m + slide();
+    // (smooth motion: copies of the camera and the objects in between)
+    Camera cam = world_.camera;
+    MissionObjects smoothed;
+    const MissionObjects* objs = &world_.objects;
+    if (smooth_now()) {
+        smoothed = world_.objects;
+        smooth_view(cam, smoothed);
+        objs = &smoothed;
+    }
+    const int m = margin(view_height), width = view_width + 2 * m, origin = cam.x - view_column_of_camera - m + slide(cam);
     std::vector<std::uint8_t> view;
     if (m == 0) {
-        view = view_indices(*phase_.picture, world_.camera);
+        view = view_indices(*phase_.picture, cam);
     } else {
         view.assign(std::size_t(width * view_height), 0);
         for (int line = 0; line < view_height; ++line)
             for (int column = 0; column < width; ++column)
-                view[std::size_t(line * width + column)] = phase_.picture->at(origin + column, world_.camera.y + line);
+                view[std::size_t(line * width + column)] = phase_.picture->at(origin + column, cam.y + line);
     }
     std::vector<int> order;
     const auto in_margin = [&](const GameObject& o) { // the view's columns (and the draw list's lines, $AB828)
@@ -1038,21 +1115,21 @@ platform::Image Module::picture() const {
                y <= world_.snapshot.y + 331;
     };
     for (int i = 0; i < object_slots; ++i) {
-        const auto& o = world_.objects.slots[std::size_t(i)];
+        const auto& o = objs->slots[std::size_t(i)];
         if (o.used && !o.removed && (o.on_screen || (whole(o.x) >= 0 && in_margin(o)))) order.push_back(i);
     }
     // The draw list's layers: below, sorted by y, above.
     std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
-        const auto& oa = world_.objects.slots[std::size_t(a)];
-        const auto& ob = world_.objects.slots[std::size_t(b)];
+        const auto& oa = objs->slots[std::size_t(a)];
+        const auto& ob = objs->slots[std::size_t(b)];
         const int la = oa.layer < 0 ? 0 : oa.layer == 0 ? 1 : 2, lb = ob.layer < 0 ? 0 : ob.layer == 0 ? 1 : 2;
         if (la != lb) return la < lb;
         return la == 1 && whole(oa.y) < whole(ob.y);
     });
-    if (m == 0) draw_objects(view, world_.camera, world_.objects, order, frames_, phase_.sheets);
+    if (m == 0) draw_objects(view, cam, *objs, order, frames_, phase_.sheets);
     else
-        draw_objects({view, width, view_height, origin, world_.camera.y, 0},
-                     world_.objects, order, frames_, phase_.sheets);
+        draw_objects({view, width, view_height, origin, cam.y, 0},
+                     *objs, order, frames_, phase_.sheets);
     platform::Image image(width, view_height);
     for (std::size_t i = 0; i < view.size(); ++i) image.pixels[i] = data::to_color(phase_.palette[view[i] & 15]);
     if (overview_.mode != Overview::Mode::off) {

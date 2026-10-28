@@ -991,12 +991,24 @@ int run(int argc, char** argv) {
         };
         std::vector<int> points;
         int first_phase = -1; // phase=N: straight into that phase (no screens)
+        bool smooth = false;  // smooth: smooth motion; wide=W,H: widescreen in that window
+        int wide_w = 0, wide_h = 0;
         for (int a = 3; a < argc; ++a) {
             if (std::string(argv[a]).rfind("phase=", 0) == 0) first_phase = std::stoi(std::string(argv[a]).substr(6));
+            else if (std::string(argv[a]) == "smooth") smooth = true;
+            else if (std::sscanf(argv[a], "wide=%d,%d", &wide_w, &wide_h) == 2) {}
             else points.push_back(std::stoi(argv[a]));
         }
+        const auto configure = [&](app::GameModule& g) {
+            if (smooth) g.set_option(1, 1);
+            if (wide_w > 0) {
+                g.set_option(0, 1);
+                g.set_canvas(wide_w, wide_h);
+            }
+        };
         std::sort(points.begin(), points.end());
         auto game = fodder::game::start_game(argv[2], first_phase);
+        configure(*game);
         int at = 0, failures = 0;
         for (const int point : points) {
             run(*game, at, point);
@@ -1006,6 +1018,7 @@ int run(int argc, char** argv) {
             if (const char* dir = std::getenv("CF_SHOTS"))
                 platform::save_png(game->picture(), std::string(dir) + "/save" + std::to_string(point) + ".png");
             auto copy = fodder::game::start_game(argv[2], first_phase);
+            configure(*copy);
             copy->read_state(bytes);
             const bool same_state = copy->write_state() == bytes;
             const bool same_picture = picture_hash(*copy) == picture_hash(*game);
@@ -1037,6 +1050,8 @@ int run(int argc, char** argv) {
             if (int w = 0, h = 0; std::sscanf(argv[a], "wide=%d,%d", &w, &h) == 2) {
                 game->set_option(0, 1);
                 game->set_canvas(w, h);
+            } else if (std::string(argv[a]) == "smooth") {
+                game->set_option(1, 1); // smooth motion
             }
         struct Hold { int from, to, x, y; bool left, right, modifier; };
         std::vector<Hold> holds;
@@ -1070,6 +1085,10 @@ int run(int argc, char** argv) {
         }
         platform::save_png(game->picture(), argv[4]);
         std::printf("%s\n", fodder::game::describe(*game).c_str());
+        {
+            const auto state = game->write_state();
+            std::printf("state %s\n", platform::sha256(state).substr(0, 16).c_str());
+        }
         std::printf("%d frames, audio peak %.3f%s%s\n", frames, peak, game->stopped().empty() ? "" : ", stopped: ",
                     game->stopped().c_str());
         return 0;
