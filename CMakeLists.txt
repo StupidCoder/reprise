@@ -269,6 +269,8 @@ add_library(rock_n_roll_amiga
     src/rock_n_roll_amiga/entry.cpp
     src/rock_n_roll_amiga/data/assets.cpp
     src/rock_n_roll_amiga/data/preview.cpp
+    src/rock_n_roll_amiga/game/ball.cpp
+    src/rock_n_roll_amiga/game/level_map.cpp
     src/rock_n_roll_amiga/import/cruncher.cpp
     src/rock_n_roll_amiga/import/disk_import.cpp)
 target_include_directories(rock_n_roll_amiga PUBLIC ${SOURCE_ROOT})
@@ -279,9 +281,7 @@ target_compile_options(rock_n_roll_amiga PRIVATE ${PROJECT_WARNINGS})
 add_library(tower_of_babel_amiga
     src/tower_of_babel_amiga/entry.cpp
     src/tower_of_babel_amiga/data/assets.cpp
-    src/tower_of_babel_amiga/data/model.cpp
     src/tower_of_babel_amiga/data/preview.cpp
-    src/tower_of_babel_amiga/data/shape.cpp
     src/tower_of_babel_amiga/game/tower_map.cpp
     src/tower_of_babel_amiga/import/decruncher.cpp
     src/tower_of_babel_amiga/import/disk_import.cpp
@@ -367,6 +367,9 @@ target_compile_options(mindwalker_replay PRIVATE ${PROJECT_WARNINGS})
 add_executable(rock_n_roll_assets tools/rock_n_roll_assets.cpp)
 target_link_libraries(rock_n_roll_assets PRIVATE rock_n_roll_amiga)
 target_compile_options(rock_n_roll_assets PRIVATE ${PROJECT_WARNINGS})
+add_executable(rock_n_roll_replay tools/rock_n_roll_replay.cpp)
+target_link_libraries(rock_n_roll_replay PRIVATE rock_n_roll_amiga)
+target_compile_options(rock_n_roll_replay PRIVATE ${PROJECT_WARNINGS})
 add_executable(tower_of_babel_assets tools/tower_of_babel_assets.cpp)
 target_link_libraries(tower_of_babel_assets PRIVATE tower_of_babel_amiga)
 target_compile_options(tower_of_babel_assets PRIVATE ${PROJECT_WARNINGS})

@@ -1232,9 +1232,24 @@ rule of the original-width view.
    original's drawn buffer except the ball (157 of 28,928 pixels).
    Reference machine on port 6864 (`harness/run.sh`, `rnr.py boot`), up to
    level 1.
-2. Next: top-level structure (title, name entry, level loop, frame/tick
-   timing), level header (start position, objects), ball physics and input
-   (mouse), then objects, panel, TFMX player, front end.
+2. **Done 2026-10-28: top-level structure and input.** Notes in `game.md`:
+   no interrupts but the keyboard, one update per frame (50 Hz, measured),
+   title, name entry (letter wheel), level set-up from the header (camera
+   +$3D8, ball's place in the view +$3E0), start wait, the in-level loop's
+   order, mouse → velocity ($7040C, read exactly, incl. its friction and
+   skip quirks), camera/ball limits ($707AA). Harness: input reads patched
+   to RAM words, keys poked, per-update recorder (`play.py record`).
+3. **Done 2026-10-28: the rolling ball, native and in lockstep.**
+   `game/level_map`, `game/ball`: steering, halving along a contact, keep in
+   view, the cells under the ball (centre cell, handlers for floor,
+   railings, ice, arrows, dome, slopes, abyss → fall start), rolling picture
+   phases, railing contact from the tiles' colour bit 4 (the original blits
+   the drawn view against a ball disc), bounce, speed limits.
+   `rock_n_roll_replay ball` vs recordings rail1, ice1, fall2, arrow3,
+   slope1: all 852 updates equal in every compared field (`regress.sh`).
+4. Next: the fall and the continue/restart prompt, the other cell kinds
+   (pickups, keys, shops, bridges, teleports, …), objects from the level
+   header, then drawing (tiles, ball sprites, panel) and a playable level.
 
 Open items:
 - Level header fields +$000..+$3E7 (object lists, settings).
@@ -1244,6 +1259,13 @@ Open items:
 - Level 28's map runs past its file (stale memory behind it); check what the
   view shows there.
 - Graphics bank extent below row 615 observed, not read from a routine.
+- What the game's own disk routine $710D0 reads at level start (time
+  records?).
+- The level loop's exits ($68A50: ball lost, level end).
+- Under-ball cells of layer 1 are taken as empty in the contact test; the
+  original's buffer holds whatever was drawn there before (observed equal
+  so far, not proven).
+- $6ACE6 (cells $66/$51/$68/$53 collected by the drawer) not read.
 
 ## Tower of Babel (Amiga) milestones
 
@@ -1281,24 +1303,10 @@ apart from drawing, so spiders and camera can be interpolated between ticks.
    the reference): identical, 0 of 32,256 pixels, in all four headings at
    several positions and eye heights; cell flags identical to the original's
    grid. Launcher previews show each tower's start view.
-3. **Done 2026-10-28: objects in the view.** `data/shape` (shadow
-   polygons, parts with sort centres, faces with style, normal, byte
-   vertices × 2), objects in `view/tower_view` at the original's places in
-   the traversal ($E0AC: one object per cell from the object map), back
-   faces ($13C08), parts far to near by squared distance ($13B44), shadows
-   on lit floors in the floor's unlit pen while the eye is above them,
-   objects between cells clipped at the cell boundary in 3D ($14A20-$14B30),
-   style → pen: lit/unlit rule, outlined fill ($1414C), see-through fill
-   ($1447C), per-object pens. Checked with viewcheck (stars, moon, effects,
-   overlays off; objects on): identical on towers A-C, 24 grabs (the only
-   differences found: the READY caption when Run All did not start the
-   game). Launcher: each object kind's shape in the shared 3D model viewer
-   (`data/model`, `tower_of_babel_assets models`).
-4. Next: animation frames (per-type display update $BEE4/$BF16: frame
-   choice from state and the frame counter $FBE, tables $BD9A-$BED4),
-   particles ($14C18, type $1A), stars, moon, lightning, meteors, copper
-   sky bands, overlays; then spider movement and programs, object
-   behaviour, panel, front end, designer, sound effects.
+3. Next: objects (3D shapes $13934, shadows, depth sort, animation frames),
+   stars, moon, lightning, meteors, the copper sky bands, the overlays;
+   then spider movement and the program strip (Write/Run), objects'
+   behaviour, panel, front end, designer, sound effects (envelopes).
 
 Open items:
 - Tower record fields $E2E, $E34–$E42, flags 3, 4, 6–9, the last 4 bits
