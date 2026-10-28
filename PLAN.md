@@ -1266,9 +1266,12 @@ rule of the original-width view.
    after leaving one). Thirteen runs, 1,819 updates, all equal; $23,
    $24/$26, speed shops and bought balls checked against the instructions
    only (not in level 1).
-7. Next: the remaining cells ($DA, $29-$2E, $38-$3A, …), repair sets on
-   the abyss, energy losses, objects from the level header (small balls,
-   moving things), then drawing and a playable level in the shell.
+7. In progress (read, not rebuilt; notes in `game.md` "Remaining cells,
+   clock, switches"): the exit $3B, two-cell shops $45-$47, breakable walls,
+   energy cells and the once-per-two-seconds rule, pushable blocks $C0,
+   crumbling floor $38-$3A, switches $29-$2E with the header's cell-change
+   lists (+$218 ff., the "object lists"), the clock and out of time. Next:
+   rebuild these with recordings, then drawing and a playable level.
 
 Open items:
 - Level header fields +$000..+$3E7 (object lists, settings).
@@ -1412,11 +1415,20 @@ the option only swaps which level is picked.
    submarine, three missiles, two parachutes) turn in the asset viewer.
    Checked: the F/A-18's points equal the game's own rotated copies;
    C++ and research decoders agree on every face and line count.
-3. Next: the scenery shapes (types 33-35, 43-59; flat and generated
-   points) and types 36-42, then the world (map cells, object lists), the
-   main loop's timing ($107D48, timer.device), the flight model, front-end
-   screens on the screen-text interpreter, cockpit and HUD, sound driver
-   and music.
+3. **Done 2026-10-28: main loop and timing.** One main-loop pass
+   ($107D48) is one frame and one simulation step; nothing scales by
+   elapsed time (checked: the aircraft moves the same distance per frame
+   at 120-180 ms frames); the pacer $119876 caps it at 15 frames per
+   second; a few counters run on real seconds. A stock A500 reaches about
+   4-7 fps. Port: rules at a fixed 15 Hz, drawing apart, interpolated
+   (`game.md` "Main loop and timing").
+4. **In progress: the world.** Scene builder, the three maps (format,
+   contents, placement: coarse cells 65536 units, fine 16384), ground
+   shapes (clean outlines); see `formats.md` "World". Next: how ground
+   shapes' points relate to world positions (measure at $112D76), scenery
+   shapes, a world view checked against the original's screens; then the
+   flight model, front-end screens, cockpit and HUD, sound driver and
+   music.
 
 Open items:
 - Which palette each briefing screen uses (previews use palette 0).
@@ -1427,6 +1439,10 @@ Open items:
   names; synthesised slots 4 and 6; the music sequencer (hunks 74–86).
 - `pix/frnt5` (288 × 12) use; `config`, `textply`, `textctl` layouts.
 - Hunk 62 (chip) sprite data; maths tables in hunks 63 and 65.
+- Timing: roles of the real-second counters ($13AB74, $13AB75, $13AB79,
+  the 10-second flag) not traced.
+- World: ground shapes' point frame (they add the camera position too),
+  the run-time cell bitmaps, visible-object list layout.
 - Shapes: scenery types and types 36-42 not decoded; discs, dots,
   lights, deck stripes ($80/$50) and shadows not shown in the viewer;
   vertex builders do not round like the original; the drawing order
