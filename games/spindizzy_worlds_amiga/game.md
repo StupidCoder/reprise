@@ -181,7 +181,7 @@ $24AE(a5) = the other worlds done; world $1F tests bits 23–28).
 | --- | --- | --- |
 | +0 | word | the explorer's start cell: x bits 8–12, y bits 3–7, at the cell centre (Tutorial 1 $0B79 → $0B80/$0F80, Gargoyle 1 $1078 → $1080/$0F80); bits 0–2 taken as the start level (hypothesis) |
 | +2 | word | ? |
-| +4 | word | flags → $24B8(a5); bit 15 required by $12018 and fixes the camera across; bit 12 tested at $11FE4; bit 11 turns the hot-top timeout off |
+| +4 | word | flags → $24B8(a5); bit 15 required by $12018 and fixes the camera across; bit 12 tested at $11FE4; bit 11 turns the ice timeout off ("Ice timeout off"); bit 12 "Add reserve fuel"; bit 13 "NO fuel use"; bit 14 "Disable Mapper" (the m key) |
 | +6 | word | ? |
 
 ### Commands ($125DE)
@@ -421,7 +421,7 @@ One tick, in order:
 1. Timers: $24F4 counts down (at ≤ 0 the long $24F4 is cleared); $24F2
    (arrival flash, $13 at arrival) counts down to 0.
 2. Steering $12A1E, only while the previous contact had traction or any
-   low-byte flag, or the hot flag: push 1.0 ($24E4), 2.0 with fire ($24E8,
+   low-byte flag, or the ice flag: push 1.0 ($24E4), 2.0 with fire ($24E8,
    both set at $11FB8); pushing against the motion adds the plain push once
    more, clamped at 0. Without traction both are a sixteenth (lsr.l #4).
    Stick up = −x, down = +x, left = −y, right = +y. The space bar ($11314,
@@ -454,7 +454,7 @@ One tick, in order:
    kind −3). Then the sprite place ($12DEE) and sort value.
 
 Contact flags ($2510): $8000 grounded, $4000 looked through a $22/$23
-cell, $0200 hot, $0100 bouncy, $0080 traction, $0002 on an unheld lift
+cell, $0200 ice, $0100 bouncy, $0080 traction, $0002 on an unheld lift
 top, $0001 on a lift (set by the lift object, with $80).
 
 ### Surfaces
@@ -468,7 +468,7 @@ routine from the table, every $40 a copy):
 | $12FE4 | 00 22 23 40 80 C0 | base | none |
 | $1320E | 02 42 82 C2 | base | always (no height test): vz += 16, the explorer is lost (kind −2, no clue) |
 | $13298 (+$132B8 … $13302) | most | base (+$40/$80/$C0/$100/$180/$200) | land: vz high word = 0 (the fraction stays), flags $8080, z = top |
-| $1327E | 38-3B 64 65 94-97 | base | ice: land with $8000 only (no steering, no friction) |
+| $1327E | 38-3B 64 65 94-97 | base | slippery (the port's name): land with $8000 only (no steering, no friction) |
 | $13228 | 2C-33 … | base | land; if less than $20 below the top, the pad sets $3616: pad 0 → word $FFFF, 1-4 → word 0-3, 5-7 → byte (n & 3) + 1; effect $15 + n on change |
 | $13312 | 04-07 … | 255 − u | slope: v′ = v turned to the block, v′x += 1.0; follow = −v′x; if follow − vz < 0 only z = top, else vz = follow, v = v′ turned back, flags $8080 |
 | $1335E | 08-0B … | 2 (255 − u) | the same with 2.0 and follow × 2 |
@@ -477,7 +477,7 @@ routine from the table, every $40 a copy):
 | $133F8 | 10-13 … | u + v < 256: 255 − u − v, else base | diagonal / flat |
 | $13464 | 18-1B … | 255 − min(u, v) | slope along u, or (u > v) along v with the orientation − 1 |
 | $13486 | 1C-1F … | 255 − max(u, v) | the same, faces swapped |
-| $1349A | 20 21 E1 | base | hot: not after a lift tick; 250 ticks ($2514) unless level flag bit 11 (clue 10); flags $8200; standing still (both rounded speeds 0) kills (clue 7) |
+| $1349A | 20 21 E1 | base | ice (clues 7 and 10: "trapped on Ice", "On Ice for too long"): not after a lift tick; 250 ticks ($2514) unless level flag bit 11 (clue 10); flags $8200; standing still (both rounded speeds 0) kills (clue 7) |
 | $13504 | 03 43 83 C3 | base | bouncy: flags $0180; falling faster than 8 reverses vz (effect $24) |
 | $1354C | 24-27 | base | conveyor: vx, vy high words += table $13570 (2 per tick by orientation), land |
 | $13584 | 34-37 … | base | deadly: flags 0, clue 8, kind −2, no energy cost |
@@ -505,13 +505,14 @@ The tick goes on after a death (the routines return into it).
 - Kind −2, lost ($12D96): effect 2, $18 ticks + 1, frames from list
   $12DB8.
 - Kind −3, arriving ($12AC6; create $12B0C): back at the respawn point at
-  the cell's centre ($80, $80, z fraction $40), velocities 0, $10 energy,
-  effect 3; 12 ticks with list $12AF2.
+  the cell's centre ($80, $80, z fraction $40), velocities 0, $10 fuel
+  taken ($12B18 `subi.w #$10,$206C`), effect 3; 12 ticks with list $12AF2.
 - Then the explorer kind again ($12AD2) with $24F2 = $13 (the special
   frame set). Both other kinds reset $24F4 and $24F2 ($12B2E).
 
 Clues seen: 3 fell out of the world, 5 alien, 6 hard landing / unheld lift
-top, 7 standing still on a hot top, 8 deadly top, 10 hot top timeout.
+top, 7 standing still on ice, 8 deadly top, 10 too long on ice. Their
+texts are in the list at $15CDA (see "Clues and messages").
 
 ## Camera ($14138, $14202)
 
@@ -530,6 +531,259 @@ At a level start ($11FB4) $14202 places it at once: across in 16-pixel
 steps ((x − $88) asr 4, 0–$2E, or $17 with bit 15), down corner y − $58.
 $1428C then redraws the strips the scroll uncovered (the port draws any
 window). Native: `view/camera`.
+
+## Game flow (the main loop $18950)
+
+1. Boot, then the attract sequence ($17694 / $1771C) until fire or a
+   direction; then the menu ($18A78). The menu times out back to the
+   attract after 800 passes (d7 = $64 << 3).
+2. Menu result ≥ 0 → the world map ($116F0). With no cluster chosen yet
+   ($24A8 = 0) the Easy/Hard choice comes first ($11E52), then $11E30
+   sets the cluster list and its world count ($36B2: Easy $12 = 9 worlds,
+   Hard $2E = 23).
+3. The world map loop ends on fire; $1177A refuses the gated worlds
+   (world $16 needs bits 0-21 of $24AE clear, world $1F bits 23-28);
+   $11C8C loads the world file. $24AE starts as the cluster's mask
+   ($11E10: Hard $007FFFFF, Easy $9F800000): a set bit = a world still to do.
+4. $14980 draws the panel and builds the pillars; $189CA sets sprite
+   colours 16-31 to palette 0 and colour 24 to black; $11F72 starts
+   level 1; the level loop $112F6 runs until $2498 is cleared.
+5. After the loop ($18A18): game over ($2490) → $18C14 (the reserve fuel
+   offer: "Use reserve fuel" / "Retry this world" / "Abandon this world",
+   asked only with at least $20 reserve and fuel 0); level 0 → the world
+   is done: $11838 shows the map with the done planet disintegrating
+   (kind −7, frames at SELECT.SWP + $35C0), $16B8C records the world
+   (number, fuel, reserve, jewels found in lists at $36B6, $36E4, $3712,
+   $3740), $16D44 recomputes $24AE from those records; all done → the
+   ending ($17CBE); else $18C90 (statistics, then "Next world" / "Save
+   game") and the world map again. Any other level → $11F72 for it.
+
+$16D44 (a world's start): switches $3616 = $FFFF, $3618 = 0, rotation 0,
+$24C0 = 0, the per-level jewel longs all $80000000 ($138E0), $2564 = 0,
+fuel and reserve from the last done world's record (a new game: fuel $80,
+reserve 0), the fuel costs ($10E1E), level 1. Clues ($3610) are reset
+only by "Start new game".
+
+Keys in the level loop ($112F6, through $109B2): space the brake; "["
+or "p" pause; "m" the overview map (not with header bit 14); "r"/"t"
+turn the level a quarter (not with header bit 15: rotation $248B,
+rebuild, objects' rotate handlers $143DE, compass, camera); "F" toggles
+slow mode; "c" centres the camera; with the cheat flag $249C, "l" goes to
+the next level; "B" toggles $24A0; any other key ends the level loop with
+the key in $2494 ($65 = 'e' → $18D36).
+
+## Fuel
+
+Fuel is a 16.16 long ($2064), whole part 0-$100 (both pillars full);
+changes are added to $206C (word adds to its high word) and taken in once
+a frame ($10E96): fuel = fuel + $206C − drain ($2068); below 0 → 0 and
+game over ($2490); above $FFFFFF → $1000000. With header bit 12 ("Add
+reserve fuel") the jewels' fuel of the frame ($2070) also goes an eighth
+into the reserve $2074. The gauge ($2072) steps one row a frame toward
+the fuel's whole part.
+
+Per difficulty step $207C (= $36B0, worlds done × 2) $10E1E sets the drain
+$207C × $11 + $280 per frame (0 at step 0, and 0 with header bit 13 "NO
+fuel use") and four words from $10DFE + 8 × (0 / <6 / <16 / more): the
+first-visit bonus $205C, $205E (not read), the death cost $2060 and the
+alien's $2062. At step 0: $20, 2, 2, $20, no drain: the Tutorial costs
+nothing to play. A death costs $2060 ($131F4) and the respawn $10 more.
+The explorer's tick ($12B7C) turns into the dying kind ($12C9A: clue 1,
+200 ticks, fire ends it after $60) when the fuel's whole part is ≤ 0, or
+at once when the timer flag $2492 is set.
+
+## Level start and travel
+
+$11F72: the object slots are cleared; the explorer is created first
+(kind −4, slot 1: $12B2E clears $24F4/$24F6, sets $24F2 = $13, spin
+counter $100: it starts playing at once; kind −3, the arrival with its
+$10 cost, is only the respawn); $138F6 takes the level's jewel long from
+$2524 + 4 × (level − 1) into $2566; bit 31 set (never visited) adds the
+first-visit bonus; palette 0; the header ($12008: flags $24B8; a level
+with bit 15 clears the rotation); the build ($125DE), which first places
+the explorer ($12714); the tile map, then the objects ($127CA, in the
+level's order, slots 2-31: more are not made), bit 31 of $2566 cleared;
+camera snap; pushes $24E4 = 1.0, $24E8 = 2.0; the panel's compass; fuel
+costs; $2078 = reserve; with header bit 12 the kind −9 object, whose
+frame handler prints the bonus-level notice ($13888: "Bonus Level / Collect
+jewels before the time runs out / Do not fall off") and waits for fire
+($109CC) on the level's first frame, then deletes itself.
+
+Place words ($24C0, exits' +$2E): bit 15 "Use XYZ pos" (else the header's
+first word, the start cell), bit 14 keep the explorer's velocity (and
+from $11FF0, a rebuild: keep its place), bit 13 z on the level itself
+(else + $80); x bits 8-12, y 3-7, z 0-2, turned with the rotation like
+commands. The respawn point $24CC is not reset by a level change.
+
+The level loop ends when an exit or timer sets the next level; the level
+left keeps its jewel long ($150E8). A level whose long is 0 (visited, no
+jewels left) removes the exits with flag bit 6 that lead to it. Rebuilds:
+$162FE re-tests the conditions recorded while building each frame and
+rebuilds the level where the explorer is when one changed (objects stay;
+their rotate handlers run again, which re-opens secret passages).
+
+## Objects' rules
+
+Descriptors at $148C2 + 4 × kind (negative kinds before it): create,
+frame handler, rotate (desc + 8), tick (desc + 12). Each rules tick
+$14390 runs slots $258C upward (slot 0 unused, the explorer slot 1);
+frame handlers run while drawing ($143B6, after the camera), and an
+object's animation ($10058) steps only while its sprite is on the
+playfield: its corner less $2570 within −$20 … $120 ($14BEA), its rows
+reaching rows 0-$A6 ($1072A). Positions are the cell's origin (x, y ×
+256), z the level × 256. "Same cell" ($14B9C): the object's x/y with low
+byte $FF minus the explorer's must have a zero high byte; the height test
+is (object z + extra − explorer z) unsigned ≤ reach.
+
+- **Jewel** ($14A18, tick $14B04): the level's jewel index counts every
+  jewel placed ($256A); on a first visit each sets its bit in $2566 and
+  counts into $2564, otherwise a jewel whose bit is clear is not made.
+  Taken from its z − $180 to z + reach (reach per type, $14B7C: $20,
+  $100, $180, $80 …): its bit cleared, fuel + $14B5C[type] ($C, $10,
+  $18, 6 …, also into $2070), $24F4 + $14B6C[type], $2565 + 1, sound.
+- **Lift** ($14CBC, tick $14D46): words +$2C (bytes: bottom level | down
+  pause index << 4, top level | up pause index << 4), +$2E (bit 15 going
+  down; byte $2E & $7F down speed, byte $2F & $7F up speed), condition
+  +$26, flags +$32 (type, bit 6 tall, bit 7 column), base. Moves while
+  its condition holds and its pause (+$30) has run out: up by the up
+  speed until its z's high byte reaches the top level (no clamp), down
+  to the bottom level (clamped; below 0 → 0); then the pause from
+  $14DAE (0, 1, 2, 3, 4, 8, $C, $10, $20, $40, $60, $80, $100, $140,
+  $200, $400) and the direction turns. The explorer in its cell: on
+  top within $80 below the platform (z + 8): held there (contact $81,
+  friction 4, at least the lift's speed upward); lower but within $1FF
+  (tall: $2FF; column: any depth) it is a solid side ($14EAE: the move
+  that crossed into it undone, speed −v/2).
+- **Exit** ($14FC2, tick $15044): flags byte (bit 7 invisible, 6 gone
+  with its destination emptied, 5 ignore xy, 4 ignore z, 3 back to the
+  respawn point), destination & 15, condition +$26, place +$2E. Shown
+  while its condition holds; taken in the explorer's cell with (z + $40
+  − explorer z) & $FE00 = 0. To its own level: the place with bit 15
+  forced, at once (camera snap). Elsewhere: the next level, place in
+  $24C0; with header bit 12 its frame shows "Reserve fuel collected".
+- **Push button** ($16048, tick $1609C): the explorer resting exactly at
+  its z in its cell: type 7 → word $3616 = $FFFF; types 4-6 → byte $3616
+  = (type & 3) + 1; types 0-3 → word $3616 = type.
+- **Binary switch** ($16154, tick $161E0): colour → bit 8 >> colour of
+  $3618; the explorer exactly at its z in its cell: the half of the cell
+  along its facing (bit 0 swaps x/y, bit 1 inverts) sets the bit (≥ $80)
+  or clears it.
+- **Heads** ($1594A, tick $159DC): facing byte (bit 7 rises, else sinks),
+  type, condition. Each tick its offset +$2E moves 4 toward $200 while
+  the condition holds, toward 0 otherwise; z = base + $300 ± offset. A
+  solid block one cell wide ($1B4 with the explorer's $5A each side) from
+  $468 to $168 below its z (push as the lift's sides). In Tutorial 1 it
+  blocks the way to the level-8 temple until the level's jewels are gone.
+- **Secret passage** ($15404; rotate $15430): sets the grid after the tile
+  map was built (so the wall still shows): parameter bit 7 → count + 1
+  cells cleared upward; else the bottom cell becomes block 1 and `count`
+  cells above it are cleared.
+- **Timer** ($1530C, tick $15346): seconds × 256 + fraction in $360E;
+  −8 a tick; at zero: "Die if elapse" (bit 6) → clue 4 and $2492 (the
+  explorer dies); else "Elapse Dest" (bits 0-3) like an exit with place
+  0. Creating it: absolute (fraction $F0) or, bit 7, added. Its frame
+  prints the seconds right-aligned at column 20, row 6.
+- **Message** ($16002, tick $16028): after `delay` + 1 ticks shows message
+  p0 & $1F (once a game, or every time with bit 7); not made in the
+  editor's test mode ($24BE).
+- **Clue** ($16340): a word for the panel (0 → $361C); no tick.
+- Pac aliens, pyramids, boinks, spark generators: not rebuilt yet.
+
+## Clues and messages
+
+$15FC0 shows clue n once a game (bit n of $3610), $15FEE every time; the
+text comes from the list at $15CDA (number byte, string) and is printed
+over the playfield; the game waits 26 frames, then up to 126 more or
+until fire ($109E2). Texts (abridged): 1 the game ends if your fuel runs
+out; 2 getting crushed; 3 falling off loses fuel; 4 complete this level
+before the time runs out; 5 avoid aliens; 6 landing too hard; 7 trapped
+on ice, self destructing; 8 avoid these blocks; 9 disable sparks; 10 on
+ice for too long; 16/17 the timer level's notes; 24 "This is the switch
+state you need" (Tutorial 8); 26 falling off is not fatal; 31 "Well Done!
+The planet is disintegrating".
+
+$1635E (every 16 frames) looks for the first object slot with a word
++$26 within $380 of the explorer and shows it in the panel's four small
+boxes ($163BE, pictures at $418F0/$41930): the condition the object waits
+for. Not rebuilt yet.
+
+## Text printer ($18518)
+
+All texts are byte strings in main with control codes, printed by one
+routine: the cursor is a byte column (8 pixels, wrapping at $28) and a
+pixel row. Glyphs: 64 bytes each (16 rows × 4 plane bytes); codes $01-$07
+pick the bank $1B400 + (code × 4 − 4) × $680 as a signed word (the code
+is still × 4 from the jump table): 1 the usual font, 2 the orange one at
+$1CE00, higher codes point past the fonts. Normal size ($00/$10): 16
+rows, lines of 16; small ($11, the boot default): 8 of the rows (every
+other one) plus the last, lines of 9. Transparent ($12, default) keeps
+what is behind where a mask made at boot from the usual bank ($18282,
+$677E8) says colour 0, whatever bank is chosen; opaque ($13) draws the
+glyph's colour 0 too. Other codes: $08 back, $09/$0C skip, $0A down, $0B
+up, $0D new line, $0E n right, $0F n down, $14 n line height, $1B n
+column offset until the string ends, $1C/$1D the shown/hidden buffer,
+$1E s x y w h a box, $1F x y cursor. After a box the cursor is the box's
+corner (d4/d5 are not restored). Numbers: $187F4 left to right, $18826
+right-aligned (digits leftward from the cursor).
+
+Boxes ($18582): fill colour = style & 15 in words from the even column
+at or after x for h rows (none if h is 1, none if fewer than two words
+of width); border colour = style >> 4: lines above and below, a pixel
+column each side (not when x or y is 0 or the box reaches the edge).
+
+## Panel and pillars
+
+$14980: SELECT.SWP's first $1400 bytes are the panel (32 rows from row
+168, plane words of each 16 pixels in turn), then the string at $149A8
+(small size: " Spindizzy" at column 18, row 190 in bank 1; "Clue" at 4,
+170; then bank 2, normal size, cursor 18, 172) and the world's name
+($119D8, 13 bytes each at $119EE). The compass ($149C6) is 32 × 10 at byte
+column 32, row 179, frames $41670 + rotation × $A0.
+
+The pillars ($10FC6) are two pairs of attached hardware sprites at
+HSTART $80 and $1B0 (against DIWSTRT $81: screen x −1 and 303), 168 rows
+from $1E800: 8 top rows, 128 gauge rows ($1E8E0 empty, $1E8F0 full,
+copied raw), 20 rows from $1E840, 12 from $1E880. Converted rows ($10F96)
+turn colour 0 into colour 8 (sprite colour 24, set black). The gauge
+fills from row $87 upward on the left pillar (fuel 0-$7F), then the right.
+
+## Front end
+
+- **Attract** ($1771C): the title (title.neo, its own palette) with
+  "Copyright Paul Shirley 1990" ($17889) for 500 frames, then five pages
+  of 500 frames each over the title: text, block pictures ($1741C: pairs
+  of buffer offset and block word, drawn by $17242 with the tiles OR'ed),
+  and sprites ($179DC: 12-byte entries; kinds −10 … −13 copy a frame
+  opaquely into the shown buffer every period ticks, frames from offset
+  lists at $17A5E). Pages: $17904 GERALD ($17942, sprites $17B10),
+  $1777C hazards ($17312, blocks $172DE, sprites $17ABA), $178AE credits
+  ($177DF), $1779C switches ($173DC, $17300, $17B98), $177B6 ($1736E,
+  $17B5A). Fire or a direction ends it.
+- **Menu** ($17E46): a list of records (length word, string with its own
+  cursor position; the two words before the next record name a variable
+  and its kind: bit 14 a bit, bit 13 a bit field, else a byte/word/long
+  value). Up/down choose, fire takes it, left/right change the value
+  ("Slow Mode?" is bit 0 of $24A6, shown "Yes"/"No "). The chosen item
+  flashes orange (counter $37B2 bit 6; the counter moves with every item
+  drawn). The loop is not tied to the frame rate.
+- **Easy/Hard** ($11E52): the labels and boxes first, then each cluster
+  drawn into the hidden buffer and copied at 2/3 size ($11D2E/$11D88:
+  two of every three pixels, two of every three rows) into its box;
+  holding left/right inverts planes 2-3 of a box; fire pressed and
+  released with the direction still held chooses ($36B4 = 1 / 2).
+- **World map** ($116F0): the cluster list (count − 1, then x, y, z,
+  picture, world) as objects (kind −1; done worlds not made; the world
+  just done is kind −7, disintegrating). Each frame the box ($1693C,
+  colour 11), three rotations from angles over the sine table $164EC
+  ($16704/$16756: each (a·sin ± b·cos) × 4 >> 16), shadows ($1688A: plane
+  0 cleared under SELECT.SWP + $1928 at x + $98 − (z + $80) / 4, y + $5C),
+  then the planets far to near in one of five sizes by depth ($16846,
+  table $16A2C), the nearest one cycling its pictures every other 8
+  frames; its name at column 14, row 8. The joystick pushes two angle
+  speeds by 1.0 a frame, losing an eighth a frame ($168BE). Fire enters
+  the nearest planet's world.
+- SELECT.SWP is loaded to $A(a5) + 4 ($115E0 keeps a tag long first), so
+  the code's offsets into it are the file's + 4.
 
 ## Bugs and quirks in the original
 
@@ -565,6 +819,27 @@ Kept in the port's original mode unless noted.
 - **The first entry of every animation list is skipped** (the stepper
   starts with the count at 1).
 
+- **A box at an odd column scribbles** ($185BC): its first byte column is
+  written with `movep.l`, which writes every other byte: right for the
+  Atari ST's word-interleaved planes, on the Amiga the four plane bytes
+  land in plane 0 at four columns two apart, one row after another
+  (kept). Most of the game's boxes start at even columns.
+- **The binary switch compares with a register it never set** ($161E6):
+  d0 still holds its own tick address; harmless, since the height must
+  then be exactly equal anyway.
+- **Bank codes are multiplied by 4 twice over** ($18348): the jump table's
+  index is reused, so banks are $1A00 apart, not $680; codes 3-7 point
+  past the fonts.
+- **Transparent text masks with the usual font** ($18440): the mask
+  table comes from bank 1 whatever bank is drawn.
+- **The timer's clamp tests the parameter, not the sum** ($1531A).
+- **The secret passage's loop jumps into the clearing loop** ($15422):
+  only the bottom cell becomes block 1, the cells above are cleared.
+- **The lift has no clamp at its top**: it can overshoot the top level by
+  up to its speed.
+- **The menu loop is not frame-locked**: its timeout and flashing depend
+  on how long drawing the items takes.
+
 ## Unused code and data
 
 - $1341C (a variant of $13394 with $FFFD9365) and $13454/$1347A
@@ -582,7 +857,9 @@ Harness (research only, `harness/`): `run.sh` (FS-UAE, port 6870),
 `mkboot.py` (research boot disk), `shot.sh` (window capture), `dbg.py` (GDB
 RSP), `sdw.py` (`go`, `regs`, `mem`, `dump`, `joy BITS [FRAMES]`, `seq
 BITS:FRAMES …`, `world N [LEVEL]` enters a locked world by redirecting
-$117B0, `trace`, `visit ROUTINE`), `drawn.py` (dump after a finished draw
+$117B0, `trace`, `visit ROUTINE`, `playtrace OUT TICKS INPUTS`: A5+0 …
+$3800 at the next level start, then the changed bytes before every rules
+tick $11510, with the joystick byte set per tick), `drawn.py` (dump after a finished draw
 pass: break at $143B6 and run to its return address), `route.sh`,
 `level.sh`, `batch_traces.sh`, `visit_traces.sh`. `patch_joy` rewrites
 $104C2 to read the direction byte from RAM $F800 (free after the effects
@@ -592,7 +869,29 @@ Route to a level: boot ~40 s → attract → fire → menu → down, fire →
 Easy/Hard: hold left (Easy) or right (Hard), press fire, release fire
 first (`seq 04:10 84:10 04:10`) → world map → fire → Tutorial level 1.
 
-Native checks (`spindizzy_worlds_assets`):
+Native checks and tools (`spindizzy_worlds_assets`):
+
+- `playcheck`: replays a `playtrace` record through the native rules from
+  the level start's state (world, level, fuel, jewel longs, switches,
+  timer, clues, explorer) across level changes, comparing every tick:
+  the explorer's kind, position, speeds and contact, the level, fuel,
+  reserve, jewels, switches, timer and every object slot (made or not,
+  position, the kinds' own words, animation counters). A record without
+  any change is a second harness stop with no tick (seen once in 13,000
+  ticks) and is folded into the tick before. Records in work/traces:
+  `play_t1_b` (Tutorial 1, 400 ticks), `play_route1` (levels 1 → 4 → 1,
+  2,700 ticks: two jewels, two exits), `play_tutorial_full` (the whole
+  Tutorial, see below).
+- `route WORLD SCRIPT OUT`: steers the native game through waypoints
+  (`go X Y`, `fgo` with fire, `waitz SLOT Z` for lifts, `level L`, `rest`)
+  and writes the joystick byte of every tick for `playtrace`. The
+  Tutorial route (work/traces/route_tutorial_full.txt, 12,850 ticks):
+  the four level-1 jewels by entering each temple (levels 4, 6, 7, 5, each
+  left again at once), the Heads rise, the temple to level 8, its button,
+  the lift to the top, the exit to level 15, whose timer ends the world.
+- `drivefile`: runs the whole module (front end and play) headless on
+  frame inputs; the Tutorial played from the title to "Next world".
+- `map WORLD LEVEL`, `objects WORLD LEVEL`: route-planning views.
 
 - `gridcheck`: Tutorial 1 grid, 8189 of 8192 cells equal (the rest an
   object's column).
@@ -612,9 +911,9 @@ Native checks (`spindizzy_worlds_assets`):
 | t1_a (Tutorial 1) | 343 | flat, 18 wall pushes; then the Heads object blocks the explorer (object rule, not yet rebuilt) |
 | w31_5, w6_4 | 333, 749 | slopes, 16 falls out of the world (clue 3) |
 | w22_2, w7_1_1320e | 1199, 499 | flat, 43 wall/corner pushes, an alien's touch |
-| w22_2_1327e | 499 | ice 497 ticks |
-| w18_3_13504 | 499 | bouncy 21, hot 17 |
-| w10_1_1349a | 39 | hot: standing still kills (clue 7) ×10 |
+| w22_2_1327e | 499 | slippery 497 ticks |
+| w18_3_13504 | 499 | bouncy 21, ice 17 |
+| w10_1_1349a | 39 | ice: standing still kills (clue 7) ×10 |
 | w18_2_13228 | 499 | switch pads 497 (sets $3616 to 2) |
 | w19_1_13584 | 39 | deadly (clue 8) ×10 |
 | w6_4_13394/13486/13464/133F8/133E2 | 499/499/306/499/499 | corner ramps 273, ridges 494, valleys 126, corner slopes 527 |
@@ -625,6 +924,7 @@ Native checks (`spindizzy_worlds_assets`):
 
 ## Not yet traced
 
-Music ($432A8 player) and effects ($3400 player) formats; sd_game.dat and
-SELECT.SWP contents; level header words +2/+6; the world "setting" word;
-the behaviour of every object kind; fonts ($1B000–$1D000) and the panel.
+Music ($432A8 player) and effects ($3400 player) formats; sd_game.dat;
+level header words +2/+6; the world "setting" word; the creatures' and
+sparks' behaviour; turning the level; the overview map; the statistics
+screen, the reserve-fuel offer and the ending; the panel's clue boxes.

@@ -20,7 +20,7 @@ enum class Surface : std::uint8_t {
     none,          // $12FE4: no top (empty cell, $22/$23, $40/$80/$C0)
     lost,          // $1320E: swallows the explorer (kind −2, then respawn), no clue
     switch_pad,    // $13228: sets the push-button state $3616 when stepped on
-    ice,           // $1327E: lands without traction (no steering, no friction)
+    slippery,      // $1327E: lands without traction (no steering, no friction)
     flat,          // $13298 and the raised variants $132B8 … $13302
     slope,         // $13312: one cell rise along −u
     steep_slope,   // $1335E: two cells rise along −u
@@ -29,7 +29,7 @@ enum class Surface : std::uint8_t {
     corner_slope,  // $133F8: falls diagonally while u + v < 256, flat beyond
     valley,        // $13464: 255 − min(u, v)
     ridge,         // $13486: 255 − max(u, v)
-    hot,           // $1349A: kills when standing still or after 250 ticks
+    ice,           // $1349A: kills when standing still or after 250 ticks (clues 7 and 10 call it ice)
     bouncy,        // $13504: throws the explorer back up
     conveyor,      // $1354C: pushes 2 units per tick along the block's direction
     deadly,        // $13584: kills on touch

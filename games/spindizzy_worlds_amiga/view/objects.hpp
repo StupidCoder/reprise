@@ -29,6 +29,7 @@ struct ObjectState {
     int x{-1}, y{-1};    // creatures: +8, +$A; -1 = the level's start cell
     int z{-1};           // +$C in 1/256 block; -1 = the level's start height
     bool shown{};        // +$20: exits shown; spark generators fired (hidden)
+    bool gone{};         // the slot was freed (a jewel taken) or never made
 };
 
 // Sprites sorted for drawing (sort value, then level order, as $1440E

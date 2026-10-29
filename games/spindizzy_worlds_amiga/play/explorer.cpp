@@ -11,7 +11,7 @@ constexpr std::int32_t gravity = 0x80000;   // $12BB0
 constexpr int footprint = 0x5A;             // the explorer's half width inside a cell ($135D2)
 constexpr int step_height = 0x3C;           // a neighbour this much higher is no wall ($13838)
 constexpr int grounded_step = 0x1E;         // and this much more while touching a top
-constexpr int hot_time = 0xFA;              // ticks on a hot top ($1348E)
+constexpr int ice_time = 0xFA;              // ticks on ice ($1348E)
 
 // Long arithmetic with the 68000's wrap-around.
 std::int32_t wrap(std::int64_t value) { return std::int32_t(std::uint32_t(std::uint64_t(value))); }
@@ -101,10 +101,10 @@ private:
     // $12A1E: the stick pushes along x and y; pushing against the current
     // motion brakes by the plain push on top. Without traction (in the air,
     // on ice, an unheld lift top) the pushes are a sixteenth; with no contact at all
-    // (and not on a hot top) there is no steering.
+    // (and not on ice) there is no steering.
     void steer(std::uint8_t joystick) {
         e_.brake_lock = (e_.brake_lock & 0x1F) != 0 ? (e_.brake_lock & 0x1F) - 1 : 0;
-        if (!(e_.contact & contact::hot) && (e_.contact & 0xFF) == 0) return;
+        if (!(e_.contact & contact::ice) && (e_.contact & 0xFF) == 0) return;
         if (e_.brake_requested) {
             e_.brake_requested = false;
             e_.vx = e_.vy = 0;
@@ -207,7 +207,7 @@ private:
         case Surface::flat:
             if (touches(top)) land(top);
             return;
-        case Surface::ice:
+        case Surface::slippery:
             if (touches(top)) land(top, contact::grounded);
             return;
         case Surface::switch_pad:
@@ -240,7 +240,7 @@ private:
             }
             return;
         }
-        case Surface::hot: touch_hot(top); return;
+        case Surface::ice: touch_ice(top); return;
         case Surface::bouncy: bounce(top); return;
         case Surface::conveyor:
             if (!touches(top)) return;
@@ -322,17 +322,17 @@ private:
 
     // $1349A: standing still kills, and so does staying 250 ticks (unless
     // the level's flag bit 11 is set).
-    void touch_hot(int top) {
+    void touch_ice(int top) {
         if (!touches(top) || (e_.previous_contact & contact::on_lift)) return;
         if (!(ground_.level_flags & 0x0800)) {
-            if (!(e_.previous_contact & contact::hot)) {
-                e_.hot_ticks = hot_time;
-            } else if (--e_.hot_ticks <= 0) {
+            if (!(e_.previous_contact & contact::ice)) {
+                e_.ice_ticks = ice_time;
+            } else if (--e_.ice_ticks <= 0) {
                 lose_energy_and_die(10);
                 return;
             }
         }
-        e_.contact |= contact::grounded | contact::hot;
+        e_.contact |= contact::grounded | contact::ice;
         e_.vz = with_high(e_.vz, 0);
         if (rounded(e_.vx) == 0 && rounded(e_.vy) == 0) {
             lose_energy_and_die(7);

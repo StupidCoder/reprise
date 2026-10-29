@@ -7,76 +7,151 @@ namespace {
 
 constexpr std::uint32_t arrival_list = 0x12AF2; // kind −3's frames ($12B04)
 constexpr std::uint32_t lost_list = 0x12DB8;    // kind −2's frames ($12DB0)
+constexpr std::uint32_t fuel_cost_tables = 0x10DFE; // $10E5E: difficulty 0, < 6, < 16, more
 constexpr int arrival_time = 0x0B;              // $12B48: +$2C, counted below 0
 constexpr int lost_time = 0x18;                 // $12D8E
 constexpr int arrival_flash = 0x13;             // $12B34: $24F2 afterwards
+constexpr int dying_time = 0xC8;                // $12CB8: out of fuel
+constexpr std::int16_t respawn_cost = 0x10;     // $12B18
 
 std::int16_t with_low(std::int16_t value, int low) { return std::int16_t((value & 0xFF00) | low); }
 
+// Adds whole units to a 16.16 long's high word (the original's add.w /
+// sub.w on the word at the long's address).
+void add_whole(std::int32_t& value, int units) {
+    value = std::int32_t(std::uint32_t(std::uint16_t(std::int16_t(value >> 16) + units)) << 16 |
+                         (std::uint32_t(value) & 0xFFFF));
+}
+
 } // namespace
 
-std::uint32_t ListStepper::advance(const data::Memory& main, std::uint32_t list) {
-    if (--count == 0) {
+std::uint32_t ListStepper::advance(const data::Memory& main, std::uint32_t list, bool slow) {
+    bool next = false;
+    if (!slow) next = (count = (count - 1) & 0xFF) == 0;
+    if (!next) next = (count = (count - 1) & 0xFF) == 0;
+    if (next) {
         ++entry;
         if (std::int16_t(main.u16(list + std::uint32_t(entry) * 4)) < 0) entry = 0;
-        count = std::int16_t(main.u16(list + std::uint32_t(entry) * 4)) & 0xFF;
+        count = main.u16(list + std::uint32_t(entry) * 4) & 0xFF;
     }
     return main.u16(list + std::uint32_t(entry) * 4 + 2);
 }
 
-LevelPlay::LevelPlay(const data::Assets& assets, const SurfaceTable& surfaces, int world, int level)
-    : surfaces_(surfaces) {
-    const auto& file = assets.worlds.at(std::size_t(world));
-    level_ = world::build_level(file, level, assets.block_attributes, switches_);
-    const auto header = file.header(level);
-    level_flags_ = header.flags;
-    // $12720: the start cell's centre; z from the header word's low three
-    // bits as the level (hypothesis, see LevelHeader), the explorer falls
-    // from there.
-    explorer_.respawn_x = std::int16_t(header.start_x() << 8 | 0x80);
-    explorer_.respawn_y = std::int16_t(header.start_y() << 8 | 0x80);
-    explorer_.respawn_z = std::int16_t((header.first & 7) << 8 | 0x80);
-    arrive();
+void Progress::start_world(const data::Memory& main, int number, int difficulty_steps) {
+    world = number;
+    level = 1;
+    fuel_shown = 0; // $11044, the pillars built empty ($10FC6 from $14980)
+    level_jewels.fill(0x80000000); // $138E0: no level visited
+    jewels_found = jewels_taken = 0;
+    arrival_place = 0;
+    switches.primary = switches.secondary = 0xFF; // word $3616 = $FFFF
+    switches.binary = 0;
+    rotation = 0;
+    // $10E1E: per difficulty step the fuel drain each frame and the costs.
+    difficulty = difficulty_steps;
+    std::uint32_t table = fuel_cost_tables;
+    if (difficulty == 0) {
+        drain = 0;
+    } else {
+        drain = difficulty * 0x11 + 0x280;
+        table += difficulty < 6 ? 8 : difficulty < 16 ? 16 : 24;
+    }
+    costs = {std::int16_t(main.u16(table)), std::int16_t(main.u16(table + 2)), std::int16_t(main.u16(table + 4)),
+             std::int16_t(main.u16(table + 6))};
+}
+
+LevelPlay::LevelPlay(const data::Assets& assets, const SurfaceTable& surfaces, Progress& progress)
+    : assets_(assets), surfaces_(surfaces), progress_(progress) {
+    auto& p = progress_;
+    const auto& file = assets.worlds.at(std::size_t(p.world));
+    header_ = file.header(p.level);
+    level_flags_ = header_.flags;
+    // The explorer (kind −4, $12B2E): its timers cleared, the arrival
+    // flash, the spin counter at $100.
+    auto& e = p.explorer;
+    e.timer_a = e.timer_b = 0;
+    e.arrival_ticks = arrival_flash;
+    // $138F6: the level's jewels; bit 31 = the first visit, worth fuel.
+    p.jewels = p.level_jewels.at(std::size_t(p.level - 1));
+    const bool first_visit = p.jewels & 0x80000000u;
+    if (first_visit) add_whole(p.fuel_change, p.costs.first_visit);
+    if (level_flags_ & 0x8000) p.rotation = 0; // $12028: a level that does not turn
+    level_ = world::build_level(file, p.level, assets.block_attributes, p.switches);
+    for (auto condition : level_.conditions) condition_results_.push_back(p.switches.holds(condition));
+    // $12714: from an exit's place word, or the header's start cell.
+    const std::uint16_t place = p.arrival_place;
+    p.arrival_place = 0;
+    if (place & 0x8000) place_explorer(place);
+    else if (!(place & 0x4000)) place_explorer(header_.first);
+    auto w = object_world();
+    objects_.emplace(level_, assets.main, w, first_visit, p.jewels_found);
+    p.jewels &= ~0x80000000u; // $1236A
+    camera_ = view::snap_camera(view::explorer_place({e.x, e.y, e.z}), level_flags_); // $11FB4
+    p.reserve_at_start = p.reserve;
+    p.jewel_fuel = 0;
+    notice_ = (level_flags_ & 0x1000) != 0; // $11FE4: kind −9
+}
+
+// $12724: a place word (cells: x bits 8-12, y 3-7, z 0-2) turned with the
+// level, the cell's centre; bit 13 puts z on the level itself, bit 14 keeps
+// the explorer's speed.
+void LevelPlay::place_explorer(std::uint16_t place) {
+    auto& e = progress_.explorer;
+    int x = place >> 8 & 31, y = place >> 3 & 31;
+    for (int turn = 0; turn < (progress_.rotation & 3); ++turn) {
+        const int old_x = x;
+        x = y;
+        y = -old_x & 31;
+    }
+    e.x = std::int16_t(x << 8 | 0x80);
+    e.y = std::int16_t(y << 8 | 0x80);
+    e.z = std::int16_t((place & 7) << 8 | ((place & 0x2000) ? 0 : 0x80));
+    if (place & 0x4000) return;
+    e.vx = e.vy = e.vz = 0;
+}
+
+ObjectWorld LevelPlay::object_world() {
+    auto& p = progress_;
+    ObjectWorld w{p.explorer, level_.grid, p.switches, p.jewels, p.level_jewels.data(), p.jewels_taken,
+                  p.fuel_change, p.jewel_fuel, p.timer, p.timer_expired};
+    w.level = p.level;
+    w.level_flags = level_flags_;
+    w.rotation = p.rotation;
+    w.running = running_;
+    return w;
 }
 
 // Kind −3's create routine ($12B0C): back at the respawn point (the cell's
-// centre, $40 into it), at rest; then its frames for 12 ticks.
+// centre, $40 into it), at rest, $10 fuel; then its frames for 12 ticks.
 void LevelPlay::arrive() {
-    explorer_.x = with_low(explorer_.respawn_x, 0x80);
-    explorer_.y = with_low(explorer_.respawn_y, 0x80);
-    explorer_.z = with_low(explorer_.respawn_z, 0x40);
-    explorer_.vx = explorer_.vy = explorer_.vz = 0;
-    explorer_.timer_a = explorer_.timer_b = 0;
-    explorer_.arrival_ticks = arrival_flash;
+    auto& e = progress_.explorer;
+    e.x = with_low(e.respawn_x, 0x80);
+    e.y = with_low(e.respawn_y, 0x80);
+    e.z = with_low(e.respawn_z, 0x40);
+    e.vx = e.vy = e.vz = 0;
+    add_whole(progress_.fuel_change, -respawn_cost);
+    e.timer_a = e.timer_b = 0;
+    e.arrival_ticks = arrival_flash;
     phase_ = ExplorerPhase::arriving;
     phase_ticks_ = arrival_time;
     stepper_ = {};
 }
 
-void LevelPlay::tick(std::uint8_t joystick) {
-    switch (phase_) {
-    case ExplorerPhase::arriving:
-        // $12AD2
-        if (--phase_ticks_ < 0) {
-            phase_ = ExplorerPhase::playing;
-            spin_ = 0x100;
-        }
-        return;
-    case ExplorerPhase::lost:
-        // $12DA2, then kind −3
-        if (--phase_ticks_ < 0) arrive();
-        return;
-    case ExplorerPhase::playing: break;
-    }
-    Ground ground{level_.grid, surfaces_, level_flags_, switches_};
-    TickEvents events;
-    move_explorer(explorer_, joystick, ground, events);
-    settle_explorer(explorer_, events);
-    if (events.deaths.empty()) return;
-    // The last kind change wins (each death replaces the slot's routines).
-    const auto& death = events.deaths.back();
-    explorer_.arrival_ticks = arrival_flash; // $12B2E, also run for kind −2
-    explorer_.timer_a = explorer_.timer_b = 0;
+void LevelPlay::show_clue(int number, bool always) {
+    // $15FC0: once per game ($3610 bit n); messages with bit 7 every time.
+    const std::uint32_t bit = 1u << (number & 31);
+    const bool unseen = progress_.clues_left & bit;
+    progress_.clues_left &= ~bit;
+    if (unseen || always) clue_ = ShownClue{number};
+}
+
+void LevelPlay::die(const Death& death) {
+    // $131F4 took the cost and showed the clue; the explorer's kind changes.
+    if (death.costs_energy) add_whole(progress_.fuel_change, -progress_.costs.death);
+    if (death.hint >= 0) show_clue(death.hint, false);
+    auto& e = progress_.explorer;
+    e.arrival_ticks = arrival_flash; // $12B2E, also run for kind −2
+    e.timer_a = e.timer_b = 0;
     stepper_ = {};
     if (death.becomes == -3) {
         arrive();
@@ -86,23 +161,144 @@ void LevelPlay::tick(std::uint8_t joystick) {
     }
 }
 
-void LevelPlay::brake() {
-    if (explorer_.brake_lock == 0 && (explorer_.contact & 0xFF) != 0) explorer_.brake_requested = true;
-}
-
-std::uint32_t LevelPlay::explorer_frame(const data::Memory& main) {
+void LevelPlay::tick(std::uint8_t joystick) {
+    auto& p = progress_;
+    auto& e = p.explorer;
     switch (phase_) {
-    case ExplorerPhase::arriving: return view::explorer_frames + stepper_.advance(main, arrival_list);
-    case ExplorerPhase::lost: return view::explorer_frames + stepper_.advance(main, lost_list);
+    case ExplorerPhase::arriving: // $12AD2
+        if (--phase_ticks_ < 0) {
+            phase_ = ExplorerPhase::playing;
+            spin_ = 0x100;
+        }
+        break;
+    case ExplorerPhase::lost: // $12DA2, then kind −3
+        if (--phase_ticks_ < 0) arrive();
+        break;
+    case ExplorerPhase::out_of_fuel: // $12CE8: a pause, fire ends it early
+        if (--phase_ticks_ < 0 || (phase_ticks_ < 0xA0 && (joystick & stick::fire))) {
+            p.game_over = true;
+            running_ = false;
+        }
+        break;
     case ExplorerPhase::playing: break;
     }
-    // $1490A (slow mode): the spin counter steps once a frame; while a
-    // timer runs or after arriving the special set shows; on a top every
-    // other frame uses the flash set.
-    ++spin_;
-    const bool special = (explorer_.timer_a & 1) != 0 || explorer_.arrival_ticks > 0;
+    TickEvents events;
+    if (phase_ == ExplorerPhase::playing) {
+        // $12B7C: out of fuel (or the timer killed it): the dying kind.
+        if (p.timer_expired || std::int16_t(p.fuel >> 16) <= 0) {
+            if (!p.timer_expired) show_clue(1, false);
+            p.timer_expired = true;
+            phase_ = ExplorerPhase::out_of_fuel;
+            phase_ticks_ = dying_time;
+        } else {
+            Ground ground{level_.grid, surfaces_, level_flags_, p.switches};
+            move_explorer(e, joystick, ground, events);
+        }
+    }
+    // The objects' slots ($14390), then the explorer's second half.
+    auto w = object_world();
+    ObjectEvents happened;
+    objects_->tick(w, happened);
+    if (phase_ == ExplorerPhase::playing) settle_explorer(e, events);
+    if (happened.clue >= 0) show_clue(happened.clue, happened.clue_always);
+    if (happened.back_to_respawn) { // $12C3E
+        e.x = with_low(e.respawn_x, 0x80);
+        e.y = with_low(e.respawn_y, 0x80);
+        e.z = with_low(e.respawn_z, 0x40);
+        e.vx = e.vy = e.vz = 0;
+    }
+    if (happened.travel) {
+        if (happened.travel->level == p.level) {
+            place_explorer(happened.travel->place); // $1510C, then $14202
+            moved_ = true;
+        } else {
+            p.level_jewels.at(std::size_t(p.level - 1)) = p.jewels; // $150E8
+            p.level = happened.travel->level;
+            p.arrival_place = happened.travel->place;
+            running_ = false;
+        }
+    }
+    if (!events.deaths.empty() && phase_ == ExplorerPhase::playing) die(events.deaths.back());
+}
+
+void LevelPlay::brake() {
+    const auto& e = progress_.explorer;
+    if (e.brake_lock == 0 && (e.contact & 0xFF) != 0) progress_.explorer.brake_requested = true;
+}
+
+void LevelPlay::frame(bool slow) {
+    auto& p = progress_;
+    const auto& e = p.explorer;
+    const auto place = view::explorer_place({e.x, e.y, e.z});
+    if (moved_) camera_ = view::snap_camera(place, level_flags_); // a same-level exit: $14202
+    else view::follow(camera_, place, e.z, level_flags_);
+    moved_ = false;
+    // $10E96: the reserve gets an eighth of the jewels' fuel ("Add reserve
+    // fuel", level flag bit 12); the fuel takes the changes less the drain.
+    if (level_flags_ & 0x1000) {
+        std::uint32_t reserve = std::uint32_t(p.reserve) + std::uint32_t(std::int32_t(std::uint32_t(std::uint16_t(p.jewel_fuel)) << 16) >> 3);
+        if (reserve > 0xFFFFFF) reserve = 0x1000000;
+        p.reserve = std::int32_t(reserve);
+    }
+    p.jewel_fuel = 0;
+    std::int32_t fuel = p.fuel + p.fuel_change - ((level_flags_ & 0x2000) ? 0 : p.drain);
+    p.fuel_change = 0;
+    if (fuel < 0) {
+        fuel = 0;
+        p.game_over = true; // $10E8C: $2490 set; the explorer's tick then dies
+    } else if (std::uint32_t(fuel) > 0xFFFFFF) {
+        fuel = 0x1000000;
+    }
+    p.fuel = fuel;
+    const int whole = fuel >> 16;
+    if (p.fuel_shown < whole) ++p.fuel_shown;
+    else if (p.fuel_shown > whole) --p.fuel_shown;
+    objects_->frame(assets_.main, slow, camera_);
+    // $162FE: a condition met while building changed: build again where
+    // the explorer is ($11FF0 with $24C0 = $4000).
+    for (std::size_t i = 0; i < level_.conditions.size(); ++i) {
+        if (p.switches.holds(level_.conditions[i]) != condition_results_[i]) {
+            rebuild();
+            break;
+        }
+    }
+}
+
+void LevelPlay::rebuild() {
+    auto& p = progress_;
+    const auto& file = assets_.worlds.at(std::size_t(p.world));
+    if (level_flags_ & 0x8000) p.rotation = 0;
+    auto objects = level_.objects;
+    level_ = world::build_level(file, p.level, assets_.block_attributes, p.switches);
+    level_.objects = std::move(objects);
+    condition_results_.clear();
+    for (auto condition : level_.conditions) condition_results_.push_back(p.switches.holds(condition));
+    auto w = object_world();
+    objects_->reapply(w); // $143DE: the objects' rotate handlers (secret passages)
+    ++builds_;
+}
+
+std::optional<ShownClue> LevelPlay::take_clue() {
+    auto clue = clue_;
+    clue_.reset();
+    return clue;
+}
+
+std::uint32_t LevelPlay::explorer_frame(const data::Memory& main, bool slow) {
+    const auto& e = progress_.explorer;
+    switch (phase_) {
+    case ExplorerPhase::arriving: return view::explorer_frames + stepper_.advance(main, arrival_list, slow);
+    case ExplorerPhase::lost: return view::explorer_frames + stepper_.advance(main, lost_list, slow);
+    case ExplorerPhase::out_of_fuel: return view::explorer_frames; // $12D14's list (not rebuilt yet)
+    case ExplorerPhase::playing: break;
+    }
+    // $1490A: the spin counter steps once a frame (twice without slow
+    // mode); while a timer runs or after arriving the special set shows;
+    // on a top every other frame uses the flash set.
+    spin_ += slow ? 1 : 2;
+    const bool special = (e.timer_a & (slow ? 1 : 2)) != 0 || e.arrival_ticks > 0;
     bool flash = false;
-    if (!special && explorer_.contact != 0) {
+    if (!special && e.contact != 0) {
         flash = flash_; // bchg: the bit before the change picks the set
         flash_ = !flash_;
     }

@@ -120,6 +120,7 @@ std::vector<ObjectSprite> start_sprites(const world::Level& level, const world::
     for (std::size_t index = 0; index < level.objects.size(); ++index) {
         const auto& object = level.objects[index];
         const ObjectState now = state ? state(index) : ObjectState{};
+        if (now.gone) continue;
         auto where = position(object);
         if (now.z >= 0) where.z = now.z;
         const auto at = project(where);

@@ -3,10 +3,10 @@
 #include <filesystem>
 #include <memory>
 
-// The playable part so far: a test drive of one level at a time with the
-// explorer's movement, its losses and respawns, and the original's
-// camera. The level's objects are drawn as they start and do not act yet;
-// there is no panel, energy, sound or front end yet.
+// The game from its title: the front end (attract pages, menu, Easy/Hard
+// choice, world map) and the worlds' levels (game/play_screen). Not
+// rebuilt yet: sound, saved games, the statistics after a world, the
+// reserve-fuel offer at a game over, and the moving creatures.
 namespace spindizzy::game {
 
 std::unique_ptr<app::GameModule> start(const std::filesystem::path& content);

@@ -20,7 +20,7 @@ struct Routine {
 // The contact routines and what they do (traced in game.md, "Surfaces").
 constexpr Routine routines[] = {
     {0x12FE4, Surface::none, 0},         {0x1320E, Surface::lost, 0},
-    {0x13228, Surface::switch_pad, 0},   {0x1327E, Surface::ice, 0},
+    {0x13228, Surface::switch_pad, 0},   {0x1327E, Surface::slippery, 0},
     {0x13298, Surface::flat, 0},         {0x132E2, Surface::flat, 0x40},
     {0x132F2, Surface::flat, 0x80},      {0x13302, Surface::flat, 0xC0},
     {0x132D4, Surface::flat, 0x100},     {0x132B8, Surface::flat, 0x180},
@@ -28,7 +28,7 @@ constexpr Routine routines[] = {
     {0x1335E, Surface::steep_slope, 0},  {0x13394, Surface::corner_ramp, 0},
     {0x133E2, Surface::diagonal_ramp, 0}, {0x133F8, Surface::corner_slope, 0},
     {0x13464, Surface::valley, 0},       {0x13486, Surface::ridge, 0},
-    {0x1349A, Surface::hot, 0},          {0x13504, Surface::bouncy, 0},
+    {0x1349A, Surface::ice, 0},          {0x13504, Surface::bouncy, 0},
     {0x1354C, Surface::conveyor, 0},     {0x13584, Surface::deadly, 0},
     {0x1359C, Surface::lift_top, 0},
 };

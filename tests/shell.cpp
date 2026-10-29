@@ -568,7 +568,7 @@ int main(int argc, char** argv) {
             const auto& spindizzy = library.games().at(10);
             check(spindizzy.machine == app::Machine::amiga && spindizzy.import && spindizzy.previews &&
                       spindizzy.start && spindizzy.release_year == 1990,
-                  "Spindizzy Worlds imports, previews and starts its test drive");
+                  "Spindizzy Worlds imports, previews and starts");
         }
         for (std::size_t i = 0; i < library.games().size(); ++i) {
             shell.select(i); const auto image = shell.draw(2);

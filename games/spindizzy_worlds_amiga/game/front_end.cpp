@@ -1,0 +1,190 @@
+#include "spindizzy_worlds_amiga/game/front_end.hpp"
+#include "spindizzy_worlds_amiga/view/text.hpp"
+
+namespace spindizzy::game {
+namespace {
+
+constexpr int page_frames = 0x1F4 + 1;   // $17738 / $17918: dbra over $1F4
+constexpr std::uint32_t title_line = 0x17889; // "Copyright Paul Shirley 1990" ($17714)
+// The attract pages in their order ($17756): text, block pictures, sprites.
+struct Page { std::uint32_t text, blocks, sprites; };
+constexpr Page pages[] = {
+    {0x17942, 0, 0x17B10},       // $17904: GERALD
+    {0x17312, 0x172DE, 0x17ABA}, // $1777C: hazards
+    {0x177DF, 0, 0},             // $178AE: credits
+    {0x173DC, 0x17300, 0x17B98}, // $1779C: switches
+    {0x1736E, 0, 0x17B5A},       // $177B6
+};
+constexpr std::uint32_t map_palette = 0x11666;
+constexpr std::uint32_t easy_cluster = 0x1195E, hard_cluster = 0x11876; // $11E3A: Easy has 9 worlds, Hard 23
+constexpr std::uint32_t cluster_box = 0x11615;  // the box in the hidden buffer, bank 2
+constexpr std::uint32_t cluster_labels = 0x1161E;
+constexpr std::uint32_t world_names = 0x119EE;
+constexpr int easy_thumbnail = 0x57A, hard_thumbnail = 0x58E;
+
+void title_picture(view::Screen& s, const data::Assets& assets) {
+    for (int y = 0; y < 200; ++y)
+        for (int x = 0; x < 320; ++x) s.put(x, y, assets.title.pixels[std::size_t(y * 320 + x)]);
+}
+
+} // namespace
+
+void set_title_palette(view::Screen& s, const data::Assets& assets) {
+    for (std::size_t i = 0; i < 16; ++i) s.palette[i] = assets.title.palette[i];
+}
+
+void set_map_palette(view::Screen& s, const data::Memory& main) {
+    for (std::size_t i = 0; i < 16; ++i) s.palette[i] = data::Colour(main.u16(map_palette + std::uint32_t(i) * 2) * 2);
+}
+
+Attract::Attract(const data::Assets& assets) : assets_(assets) { start_page(); }
+
+void Attract::start_page() {
+    // $176FC: the title into the hidden buffer and its copyright line.
+    picture_.fill(0);
+    set_title_palette(picture_, assets_);
+    title_picture(picture_, assets_);
+    view::TextPrinter text(assets_.main);
+    text.print(picture_, title_line);
+    sprites_.clear();
+    if (page_ >= 0) {
+        const auto& page = pages[page_];
+        text.print(picture_, page.text);
+        if (page.blocks) // $1741C: (buffer offset, block word) pairs to a negative offset
+            for (std::uint32_t at = page.blocks; std::int16_t(assets_.main.u16(at)) >= 0; at += 4)
+                view::draw_block_picture(picture_, assets_, assets_.main.u16(at), assets_.main.u16(at + 2));
+        if (page.sprites) sprites_ = view::read_attract_sprites(assets_.main, page.sprites);
+    }
+    frames_ = 0;
+}
+
+bool Attract::frame(std::uint8_t joystick) {
+    if (joystick) return true; // $17C52 / $109E2: fire or a direction
+    for (auto& sprite : sprites_) view::step_attract_sprite(picture_, assets_.main, sprite); // $14390
+    if (++frames_ < page_frames) return false;
+    page_ = page_ + 1 >= int(std::size(pages)) ? -1 : page_ + 1;
+    start_page();
+    return false;
+}
+
+void Attract::draw(view::Screen& s) const { s = picture_; }
+
+Menu::Menu(const data::Assets& assets, const view::Screen& behind, std::uint32_t items, std::uint32_t header, int timeout)
+    : assets_(assets), behind_(behind), items_(items), header_(header), timeout_(timeout) {
+    for (std::uint32_t at = items_; assets_.main.u16(at) != 0; at += assets_.main.u16(at)) item_at_.push_back(at);
+    view::TextPrinter text(assets_.main);
+    text.print(behind_, header_);
+}
+
+int Menu::frame(std::uint8_t joystick) {
+    // $18086: the joystick byte is taken once; here a press is a change.
+    const std::uint8_t pressed = joystick & ~last_;
+    last_ = joystick;
+    if (pressed & 0x80) return chosen_;
+    if (pressed & 1) chosen_ = std::max(chosen_ - 1, 0);
+    if (pressed & 2) chosen_ = std::min(chosen_ + 1, int(item_at_.size()) - 1);
+    if (pressed & 0x0C) {
+        const std::uint32_t next = item_at_[std::size_t(chosen_)] + assets_.main.u16(item_at_[std::size_t(chosen_)]);
+        if (assets_.main.u16(next - 2) == 0x4000) slow_mode = !slow_mode; // a bit item: $17EA4
+    }
+    if (timeout_ > 0 && --timeout_ == 0) return -1;
+    return -2;
+}
+
+void Menu::draw(view::Screen& s) const {
+    s = behind_;
+    view::TextPrinter text(assets_.main);
+    text.put(s, 0x10);
+    text.put(s, 0x13);
+    int counter = counter_;
+    for (std::size_t i = 0; i < item_at_.size(); ++i) {
+        if (int(i) == chosen_ && (counter & 0x40)) text.put(s, 0x02); // $17FB6: orange
+        text.print(s, item_at_[i] + 2);
+        const std::uint32_t next = item_at_[i] + assets_.main.u16(item_at_[i]);
+        if (assets_.main.u16(next - 2) == 0x4000) { // $17FF6: "Yes" / "No "
+            const char* value = slow_mode ? "Yes" : "No ";
+            for (const char* c = value; *c; ++c) text.put(s, std::uint8_t(*c));
+        }
+        text.put(s, 0x0D);
+        text.put(s, 0x01);
+        ++counter;
+    }
+    // $37B2 moves on with every item drawn and once more per pass.
+    const_cast<Menu*>(this)->counter_ = counter + 1;
+}
+
+ClusterChoice::ClusterChoice(const data::Assets& assets) : assets_(assets) {
+    // $11E52: the labels and their boxes first ($11E7A), then each cluster
+    // drawn in the hidden buffer and copied small into its box.
+    view::TextPrinter labels(assets_.main);
+    labels.put(picture_, 0x10);
+    labels.print(picture_, cluster_labels);
+    view::Screen hidden;
+    for (const auto& [list, offset] : {std::pair{easy_cluster, easy_thumbnail}, std::pair{hard_cluster, hard_thumbnail}}) {
+        hidden.fill(0);
+        view::TextPrinter text(assets_.main);
+        text.print(hidden, cluster_box);
+        const auto planets = view::read_cluster(assets_.main, list);
+        view::ClusterView cluster;
+        cluster.update(assets_.main, planets, std::vector<bool>(planets.size(), true));
+        cluster.draw(hidden, assets_, assets_.main, planets);
+        view::shrink_cluster(picture_, hidden, offset);
+    }
+    set_map_palette(picture_, assets_.main);
+}
+
+int ClusterChoice::frame(std::uint8_t joystick) {
+    const bool fire = joystick & 0x80;
+    const int held = (joystick & 4) ? 1 : (joystick & 8) ? 2 : 0;
+    if (held != lit_) { lit_ = held; fire_down_ = false; return 0; }
+    if (lit_ == 0) return 0;
+    if (fire) fire_down_ = true;
+    else if (fire_down_) return lit_; // released with the direction still held
+    return 0;
+}
+
+void ClusterChoice::draw(view::Screen& s) const {
+    s = picture_;
+    if (lit_ == 0) return;
+    // $11F3A: planes 2 and 3 of the thumbnail inverted (128 rows × 128 pixels).
+    const int offset = lit_ == 1 ? easy_thumbnail : hard_thumbnail;
+    const int x0 = (offset % 40) * 8, y0 = offset / 40;
+    for (int y = 0; y < 128; ++y)
+        for (int x = 0; x < 128; ++x) {
+            auto& p = s.pixels[std::size_t((y0 + y) * s.width + x0 + x)];
+            p = std::uint8_t(p ^ 0x0C);
+        }
+}
+
+WorldMap::WorldMap(const data::Assets& assets, bool easy, std::uint32_t worlds_left)
+    : assets_(assets), planets_(view::read_cluster(assets.main, easy ? easy_cluster : hard_cluster)) {
+    // $16990: a world done ($24AE bit clear) has no planet.
+    for (const auto& planet : planets_) shown_.push_back((worlds_left >> (planet.world & 31)) & 1);
+    chosen_ = cluster_.update(assets_.main, planets_, shown_);
+}
+
+int WorldMap::frame(std::uint8_t joystick) {
+    // $11686 each frame: the planets placed, then the joystick ($168BE).
+    chosen_ = cluster_.update(assets_.main, planets_, shown_);
+    cluster_.steer(joystick);
+    const bool fire = joystick & 0x80;
+    if (!fire) { released_ = true; return -1; }
+    if (!released_ || chosen_ < 0) return -1;
+    return planets_[std::size_t(chosen_)].world;
+}
+
+void WorldMap::draw(view::Screen& s) const {
+    s.fill(0);
+    set_map_palette(s, assets_.main);
+    view::TextPrinter text(assets_.main);
+    text.print(s, cluster_box);
+    cluster_.draw(s, assets_, assets_.main, planets_);
+    if (chosen_ >= 0) { // $119CC: the name at column 14, row 8
+        text.put(s, 0x10);
+        text.column = 14;
+        text.row = 8;
+        text.print(s, world_names + std::uint32_t(planets_[std::size_t(chosen_)].world & 31) * 13);
+    }
+}
+
+} // namespace spindizzy::game

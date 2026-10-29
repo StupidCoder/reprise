@@ -1,0 +1,415 @@
+#include "spindizzy_worlds_amiga/play/objects.hpp"
+#include "spindizzy_worlds_amiga/view/sprites.hpp"
+
+namespace spindizzy::play {
+namespace {
+
+using world::ObjectKind;
+
+// Per jewel type (the first parameter byte & $E, a word offset): the fuel
+// it gives ($14B5C, also kept for the reserve), the explorer's flash ticks
+// it adds ($14B6C, $24F4), how far above the jewel it can be taken
+// ($14B7C) and its sound ($14B8C).
+constexpr std::uint32_t jewel_fuel_table = 0x14B5C;
+constexpr std::uint32_t jewel_flash_table = 0x14B6C;
+constexpr std::uint32_t jewel_reach_table = 0x14B7C;
+// A lift's pause after reaching an end, per 4-bit index ($14DAE).
+constexpr std::uint32_t lift_pauses = 0x14DAE;
+constexpr int max_slots = 31; // $144BE: slots 1-31 at $25CC
+
+std::uint8_t parameter(const world::PlacedObject& object, std::size_t i) {
+    return i < object.parameters.size() ? object.parameters[i] : 0;
+}
+std::uint16_t parameter_word(const world::PlacedObject& object, std::size_t i) {
+    return std::uint16_t(parameter(object, i) << 8 | parameter(object, i + 1));
+}
+
+std::uint8_t high(std::uint16_t word) { return std::uint8_t(word >> 8); }
+std::uint8_t low(std::uint16_t word) { return std::uint8_t(word); }
+
+// The rounded whole part of a 16.16 speed ($14EB8: + $8000, swap).
+std::int16_t rounded(std::int32_t speed) { return std::int16_t(std::uint32_t(speed + 0x8000) >> 16); }
+
+// Whether the explorer is in the object's cell and between `reach`
+// below and the object's height plus `extra` ($14B9C): the object's x and
+// y with the low byte $FF minus the explorer's must have a zero high
+// byte; (z + extra) − explorer z, unsigned, at most `reach`.
+bool explorer_on(const LevelObject& object, const Explorer& e, int extra, int reach, std::int16_t* height = nullptr) {
+    const std::uint16_t dx = std::uint16_t((object.x | 0xFF) - e.x);
+    const std::uint16_t dy = std::uint16_t((object.y | 0xFF) - e.y);
+    if ((dx & 0xFF00) || (dy & 0xFF00)) return false;
+    const std::uint16_t dz = std::uint16_t(object.z + extra - e.z);
+    if (height) *height = std::int16_t(dz);
+    return dz <= std::uint16_t(reach);
+}
+
+// A solid object's sides ($14EAE): when the explorer came in from
+// outside along an axis this tick (`dx` − its move is outside 0 … `size`),
+// the move is undone and the speed reversed and halved.
+void push_out(Explorer& e, std::uint16_t dx, std::uint16_t dy, std::uint16_t size) {
+    const std::int16_t mx = rounded(e.vx);
+    if (std::uint16_t(dx - mx) >= size) {
+        e.x = std::int16_t(e.x - mx);
+        e.vx = -e.vx >> 1;
+    }
+    const std::int16_t my = rounded(e.vy);
+    if (std::uint16_t(dy - my) < size) return;
+    e.y = std::int16_t(e.y - my);
+    e.vy = -e.vy >> 1;
+}
+
+} // namespace
+
+bool condition_holds(std::uint16_t condition, const world::Switches& switches, std::uint32_t jewels) {
+    world::Switches now = switches;
+    now.jewels_left = jewels != 0;
+    return now.holds(condition);
+}
+
+LevelObjects::LevelObjects(const world::Level& level, const data::Memory& main, ObjectWorld& w, bool first_visit,
+                           int& jewels_found)
+    : main_(main) {
+    int jewel_index = 0; // $256A: counts every jewel the level places
+    int slot = 2;
+    for (std::size_t i = 0; i < level.objects.size(); ++i) {
+        const auto& placed = level.objects[i];
+        if (slot > max_slots) break; // no free slot: the object is not made
+        LevelObject o;
+        o.kind = ObjectKind(placed.kind);
+        o.source = i;
+        o.slot = slot;
+        // $127F8: positions are the cell's origin (x, y × 256), z the level × 256.
+        o.x = std::int16_t(placed.x << 8);
+        o.y = std::int16_t(placed.y << 8);
+        o.z = std::int16_t(placed.z << 8);
+        o.count = 1; // $144BE leaves +$1E to the create routine; lists start at 1
+        switch (o.kind) {
+        case ObjectKind::jewel: { // $14A18
+            const int index = jewel_index++;
+            if (first_visit) { // $1392A: bit 31 set: every jewel is there
+                ++jewels_found;
+                w.jewels |= 1u << index;
+            } else if (!(w.jewels >> index & 1)) {
+                o.alive = false; // taken before
+            }
+            o.word2e = std::uint16_t(index);
+            o.word2c = parameter(placed, 0) & 0x0E;
+            o.count = (((31 - slot) & 7) + 1) * 4; // +$1E high byte; the step +$1F is 0
+            break;
+        }
+        case ObjectKind::lift: // $14CBC
+            o.word2c = parameter_word(placed, 0);
+            o.word2e = parameter_word(placed, 2);
+            o.word26 = parameter_word(placed, 4);
+            o.word30 = 0;
+            o.word32 = parameter(placed, 6);
+            o.word34 = std::uint16_t((parameter(placed, 7) & 7) << 8);
+            break;
+        case ObjectKind::exit_point: { // $14FC2
+            o.word2c = std::uint16_t(parameter(placed, 0) << 8 | parameter(placed, 1)); // flags, destination
+            o.word26 = parameter_word(placed, 2);
+            o.word2e = parameter_word(placed, 4);
+            const int flags = parameter(placed, 0), destination = parameter(placed, 1) & 15;
+            // Bit 6: gone once the destination level has no jewels left
+            // (its long is 0: visited and emptied).
+            if ((flags & 0x40) && destination != 0 && w.level_jewels[destination - 1] == 0) o.alive = false;
+            o.count = 1;
+            break;
+        }
+        case ObjectKind::push_button: // $16048
+            o.word2c = parameter(placed, 0) & 7;
+            break;
+        case ObjectKind::binary_switch: { // $16154
+            const int colour = parameter(placed, 0) & 3;
+            o.word2c = std::uint16_t(8 >> colour);
+            o.word32 = std::uint16_t(colour + 0x18);
+            o.word2e = std::uint16_t(std::uint8_t(parameter(placed, 1) - w.rotation) << 8);
+            o.word30 = std::uint16_t(colour * 8);
+            break;
+        }
+        case ObjectKind::heads: // $1594A
+            o.word2c = std::uint16_t(parameter(placed, 0) << 8);
+            o.word32 = parameter(placed, 1) & 3;
+            o.word26 = parameter_word(placed, 2);
+            o.word30 = std::uint16_t(o.z);
+            o.word2e = condition_holds(o.word26, w.switches, w.jewels) ? 0x200 : 0; // z follows at its first tick
+            break;
+        case ObjectKind::secret_passage: // $15404
+            o.word2c = parameter(placed, 0);
+            break;
+        case ObjectKind::timer: { // $1530C
+            const int seconds = parameter(placed, 0);
+            int sum = (w.timer >> 8) + seconds;
+            if (seconds >= 0x63) sum = 0x63;
+            w.timer = std::uint16_t((sum & 0xFF) << 8 | (w.timer & 0xFF));
+            o.word2c = std::uint16_t(parameter(placed, 1) << 8);
+            if (!(parameter(placed, 1) & 0x80)) w.timer = std::uint16_t(seconds << 8 | 0xF0); // not "Relative"
+            break;
+        }
+        case ObjectKind::message: // $16002 (the editor's test mode $24BE deletes them)
+            o.word2c = std::uint16_t(parameter(placed, 0) << 8);
+            o.count = parameter(placed, 1) + 1;
+            break;
+        case ObjectKind::clue: // $16340: a clue word for the panel; 0 takes $361C (not set: 0)
+            o.word26 = parameter_word(placed, 0);
+            break;
+        default: break;
+        }
+        objects_.push_back(o);
+        if (o.alive) ++slot;
+    }
+    reapply(w);
+}
+
+void LevelObjects::reapply(ObjectWorld& w) const {
+    // $15404 / $15430: a secret passage's column. Bit 7 of its parameter
+    // clears count + 1 cells upward; otherwise the bottom cell becomes
+    // block 1 and the `count` cells above it are cleared (the dbra jumps
+    // into the clearing loop after the first store). The tile map was
+    // built before the objects, so the passage still looks like a wall.
+    for (const auto& o : objects_) {
+        if (!o.alive || o.kind != ObjectKind::secret_passage) continue;
+        const int x = o.x >> 8 & 31, y = o.y >> 8 & 31;
+        int z = o.z >> 8 & 7;
+        const int count = o.word2c & 7;
+        for (int i = 0; i <= count && z < world::level_height; ++i, ++z) {
+            const bool solid = i == 0 && !(o.word2c & 0x80);
+            w.grid.set_type(x, y, z, solid ? 1 : 0);
+        }
+    }
+}
+
+void LevelObjects::tick(ObjectWorld& w, ObjectEvents& events) {
+    for (auto& o : objects_) {
+        if (!o.alive) continue;
+        switch (o.kind) {
+        case ObjectKind::jewel: tick_jewel(o, w); break;
+        case ObjectKind::lift: tick_lift(o, w); break;
+        case ObjectKind::exit_point: tick_exit(o, w, events); break;
+        case ObjectKind::push_button: tick_button(o, w); break;
+        case ObjectKind::binary_switch: tick_switch(o, w); break;
+        case ObjectKind::heads: tick_heads(o, w); break;
+        case ObjectKind::timer: tick_timer(o, w, events); break;
+        case ObjectKind::message: tick_message(o, events); break;
+        default: break;
+        }
+    }
+}
+
+void LevelObjects::tick_jewel(LevelObject& o, ObjectWorld& w) { // $14B04
+    const auto type = std::uint32_t(o.word2c);
+    const int reach = main_.u16(jewel_reach_table + type);
+    if (!explorer_on(o, w.explorer, reach, reach + 0x180)) return;
+    w.jewels &= ~(1u << (o.word2e & 31));
+    const auto fuel = std::int16_t(main_.u16(jewel_fuel_table + type));
+    w.fuel_change += std::int32_t(std::uint32_t(fuel) << 16); // add.w to the long's high word
+    w.jewel_fuel = std::int16_t(w.jewel_fuel + fuel);
+    w.explorer.timer_a = std::int16_t(w.explorer.timer_a + std::int16_t(main_.u16(jewel_flash_table + type)));
+    ++w.jewels_taken;
+    o.alive = false; // $1449E
+}
+
+void LevelObjects::tick_lift(LevelObject& o, ObjectWorld& w) { // $14D46
+    o.speed = 0;
+    if (condition_holds(o.word26, w.switches, w.jewels) && o.word30-- == 0) {
+        o.word30 = 0;
+        int pause_index;
+        bool turn = false;
+        if (!(o.word2e & 0x8000)) { // going up: "UpSpeed", up to the level "Max z"
+            o.speed = std::int16_t(low(o.word2e) & 0x7F);
+            o.z = std::int16_t(o.z + o.speed);
+            pause_index = low(o.word2c);
+            turn = std::int8_t(low(o.word2c) & 15) <= std::int8_t(high(std::uint16_t(o.z)));
+        } else { // going down: "DnSpeed", down to "Min_z"
+            o.speed = std::int16_t(-(high(o.word2e) & 0x7F));
+            o.z = std::int16_t(o.z + o.speed);
+            pause_index = high(o.word2c);
+            if (o.z < 0) {
+                o.z = 0;
+                turn = true;
+            } else {
+                const std::int16_t bottom = std::int16_t((high(o.word2c) & 15) << 8);
+                if (bottom > o.z) {
+                    o.z = bottom;
+                    o.speed = 0;
+                    turn = true;
+                }
+            }
+        }
+        if (turn) {
+            o.word30 = main_.u16(lift_pauses + std::uint32_t((pause_index & 0xF0) >> 3));
+            o.word2e ^= 0x8000;
+        }
+    }
+    // $14E26: the explorer on the platform or against its sides.
+    auto& e = w.explorer;
+    const std::uint16_t dx = std::uint16_t(e.x - o.x), dy = std::uint16_t(e.y - o.y);
+    if (dx >= 0x100 || dy >= 0x100) return;
+    const std::int16_t below = std::int16_t(o.z + 8 - e.z);
+    if (below < 0) return;
+    if (!(o.word32 & 0x80)) {                        // not a column down to the floor
+        if (o.word32 & 0x40) {                       // tall
+            if (below >= 0x2FF) return;
+        } else if (below >= 0x1FF) {
+            return;
+        }
+    }
+    if (below < 0x80) { // on top: carried
+        e.z = std::int16_t(o.z + 8);
+        e.contact |= contact::on_lift | contact::traction;
+        e.friction = 4;
+        if (o.speed >= std::int16_t(e.vz >> 16)) e.vz = std::int32_t(std::uint32_t(o.speed) << 16 | (std::uint32_t(e.vz) & 0xFFFF));
+        return;
+    }
+    push_out(e, dx, dy, 0x100);
+}
+
+void LevelObjects::tick_exit(LevelObject& o, ObjectWorld& w, ObjectEvents& events) { // $15044
+    o.byte20 = 0;
+    if (!condition_holds(o.word26, w.switches, w.jewels)) return;
+    const int flags = high(o.word2c);
+    if (!(flags & 0x80)) o.byte20 = 0xFF; // shown
+    if (!w.running) return;
+    const auto& e = w.explorer;
+    if (!(flags & 0x20)) { // "Ignore xy" clear: the explorer's cell
+        if ((std::uint16_t((o.x | 0xFF) - e.x) & 0xFF00) || (std::uint16_t((o.y | 0xFF) - e.y) & 0xFF00)) return;
+    }
+    if (!(flags & 0x10) && (std::uint16_t(o.z + 0x40 - e.z) & 0xFE00)) return; // "Ignore z" clear
+    if (flags & 0x08) { // back to the respawn point ($12C3E)
+        events.back_to_respawn = true;
+        return;
+    }
+    const int destination = low(o.word2c) & 15;
+    if (destination == w.level) {
+        // $1510C: a place in this level ("Use XYZ pos" forced).
+        events.travel = ObjectEvents::Travel{destination, std::uint16_t(o.word2e | 0x8000), false};
+        return;
+    }
+    o.byte21 = (w.level_flags & 0x1000) ? 0xFF : 0;
+    events.travel = ObjectEvents::Travel{destination, o.word2e, o.byte21 != 0};
+    w.running = false;
+}
+
+void LevelObjects::tick_button(LevelObject& o, ObjectWorld& w) { // $1609C: resting exactly on it
+    std::int16_t height = 0;
+    if (!explorer_on(o, w.explorer, 0, 0xFFFF, &height) || height != 0) return;
+    auto& s = w.switches;
+    const int type = o.word2c;
+    if (type == 7) { // resets: word $3616 = $FFFF
+        s.primary = s.secondary = 0xFF;
+    } else if (type & 4) { // the primary value (byte $3616)
+        s.primary = std::uint8_t((type & 3) + 1);
+    } else { // word $3616 = type: primary 0, secondary type
+        s.primary = 0;
+        s.secondary = std::uint8_t(type);
+    }
+}
+
+void LevelObjects::tick_switch(LevelObject& o, ObjectWorld& w) { // $161E0: resting exactly on it
+    std::int16_t height = 0;
+    if (!explorer_on(o, w.explorer, 0, 0xFFFF, &height) || height != 0) return;
+    // The half of the cell along the switch's facing sets or clears its bit.
+    std::uint16_t across = std::uint16_t(w.explorer.x), along = std::uint16_t(w.explorer.y);
+    const int facing = high(o.word2e);
+    if (facing & 1) std::swap(across, along);
+    std::uint8_t part = std::uint8_t(across);
+    if (facing & 2) part = std::uint8_t(~part);
+    const std::uint16_t bit = o.word2c;
+    std::uint16_t state = std::uint16_t(w.switches.binary | bit);
+    if (!(part & 0x80)) state = std::uint16_t(state ^ bit);
+    w.switches.binary = std::uint8_t(state);
+}
+
+void LevelObjects::tick_heads(LevelObject& o, ObjectWorld& w) { // $159DC
+    o.speed = 0;
+    if (condition_holds(o.word26, w.switches, w.jewels)) {
+        o.word2e = std::uint16_t(std::min(o.word2e + 4, 0x200));
+    } else {
+        o.word2e = std::uint16_t(o.word2e >= 4 ? o.word2e - 4 : 0);
+    }
+    o.z = std::int16_t(o.word30 + 0x300 + ((o.word2c & 0x8000) ? o.word2e : -o.word2e));
+    // $15A4C: a solid block three levels tall below its top.
+    auto& e = w.explorer;
+    const std::uint16_t dx = std::uint16_t(e.x - o.x + 0x5A), dy = std::uint16_t(e.y - o.y + 0x5A);
+    if (dx >= 0x1B4 || dy >= 0x1B4) return;
+    const std::int16_t dz = std::int16_t(e.z - o.z + 0x300 + 0x168);
+    if (dz < 0 || dz >= 0x300) return;
+    push_out(e, dx, dy, 0x1B4);
+}
+
+void LevelObjects::tick_timer(LevelObject& o, ObjectWorld& w, ObjectEvents& events) { // $15346
+    if (w.timer_expired) return;
+    if (w.timer >= 8) {
+        w.timer = std::uint16_t(w.timer - 8);
+        return; // (a tick sound each second, $1538E)
+    }
+    w.timer = 0;
+    const int flags = high(o.word2c);
+    if (flags & 0x40) { // "Die if elapse"
+        events.clue = 4;
+        events.timer_death = true;
+        w.timer_expired = true;
+        o.alive = false; // its tick and frame become the dying routines (not rebuilt)
+        return;
+    }
+    // "Elapse Dest" ($150D0): the timer travels like an exit at place 0.
+    const int destination = flags & 15;
+    if (destination == w.level) {
+        if (w.running) events.travel = ObjectEvents::Travel{destination, 0x8000, false};
+        return;
+    }
+    o.byte21 = (w.level_flags & 0x1000) ? 0xFF : 0;
+    events.travel = ObjectEvents::Travel{destination, 0, o.byte21 != 0};
+    w.running = false;
+}
+
+void LevelObjects::tick_message(LevelObject& o, ObjectEvents& events) { // $16028
+    if (--o.count < 0) {
+        o.alive = false;
+        return;
+    }
+    if (o.count != 0) return;
+    events.clue = high(o.word2c) & 0x1F;
+    events.clue_always = (o.word2c & 0x8000) != 0;
+}
+
+void LevelObjects::frame(const data::Memory& main, bool slow, const view::Camera& camera) {
+    // $10058 for the animated kinds: jewels ($14BCA, their per-type list)
+    // and exits shown ($15128, list $15140). The count is a byte; without
+    // slow mode it counts twice a frame. A handler steps only a sprite on
+    // the playfield: its corner less the scroll across within −$20 … $120
+    // ($14BEA), its rows reaching rows 0 … $A6 ($1072A).
+    constexpr std::uint32_t jewel_lists = 0x14C44, jewel_rows = 0x14C24, exit_list = 0x15140;
+    for (auto& o : objects_) {
+        if (!o.alive) continue;
+        std::uint32_t list = 0;
+        auto place = view::project({o.x, o.y, o.z});
+        place.x -= 16;
+        int rows = 0;
+        if (o.kind == ObjectKind::jewel) {
+            list = jewel_lists + std::uint32_t(std::int16_t(main.u16(jewel_lists + o.word2c)));
+            rows = std::int16_t(main.u16(jewel_rows + o.word2c));
+            if (o.word2c == 4 || o.word2c == 14) place.y -= 16; // $14A76
+            else if (o.word2c == 2) place.y -= 8;              // $14AAC
+        } else if (o.kind == ObjectKind::exit_point && o.byte20) {
+            list = exit_list;
+            rows = 0x0E;
+            if (o.word2c == 2) place.y -= 8; // $14AAE's test, meant for jewels
+        } else {
+            continue;
+        }
+        const int across = place.x - camera.scroll_x + 0x20;
+        if (across <= 0 || across >= 0x140) continue;
+        const int down = place.y - camera.scroll_y;
+        if (down >= 0xA7 || down + rows < 0) continue;
+        bool next = false;
+        if (!slow) next = (o.count = (o.count - 1) & 0xFF) == 0;
+        if (!next) next = (o.count = (o.count - 1) & 0xFF) == 0;
+        if (!next) continue;
+        ++o.step;
+        if (std::int16_t(main.u16(list + std::uint32_t(o.step) * 4)) < 0) o.step = 0;
+        o.count = main.u16(list + std::uint32_t(o.step) * 4) & 0xFF;
+    }
+}
+
+} // namespace spindizzy::play

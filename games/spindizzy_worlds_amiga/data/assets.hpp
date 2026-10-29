@@ -120,6 +120,13 @@ struct Assets {
     std::array<std::uint8_t, 256> block_attributes{}; // the table at $30BC0, one byte per block type
     Graphics graphics;
     std::vector<World> worlds;
+    // SELECT.SWP ($5140 bytes, loaded to $A(a5) + 4: $115F8 keeps a tag
+    // long first, so the code's offsets are the file's + 4): the front
+    // end's pictures: file 0 the panel (32 rows, the four plane words of
+    // each 16 pixels in turn, $149F0), $1400 the planets ($7D0 each,
+    // $169AC), $1928 the shadow, $3340 the "?" planet, $35C0 the
+    // disintegrating one ($280 a frame).
+    std::vector<std::uint8_t> select_swap;
 };
 
 Assets load_assets(const std::filesystem::path& content);

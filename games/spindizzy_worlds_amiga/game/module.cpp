@@ -1,37 +1,32 @@
 #include "spindizzy_worlds_amiga/game/module.hpp"
 #include "spindizzy_worlds_amiga/data/assets.hpp"
-#include "spindizzy_worlds_amiga/data/preview.hpp"
+#include "spindizzy_worlds_amiga/game/front_end.hpp"
+#include "spindizzy_worlds_amiga/game/play_screen.hpp"
 #include "spindizzy_worlds_amiga/play/level_play.hpp"
-#include "spindizzy_worlds_amiga/view/camera.hpp"
-#include "spindizzy_worlds_amiga/view/objects.hpp"
-#include "spindizzy_worlds_amiga/view/playfield.hpp"
-#include "spindizzy_worlds_amiga/view/starfield.hpp"
-#include "spindizzy_worlds_amiga/view/tile_map.hpp"
-#include "spindizzy_worlds_amiga/world/object_kind.hpp"
+#include "spindizzy_worlds_amiga/play/surfaces.hpp"
+#include "spindizzy_worlds_amiga/view/screen.hpp"
+#include <memory>
 #include <optional>
-#include <string>
-#include <utility>
-#include <vector>
 
 namespace spindizzy::game {
 namespace {
 
-constexpr int tutorial = 23;        // the world the Easy map starts on
-constexpr int shown_width = 288;    // the playfield between the pillars (buffer columns 16-303)
-constexpr int shown_height = 150;   // above the panel
+constexpr std::uint32_t main_menu = 0x18B44, main_menu_box = 0x18B3A;   // $18A84
+constexpr std::uint32_t next_menu = 0x18CDC, next_menu_box = 0x18CD2;   // $18CB0: "Next world", "Save game"
+constexpr int main_menu_timeout = 0x64 << 3;                             // $18A90: d7 × 8 passes
+constexpr std::uint32_t easy_worlds = 0x9F800000, hard_worlds = 0x007FFFFF; // $11E10: $24AE per cluster
+
+// The game's screens in the original's main loop ($18950).
+enum class Stage { attract, menu, clusters, map, play, next_menu };
 
 class Module final : public app::GameModule {
 public:
     explicit Module(const std::filesystem::path& content)
         : assets_(data::load_assets(content)), surfaces_(play::read_surfaces(assets_.main)) {
-        for (const auto& world : assets_.worlds)
-            for (const auto& [id, record] : world.levels) levels_.push_back({world.number, id});
-        for (std::size_t i = 0; i < levels_.size(); ++i)
-            if (levels_[i] == std::pair{tutorial, 1}) choice_ = int(i);
-        start_level();
+        attract_.emplace(assets_);
     }
 
-    double step_seconds() const override { return 1.0 / 50; } // one rules tick per PAL frame (slow mode)
+    double step_seconds() const override { return 1.0 / 50; } // PAL frames
     double pixel_aspect() const override { return 1.0; }
 
     void tick(const app::GameInput& input) override {
@@ -41,75 +36,114 @@ public:
         if (input.left) joystick |= play::stick::left;
         if (input.right) joystick |= play::stick::right;
         if (input.fire) joystick |= play::stick::fire;
-        if (input.space && !space_held_) play_->brake();
-        space_held_ = input.space;
-        play_->tick(joystick);
-        // The frame's drawing steps the explorer's animation ($1490A and
-        // the lost/arriving kinds' handlers), then the camera follows ($14138).
-        frame_ = play_->explorer_frame(assets_.main);
-        view::follow(camera_, explorer_place(), play_->explorer().z, play_->level_flags());
+        switch (stage_) {
+        case Stage::attract:
+            if (attract_->frame(joystick)) open_menu();
+            break;
+        case Stage::menu: {
+            const int item = menu_->frame(joystick);
+            slow_ = menu_->slow_mode;
+            if (item == -1) { // timed out: the attract again
+                attract_.emplace(assets_);
+                stage_ = Stage::attract;
+            } else if (item == 1) { // Start new game ($18AB4)
+                cluster_ = 0;
+                worlds_done_ = 0;
+                progress_.clues_left = 0xFFFFFFFF;
+                open_map();
+            } else if (item == 0 || item == 6) { // Continue / Slow Mode
+                open_map();
+            }
+            break; // Load, Save, Check performance, Wind back world, Create Data disk: not rebuilt
+        }
+        case Stage::clusters:
+            if (const int chosen = clusters_->frame(joystick)) {
+                cluster_ = chosen;
+                worlds_left_ = chosen == 1 ? easy_worlds : hard_worlds;
+                open_map();
+            }
+            break;
+        case Stage::map: {
+            const int world = map_->frame(joystick);
+            if (world < 0) break;
+            // $1177A: world $16 needs the Hard worlds 0-21 done, $1F the Easy 23-28.
+            if (world == 0x1F && (worlds_left_ & 0x1F800000)) break;
+            if (world == 0x16 && (worlds_left_ & 0x003FFFFF)) break;
+            progress_.start_world(assets_.main, world, worlds_done_ * 2);
+            if (worlds_done_ == 0) { progress_.fuel = 0x80 << 16; progress_.reserve = 0; } // $16D48
+            play_ = std::make_unique<PlayScreen>(assets_, surfaces_, progress_);
+            stage_ = Stage::play;
+            break;
+        }
+        case Stage::play: {
+            PlayInput in;
+            in.joystick = joystick;
+            in.space = input.space;
+            play_->frame(in, slow_);
+            if (play_->outcome() == PlayScreen::Outcome::world_done) {
+                // $16B8C: the world is recorded done; fuel and reserve go on.
+                worlds_left_ &= ~(1u << (progress_.world & 31));
+                ++worlds_done_;
+                view::Screen behind;
+                play_->draw(behind);
+                menu_.emplace(assets_, behind, next_menu, next_menu_box, 0);
+                stage_ = Stage::next_menu;
+            } else if (play_->outcome() == PlayScreen::Outcome::game_over) {
+                // $18C14 offers the reserve fuel (not rebuilt): back to the title.
+                attract_.emplace(assets_);
+                stage_ = Stage::attract;
+            }
+            break;
+        }
+        case Stage::next_menu:
+            if (menu_->frame(joystick) >= 0) open_map(); // "Next world" (saving is not rebuilt)
+            break;
+        }
     }
 
     platform::Image picture() const override {
-        view::Canvas canvas(shown_width, shown_height);
-        view::draw_playfield(canvas, *map_, assets_.graphics, camera_.scroll_x, camera_.top());
-        // Stars are fixed to the screen; buffer column 0 is 16 pixels left.
-        view::draw_stars(canvas, stars_, -16);
-        const auto& e = play_->explorer();
-        const view::WorldPosition at{e.x, e.y, e.z};
-        const view::ObjectSprite explorer{0, data::read_sprite_frame(assets_.main, frame_, 1, 16), explorer_place(),
-                                          view::sort_value(at) + 0xC};
-        view::draw_with_explorer(canvas, sprites_, explorer, *map_, assets_.graphics, camera_.scroll_x, camera_.top());
-        platform::Image image(canvas.width, canvas.height);
-        const auto& palette = assets_.graphics.palettes[0];
-        for (int y = 0; y < canvas.height; ++y)
-            for (int x = 0; x < canvas.width; ++x) image.put(x, y, data::to_color(palette[canvas.at(x, y)]));
-        return image;
-    }
-
-    std::vector<app::GameOption> options() const override {
-        app::GameOption level{"Level", {}, choice_, "Test drive: the level to drive in (objects do not act yet)."};
-        for (const auto& [world, id] : levels_)
-            level.choices.push_back(assets_.worlds.at(std::size_t(world)).name + " " + std::to_string(id));
-        return {level};
-    }
-
-    void set_option(std::size_t index, int value) override {
-        if (index != 0 || value < 0 || value >= int(levels_.size())) return;
-        choice_ = value;
-        start_level();
+        view::Screen screen;
+        switch (stage_) {
+        case Stage::attract: attract_->draw(screen); break;
+        case Stage::menu: case Stage::next_menu: menu_->draw(screen); break;
+        case Stage::clusters: clusters_->draw(screen); break;
+        case Stage::map: map_->draw(screen); break;
+        case Stage::play: play_->draw(screen); break;
+        }
+        return screen.image();
     }
 
 private:
-    view::SpritePlace explorer_place() const {
-        const auto& e = play_->explorer();
-        return view::explorer_place({e.x, e.y, e.z});
+    void open_menu() {
+        view::Screen behind;
+        attract_->draw(behind);
+        menu_.emplace(assets_, behind, main_menu, main_menu_box, main_menu_timeout);
+        menu_->slow_mode = slow_;
+        stage_ = Stage::menu;
     }
-
-    void start_level() {
-        const auto [world, id] = levels_.at(std::size_t(choice_));
-        play_ = std::make_unique<play::LevelPlay>(assets_, surfaces_, world, id);
-        map_ = std::make_unique<view::TileMap>(view::TileMap::build(play_->level().grid, assets_.graphics));
-        sprites_ = view::start_sprites(play_->level(), play_->switches(), assets_.main);
-        stars_.clear();
-        view::StarRandom running(0); // used by seed 0 only; its state at a level start is not traced yet
-        for (const auto& object : play_->level().objects)
-            if (object.kind == int(world::ObjectKind::starfield)) stars_ = view::make_stars(assets_.main, object, running);
-        frame_ = play_->explorer_frame(assets_.main);
-        camera_ = view::snap_camera(explorer_place(), play_->level_flags()); // $14202
+    void open_map() {
+        if (cluster_ == 0) { // $11710: no cluster chosen yet
+            clusters_.emplace(assets_);
+            stage_ = Stage::clusters;
+            return;
+        }
+        map_.emplace(assets_, cluster_ == 1, worlds_left_);
+        stage_ = Stage::map;
     }
 
     data::Assets assets_;
     play::SurfaceTable surfaces_;
-    std::vector<std::pair<int, int>> levels_; // (world, level)
-    int choice_{};
-    std::unique_ptr<play::LevelPlay> play_;
-    std::unique_ptr<view::TileMap> map_;
-    std::vector<view::ObjectSprite> sprites_;
-    std::vector<view::Star> stars_;
-    view::Camera camera_;
-    std::uint32_t frame_{view::explorer_frames};
-    bool space_held_{};
+    play::Progress progress_;
+    Stage stage_{Stage::attract};
+    std::optional<Attract> attract_;
+    std::optional<Menu> menu_;
+    std::optional<ClusterChoice> clusters_;
+    std::optional<WorldMap> map_;
+    std::unique_ptr<PlayScreen> play_;
+    int cluster_{};                 // $36B4: 0 none yet, 1 Easy, 2 Hard
+    std::uint32_t worlds_left_{};   // $24AE
+    int worlds_done_{};             // $36B0 / 2
+    bool slow_{true};               // $24A6: the menu's "Slow Mode? Yes"
 };
 
 } // namespace

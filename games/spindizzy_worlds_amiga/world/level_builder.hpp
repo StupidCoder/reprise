@@ -37,6 +37,8 @@ public:
         looks_[index(x, y, z)] = look;
     }
     CellLook& look(int x, int y, int z) { return looks_[index(x, y, z)]; }
+    // A type changed at run time (secret passages): the cell keeps its look.
+    void set_type(int x, int y, int z, std::uint8_t type) { cells_[index(x, y, z)] = type; }
     // The highest occupied cell of a column, or -1.
     int top(int x, int y) const;
 

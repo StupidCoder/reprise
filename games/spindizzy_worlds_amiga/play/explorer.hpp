@@ -31,7 +31,7 @@ constexpr std::uint8_t fire = 0x80;  // doubles the push on the ground
 namespace contact {
 constexpr std::uint16_t grounded = 0x8000; // on a top (landing sound, respawn point)
 constexpr std::uint16_t looked_through = 0x4000; // a lookup passed a $22/$23 cell (not read)
-constexpr std::uint16_t hot = 0x0200;      // on a hot top (steering allowed)
+constexpr std::uint16_t ice = 0x0200;      // on ice (steering allowed; the clues call it ice)
 constexpr std::uint16_t bouncy = 0x0100;   // on a bouncy top (no landing sound)
 constexpr std::uint16_t traction = 0x0080; // full steering and friction
 constexpr std::uint16_t unheld_lift_top = 0x0002; // touching a lift's top without the lift holding it
@@ -49,7 +49,7 @@ struct Explorer {
     std::int16_t floor_base{};           // $2504: that block's level << 8 ($FF00 when none)
     int column_x{}, column_y{};          // $24FE: the column of the last floor lookup
     int wall_level{};                    // $250A: highest neighbour cell the wall test looks at
-    int hot_ticks{};                     // $2514
+    int ice_ticks{};                     // $2514
     int brake_lock{};                    // $24EC
     bool brake_requested{};              // $24EE bit 7 (space bar, $11314)
     std::int16_t respawn_x{}, respawn_y{}, respawn_z{}; // $24CC
@@ -75,7 +75,7 @@ struct TickEvents {
 struct Ground {
     const world::LevelGrid& grid;
     const SurfaceTable& surfaces;
-    std::uint16_t level_flags{}; // $24B8: bit 11 = hot tops never time out
+    std::uint16_t level_flags{}; // $24B8: bit 11 = ice never times out ("Ice timeout off")
     world::Switches& switches;   // switch pads write the push-button state
 };
 

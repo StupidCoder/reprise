@@ -332,16 +332,23 @@ add_library(spindizzy_worlds_amiga
     games/spindizzy_worlds_amiga/entry.cpp
     games/spindizzy_worlds_amiga/data/assets.cpp
     games/spindizzy_worlds_amiga/data/preview.cpp
+    games/spindizzy_worlds_amiga/game/front_end.cpp
     games/spindizzy_worlds_amiga/game/module.cpp
+    games/spindizzy_worlds_amiga/game/play_screen.cpp
     games/spindizzy_worlds_amiga/import/disk_import.cpp
     games/spindizzy_worlds_amiga/play/explorer.cpp
     games/spindizzy_worlds_amiga/play/level_play.cpp
+    games/spindizzy_worlds_amiga/play/objects.cpp
     games/spindizzy_worlds_amiga/play/surfaces.cpp
     games/spindizzy_worlds_amiga/view/camera.cpp
+    games/spindizzy_worlds_amiga/view/front.cpp
     games/spindizzy_worlds_amiga/view/objects.cpp
+    games/spindizzy_worlds_amiga/view/panel.cpp
     games/spindizzy_worlds_amiga/view/playfield.cpp
+    games/spindizzy_worlds_amiga/view/screen.cpp
     games/spindizzy_worlds_amiga/view/sprites.cpp
     games/spindizzy_worlds_amiga/view/starfield.cpp
+    games/spindizzy_worlds_amiga/view/text.cpp
     games/spindizzy_worlds_amiga/view/tile_map.cpp
     games/spindizzy_worlds_amiga/world/level_builder.cpp)
 target_include_directories(spindizzy_worlds_amiga PUBLIC ${SOURCE_ROOT})
