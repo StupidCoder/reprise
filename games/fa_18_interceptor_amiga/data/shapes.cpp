@@ -375,7 +375,7 @@ private:
         case 0x124: return true;                                  // skips a word for type 87 only
         case 0x7C: a += 2; return true;                           // orientation set-up, draws nothing
         // Scenery (game.md "Scenery shapes").
-        case 0x24: case 0x78: {                                   // parallelogram P0 P1 P2 ($114C14, $1145EA)
+        case 0x24: case 0x78: case 0x6C: {                        // parallelogram P0 P1 P2 ($114C14, $1145EA, $1145C8)
             const int colour = m_.u16(a), v = m_.u16(a + 2) / point_size;
             a += 4;
             add_face({point(v), point(v + 1), point(v + 2), point(v + 2) - (point(v + 1) - point(v))}, colour);
@@ -706,6 +706,25 @@ Shape read_ground_list(const amiga::LoadedImage& m, int type, std::uint32_t list
             a += std::uint32_t(2 * n);
             face.colour = m.u16(a) & 0x1F;
             a += 2;
+        } else if (op == 0x24 || op == 0x78) {
+            // A parallelogram P0 P1 P2 ($114C14, $1145D6; $24 only with
+            // the camera low, `$13AD68` >= -$80: drawn always here).
+            face.colour = m.u16(a) & 0x1F;
+            const int v = m.u16(a + 2) / point_size;
+            a += 4;
+            face.corners = {point(v), point(v + 1), point(v + 2), point(v + 2) - (point(v + 1) - point(v))};
+        } else if (op == 0x34 || op == 0x12C) {
+            // Lines sharing a colour: pairs of point offsets, the last
+            // with bit 15 ($114A34; $12C only with the camera above -$C0
+            // of `$13AD68`: drawn always here).
+            const int colour = m.u16(a) & 0x1F;
+            a += 2;
+            for (int guard = 0; guard < 64; ++guard) {
+                const int from = m.u16(a), to = m.u16(a + 2);
+                a += 4;
+                shape.lines.push_back({point((from & 0x7FFF) / point_size), point((to & 0x7FFF) / point_size), colour});
+                if (to & 0x8000) break;
+            }
         } else {
             char text[48];
             std::snprintf(text, sizeof text, "ground opcode %X", op);

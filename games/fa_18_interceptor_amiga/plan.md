@@ -103,7 +103,10 @@ from drawing, and must still respect the passes' model rule).
 
 ## Known bugs and differences in the port
 
-- The apron right of runway 1 shows grass where the original paves it.
+- The airfields' paving is missing around the runways (grass right of
+  runway 1 where the original paves it): the runway types' flat models
+  (type 46 for runway 1) do not decode yet (game.md "World", ground
+  shapes); the scenery decoder still stops at opcodes `$5C` and `$9C`.
 - Ditching in water ends like a crash (the original's rule is not
   traced).
 - The start map shows the city blocks of San Francisco (ground types

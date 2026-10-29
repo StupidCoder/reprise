@@ -588,7 +588,28 @@ islands. A type's lists are chained by distance: a list's first word is
 how near (× 16 world units, `$7FFF` any distance) the object must be,
 the long after it the next list for farther away (`$112F04`; negative:
 nothing). City blocks: `$4D0`, then `$C00`, then nothing; the downtown
-types 39-42, 99 and 100 are `$7FFF`.
+types 39-42, 99 and 100 are `$7FFF`. Their lists use the scenery's opcode
+table (`$113470`, indexed by the opcode as a byte offset) beyond `$60`
+`$64` `$68`: `$24`, `$78` and `$6C` a parallelogram P0 P1 P2 (colour,
+point offset; `$24` only with the camera low, `$13AD68` ≥ −$80; `$6C`
+with other clip flags, `$1145C8`), `$34` lines sharing a colour (colour,
+then pairs of point offsets, bit 15 on the last), `$12C` the same lines
+only with the camera above −$C0 of `$13AD68` (`$114A20`). Unknown so far:
+`$5C` (point offset, then colour: a figure built from three points,
+`$11486A`), `$9C` (a long and a word, `$113B58`), `$08` and `$128` in
+ground lists.
+
+**The airfields' paving** is the runway types' own flat models (runway 1:
+type 46, model `$12C062`: scale 2^−2, flags 6, two main points), not a
+ground shape: its near list (`$12C02A`) is one `$44` quads op over 16
+points (buffer offsets up to `$5A`) with no band loading sub-points. The
+model's data after the two main points has words between the point
+pairs (3, 0, 3 before blocks of 3, 2 and 3 points; ×¼ they are the
+runway table's corners, `$137D8A`), so the point builder (`$112292`…,
+flag 2) must read them differently from the decoder: open. Flag 4 of a
+flat model sets the distance (`$170` instead of `$60`, shifted by the
+zoom) beyond which the object is left out while the camera is low
+(`$13AD68` ≥ −$20).
 
 **The view** (`$123894`): camera space = the matrix `$13AEC8` (rows
 x, y, z, 1.0 = 256, rows scaled by the field of view: about 167, 251,

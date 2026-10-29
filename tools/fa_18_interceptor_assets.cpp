@@ -698,6 +698,15 @@ int main(int argc, char** argv) {
                             shape.model, shape.detail_levels, shape.faces.size(), shape.lines.size());
                 for (const auto& problem : shape.problems) std::printf("    stopped: %s\n", problem.c_str());
             }
+            for (int type = 0; type < 160; ++type) {
+                if (shape_family(assets.program, type) != ShapeFamily::ground) continue;
+                for (const auto& level : read_ground_levels(assets.program, type)) {
+                    if (!level.shape) continue;
+                    std::printf("ground %3d nearer than %8.0f faces %3zu lines %3zu\n", type, level.nearer_than,
+                                level.shape->faces.size(), level.shape->lines.size());
+                    for (const auto& problem : level.shape->problems) std::printf("    stopped: %s\n", problem.c_str());
+                }
+            }
             for (const auto& sound : assets.sounds) {
                 const int rate = int(pal_clock / sound.period + 0.5);
                 std::printf("sound %-14s slot %2d period %3d (%5d Hz) %6zu bytes\n", sound.file.c_str(), sound.slot,
