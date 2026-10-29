@@ -31,6 +31,8 @@ constexpr int bank_rows = 616;
 // The file that holds the ending picture ("YOU MADE IT"), loaded like a
 // world's graphics to $18F46 (load table $78136).
 constexpr int ending_file = 0x41;
+constexpr int name_box_file = 0x31;
+constexpr int name_box_rows = 60;
 
 std::vector<std::uint8_t> read(const std::filesystem::path& content, int file) {
     const auto path = content / import::file_name(file);
@@ -167,6 +169,37 @@ ScoreTable::Time ScoreTable::record(int level_index) const {
     return {int((v >> 8) & 0xFFFF), int(v & 0xFF)};
 }
 
+ScoreTable::Entry ScoreTable::entry(int table, int place) const {
+    const auto at = std::size_t(table) * 128 + std::size_t(place - 1) * 16;
+    if (at + 16 > bytes.size()) return {std::string(12, '('), 0};
+    return {std::string(bytes.begin() + std::ptrdiff_t(at + 1), bytes.begin() + std::ptrdiff_t(at + 13)),
+            amiga::read_be32(bytes, at + 12) & 0xFFFFFF};
+}
+
+int ScoreTable::insert(int table, std::string_view name, std::uint32_t value) {
+    const bool scores = table == hall_of_fame;
+    const int places = scores ? score_places : time_places;
+    const auto base = std::size_t(table) * 128;
+    if (base + std::size_t(places) * 16 > bytes.size()) return 0;
+    value &= 0xFFFFFF;
+    int place = 0;
+    for (int p = 1; p <= places && place == 0; ++p) {
+        const std::uint32_t held = entry(table, p).value;
+        if (scores ? value > held : held > value) place = p;
+    }
+    if (place == 0) return 0;
+    for (int p = places - 1; p >= place; --p) { // 15 bytes (name and value) down one place
+        const auto from = base + std::size_t(p - 1) * 16 + 1;
+        std::copy_n(bytes.begin() + std::ptrdiff_t(from), 15, bytes.begin() + std::ptrdiff_t(from + 16));
+    }
+    const auto at = base + std::size_t(place - 1) * 16 + 1;
+    for (std::size_t i = 0; i < 12; ++i) bytes[at + i] = std::uint8_t(i < name.size() ? name[i] : '(');
+    bytes[at + 12] = std::uint8_t(value >> 16);
+    bytes[at + 13] = std::uint8_t(value >> 8);
+    bytes[at + 14] = std::uint8_t(value);
+    return place;
+}
+
 int ScoreTable::high_score() const {
     constexpr std::size_t at = 0x772C4 - 0x762B8;
     return at + 4 <= bytes.size() ? int(amiga::read_be32(bytes, at) & 0xFFFFFF) : 0;
@@ -181,6 +214,13 @@ Assets load_assets(const std::filesystem::path& content) {
     assets.program = Program(platform::read_file(main_path));
     const auto& program = assets.program;
     assets.scores.bytes = read(content, ScoreTable::file);
+    {
+        const auto box = read(content, name_box_file);
+        if (box.size() < std::size_t(name_box_rows) * GraphicsBank::row_bytes) throw std::runtime_error("The name box file is cut short.");
+        assets.name_box.rows = name_box_rows;
+        assets.name_box.pixels.assign(std::size_t(name_box_rows) * GraphicsBank::width, 0);
+        decode_rows(box, name_box_rows, 0, assets.name_box);
+    }
 
     for (int number = 1; number <= world_count; ++number) {
         const std::uint32_t entry = world_table + std::uint32_t(number - 1) * 16;

@@ -109,7 +109,6 @@ struct Ball {
     int bomb_timer{};
     long bomb_cell{-1};
     long bomb_spot{-1};
-    int burning{};                    // $7164C: set to $800 by a bomb's flames ($DA; its count-down not rebuilt)
     int fall_cell{};                  // $6C9BC
     int fall_updates{};               // $6C3C4: counts on through falls; reset at level start and on continue
     bool mouse_ignored{};             // $6C3C6: reads see no movement (while falling)

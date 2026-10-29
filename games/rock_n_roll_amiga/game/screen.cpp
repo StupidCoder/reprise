@@ -7,7 +7,6 @@ namespace {
 // Rows of the graphics bank ($19000 + row × 200).
 constexpr int bar_row = 408;     // $2CEC0, the name bar
 constexpr int panel_row = 344;   // $29CC0, the panel
-constexpr int font_row_low = 600, font_row_high = 608; // $364C0: '$27'-'$4E', $36B00: '$4F' on
 constexpr std::uint32_t pillar_even = 0x37140, pillar_odd = 0x3737C; // sprite data copied at $684A8
 constexpr int pillar_lines = 0x8F;
 constexpr std::uint32_t frame_colours = 0x73344; // 32 words: the bar's and panel's palette
@@ -67,29 +66,7 @@ Screen::Screen(const data::Assets& assets, const data::World& world)
 }
 
 void Screen::glyph(int x, int y, int index, int lines) {
-    const auto& bank = world_->bank;
-    const bool high = index >= 0x4F - 0x27;
-    const int column = high ? index - (0x4F - 0x27) : index;
-    const int row = high ? font_row_high : font_row_low;
-    for (int line = 0; line < lines; ++line) {
-        for (int bit = 0; bit < 8; ++bit) {
-            const int px = x + bit, py = y + line;
-            if (px < 0 || px >= width || py < 0 || py >= height) continue;
-            const bool on = bank.at(column * 8 + bit, row + line) & 1; // the font's plane 0
-            auto& p = at(px, py);
-            p = std::uint8_t((p & ~4) | (on ? 4 : 0));
-        }
-    }
-}
-
-void Screen::print(int x, int y, std::string_view text) {
-    for (const char ch : text) {
-        int c = std::uint8_t(ch);
-        if (c == 0xFF) break;
-        if (c == 0x20) c = 0x28; // a space is drawn as glyph $28
-        glyph(x, y, c - 0x27, 8);
-        x += 8;
-    }
+    draw_glyph(canvas(), world_->bank, x, y, index, lines, 2);
 }
 
 void Screen::draw_digits(int x, int y, std::span<const int> values) {
@@ -107,8 +84,8 @@ void Screen::draw_bar(std::string_view level_name, std::string_view bar_text) {
     const auto& bank = world_->bank;
     for (int y = 0; y < bar_lines; ++y)
         for (int x = 0; x < width; ++x) at(x, y) = bank.at(x, bar_row + y);
-    print(96, 4, level_name);  // $6B110 → $6AE34: bar + row 4, byte 12
-    print(248, 4, bar_text);   // $6AE44: bar + row 4, byte 31
+    print(canvas(), world_->bank, 96, 4, level_name, 2);  // $6B110 → $6AE34: bar + row 4, byte 12
+    print(canvas(), world_->bank, 248, 4, bar_text, 2);   // $6AE44: bar + row 4, byte 31
 }
 
 void Screen::draw_view(const LevelMap& map, const Ball& b) {
@@ -124,8 +101,7 @@ void Screen::draw_view(const LevelMap& map, const Ball& b) {
     const auto tile_pixel = [&](std::uint8_t cell, int tx, int ty) -> std::uint8_t {
         if (data::is_abyss(cell)) return bank.at(abyss_x + tx, abyss_y + ty);
         if (cell == 0 || cell > 0xF0) return 0;
-        const int index = int(cell) - 1;
-        return bank.at(index % 20 * 16 + tx, index / 20 * 16 + ty);
+        return bank.at(map.tiles.x(cell) + tx, map.tiles.y(cell) + ty); // the tile table ($72CBE), animated
     };
     // The view buffer: buffer x 32-287 holds 16 tile columns from the
     // camera's cell (a byte pointer, so past the last column it runs on into
@@ -289,7 +265,7 @@ void Screen::draw_pillars() {
 }
 
 void Screen::draw(const LevelMap& map, const Ball& b, const PanelNumbers& numbers, std::string_view level_name,
-                  std::string_view bar_text, const std::vector<std::string_view>& view_text) {
+                  std::string_view bar_text, const std::vector<ScreenText>& view_text) {
     draw_bar(level_name, bar_text);
     const auto level = decimal(numbers.level);
     draw_digits(40, 4, std::span(level).subspan(2, 3)); // $2D235: bar row 4, byte 5
@@ -302,11 +278,7 @@ void Screen::draw(const LevelMap& map, const Ball& b, const PanelNumbers& number
         for (int y = 0; y < view_lines; ++y)
             for (int x = 0; x < width; ++x) at(x, bar_lines + y) = 0;
         const int fine_x = int(low_word(b.camera_x) >> 12) & 15;
-        for (const auto text : view_text) {
-            if (text.size() < 2) continue;
-            const int column = std::uint8_t(text[0]), row = std::uint8_t(text[1]);
-            print(32 + column * 8 - 1 - fine_x, bar_lines + 8 + row * 8, text.substr(2));
-        }
+        for (const auto& text : view_text) print_at(canvas(), world_->bank, 32 - 1 - fine_x, bar_lines + 8, text);
     }
     draw_panel(numbers);
     draw_pillars();

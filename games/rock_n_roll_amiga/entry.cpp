@@ -44,10 +44,11 @@ app::GameEntry entry() {
         .import = import::import_disk,
         .previews = previews,
         .start = game::start,
-        .progress = "Level play with the mouse: rolling, railings, ice, arrows, slopes, falls with the original's "
-                    "continue/restart prompt, pickups, locks, shops, teleports, bridges, switches, crumbling floor and "
-                    "the exit to the next level, matched to the original update for update. Not yet: front end, panel "
-                    "numbers, items, music, some cells.",
+        .progress = "Playable from the title: hall of fame and time records, name entry with the letter wheel and level "
+                    "codes, then every level with the mouse (rolling, railings, ice, arrows, slopes, falls, pickups, locks, "
+                    "shops, teleports, bridges, switches, items, the panel), matched to the original update for update; "
+                    "results with saved time records, game over with the hall of fame, the ending. Not yet: music and "
+                    "sounds, the overview map, pushable blocks.",
     };
 }
 

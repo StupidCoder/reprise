@@ -163,13 +163,90 @@ the original's own bugs. The remaining work is in [plan.md](plan.md).
 - **Railings** are the tile pixels with colour bit 4. They are thin lines;
   floor and abyss have none.
 
+### Tile animations (`$6C106`, `$6C004`)
+
+Both run every update in the level loop, after the clock and before the
+mouse is read; not in the start wait.
+
+- **The records:** 18 slots at `$6C08C`, each pointing at a record:
+  - +0: the address of a picture strip in the bank;
+  - +4: the period; +6: the counter; +$A: the step;
+  - +8: the cell value whose tile-table entry it sets;
+  - +$C: one word per 256 of the counter, the frame's byte offset into the
+    strip.
+- **`$6C106`:** the slot cursor `$6C08A` moves on three slots each update
+  (0–17, round), so each slot has its turn every sixth update.
+  - On its turn: counter += step, and back to 0 when it reaches the period
+    (a signed compare).
+  - The cell's entry becomes strip − $19000 + frame[counter >> 8].
+  - Slot 17 (cell $51) is set at each level's set-up (`$6C0E0`). It is
+    `$7196A`, or the empty `$7197E` in world 6, which is skipped.
+- **The animated cells:**
+
+  | Record | Cell | What | Period / step |
+  | --- | --- | --- | --- |
+  | `$715D4` | $11 coin | coins turning | $C00 / $100 |
+  | `$715FA`, `$71620` | $12, $13 | (overwritten by `$6C004`) | |
+  | `$71646` | $DA flames | flames | $D00 / $12C |
+  | `$7166C` | $22 teleport | pulsing | $2000 / $160 |
+  | `$716B8`, `$716FA` | $A9, $AA | gates | $1B00, $1900 / $100 |
+  | `$71738`, `$71778` | $A2, $A5 | gates | $1A00, $1900 / $100 |
+  | `$717B6`, `$717CE` | $2F, $45 | shops | $600 / $100 |
+  | `$717E6` | $D9 mud | | $600 / $100 |
+  | `$717FE`, `$7184A`, `$71898`, `$718E4` | $AE, $B1, $B5, $B6 | arcs | about $2000 / $100 |
+  | `$7192E` | $B9 | arcs | $1800 / $100 |
+  | `$7196A` | $51 | a 2 × 2 picture | $400 / $160 |
+
+- **`$6C004`, after them:**
+  - $BC shows $B9's frame + 6 bytes (three tiles right);
+  - $52, $65, $66 show $51's + 8, 16, 24 bytes (each piece's strip of four
+    frames is 64 pixels wide), except in world 6. So level 1's $65/$66
+    slopes show these pictures;
+  - $12 and $13 show $11's frame, and while $11's counter is 0 all three
+    show their sheet pictures (offsets $20, $22, $24).
+- **Counters run on.** They start at 0 with the program, run only in level
+  updates, and are never reset. The tile table is rebuilt at every level
+  set-up (`$70954`), so a cell shows its sheet picture until its slot's
+  next turn.
+- **Pictures decide passage.** The contact test reads the drawn view, so
+  an animated gate's or arc's frame decides where the ball can pass. A
+  gate is a wall while its closed frame shows. *Checked:* gate3 (the ball
+  pushed left through the $AA gate in level 1), 399 updates equal.
+- **The rules that read counters:**
+  - $DA (`$6D6E2`): −$C0 while counter ≥ $600. A bomb's flames set the
+    counter to $800 (`$6BFE6`), the start of its burning frames.
+  - $B9/$BC (`$6D640`, $B9's counter): −$40 while ≤ $100.
+  - $AE/$B1/$B5/$B6 (`$6D680`…): −$C0 while ≤ $1100.
+  - $A2/$A5/$A9/$AA (`$6D738`…): −$140 when the counter is 0 or $100,
+    with sound $C and a sound delay of $28.
+  - All of these act on the centre cell only, at most once per drain
+    period (`$6C840`), halved with the protective ball.
+  - `$6E254` (set by these hits and by purchases) only keeps `$6F466`
+    from also playing the energy-loss sound $11.
+- **Unreferenced:** `$6E35C` (sink into mud via `$6C378` while the $D9
+  counter < $7D0) is never called.
+
 ### High scores (file $30 at `$762B8`)
 
-- 128 bytes per level, 8 entries × 16 bytes: rank, name, and a long at
-  +$C (seconds << 8 | hundredths).
-- The high score is the long at `$772C4` & $FFFFFF.
-- Level 1's record is 31:19.9. The high score is 10000, shown as "100000":
-  the digit routine adds a 0 byte as a sixth digit.
+- **Tables:** one per level index (0–31) at `$762B8` + index × 128, and the
+  hall of fame at index 32 (`$772B8`). The bonus level ($20) has no
+  records.
+- **Entries:** 16 bytes each.
+  - +0 is the rank character, never written.
+  - +1..+$C is the name, 12 bytes, with '(' as a space.
+  - +$D..+$F is a 24-bit value; the program reads the long at +$C and
+    masks it.
+- **Levels** use 5 places of their 8, with times as seconds << 8 |
+  hundredths. The hall of fame uses 10 places (160 bytes), with scores.
+- **High score:** the first hall-of-fame score (`$772C4` & $FFFFFF), which
+  the panel shows.
+- **Shipped values:**
+  - every level's records are "DYNAMIC" 31:19.9 down to 31:19.5;
+  - the hall of fame is "DYNAMIC" 10000 down to 1000;
+  - scores show with an extra '0' (so 10000 shows as "100000").
+- **Writing back:** a new entry is written to disk at once (`$710D0`).
+  The port keeps it in `scores.bin` beside the installed files. The
+  imported file stays as it was.
 
 ## Machine use and the main loop
 
@@ -184,25 +261,24 @@ the original's own bugs. The remaining work is in [plan.md](plan.md).
     of real-time FS-UAE.
 - **Display:** two buffers `$5AEA6`/`$612A6` (5 planes × 40 bytes,
   interleaved), swapped by `$6FA5E`.
-  - COP1LC is written with $73278. The play screen's list described below
-    is at $73040 (how the two connect: open).
-- **Start-up** (`$68166` → `$6858A`):
-  - bitplane pointers, DMA and copper;
-  - music (`$70A74`, TFMX at $37EE0), and file $40 loaded;
-  - the title (`$68B88`, loop `$68FCA`). The music tick is `$70ABE`. The
-    right button (POTGOR bit 10) goes to name entry, the left one to the
-    high scores.
-- **Name entry** (`$695F0`):
-  - A letter wheel is driven by the mouse through the velocity routine
-    `$7040C`; a velocity of exactly ±$200 steps a letter. Typed keys also
-    work.
-  - '[' (Return or the right button) finishes; ''' deletes.
-  - The name (up to 13 characters) goes to `$68416`.
+  - Two copper lists:
+    - `$73278` shows 320 × 200 from the bank (the title, the continue
+      screen, the ending; `$6993A`).
+    - Level set-up switches COP1LC to `$73084` (`$69838`), inside the play
+      screen's list described under "The screen" (from `$73040`).
+- **Start-up** (`$68166` → `$6858A`): bitplane pointers, DMA and copper;
+  music (`$70A74`, TFMX at $37EE0); file $40 loaded.
+  - `$68B88` is a disk-2 check that does nothing in this version: it
+    returns after its first call.
+  - Then each game starts at `$6867A`. See "Front end" for the title and
+    name entry.
 - **Level start:**
   - The level index is `$719AE` (0-based); `$6C69E`/`$6C6A8` pick the file
     and world.
   - It loads the world (`$70F96`, `$70FB8`) and the map (`$70DD0`).
-  - The game's own disk routine `$710D0` runs once (time records? open).
+  - The game's own disk routine `$710D0` runs here unless `$7198E` bit 0
+    is set. It is the routine that writes the score file back after a new
+    record (`$6A6F2`); that it writes here too is read from the call only.
 - **Level set-up** (`$686E2`):
   - the camera from +$3D8/+$3DC, the ball's place in the view from
     +$3E0/+$3E4;
@@ -394,10 +470,12 @@ friction +400 a frame) and rec3.
 | $38–$3A crumbling floor | `$6DE4A`… | `$6EC90` := $39/$3A/$21; the cell under the centre becomes the next stage when the ball leaves it (`$6EC92`/`$6EC94`) |
 | $9C–$9F, $DB, $DC walls | `$6DBDC`… | Breakable with the protective ball (`$719EA`) when tick bit 0 is set and the ball moves faster than $1000 into the wall (direction by the cell's place). That speed := 0 and `$6EC64` replaces the wall (with $9D, $DB, $15, $21, …) |
 | $D9 mud | | Energy −$80, both speeds halved (ASR) |
-| $DA flames | | Energy −$C0 while `$7164C` > $5FF |
-| $B9/$BC | | Energy −$40 while `$71934` ≤ $100 |
+| $DA flames | `$6D6E2` | Energy −$C0 while its animation counter `$7164C` ≥ $600 |
+| $B9/$BC arcs | `$6D640` | Energy −$40 while `$71934` ≤ $100 |
+| $AE/$B1/$B5/$B6 arcs | `$6D680`… | Energy −$C0 while their counter ≤ $1100 |
+| $A2/$A5/$A9/$AA gates | `$6D738`… | Energy −$140 at counter 0 or $100; passage by the animated picture |
 | $C0 pushable block | `$6D984` | Moves into a neighbour $21/$14/$24 in the push direction (`$6DAF8`, cells $C1/$C2); in the abyss it counts toward the warp. Not rebuilt |
-| $51/$53/$66/$68 | `$6ACE6` | Listed by the drawer at `$77F40`. Open |
+| $51/$53/$66/$68 | `$6ACE6` | Listed by the drawer at `$77F40`; what `$6ACE6` does with them is open ($51's picture animates, see "Tile animations") |
 
 **Energy** is `$6F45A` (full $7FF); the panel shows `$6F458`.
 
@@ -589,6 +667,142 @@ friction +400 a frame) and rec3.
   which reloads its file.
 - *Checked:* fall4 + cont4.
 
+## Front end (`$6867A`, `$68EA0`)
+
+- **A new game** (`$6867A`):
+  - the speed limits are set up (4 × `$6E3BE`);
+  - the rescues `$719B2` := 0 and the balls `$699F8` := 2;
+  - with a bought extra ball left (`$719B6`), the game continues instead
+    (see "End of a game");
+  - otherwise the level index := 0, the title runs, and the game starts on
+    the chosen level. A code for level 33 (the bonus level) starts level 1
+    (`$686C8`).
+- **Title set-up** (`$68EA0`):
+  - the bank is cleared and world 8 is loaded over it;
+  - the score file is reloaded, and file $31 is loaded into display buffer
+    1;
+  - the palette comes from world 8's CMAP.
+- **The title's display:** the copper list `$73278` shows 320 × 200 from
+  the bank at `$19000` + `$69850`.
+  - Rows 0–199 hold the title picture, with "PRESS LEFT BUTTON TO VIEW
+    HIGHSCORES" and "PRESS RIGHT BUTTON TO START GAME".
+  - Rows 200–335 (the rest of world 8's file) hold a framed panel: "USE LEFT
+    BUTTON TO SELECT", "BY DYNAMIC VISIONS".
+- **The title loop** (`$68FCA`):
+  - the right button (POTGOR bit 10) goes to name entry;
+  - the left button (or a finished game's result, `$68E90` bit 1) goes to
+    the records.
+- **Scrolling** (`$69854`): the offset moves one row (200 bytes) a frame,
+  from 0 to $8FC0 (row 184) or back, so a scroll takes 184 frames.
+  - Past row 135 the display's last line rises (`$732A6` = $F4 − (offset −
+    $6978) / 200), so at row 184 it shows 151 lines.
+- **Records** (`$69144`): first the hall of fame (table 32).
+  - **Stepping** (`$69306`): holding the left button steps to the next
+    table: 32 → 0 → 1 … → 31 → 32. It steps at once, and then after 17,
+    15, 13 … frames, down to every frame (counters `$69041`/`$69040`, a
+    period from 20 down by 2 to at least 2). Letting go resets it.
+  - **Leaving:** the right button scrolls back up. The program waits for
+    the left button's release before taking the title's buttons again.
+- **Records texts** (`$6918A`): origin bank row 181, x 32 (`$19000` +
+  $8728 + $644), in plane 2.
+  - Each line is built by `$6A7BC` into the texts at `$6A110`. Place p is
+    at column 4, row 5 + p: "(p" or "10", '(', the 12-byte name, '(',
+    then the value.
+  - **Times:** MM:SS:T (`$6F5A4`, then the tenths).
+  - **Scores:** five digits without blanks, then '0' (`$6F5D6`).
+  - **Headers:** "HALL OF FAME" (4, 4), or "TIMERECORDS OF LEVEL nn" (3,
+    4) with rows 11–15 blanked.
+  - **After a finished game,** "CONGRATULATIONS PLACE nn" (nn = "01"…"10")
+    or "SORRY, NO ENTRY" is printed once over the header.
+- **Name entry** (`$693D8` → `$695F0`):
+  - File $31's first 60 rows (12,000 bytes, the name box) are copied over
+    rows 124–183 of the title, covering its button texts.
+  - The name (13 characters at `$68416`) is printed at column 7, row 14,
+    and the wheel's letter at column 23, row 14 (origin `$1A900` + $644:
+    row 40, x 32).
+  - Each pass of the loop waits two frames (two `$70BA2` calls), so the
+    wheel turns at 25 Hz.
+- **Each name-entry pass:**
+  1. A key (from `$70BD8`, except '$' released and '!') becomes the letter
+     and is taken at once.
+  2. Otherwise `$7040C` turns the wheel. From rest, two counts or more of
+     x movement in a pass give a velocity of exactly ±$200, which steps one
+     letter (right is forward). The y movement does nothing.
+  3. The wheel runs ' (delete), ( (space), 0–9, A–Z, [ (end), and round
+     again.
+  4. The right button sets the letter to '['.
+  5. The left button takes the letter when it is let go.
+- **Taking a letter:** '[' ends; ''' deletes back. Anything else is stored
+  and the cursor moves on. A 13th character is taken back at once, so a
+  name holds 12.
+- **The records' name** (`$71996`, copied by `$6941C`) is the first 11
+  characters and a space, so a 12th character never reaches the records.
+- **The name is kept** from game to game; the cursor starts at its first
+  character.
+- **Names that do more** (`$6941C` compares the first 11 characters):
+  - "MAGIC MAP": `$6ADBC` calls the map-piece routine `$6EB22` 33 times,
+    then the game starts.
+  - "RAINBOW ARTS": a level code (`$694B2`). Colour 0 turns $555, the name
+    becomes twelve '0's, and the same entry edits them.
+    - Valid when digits 1–2 equal digits 12–11 and the level (digits 1–2,
+      1–33) minus 1 equals the sum of digits 5–8 minus 1 (byte
+      arithmetic).
+    - A valid code sets the level and `$68454`. A bad one gives level 1.
+    - Either way the name becomes RAINBOW ARTS and colour 0 $333.
+  - "COUNTRY": the jukebox (`$68CD4`: nine songs, "TITLE NR.", button 0
+    exits). Afterwards the name is asked again (`$719AC`).
+
+## Results and the end of a game
+
+- **The exit** (`$6BB3C` → `$6BDD4`): the time copied at the exit is put
+  back, and the energy gains $280 (`$6BDF8`).
+  - A game started from a code (`$68454`) loses its spare balls and bought
+    extra balls here.
+- **A secret warp** (`$6C5F4`) shows the warp text (`$69DC2`) and goes to
+  its target level.
+- **Otherwise, except on the bonus level:**
+  - one second is taken off the clock (`$6C61E`), and the panel's time is
+    redrawn;
+  - the time goes into the level's records (`$6A344`), as seconds << 8 |
+    hundredths.
+- **Results screen** (in the play view, `$6A874`/`$6AA6A`):
+  - the five records, the new one printed into plane 0 (`$6AE12` = 0)
+    and the rest into plane 2;
+  - "PRESS BUTTON TO CONTINUE" (3, 12);
+  - with a place: "CONGRATULATIONS" (4, 1), "YOU FINISHED LEVEL nn" (2, 3)
+    and "IN nTH PLACE." (9, 4);
+  - without one: "SORRY, NO HIGH-SCORE ENTRY" (3, 1).
+- **Waiting** (`$6AB46`): the program waits for the left button's release.
+  - Colours 1–7 of the view then become $EE0 and colour 1 cycles
+    (`$6B9F4`: d = ((d + 2) & $FFF) | $335, with a delay loop up to d's low
+    byte, many changes a frame) until the button is pressed.
+  - After the release, the colours are restored.
+- **Next level** (`$6C644`):
+  - index + 1. After the last level ($1F), or with the '0' key held as the
+    level ends (`$6C65A`), comes the ending.
+  - After the bonus level comes level 2 (index $21 → 1).
+  - `$719C6`–`$71A23` are cleared (`$68B16`); bombs are kept only after a
+    warp.
+  - No "BALLS REMAINING" message is shown, since `$68140` is still set.
+- **The ending** (`$6C7F2`): file $41 ("YOU MADE IT") is shown through the
+  title's copper list until the left button is pressed. Then the game
+  ends as if out of balls.
+- **"N BALLS REMAINING"** (`$6882C`, at the next set-up after a lost ball,
+  when `$68140` was cleared): shown for 8 × `$6B66E`.
+  - `$6B66E` is a delay loop of 65,536 passes, about 92 ms or 4.6 frames.
+  - The digit is '1' + balls left; with none left the text is "LAST BALL".
+- **Game over** (`$6BCC8`): "GAME OVER" (5, 5) for 15 delays.
+  - The score goes into the hall of fame (`$6A300`), with the place kept
+    in `$68E8C` for the title.
+  - Score and money become 0, and back to `$6867A`.
+- **Continue after game over:** with a bought extra ball, `$69996` takes
+  one.
+  - It shows "CONTINUE GAME", "LEFT BUTTON / RIGHT BUTTTON", "YES / NO" on
+    the cleared bank through the title's copper list.
+  - It waits for the left button, then sets up the same level, with "3
+    BALLS REMAINING".
+  - Despite the texts, only the left button is read.
+
 ## The screen
 
 - **The play screen's copper list** (`$73040`): 304 pixels wide (DIW
@@ -698,6 +912,16 @@ The port keeps these, because they are part of how the game plays:
 - **Level 28's map is larger than its file** (see "Level files").
 - **Layer-1 cells under the ball are not drawn yet when the contact test
   runs**, so pickups never count as railings.
+- **A level finished in under one second records no time.** The second
+  taken off wraps to $FFFF, which beats no record.
+- **The records keep only 11 characters of a name.**
+- **A level code for level 33 starts level 1.**
+- **The panel's record and high score are drawn at set-up only**, so a new
+  record shows from the next level on.
+- **The continue screen offers "YES / NO" but reads only the left
+  button.**
+- **Holding '0' as a level ends jumps to the ending** (a leftover test
+  key).
 - **The first update after leaving a bridge accelerates like ice.**
   `$70406` skips the read without clearing slow.
 
@@ -719,12 +943,35 @@ The port keeps these, because they are part of how the game plays:
 - **Replay:** `tools/rock_n_roll_replay ball <run>` replays a recording
   natively and compares every logged field. `harness/regress.sh` runs all
   of them.
-  - 20 runs: rail1, ice1, fall2, arrow3, slope1, fall3, finds2, lock2,
+  - 25 runs: rail1, ice1, fall2, arrow3, slope1, fall3, finds2, lock2,
     fall4+cont4, bridge1, beam2, shop3, shop4, clock1, mud1, glass1,
-    switch1, exit1, crumble1, lockcap1.
-  - 2,576 updates, all equal.
+    switch1, exit1, crumble1, lockcap1, gate1–3, flame1, arc1.
+  - 4,121 updates, all equal.
+  - Since gate1, recordings also log the animation cursor and counters
+    (`acur`, `ac0`–`ac17`). The replay starts from them, shows every
+    slot's current frame (`TileAnimator::show_all`), and compares them
+    each update. Older runs start from 0; none of them reaches an
+    animated cell.
+- **Headless runs of the whole game:** `tools/rock_n_roll_replay play`
+  takes:
+  - mouse steps `a-b:dx,dy[,l|r]`;
+  - held keys `a-b:key=N` (a `GameInput::c64_keys` index);
+  - pictures `@N=file.png`;
+  - a ball placement `@N:place=cx,cy,vx,vy,sx,sy` (hex, as a recording's
+    first row).
+- **Front end checks against FS-UAE captures (2026-10-29):**
+  - the title;
+  - the hall of fame and level 1's time records;
+  - the results after finishing level 1 (placed at 7,19, pushed up-left),
+    whose texts and layout match. The original wrote the new record to
+    its disk.
 - **Gotchas:**
   - Window grabs are black until the stub has been talked to (run any
     `rnr.py regs` first).
+  - Disk loads at the title overwrite the harness's input words at
+    `$7C100`. Set them to idle after reaching `$68FCA`, or the right
+    button reads as held and name entry starts.
+  - A run that writes records changes `work/ref/rnr.adf`. Delete it
+    afterwards so the next start copies a clean disk.
   - The start wait needs a big enough mouse move (`play.py start`).
   - After a fall, the game waits in its prompt.

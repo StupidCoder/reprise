@@ -5,11 +5,18 @@ bugs. How the original works, and where the evidence is: [game.md](game.md).
 
 ## Where it stands (2026-10-29)
 
-Every level can be played from its start wait to its exit, with the panel,
-items, falls, the continue/restart prompt and game over. The ball's rules
-match the original update for update in 20 recorded runs (2,576 updates, all
-in level 1; `.analysis/rock_n_roll_amiga/harness/regress.sh`). There is no
-front end, music or sound yet. Steering uses the captured mouse.
+A game runs from the title to the end:
+- the title, with the hall of fame and every level's time records;
+- name entry with the letter wheel or typed keys, and level codes;
+- each level from its start wait to its exit, with the panel, items, falls
+  and the continue/restart prompt;
+- the results with the time records, saved to `scores.bin`;
+- "N BALLS REMAINING", game over with the hall of fame, the continue after
+  game over, and the ending.
+
+The ball's rules match the original update for update in 25 recorded runs
+(4,121 updates, all in level 1; `.analysis/rock_n_roll_amiga/harness/regress.sh`).
+There is no music or sound yet. Steering uses the captured mouse.
 
 Finished, in order:
 
@@ -23,6 +30,15 @@ Finished, in order:
 7. Clock, exit, two-cell shops, the energy cell $D9, switches.
 8. Breakable walls, crumbling floor, the play screen, a playable level.
 9. Panel, items, energy-out, secret-warp targets, the captured mouse.
+10. Front end and the game's course: title, records browser, name entry,
+    level codes, results with time records (written back), ball messages,
+    game over with the hall of fame, continue after game over, the ending.
+    Checked against FS-UAE captures of the title, the hall of fame, level
+    1's records and the results after finishing level 1.
+11. Tile animations ($6C106/$6C004): gates, arcs, flames, coins and
+    teleports animate, and their frames decide passage. The hazards drain
+    energy by their counters. Checked in gate3, flame1, arc1 (25 runs,
+    4,121 updates, all equal).
 
 ## Remaining tasks
 
@@ -31,46 +47,39 @@ Finished, in order:
 - [ ] **Overview map** (the eye, item 2): `$6B67E`. Includes map pieces
   $0D/$0E (`$6EB22`) and the one-pixel-per-cell drawing (`$6B77A`,
   colour ranges `$77E7D` → `$77ECB`). Using the eye is a no-op today.
-- [ ] **Animated-cell objects** `$6C004`/`$6C106`: tile animation and the
-  timers they run.
-  - `$7164C`: the bomb flames $DA drain $C0 energy while the timer is
-    ≥ $600. Today the flames appear but never hurt.
-  - `$71934`: $B9/$BC drain $40 while the timer is ≤ $100.
-  - `$71804`, `$71850`, `$7189E`, `$718EA`: compared with ≤ $1100.
 - [ ] **Pushable blocks** $C0 (`$6D984`, the moving-object code
   `$6B372`). A block can move into $21, $14 or $24; one in the abyss counts
   toward the secret warp (`$69F88` → `$6D80E`).
 - [ ] **Cells $51/$53/$66/$68**: the drawer records them at `$77F40` and
-  `$6ACE6` acts on them (fans or magnets?). Not read yet.
+  `$6ACE6` acts on them (fans or magnets?). Not read yet. Their pictures
+  ($51, and $52/$65/$66 following it) already animate.
 - [ ] **Small balls** (`$6B470`): these also count the warp countdown down.
   Not read yet.
 - [ ] **Level rewards** `$6D8CE` (per-level routines, table `$78008`).
   `reward_due` is raised but nothing happens.
 - [ ] **Hint shop $45**: the sale is recorded (`hint_bought`), but the
   hint text (`$69DFA`, after `$6B8E6`) is not shown.
-- [ ] **Extra-ball shop $47**: `Pocket::continues` counts purchases, but
-  the balls left are not raised. Read how `$719B6` feeds `$699F8`.
-- [ ] **Messages**:
-  - "OUT OF TIME" (`$681E8`);
-  - the secret warp's text with its digits (`$67836`);
-  - "N BALLS REMAINING" / "LAST BALL" / "GAME OVER".
-- [ ] **Give-up key '?'**: today the only way to give up is item 0.
-- [ ] **Level end**: results, a new record time written into the
-  high-score table, and the table saved back (game file $30, kept in the
-  user's save folder rather than on the disk image).
-- [ ] **Last level**: after it, the ending picture (file $41, "YOU MADE
-  IT").
+- [ ] **Messages**: the secret warp's text with its digits (`$69DC2`,
+  `$67836`); "OUT OF TIME" (`$681E8`).
+- [ ] **The pause before the prompt**: three delays (`$6BB9E`, about 14
+  frames) between a fall and the continue/restart texts.
+- [ ] **Give-up key '?'**: today the only way to give up is item 0, which
+  the right button never selects.
 
 ### Front end
 
-- [ ] Title (`$68B88`, loop `$68FCA`): the right button goes to name entry,
-  the left button to the high scores.
-- [ ] Name entry (`$695F0`): a letter wheel driven by the mouse velocity
-  routine (±$200 steps a letter), or typed keys.
-- [ ] High-score table (`$69044` texts, `$6993A` after game over).
-- [ ] Jukebox (titles at `$68208`), if it is reachable in this version.
-- [ ] Disk-2 prompts are dropped (the crack's single disk; the port loads
-  everything at once).
+- [ ] **Jukebox** (the name COUNTRY, `$68CD4`): needs the music player.
+  Today that name just asks for the name again.
+- [ ] **MAGIC MAP**: sets 33 map pieces, unverified, because the map-piece
+  routine `$6EB22` and the overview map are not rebuilt.
+- [ ] **The wheel's mouse read**: it can be gated by the grip flag `$70404`
+  left from the last level (a read every 25th update). Check whether this
+  shows in the original; the port always reads.
+- [ ] **Not yet compared with captures**:
+  - the continue screen's colours (the port uses the panel's palette,
+    which the registers should hold when the copper list changes);
+  - the ending picture;
+  - name entry.
 
 ### Sound
 
@@ -80,7 +89,7 @@ Finished, in order:
   - Open: world 3 uses file $3C for both songs and samples. Does it keep
     the previous samples?
 - [ ] Sound effects: the calls to `$70A9C` with a number (0 bounce, 3 key,
-  4 lock, 9 teleport, 10 switch, 18 purchase, …).
+  4 lock, 9 teleport, 10 switch, 18 purchase, $17/$18 on the results, …).
 
 ### Host and enhancements (off by default unless noted)
 
@@ -95,6 +104,10 @@ Finished, in order:
 
 ### Verification
 
+- [ ] The gate hit (−$140 when a gate's counter is 0 or $100) and the
+  $B9/$AE-group drains are rebuilt from the code. No recording has the
+  ball on such a cell at the right moment yet (arc1 crossed $B9 without a
+  drain).
 - [ ] Recordings for the item uses (bomb, repair set, rescue, pause). They
   are rebuilt from the code only, because level 1 has no shops. Needs
   pokes or a later level.
@@ -114,9 +127,14 @@ Finished, in order:
 - The panel's clock shows 0:00 at a level's start. The original shows the
   previous level's time until the first second ends. Like the original, it
   then shows the second before.
-- The flames' energy drain is missing (see animated-cell objects).
-- The rewards, hint text, extra balls and messages above are missing.
-- No sound or music.
+- The rewards, hint text, and the warp and out-of-time messages are
+  missing.
+- The results' flashing colour is an estimate of the original's loop
+  speed (`records.cpp`, `results_flash_colour`). The original changes it
+  many times a frame.
+- No sound or music (title songs, level songs, effects).
+- Using the eye item does nothing (the overview map is not rebuilt), and
+  pushable blocks don't move.
 - The panel's clock digits did not match the FS-UAE capture. Everything
   else in the panel matched. The likely cause is the lag above (the capture
   was taken mid-second); this has not been checked.

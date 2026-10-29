@@ -1,6 +1,7 @@
 #pragma once
 #include "rock_n_roll_amiga/data/assets.hpp"
 #include "rock_n_roll_amiga/game/ball.hpp"
+#include "rock_n_roll_amiga/game/font.hpp"
 #include "rock_n_roll_amiga/game/level_map.hpp"
 #include <array>
 #include <cstdint>
@@ -43,11 +44,11 @@ public:
 
     Screen(const data::Assets&, const data::World&);
 
-    // The whole screen for the ball's state. `view_text` (texts in the
-    // original's format: column, row, characters, $FF) replaces the view
-    // with black and the texts, as the prompts do ($6B8E6, $6AE16).
+    // The whole screen for the ball's state. `view_text` replaces the view
+    // with black and the texts, as the prompts and the results do ($6B8E6,
+    // $6AE16).
     void draw(const LevelMap&, const Ball&, const PanelNumbers&, std::string_view level_name,
-              std::string_view bar_text, const std::vector<std::string_view>& view_text = {});
+              std::string_view bar_text, const std::vector<ScreenText>& view_text = {});
 
     const std::vector<std::uint8_t>& pixels() const { return pixels_; }
     // The colours of a picture line: the copper list ($73040) shows the
@@ -68,10 +69,8 @@ private:
     void draw_digits(int x, int y, std::span<const int> values);
     // One font glyph (index from '$27') into colour bit 2, `lines` high.
     void glyph(int x, int y, int index, int lines);
+    Canvas canvas() { return {pixels_.data(), width, height}; }
     void draw_pillars();
-    // One text line of the print routine ($6AE8A): glyph bytes replace
-    // colour bit 2 of eight pixels at a time.
-    void print(int x, int y, std::string_view text);
 
     const data::World* world_;
     std::vector<std::uint8_t> pixels_;

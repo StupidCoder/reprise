@@ -274,9 +274,13 @@ add_library(rock_n_roll_amiga
     games/rock_n_roll_amiga/data/assets.cpp
     games/rock_n_roll_amiga/data/preview.cpp
     games/rock_n_roll_amiga/game/ball.cpp
+    games/rock_n_roll_amiga/game/font.cpp
+    games/rock_n_roll_amiga/game/front_end.cpp
     games/rock_n_roll_amiga/game/level_map.cpp
     games/rock_n_roll_amiga/game/module.cpp
+    games/rock_n_roll_amiga/game/records.cpp
     games/rock_n_roll_amiga/game/screen.cpp
+    games/rock_n_roll_amiga/game/tile_animation.cpp
     games/rock_n_roll_amiga/import/cruncher.cpp
     games/rock_n_roll_amiga/import/disk_import.cpp)
 target_include_directories(rock_n_roll_amiga PUBLIC ${SOURCE_ROOT})

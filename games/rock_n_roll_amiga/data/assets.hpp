@@ -102,23 +102,43 @@ struct MusicFile {
     std::size_t size{};
 };
 
-// The high-score file (game file $30, loaded at $762B8 by $70E0C): per
-// level 128 bytes, eight 16-byte entries (rank character, name, and a long
-// at +$C: record time, seconds in bits 8-23 and hundredths in bits 0-7);
-// the game's high score is the long at $772C4 (low 24 bits).
+// The high-score file (game file $30, loaded at $762B8 by $70E0C): one
+// table of 128 bytes per level index (0-31, the bonus level $20 has none)
+// and the hall of fame at index 32 ($762B8 + 32 × 128 = $772B8). An
+// entry is 16 bytes: a rank character, a 12-byte name and a 24-bit value
+// (+$D..+$F; the program reads the long at +$C and masks it). A level's
+// value is its time (seconds << 8 | hundredths, five places used); the
+// hall of fame's is a score (ten places); its first score is the high
+// score the panel shows ($772C4).
 struct ScoreTable {
     std::vector<std::uint8_t> bytes;
     static constexpr int file = 0x30;
+    static constexpr int hall_of_fame = 32;
+    static constexpr int time_places = 5, score_places = 10;
     struct Time {
         int seconds, hundredths;
     };
+    struct Entry {
+        std::string name;    // 12 characters as stored ('(' is a space)
+        std::uint32_t value; // 24 bits
+    };
     Time record(int level_index) const;
     int high_score() const;
+    Entry entry(int table, int place) const; // place 1-10
+    // $6A38A: the first place whose value the new one beats (a time below
+    // it, a score above it; a tie does not), the places below it moved
+    // down one ($6A55E, rank characters stay) and the name and value
+    // written there ($6A694). Returns the place, or 0 for none.
+    int insert(int table, std::string_view name, std::uint32_t value);
 };
 
 struct Assets {
     Program program;
     ScoreTable scores;
+    // Game file $31 (12,288 bytes, raw): the title's name box, 60 rows in
+    // the bank's format, copied over the title picture's rows 124-183 when
+    // the name is entered ($693D8 copies 12,000 bytes).
+    GraphicsBank name_box;
     std::vector<World> worlds;    // 1-8
     std::vector<Level> levels;    // 1-33
     std::vector<Picture> pictures;

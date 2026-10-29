@@ -581,6 +581,30 @@ void apply_cell(Ball& b, Pocket& pocket, LevelMap& map, long index, std::uint8_t
             b.bomb_spot = index;
             step_on(b, pocket, map, index, 0);
         }
+    } else if (v == 0xDA || v == 0xB9 || v == 0xBC || v == 0xAE || v == 0xB1 || v == 0xB5 || v == 0xB6) {
+        // Flames, arcs and the like: energy drains while their animation is
+        // in its harmful frames (at most once a drain period, $6C840).
+        // $DA ($6D6E2): counter ≥ $600, $C0. $B9/$BC ($6D640, $B9's
+        // counter): ≤ $100, $40. $AE/$B1/$B5/$B6 ($6D680…): ≤ $1100, $C0.
+        if (!centre) return;
+        const std::uint16_t c = map.animation.counter(v == 0xBC ? 0xB9 : v);
+        const bool harmful = v == 0xDA ? c >= 0x600 : (v == 0xB9 || v == 0xBC) ? c <= 0x100 : c <= 0x1100;
+        const int loss = v == 0xB9 || v == 0xBC ? 0x40 : 0xC0;
+        if (harmful && !b.clock.drained) {
+            b.clock.drained = true;
+            pocket.energy = std::uint16_t(pocket.energy - (loss >> (b.protective ? 1 : 0)));
+        }
+    } else if (v == 0xA2 || v == 0xA5 || v == 0xA9 || v == 0xAA) {
+        // $6D738…: a closing door or gate hits while its counter is 0 or
+        // $100 (its first frames): $140 energy, once a drain period (sound
+        // $C, not played yet). Otherwise its picture alone (the railing
+        // test) decides where the ball can pass.
+        if (!centre) return;
+        const std::uint16_t c = map.animation.counter(v);
+        if ((c == 0 || c == 0x100) && !b.clock.drained) {
+            b.clock.drained = true;
+            pocket.energy = std::uint16_t(pocket.energy - (0x140 >> (b.protective ? 1 : 0)));
+        }
     } else if (is_floor(v)) { // $6E39A → $6EAC0
         if (centre) step_on(b, pocket, map, index, 0);
     } else if (v == 0x14) { // $6D510: only the repair-set rule; each mend counts toward the secret warp
@@ -651,8 +675,7 @@ bool solid_at(const LevelMap& map, const data::World& world, long first_under_ba
     const bool under_ball = index == first_under_ball || index == first_under_ball + 1 ||
                             index == first_under_ball + map.columns || index == first_under_ball + map.columns + 1;
     if (under_ball && (v <= 0x50 || v == 0xEC)) return false;
-    const int tile = int(v) - 1;
-    return world.bank.at(tile % 20 * 16 + x % 16, tile / 20 * 16 + y % 16) & 16;
+    return world.bank.at(map.tiles.x(v) + x % 16, map.tiles.y(v) + y % 16) & 16;
 }
 
 // The ball's contact disc: colour bit 4 of the picture at bank row 456,
@@ -833,7 +856,7 @@ void tick_bomb(Ball& b, LevelMap& map) {
     };
     if (b.bomb_timer == 90 || b.bomb_timer == 80 || b.bomb_timer == 60 || b.bomb_timer == 30) {
         each([&](long index, int) { map.set(index, 0xDA); });
-        b.burning = 0x800;
+        map.animation.set_counter(0xDA, 0x800); // $6BFE6: the flames' animation from its burning frames
     }
     if (b.bomb_timer == 0) each([&](long index, int k) { map.set(index, map.after_bomb[std::size_t(k)]); });
 }
@@ -844,6 +867,7 @@ void update_ball(Ball& b, Pocket& pocket, LevelMap& map, const data::World& worl
     count_kind(b);
     follow_energy(b, pocket);
     run_clock(b);
+    map.animation.update(map.tiles); // $6C106, $6C004
     if (b.mode == BallMode::lost) return; // out of time
     const Steered s = steer(b, mouse);
     halve_along_contact(b);

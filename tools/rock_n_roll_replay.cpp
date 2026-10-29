@@ -83,7 +83,7 @@ std::vector<Row> read_recording(const std::string& path, bool& loop_left, std::v
                                 name == "protect" || name == "warpcount" || name == "rewardcount" ||
                                 name == "shopwait" || name == "carried" || name == "countdown" || name == "ticks" ||
                                 name == "drained" || name == "latch" || name == "frozen" || name == "done" ||
-                                name == "pending" || name == "crumblecount"
+                                name == "pending" || name == "crumblecount" || name.rfind("ac", 0) == 0
                             ? std::int64_t(v)
                             : std::int64_t(std::int32_t(std::uint32_t(v)));
         }
@@ -307,6 +307,21 @@ int compare(const game::Ball& b, const Row& r, bool all, std::int64_t update) {
     return differing;
 }
 
+// The tile animations' cursor and counters, when the recording logs them.
+int compare_animation(const game::TileAnimator& a, const Row& r, std::int64_t update) {
+    if (!r.count("acur")) return 0;
+    int differing = 0;
+    const auto check = [&](const std::string& name, std::int64_t native) {
+        if (r.at(name) == native) return;
+        std::printf("update %lld: %s native %llx original %llx\n", (long long)update, name.c_str(),
+                    (unsigned long long)native, (unsigned long long)r.at(name));
+        ++differing;
+    };
+    check("acur", a.cursor());
+    for (int i = 0; i < game::TileAnimator::slots; ++i) check("ac" + std::to_string(i), a.slot_counter(i));
+    return differing;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -323,6 +338,8 @@ int main(int argc, char** argv) {
             const auto& level = assets.levels.at(std::size_t(std::stoi(argv[3]) - 1));
             const auto& world = assets.world(level.world);
             auto map = game::LevelMap::from(level);
+            map.animation = game::TileAnimator(assets.program); // counters from 0 (recordings do not log them)
+            map.animation.set_world(level.world);
             // The original's map at the first recording's first row, when
             // saved beside it (pickups and earlier runs change the map).
             if (const auto saved = std::filesystem::path(recordings.front()).concat(".map"); std::filesystem::exists(saved)) {
@@ -341,6 +358,12 @@ int main(int argc, char** argv) {
                 if (k == 0) {
                     ball = ball_from(rows.front());
                     pocket = pocket_from(rows.front());
+                    if (rows.front().count("acur")) { // the animations as the original had them
+                        map.animation.set_cursor(int(rows.front().at("acur")));
+                        for (int i = 0; i < game::TileAnimator::slots; ++i)
+                            map.animation.set_slot_counter(i, std::uint16_t(rows.front().at("ac" + std::to_string(i))));
+                        map.animation.show_all(map.tiles);
+                    }
                 } else {
                     // A later recording starts at the loop top right after the
                     // prompt was answered with "continue": the native ball goes
@@ -368,7 +391,8 @@ int main(int argc, char** argv) {
                     game::update_ball(ball, pocket, map, world, {std::uint8_t(joy & 0xFF), std::uint8_t(joy >> 8)});
                     ++checked;
                     if (compare(ball, rows[n + 1], all, rows[n].at("update")) +
-                            compare_pocket(pocket, rows[n + 1], rows[n].at("update")) > 0) {
+                            compare_pocket(pocket, rows[n + 1], rows[n].at("update")) +
+                            compare_animation(map.animation, rows[n + 1], rows[n].at("update")) > 0) {
                         ++bad_updates;
                         if (!all) break;
                     }
@@ -404,6 +428,8 @@ int main(int argc, char** argv) {
             const auto& level = assets.levels.at(std::size_t(std::stoi(argv[3]) - 1));
             const auto& world = assets.world(level.world);
             auto map = game::LevelMap::from(level);
+            map.animation = game::TileAnimator(assets.program); // counters from 0 (recordings do not log them)
+            map.animation.set_world(level.world);
             game::Ball ball = game::Ball::at_start(map);
             ball.camera_x = game::Fixed(std::stoi(argv[4]) - 7) << 16;
             ball.camera_y = game::Fixed(std::stoi(argv[5]) - 3) << 16;
@@ -437,15 +463,39 @@ int main(int argc, char** argv) {
             return 0;
         }
         if (command == "play" && argc >= 5) {
-            // play <content> <updates> <out.png> [a-b:dx,dy[,l|r] …]: runs the
-            // game module headless with mouse moves and buttons per update.
+            // play <content> <updates> <out.png> [a-b:dx,dy[,l|r] …] [a-b:key=N …]
+            // [@N=shot.png …] [@N:place=cx,cy,vx,vy,sx,sy …]: runs the game
+            // module headless with mouse moves, buttons and held keys
+            // (GameInput::c64_keys index N) per update, saving pictures after
+            // update N and placing the ball before update N (hex 16.16 values,
+            // as a recording's first row: camera, view, speed).
             auto game = game::start(platform::utf8_path(argv[2]));
             const int updates = std::stoi(argv[3]);
-            struct Step { int a, b, dx, dy; bool l, r; };
+            struct Step { int a, b, dx, dy; bool l, r; int key; };
             std::vector<Step> steps;
+            std::vector<std::pair<int, std::string>> shots;
+            struct Place { int at; std::uint32_t v[6]; };
+            std::vector<Place> places;
             for (int i = 5; i < argc; ++i) {
                 Step st{};
+                st.key = -1;
                 char buttons[4] = {};
+                char shot[512] = {};
+                Place pl{};
+                if (std::sscanf(argv[i], "@%d:place=%x,%x,%x,%x,%x,%x", &pl.at, &pl.v[0], &pl.v[1], &pl.v[2], &pl.v[3], &pl.v[4],
+                                &pl.v[5]) == 7) {
+                    places.push_back(pl);
+                    continue;
+                }
+                if (std::sscanf(argv[i], "@%d=%511s", &st.a, shot) == 2) {
+                    shots.emplace_back(st.a, shot);
+                    continue;
+                }
+                if (std::sscanf(argv[i], "%d-%d:key=%d", &st.a, &st.b, &st.key) == 3) {
+                    steps.push_back(st);
+                    continue;
+                }
+                st.key = -1;
                 if (std::sscanf(argv[i], "%d-%d:%d,%d,%3s", &st.a, &st.b, &st.dx, &st.dy, buttons) < 4) continue;
                 st.l = std::string(buttons).find('l') != std::string::npos;
                 st.r = std::string(buttons).find('r') != std::string::npos;
@@ -455,14 +505,25 @@ int main(int argc, char** argv) {
             for (int n = 0; n < updates; ++n) {
                 input.mouse_button = input.mouse_right = false;
                 input.mouse_dx = input.mouse_dy = 0;
+                input.c64_keys = {};
                 for (const auto& st : steps) {
                     if (n < st.a || n > st.b) continue;
+                    if (st.key >= 0) {
+                        input.c64_keys[std::size_t(st.key)] = true;
+                        continue;
+                    }
                     input.mouse_dx += float(st.dx);
                     input.mouse_dy += float(st.dy);
-                    input.mouse_button = st.l;
-                    input.mouse_right = st.r;
+                    input.mouse_button = input.mouse_button || st.l;
+                    input.mouse_right = input.mouse_right || st.r;
                 }
+                for (const auto& pl : places)
+                    if (pl.at == n && !game::place_ball(*game, std::int32_t(pl.v[0]), std::int32_t(pl.v[1]), std::int32_t(pl.v[2]),
+                                                        std::int32_t(pl.v[3]), std::int32_t(pl.v[4]), std::int32_t(pl.v[5])))
+                        std::fprintf(stderr, "update %d: no level to place the ball in\n", n);
                 game->tick(input);
+                for (const auto& [at, file] : shots)
+                    if (at == n) platform::save_png(game->picture(), platform::utf8_path(file));
             }
             platform::save_png(game->picture(), platform::utf8_path(argv[4]));
             return 0;

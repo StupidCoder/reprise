@@ -1,5 +1,6 @@
 #pragma once
 #include "rock_n_roll_amiga/data/assets.hpp"
+#include "rock_n_roll_amiga/game/tile_animation.hpp"
 #include <array>
 #include <cstdint>
 #include <vector>
@@ -70,6 +71,12 @@ struct LevelMap {
     void set(long index, std::uint8_t value) {
         if (index >= 0 && index < long(cells.size())) cells[std::size_t(index)] = value;
     }
+
+    // Which picture each cell value shows ($72CBE, rebuilt at set-up) and
+    // the animations that change it. The animations' counters run on from
+    // level to level: whoever starts a level carries them over.
+    TileTable tiles;
+    TileAnimator animation;
 
     // What a bomb leaves in the 3 x 3 cells around it (+$1CA, $6BF56).
     std::array<std::uint8_t, 9> after_bomb{};
