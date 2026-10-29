@@ -87,7 +87,10 @@ void Autopilot::fly(Aircraft& a, std::uint8_t& pilot, const PilotWorld& world) c
     // (role 10) and lets go (role 0, $120B58).
     const auto finish = [&] {
         if (!(a.motion & as_player) || world.practice_ready) {
-            // (Others go back to their flight: the missions' roles.)
+            // $120AE0: others (and the practice's while it waits for the
+            // trigger) fly on in role 6 (whose handler leaves them be).
+            a.role = 6;
+            a.timer = 10;
             return;
         }
         a.role = 10;
@@ -106,9 +109,17 @@ void Autopilot::fly(Aircraft& a, std::uint8_t& pilot, const PilotWorld& world) c
         switch (a.role) {
         case 0:
         case 1:
-            // $120C66: the trainer has no target point (+$2C -1): nothing to
-            // do, the pilot's bits go ($120B66).
+            // $120C66: a record not (yet) flown as the trainer whose timer
+            // ran out goes to role 6 ($120CC8 → $120A74); otherwise, without
+            // a target point (+$2C -1), nothing: the pilot's bits go
+            // ($120B66).
+            if (!(a.handling & spinning) && !(a.motion & as_player) && a.timer < 0) {
+                finish();
+                return;
+            }
             pilot = 0;
+            return;
+        case 6:  // $120AEC: (the trainer, or one waiting: nothing)
             return;
         case 2: { // $12096A: roll to the nearest knife edge (90° / 270°)
             const int target = roll < 0x3840 ? 0x1C20 : 0x5460;
@@ -156,6 +167,51 @@ void Autopilot::fly(Aircraft& a, std::uint8_t& pilot, const PilotWorld& world) c
             a.role = 21;
             a.timer = 15;
             continue;
+        case 35: // $1204A4: throttle to 96, at airspeed $840 on
+            if (a.throttle < 0x60) a.controls |= 0x01;
+            else a.controls &= 0xFC;
+            if (a.airspeed >= 0x840) {
+                a.role = 36;
+                a.timer = 0x3C;
+            }
+            steer();
+            return;
+        case 36: // $1204D4: a while, then pull up past 25 degrees nose up
+            if (a.timer >= 0) {
+                steer();
+                return;
+            }
+            a.handling &= ~turned;
+            a.role = 37;
+            continue;
+        case 37: { // $1204E8
+            const int pitch = pitch_of(a);
+            bool more = false;
+            if (!(a.handling & turned)) {
+                if (pitch < 0x3840) more = true;
+                else a.handling |= turned;
+            }
+            // (Nose-up pitches count down from $7080: below $68B0 is more
+            // than 25 degrees up.)
+            if (!more && pitch >= 0x68B0) more = true;
+            if (more) {
+                pitch_toward(a, -0x28);
+                steer();
+                return;
+            }
+            pitch_toward(a, 0);
+            a.controls = 0;
+            a.role = 38;
+            continue;
+        }
+        case 38: // $120526: until height $240000
+            if (a.y > 0x240000) {
+                finish();
+                if (a.role == 10) continue;
+                return;
+            }
+            steer();
+            return;
         case 39: // $120948
             a.role = 40;
             a.timer = 15;
@@ -316,7 +372,7 @@ void Autopilot::fly(Aircraft& a, std::uint8_t& pilot, const PilotWorld& world) c
             continue;
         }
         default:
-            // (Roles 3-6, 8, 9, 29, 32, 35-38: the missions' flight.)
+            // (Roles 3-5, 8, 9, 29, 32: the missions' flight.)
             return;
         }
     }

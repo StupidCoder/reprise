@@ -5,6 +5,7 @@
 #include "fa_18_interceptor_amiga/game/aircraft.hpp"
 #include "fa_18_interceptor_amiga/game/autopilot.hpp"
 #include "fa_18_interceptor_amiga/game/carrier.hpp"
+#include "fa_18_interceptor_amiga/game/collisions.hpp"
 #include "fa_18_interceptor_amiga/game/cockpit.hpp"
 #include "fa_18_interceptor_amiga/game/front_end.hpp"
 #include "fa_18_interceptor_amiga/game/pilot_record.hpp"
@@ -36,6 +37,7 @@ constexpr int ready_text = 89;        // "READY FOR TAKEOFF"
 constexpr int launch_text = 90;       // "READY TO LAUNCH" (on the carrier, $102E10)
 constexpr int maneuvers_text = 9;     // "BASIC FLIGHT MANEUVERS - PART 1" ($102488)
 constexpr int practice_text = 10;     // "... PART 2" ($102496)
+constexpr int lead_lost_text = 72;    // "THE LEAD AIRCRAFT HAS BEEN DESTROYED ..." ($1032AE)
 constexpr int qualification_text = 73; // the qualification's briefing ($101CDA)
 constexpr int landed_text = 74;       // "LANDING SUCCESSFUL ... YOU ARE NOW QUALIFIED" ($1032D6)
 constexpr int menu_hint_text = 83;    // "(SHIFT ESC) TO RETURN TO MAIN MENU"
@@ -82,7 +84,7 @@ public:
     double step_seconds() const override {
         const bool blanks =
             in_front_ ? front_.fast() : (phase_ == Phase::ready && !ready_done_) || phase_ == Phase::fade_in || phase_ == Phase::fade_out ||
-            (phase_ == Phase::briefing && !text_.done()) || phase_ == Phase::landed;
+            (phase_ == Phase::briefing && !text_.done()) || phase_ == Phase::landed || phase_ == Phase::lead_lost;
         return blanks ? 1.0 / 50 : 1.0 / ticks_per_second;
     }
     double pixel_aspect() const override { return 1.0; }
@@ -145,7 +147,8 @@ public:
         messages_.clock();
         if (phase_ == Phase::end_wait || phase_ == Phase::end_text || phase_ == Phase::ready ||
             phase_ == Phase::descent || phase_ == Phase::to_ready || phase_ == Phase::fade_in ||
-            phase_ == Phase::fade_out || phase_ == Phase::briefing || phase_ == Phase::landed) {
+            phase_ == Phase::fade_out || phase_ == Phase::briefing || phase_ == Phase::landed ||
+            phase_ == Phase::lead_lost) {
             if (phase_ == Phase::briefing) {
                 // ($101D06: any key ends the briefing; `$13AA93`.)
                 bool any = input.fire && !fire_was_;
@@ -225,6 +228,7 @@ public:
                 std::vector<Vehicle> vehicles{self, carrier_vehicle()};
                 std::vector<Spark> sparks;
                 add_weapons(vehicles, sparks, t);
+                add_lead(vehicles, t);
                 scene_.draw(frame, width / 2 - 1, bottom, view, vehicles, sparks);
                 if (above_) grid(frame, view, width / 2 - 1, bottom);
                 // (No numbers while the camera comes down from the map: $126AB2
@@ -254,6 +258,7 @@ public:
             self.push_back(carrier_vehicle());
             std::vector<Spark> sparks;
             add_weapons(self, sparks, t);
+            add_lead(self, t);
             scene_.draw(frame, width / 2 - 1, cockpit ? Cockpit::view_bottom : view_rows,
                         camera(before_, aircraft_, t, look_, zoom_), self, sparks);
             readings.hud = phase_ != Phase::ready && phase_ != Phase::to_ready; // ($13AA91, set as the flight starts)
@@ -292,7 +297,9 @@ public:
             } else {
                 cockpit_.draw(frame, margin_, readings);
             }
-            if (phase_ == Phase::ready || phase_ == Phase::briefing || phase_ == Phase::landed) text_.draw(frame, margin_);
+            if (phase_ == Phase::ready || phase_ == Phase::briefing || phase_ == Phase::landed ||
+                phase_ == Phase::lead_lost)
+                text_.draw(frame, margin_);
             // The panel is a view port of its own with `pix/inst5`'s colour
             // map, whose colours 16-31 repeat 0-15 (the flight palette's
             // 16-31 are their darker copies).
@@ -343,6 +350,18 @@ public:
             p.burst = s.hit || s.kind == Shot::Kind::chaff;
             sparks.push_back(p);
         }
+    }
+
+    // The practice's lead, drawn with the F-16's shape.
+    void add_lead(std::vector<Vehicle>& vehicles, double t) const {
+        if (mode_ != FlightMode::practice || !lead_active_) return;
+        Vehicle v;
+        v.type = 3;
+        const double back = smooth_ ? 1 - t : 0;
+        v.position = {(leader_.x - leader_.vx * back) / 256.0, (leader_.y - leader_.vy * back) / 256.0,
+                      (leader_.z - leader_.vz * back) / 256.0};
+        v.body = leader_.body;
+        vehicles.push_back(v);
     }
 
     Vehicle carrier_vehicle() const {
@@ -408,6 +427,7 @@ private:
         fade_out,     // $101A96: the demo's end, the screen fading out before it starts again
         briefing,     // $101CC0 / $101D06: the qualification's text, until typed or a key
         landed,       // $1031F4 / $103AA8: the qualifying landing's texts, then a new launch
+        lead_lost,    // $103A4C: the practice's lead lost: block 72, then the main menu
         descent,      // $102D58 with the outside camera's flight down (`$13AB9E` = 6)
         to_ready,     // $102D58: five frames in the cockpit
         ready,        // $102E4E / $102EDA: "READY FOR TAKEOFF", then a beep
@@ -440,6 +460,10 @@ private:
         }
         if (mode_ == FlightMode::maneuvers) {
             begin_maneuvers(start.again);
+            return;
+        }
+        if (mode_ == FlightMode::practice) {
+            begin_practice();
             return;
         }
         fade_ = 15;
@@ -701,10 +725,10 @@ private:
             // (`$1093F2`), then the frames before the text ($101BD0).
             if (++fade_ticks_ % 3 == 0 && fade_ < 15) ++fade_;
             if (fade_ == 15) {
-                if (mode_ == FlightMode::maneuvers) {
+                if (mode_ == FlightMode::maneuvers || mode_ == FlightMode::practice) {
                     sounds_.set_active(false);
                     text_.clear();
-                    text_.queue(maneuvers_text);
+                    text_.queue(mode_ == FlightMode::practice ? practice_text : maneuvers_text);
                     phase_ = Phase::briefing;
                     break;
                 }
@@ -733,12 +757,38 @@ private:
                 phase_ = Phase::ready;
                 break;
             }
+            if ((text_.done() || briefing_key_) && mode_ == FlightMode::practice) {
+                // $1024F8: the camera's descent from the aircraft itself
+                // (`$11DC7E`, state 3), then "READY FOR TAKEOFF".
+                sounds_.set_active(true);
+                text_.clear();
+                text_.queue(ready_text);
+                descent_ = Descent{};
+                descent_.state = 3;
+                descent_.camera = {aircraft_.x, aircraft_.y, aircraft_.z};
+                descent_.target = descent_.camera;
+                outside_ = true;
+                position_ = 0;
+                chase_ = chase_was_ = {aircraft_.x / 256.0, aircraft_.y / 256.0, aircraft_.z / 256.0};
+                chase_set_ = true;
+                phase_ = Phase::descent;
+                break;
+            }
             if (text_.done() || briefing_key_) {
                 sounds_.set_active(true); // ($101D18)
                 text_.clear();
                 text_.queue(launch_text);
                 countdown_ = 5;
                 phase_ = Phase::to_ready;
+            }
+            break;
+        case Phase::lead_lost:
+            if (!text_.done()) {
+                if (text_.tick()) sounds_.click();
+                if (text_.done()) countdown_ = 0x64 / 6; // (as after the landing)
+            } else if (countdown_ < 0) {
+                leave_flight();
+                front_.to_menu();
             }
             break;
         case Phase::landed:
@@ -767,7 +817,8 @@ private:
                 } else {
                     leave_flight();
                     // ($101AF4: after the maneuvers' demo comes their practice.)
-                    front_.again(mode_ == FlightMode::qualification ? 5 : mode_ == FlightMode::maneuvers ? 4 : 2);
+                    front_.again(mode_ == FlightMode::qualification ? 5 :
+                                 (mode_ == FlightMode::maneuvers || mode_ == FlightMode::practice) ? 4 : 2);
                 }
             }
             break;
@@ -800,11 +851,21 @@ private:
             } else if (countdown_ < 0) {
                 sounds_.beep(0x12C, 2, 1, 0x12C, 2, 1, 1, 2, 2); // $127D7C
                 text_.clear();
+                ticks_ = 0; // ($102EC0: the frame counter `$13ABCA` from 0)
                 flying_ = true;
                 phase_ = Phase::flying;
             }
             break;
         case Phase::flying:
+            if (mode_ == FlightMode::practice && !lead_active_ && !(aircraft_.state & flag::crashed)) {
+                // $118AEC / $1032AA: the lead lost: block 72 over the view,
+                // 100 passes, the main menu ($103A4C, $101A70).
+                flying_ = false;
+                text_.clear();
+                text_.queue(lead_lost_text);
+                phase_ = Phase::lead_lost;
+                break;
+            }
             if (replay_ended_) {
                 // $10EF08 / $101854: the recording's end pauses the flight
                 // and starts the selection again.
@@ -912,8 +973,23 @@ private:
             // The weapons: Return the next one ($10E90E), space fires
             // ($10F0AA, its release $10F100), F a flare, C chaff; R the
             // radar's range, T the next target, J the ECM.
-            if (pressed(key::return_key)) game_key(replay_key::weapon);
-            if (input.fire != fire_was_) game_key(input.fire ? replay_key::fire : replay_key::fire_up);
+            if (mode_ == FlightMode::practice) {
+                // $10E8D8: Return re-positions beside the lead while it waits
+                // for the trigger, else "NOT YET RDY TO RE-POSITION"; $10F0B6:
+                // the fire key is the trigger, the gun is not armed.
+                if (pressed(key::return_key)) {
+                    if (practice_wait_ < 0) {
+                        sounds_.refuse();
+                        reposition_ = true;
+                    } else {
+                        messages_.post(0x401F);
+                    }
+                }
+                if (input.fire && !fire_was_ && practice_wait_ < 0) trigger_ = true;
+            } else {
+                if (pressed(key::return_key)) game_key(replay_key::weapon);
+                if (input.fire != fire_was_) game_key(input.fire ? replay_key::fire : replay_key::fire_up);
+            }
             if (pressed(key::f)) game_key(replay_key::flare);
             if (pressed(key::c)) game_key(replay_key::chaff);
             if (pressed(key::r)) game_key(replay_key::radar_range);
@@ -927,7 +1003,10 @@ private:
         if (carrier_.touch(aircraft_, assets_.program)) aircraft_.state |= flag::crashed;
         FlightRules rules;
         rules.world = &world_;
+        if (mode_ == FlightMode::practice) reposition_step();
+        const std::array<std::int32_t, 3> before{aircraft_.x, aircraft_.y, aircraft_.z};
         const auto events = fly(aircraft_, c, rules, tables_);
+        player_touches(before);
         if (events.engine_sound != 0) sounds_.event(EngineSound(events.engine_sound));
         if (events.engine_restart_in != 0) sounds_.restart_after(events.engine_restart_in);
         if (events.tyres_volume != 0) sounds_.tyres(events.tyres_volume);
@@ -962,9 +1041,234 @@ private:
         weapons_.move_missiles(aircraft_, rules, sounds_);
         weapons_.move_shots(aircraft_, outside_, std::uint16_t(ticks_), sounds_);
         lead_point();
+        if (mode_ == FlightMode::practice) lead_tick();
 
         chase_camera();
         ++ticks_;
+    }
+
+    // The bodies that touch: the player's aircraft (group 0) and the
+    // practice's lead (record 4, group 4).
+    std::vector<Body> bodies() {
+        std::vector<Body> b{{&aircraft_, 0, true}};
+        if (mode_ == FlightMode::practice) b.push_back({&leader_, 4, lead_active_});
+        return b;
+    }
+
+    // $11A7EA for the player: the touch after the move and what it does
+    // ($11A88E): out of control (state bit 15) and, faster than $3C0, by
+    // the frame counter's bit 0 "TURBINE FAILURE" and a spin - unless
+    // flares or chaff are out - or "MINOR HYDRAULIC / STRUCTURE DAMAGE"
+    // (bit 1). A spin on the ground blows the aircraft up ($11AA80).
+    void player_touches(const std::array<std::int32_t, 3>& before) {
+        auto list = bodies();
+        if (list.size() > 1 && !(aircraft_.state & 0x0400)) {
+            bool near = false;
+            if (touch_bodies(list, 0, before, near) == touch::object) {
+                aircraft_.state |= 0x8000;
+                if (aircraft_.airspeed > 0x3C0) {
+                    if ((ticks_ & 1) == 0) {
+                        if (!weapons_.decoys_out()) {
+                            aircraft_.handling |= 0x02;
+                            messages_.post(0x9014);
+                        }
+                    } else {
+                        messages_.post((ticks_ & 2) ? 0xD00C : 0xD00B);
+                    }
+                }
+                return;
+            }
+            if (near) aircraft_.motion |= 0x0002; // ($11AAE0)
+            else aircraft_.motion &= ~0x0002;
+        }
+        if ((aircraft_.handling & 0x02) && (aircraft_.motion & flag::on_ground) && !(aircraft_.state & 0x0400))
+            aircraft_.state |= flag::crashed;
+    }
+
+    // The practice ($7D, $102202): free flight's start at runway 3 with one
+    // aircraft, briefing 10 first; the lead - a copy of the player's
+    // record with the F-16's shape, 72 units ahead (`$11D0AA`) - starts
+    // once the player moves, climbs (roles 35-38), and flies each
+    // maneuver when triggered.
+    void begin_practice() {
+        place_ = 2;
+        aircraft_type_ = 0x11;
+        aircraft_left_ = 1; // ($102202)
+        text_.clear();
+        sounds_.set_active(true);
+        restart();
+        spawn_lead();
+        flying_ = false;
+        ready_done_ = false;
+        outside_ = above_ = false;
+        look_ = 0;
+        zoom_ = 0x80;
+        maneuver_ = 0;
+        maneuver_started_ = false;
+        practice_wait_ = 0;
+        trigger_ = reposition_ = false;
+        brief_ = true;
+        fade_ = 0;
+        fade_ticks_ = 0;
+        briefing_key_ = false;
+        phase_ = Phase::fade_in;
+    }
+
+    void spawn_lead() {
+        leader_ = aircraft_;
+        const auto p = plane_offset(0, 0, 0x48);
+        leader_.x = std::int32_t(p[0]);
+        leader_.y = std::int32_t(p[1]);
+        leader_.z = std::int32_t(p[2]);
+        leader_.type = 0x10;
+        leader_.player = false;
+        leader_.role = 0;
+        leader_.timer = 0;
+        lead_pilot_ = 0;
+        lead_active_ = true;
+    }
+
+    // Record 4's frame in the practice: the exploding and crashed states
+    // (`$11A398`, `$1169D0`), the training step ($1172AA for $7D), the
+    // timer, the autopilot, the flight step and its touch ($11A996).
+    void lead_tick() {
+        if (!lead_active_) return;
+        auto& g = leader_;
+        if (g.state & 0x0400) {
+            if (g.timer <= 0) {
+                g.state &= ~0x0400;
+                if ((g.motion & flag::on_ground) || (g.state & 0x8000)) {
+                    lead_active_ = false; // (removed)
+                    return;
+                }
+            }
+            g.state &= ~0x2000;
+        }
+        practice_step();
+        g.timer = std::int16_t(g.timer - 1);
+        if (g.state & 0x0200) { // ($1169D0: crashed becomes exploding)
+            g.timer = 15;
+            g.state = std::uint16_t((g.state & ~0x0200) | 0x0400);
+        }
+        if ((g.handling & 0x02) && (g.state & 0x1000)) {
+            // $1179C0: spinning, the speed goes toward $1200 by $90 (and the
+            // autopilot heads for the spot it is over: the missions' path
+            // following, not built).
+            g.speed = std::int16_t(g.speed > 0x1200 ? std::max(g.speed - 0x90, 0x1200) : std::min(g.speed + 0x90, 0x1200));
+            g.airspeed = g.speed;
+            g.motion &= 0xDFF7;
+        }
+        PilotWorld world;
+        world.mode = 0x7D;
+        world.practice_ready = practice_wait_ < 0;
+        autopilot_.fly(g, lead_pilot_, world);
+        if (!(g.state & 0x1000)) return;
+        FlightControls c;
+        c.recorded = g.controls;
+        const auto roll_before = g.attitude.roll;
+        const std::array<std::int32_t, 3> before{g.x, g.y, g.z};
+        FlightRules rules;
+        rules.world = &world_;
+        fly(g, c, rules, tables_);
+        Autopilot::level_out(g, roll_before);
+        if (g.state & 0x0400) {
+            // ($11A7DA: no touches while it blows up; it stops after this
+            // move - seen in `work/ref/prac.jsonl`, frame 271.)
+            g.state &= ~0x1000;
+            return;
+        }
+        auto list = bodies();
+        bool near = false;
+        if (touch_bodies(list, 1, before, near) == touch::object) {
+            // $11A9DE / $11AA04: it spins, and is taken off ($11AA70).
+            g.handling |= 0x02;
+            g.motion |= 0x1000;
+            g.role = 1;
+            lead_active_ = false;
+            return;
+        }
+        if ((g.handling & 0x02) && (g.motion & flag::on_ground)) {
+            g.state &= ~0x1000;
+            g.state |= 0x0400;
+            g.timer = 15;
+        }
+    }
+
+    // $1172AA / $11739C for $7D: the lead starts with the player's first
+    // move; after each maneuver (and its start, the climb) it waits for
+    // the trigger with "TRIGGER FOR: ..." for the next one (`$13AA8A`).
+    void practice_step() {
+        const auto& m = assets_.program;
+        auto& g = leader_;
+        if (!(g.motion & 0x0100)) {
+            g.role = 0;
+            if (aircraft_.airspeed == 0) return;
+            g.motion |= 0x0100;
+            maneuver_started_ = false;
+        }
+        for (int guard = 0; guard < 3; ++guard) {
+            if (!maneuver_started_) {
+                g.role = std::uint8_t(m.u32(0x11756A + std::uint32_t(8 * maneuver_) + 4) & 0xFF);
+                maneuver_started_ = true;
+                g.motion &= ~0x0800;
+                return;
+            }
+            if (g.role != role::none) return;
+            g.controls &= 0xC3;
+            if (trigger_) {
+                // ($1173EA) the trigger: the next maneuver, flown now.
+                trigger_ = false;
+                practice_wait_ = 0;
+                if (maneuver_ >= 7) {
+                    spawn_lead();
+                    g.motion |= 0x0100;
+                    g.throttle = 0x60;
+                }
+                practice_next();
+                continue;
+            }
+            if (practice_wait_ < 0) return;
+            practice_wait_ = -1;
+            const int next = maneuver_ >= 7 ? 1 : maneuver_ + 1;
+            messages_.post(m.u16(0x117522 + std::uint32_t(8 * next)));
+            return;
+        }
+    }
+
+    // $117478 in the practice: the next maneuver and its name (the camera
+    // follows the player, so it stays).
+    void practice_next() {
+        const auto& m = assets_.program;
+        maneuver_ = maneuver_ >= 7 ? 1 : maneuver_ + 1;
+        maneuver_started_ = false;
+        leader_.controls = 0;
+        if (maneuver_ == 4 && leader_.y <= 0x100000) messages_.post(0x35);
+        else messages_.post(m.u16(0x117522 + std::uint32_t(8 * maneuver_) + 2));
+    }
+
+    // $117170 (the player's step, after Return in the practice): the next
+    // maneuver's prompt, and the player's aircraft put beside the lead (its
+    // record copied, the stores kept, 9, 1, -97 from it).
+    void reposition_step() {
+        if (!reposition_) return;
+        reposition_ = false;
+        const auto& m = assets_.program;
+        if (practice_wait_ != -1) maneuver_ = maneuver_ >= 7 ? 1 : maneuver_ + 1;
+        const int next = maneuver_ >= 7 ? 1 : maneuver_ + 1;
+        messages_.post(m.u16(0x117522 + std::uint32_t(8 * next)));
+        practice_wait_ = -2;
+        Aircraft a = leader_;
+        a.type = 0x11;
+        a.player = true;
+        a.motion &= ~0x0100;
+        a.role = 0;
+        a.controls = 0;
+        const auto& v = leader_.view;
+        a.x = leader_.x + ((v[0] * 9 + v[1] * 1 + v[2] * -0x61) >> 4);
+        a.y = leader_.y + ((v[3] * 9 + v[4] * 1 + v[5] * -0x61) >> 4);
+        a.z = leader_.z + ((v[6] * 9 + v[7] * 1 + v[8] * -0x61) >> 4);
+        aircraft_ = a;
+        before_ = aircraft_;
     }
 
     // The game's key handlers ($10DAC8), from the keys or the demo's
@@ -1517,6 +1821,12 @@ private:
     bool maneuver_started_ = false;     // $14508A
     bool skip_maneuver_ = false;        // record 0's +2 bit 3 (Return)
     bool maneuvers_running_ = false;    // $13AA83
+    Aircraft leader_;                   // the practice's lead (record 4)
+    std::uint8_t lead_pilot_ = 0;       // its +$64
+    bool lead_active_ = false;
+    std::int8_t practice_wait_ = 0;     // $13AA8A: negative while the trigger is awaited
+    bool trigger_ = false;              // record 4's +2 bit 3 (the fire key)
+    bool reposition_ = false;           // the player's +2 bit 3 (Return)
     bool brief_ = false;                // the qualification's briefing comes (`$13AB1B` clear)
     bool briefing_key_ = false;         // a key during the briefing
     int radar_range_ = 0xD;             // +$63 low nibble: 9, B, D (2, 10, 40 miles; key R)

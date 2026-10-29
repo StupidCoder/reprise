@@ -1319,28 +1319,74 @@ each frame of the original's maneuvers' demo (`work/ref/man.jsonl`,
 maneuvers 2-7, `flightcap.py --objs`) - all 699 frames equal (role,
 timer, control byte, +$64, +$20, position, angles, speed).
 
-**The practice (item 4, $7D)** - read, not yet built: the player on
-runway 3 with the camera's descent (`$102202`), record 4 a copy of the
-player's record with the F-16's shape (`$11D0AA`), alive once the
-player moves (`$1172AA`), flying role 35-38's climb, then "TRIGGER FOR:
-<maneuver>" (`$117522` + 8n); the player's trigger (`$10F0B6`: record
-4's +2 bit 3) makes record 4 fly it; Return puts the player beside
-record 4 again (`$117170`: its record copied, offset (9, 1, -97)). A
-dead leftover (`$117254`) once recorded the player's control bytes into
-the maneuvers' scripts ("PATTERN EXHAUSTED" after $1FD frames).
-Practice starts like free flight at runway 3 (`$102CE0` → `$10D51E`,
-the map camera `$10D400` and its descent, "READY FOR TAKEOFF"), with one
-aircraft, after briefing 10. Record 4 is placed 72 units ahead of the
-player (`$11D10A` → `$10D460`), type $10, +$2C −1 (no target point),
-role 0. Seen on the original (`work/ref/prac.jsonl`, `flightcap.py
---objs`): record 4 goes to role 6 for a frame, then (the player's
-airspeed not 0, +2 bit 0 set) role 35 with full throttle bits; at
-airspeed $840 role 36 (60 frames). The recording's player, at full
-afterburner right behind it on the runway, got "WARNING: TURBINE
-FAILURE" (message $14, blinking) and the flight ended (one aircraft).
-So the practice needs the objects' effects on each other (`$11B6AA`:
-proximity and collision, open since step 7); its end text when record 4
-is lost is block 72 (`$1032AA`).
+**The practice (item 4, $7D)** (`$102202`): free flight's start at
+runway 3 (`$102CE0` → `$10D51E`) with one aircraft (`$13AB87` 1), the
+F/A-18, briefing 10 (`$102496`) after the fade-in, then the camera's
+descent from the aircraft itself (`$11DC7E`, descent state 3: only its
+last frames) and "READY FOR TAKEOFF". The lead, record 4 (`$11D0AA`): the
+player's record copied, type $10 (the F-16's shape), 72 units ahead
+((view column 2 × 72) >> 4, `$10D460`), group +$5E 4, +$2C −1, role 0.
+Until the player moves it sits (role 0, whose timer sends it to role 6
+for a frame); with the player's airspeed not 0 (`$1172AA`, after the
+player's step) its +2 bit 0 is set and it flies entry 0's roles 35-38:
+throttle bits up to 96%, at airspeed $840 sixty frames' roll, a pull at
+−40 until the nose is more than 25° up, then on until height $240000 and
+the maneuver's end (role 10, $3C frames: `$13AA83` is clear here). Then
+(`$11739C`) it waits: `$13AA8A` −1 and "TRIGGER FOR: <next maneuver>"
+(`$117522` + 8n, first word); meanwhile a maneuver's end leaves it in
+role 6. The fire key (`$10F0B6`, only while it waits: the gun is not
+armed in the practice) sets its +2 bit 3: the next maneuver (its name in
+the message line), flown at once; after the seventh the lead is copied
+from the player again. Return while it waits (`$10E8D8`, the refusing
+beep) puts the player beside it (`$117170`: its record copied with type
+$11, +2 bit 0 and the role cleared, at (9, 1, −97) by its view matrix /
+16) and shows the next prompt; otherwise "NOT YET RDY TO RE-POSITION"
+($1F). Losing the lead (`$118AEC`) ends the practice with block 72 over
+the view, 100 passes (`$103A4C`) and the main menu; crashing the one
+aircraft ends it as in free flight. Esc starts it again.
+
+Checked against the original's practice (`work/ref/prac.jsonl`, the
+player rolling into the lead on the runway at full afterburner):
+`trainercheck` steps the lead - 138 of 141 frames equal; the other
+three are the hit lead's last frames, whose stick bits come from the
+missions' path following (not built). The player's touch (below) agrees
+on all 141 frames, the hit included.
+
+### Objects touching ($11B6A2, 2026-10-29)
+
+After each record's move the object step (`$11A7EA`) calls `$11B6A2`
+with the record's position before the move. For every other active record
+(not crashed or exploding, state & $600; not of the same group +$5E - an
+aircraft and its missiles share one; one of the two with state bit 3)
+the two types give two half sizes in 32-bit units: type $15 $5000 /
+$1000; ships ($2x) the deck and hull tests (the carrier, "The carrier");
+parachutes ($3x) none; a missile, or two of different classes, $10000 /
+$5000; two aircraft $7000 / $1000, or $6000 / $800 when one is flown as
+the training's (+2 bit 0). Within the first box (all three axes) the
+other is near (its +2 bit 0, `$13AB8F`); within the second, now or half
+its move back, it is hit: a moving one (state bit 12) is crashed (state
+bit 9) and, an aircraft, spins (+$20 bit 1) with +2 bit 12 and role 1;
+both get +$20 bit 7 when the mover has state bit 3 (`$11C0BA`, which also
+counts missile hits in the log). The result is $40.
+
+What the mover does with it (`$11A88E`): the player's aircraft gets state
+bit 15 (no turning while it lasts) and, faster than $3C0 (with `$13AA7C`
+set), by the frame counter's bit 0 either "WARNING: TURBINE FAILURE"
+($9014, blinking) and a spin - unless flares or chaff are out - or "MINOR
+HYDRAULIC DAMAGE" / "MINOR STRUCTURE DAMAGE" ($D00B / $D00C by bit 1).
+Another record spins, takes +2 bit 12 and role 1, and is taken off at
+once (`$11AA70`). Without a touch: near sets the mover's +2 bit 1
+(`$11AAE0`); a spinning aircraft on the ground blows up (`$11AA80` →
+`$11AA4A`: state bit 10, 15 frames) - for the player the crash. A
+crashed record becomes exploding in its next step (`$1169D0`: 15 frames;
+it makes one more move, then stops), and spins its speed toward $1200 by
+$90 (`$1179C0`); when the 15 frames are out (`$11A398`) it is taken off
+if it is on the ground or has state bit 15, else it falls on spinning.
+The frame counter `$13ABCA` starts at 0 with each flight (`$102EC0`).
+
+Built for the aircraft records the port has (the player's and the
+practice's lead); scenery boxes (`$142A7C`'s lists), explosions' smoke
+(`$11AB3E`) and the falling, burning aircraft's steering are not.
 
 ### Qualification (menu item 5, 2026-10-29)
 

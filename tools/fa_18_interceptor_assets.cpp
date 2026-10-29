@@ -41,6 +41,7 @@
 #include "fa_18_interceptor_amiga/data/world.hpp"
 #include "fa_18_interceptor_amiga/game/aircraft.hpp"
 #include "fa_18_interceptor_amiga/game/autopilot.hpp"
+#include "fa_18_interceptor_amiga/game/collisions.hpp"
 #include "fa_18_interceptor_amiga/game/replay.hpp"
 #include "fa_18_interceptor_amiga/game/carrier.hpp"
 #include "fa_18_interceptor_amiga/game/cockpit.hpp"
@@ -789,7 +790,7 @@ int trainer_check(const std::filesystem::path& content, const std::filesystem::p
     const game::Autopilot autopilot(assets.program);
     struct Line {
         Frame frame;
-        std::vector<std::uint8_t> trainer;
+        std::vector<std::uint8_t> trainer, player;
     };
     std::vector<Line> lines;
     std::ifstream in(capture);
@@ -800,10 +801,12 @@ int trainer_check(const std::filesystem::path& content, const std::filesystem::p
         l.frame.globals = hex_field(text, "glob");
         const auto objs = hex_field(text, "objs");
         l.trainer.assign(objs.begin() + 3 * 0x200, objs.begin() + 4 * 0x200);
+        l.player = hex_field(text, "obj");
         l.frame.object = l.trainer;
         lines.push_back(std::move(l));
     }
-    int matched = 0, compared = 0;
+    int matched = 0, compared = 0, touches = 0, touches_agree = 0;
+    std::optional<game::Aircraft> lead_hit;
     for (std::size_t k = 0; k + 1 < lines.size(); ++k) {
         const auto& now = lines[k];
         const auto& next = lines[k + 1];
@@ -813,12 +816,50 @@ int trainer_check(const std::filesystem::path& content, const std::filesystem::p
         auto a = aircraft_from(now.frame);
         a.player = false;
         std::uint8_t pilot = o.u8(0x64);
+        const bool practice = g.u8(0x13AB96 - 0x13A9E0) == 0x7D;
+        if (practice) {
+            // The player's touch this frame ($11B6A2 after its move): from
+            // its position before the move against the lead as it stands.
+            Frame pf{now.frame.number, now.player, now.frame.globals};
+            auto player = aircraft_from(pf);
+            auto lead = aircraft_from(now.frame);
+            std::vector<game::Body> list{{&player, 0, true}, {&lead, 4, true}};
+            bool near = false;
+            const bool hit = game::touch_bodies(list, 0, {player.x, player.y, player.z}, near) == game::touch::object;
+            const bool was_hit = want_o.u8(5) == 1 && o.u8(5) != 1;
+            if (hit) lead_hit = lead;
+            ++touches;
+            if (hit == was_hit) ++touches_agree;
+            else std::printf("frame %d: touch %d, original %d\n", next.frame.number, hit, was_hit);
+        }
+        if (practice && !(a.motion & 0x0100)) {
+            // $1172AA ($7D): the lead starts with the player's first move.
+            a.role = 0;
+            const Record player{next.player}; // (the player has moved this frame)
+            if (player.s16(0x6E) != 0) a.motion |= 0x0100;
+        }
         // $1172AA: a new maneuver's first role.
-        if (a.role == 0 && want_o.u8(5) != 0) {
+        if ((a.motion & 0x0100) && a.role == 0 && want_o.u8(5) != 0 && want_o.u8(5) != 6) {
             const int m = gn.u8(0x13AA89 - 0x13A9E0);
             a.role = std::uint8_t(assets.program.u32(0x11756A + std::uint32_t(8 * m) + 4) & 0xFF);
         }
+        if (lead_hit) {
+            // (Hit by the player this frame: crashed, spinning, role 1.)
+            a.state = lead_hit->state;
+            a.handling = lead_hit->handling;
+            a.motion = lead_hit->motion;
+            a.role = lead_hit->role;
+        }
         a.timer = std::int16_t(a.timer - 1); // ($1179A4)
+        if (a.state & 0x0200) { // ($1169D0: crashed becomes exploding)
+            a.timer = 15;
+            a.state = std::uint16_t((a.state & ~0x0200) | 0x0400);
+        }
+        if ((a.handling & 0x02) && (a.state & 0x1000)) { // ($1179C0)
+            a.speed = std::int16_t(a.speed > 0x1200 ? std::max(a.speed - 0x90, 0x1200) : std::min(a.speed + 0x90, 0x1200));
+            a.airspeed = a.speed;
+            a.motion &= 0xDFF7;
+        }
         game::PilotWorld world;
         world.mode = g.u8(0x13AB96 - 0x13A9E0);
         world.practice_ready = std::int8_t(g.u8(0x13AA8A - 0x13A9E0)) < 0;
@@ -832,8 +873,10 @@ int trainer_check(const std::filesystem::path& content, const std::filesystem::p
         game::FlightControls c;
         c.recorded = a.controls;
         const auto roll_before = a.attitude.roll;
-        game::fly(a, c, rules, tables);
+        if (a.state & 0x1000) game::fly(a, c, rules, tables);
         game::Autopilot::level_out(a, roll_before);
+        if (a.state & 0x0400) a.state &= ~0x1000;
+        lead_hit.reset();
         const auto want = aircraft_from(next.frame);
         std::string diff;
         const auto check = [&](const char* name, long got, long expected) {
@@ -849,6 +892,7 @@ int trainer_check(const std::filesystem::path& content, const std::filesystem::p
         if (diff.empty()) ++matched;
         else std::printf("frame %d role %d:%s\n", next.frame.number, o.u8(5), diff.c_str());
     }
+    if (touches) std::printf("the player's touches: %d of %d frames agree\n", touches_agree, touches);
     std::printf("%d of %d frames match\n", matched, compared);
     return matched == compared ? 0 : 1;
 }

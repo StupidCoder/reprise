@@ -92,6 +92,8 @@ public:
     // The count the readouts show for the selected weapon (rounds for the
     // gun; 0 without a weapon).
     int count() const;
+    // Flares or chaff out: their 30 frames running (`$13AB3F`, `$13AB3E`).
+    bool decoys_out() const { return flare_time_ > 0 || chaff_time_ > 0; }
 
     // The pieces, also for research: a missile of `weapon` launched from
     // `player` at the station for `left` missiles left after it; a

@@ -71,8 +71,10 @@ from drawing, and must still respect the passes' model rule).
    inside its outline instead), the other ships' decks (`$12EF74`),
    the object step for moving objects (`$11A352` for others, flight
    paths `$38`, `$11DDC0`), other aircraft, missiles and parachutes
-   (they come with the modes that spawn them, tasks 10-11), collisions
-   between objects (`$11B6AA`'s first part, collision proximity).
+   (they come with the modes that spawn them, tasks 10-11). Done since:
+   objects touching (`$11B6A2`: near, hit, crash, explode) for the
+   aircraft records; left: scenery boxes, explosions' smoke, a burning
+   aircraft's fall (it needs the missions' path following).
 8. **Weapons** — done 2026-10-29 for free flight: the stores, Return
    for the next weapon, space to fire, F a flare, C chaff (with their
    messages); the gun's bursts, rounds and sound, missiles launched from
@@ -91,17 +93,14 @@ from drawing, and must still respect the passes' model rule).
    sound checked against a recording of the original (f16a, all frames),
    the head-up display pixel for pixel (`hudcheck`). The F/A-18's HUD
    positions were corrected at the same time (from the original's tables).
-10. **Demo, training and qualification** — mostly done 2026-10-29:
-    qualification (5) and the maneuvers' demo (3: the trainer's autopilot
-    for the seven maneuvers, checked frame by frame with `trainercheck`)
-    are built. The demo (1) has its replay, key events, fades and up/down
-    looks, but waits for mission 3's world (its sailing carrier and the
-    bogey: task 11); menu item 1 still returns to the menu. Left: the
-    practice (4) - read (game.md "The maneuvers"), not built: it needs
-    the objects' effects on each other first (`$11B6AA`: proximity, jet
-    wash ("TURBINE FAILURE" behind record 4), collisions; block 72 when
-    record 4 is lost); a recording of the break turn's and the aileron
-    roll's roles (39/40/2/7, 11-13 from their start) to check them too.
+10. **Demo, training and qualification** — done 2026-10-29 but the
+    demo: qualification (5), the maneuvers' demo (3) and their practice
+    (4, with the lead, the triggers and re-positioning) are built and
+    checked against the original (`trainercheck`). The demo (1) has its
+    replay, key events, fades and up/down looks, but waits for mission 3's
+    world (its sailing carrier and the bogey: task 11); menu item 1 still
+    returns to the menu. Left: a recording of the break turn's and the
+    aileron roll's first roles (39/40/2/7, 11-13) to check them too.
 11. **Missions**: the six selectable missions and the advanced mission
     chain, briefings, outcomes, the log's records.
 12. **Dusk and night**: palettes 3-9 (the fades).
