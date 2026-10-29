@@ -18,6 +18,7 @@
 #include "fa_18_interceptor_amiga/game/sound_driver.hpp"
 #include "fa_18_interceptor_amiga/game/sounds.hpp"
 #include "fa_18_interceptor_amiga/game/text_screen.hpp"
+#include "fa_18_interceptor_amiga/game/trigger_areas.hpp"
 #include "fa_18_interceptor_amiga/game/weapons.hpp"
 #include "fa_18_interceptor_amiga/game/world_objects.hpp"
 #include "ui/vhs.hpp"
@@ -405,6 +406,8 @@ public:
         objects_ = spawned.objects;
         list_start_ = spawned.first_entry;
         aircraft_limit_ = spawned.aircraft_limit;
+        aircraft_count_ = spawned.aircraft;
+        areas_.reset();
         pod_.reset();
         escort_ = 0;
         outcome_wait_ = 0;
@@ -416,6 +419,21 @@ public:
     // The object step for the lists' records, in record order (`$116C4E`
     // ...): the others' part (`$11797E`), the autopilot, the flight step.
     // (Their touches, weapons and crashes are not built yet.)
+    // $11D17A: the player's cell against the trigger areas; an area's
+    // entries are spawned by `$11D2FA` with a fresh draw for the offsets.
+    void trigger_areas() {
+        areas_.check(std::int16_t(aircraft_.x >> 22), std::int16_t(aircraft_.z >> 22), objects_,
+                     [&](const ObjectLists::TriggerArea& area, int index) {
+                         ObjectChoice choice;
+                         choice.mode = mission_mode();
+                         choice.level = level_;
+                         choice.variant_random = int(random_() & 0xFFFF);
+                         ObjectLists::Spawned offsets;
+                         return lists_.spawn_area(area, index, objects_, aircraft_count_, aircraft_limit_, choice,
+                                                  offsets, tables_);
+                     });
+    }
+
     void objects_tick() {
         Records records{&aircraft_, player_distance_, &objects_};
         StepWorld world;
@@ -428,6 +446,9 @@ public:
             auto& a = o.craft;
             if (!o.active() || (a.type & 0xF0) != 0x10) continue;
             object_step_.before_flight(o, records, world);
+            // $11A380: one record a frame by the counter looks whether it
+            // has left the area that spawned it.
+            if ((ticks_ & 0x1F) == unsigned(o.record)) areas_.send_home(o);
             // $11A398: the explosion's end: an aircraft not touchable in the
             // air counts as destroyed (`$13AB9B`); on the ground or out of
             // control the record goes (its timer 20), else it falls on.
@@ -473,6 +494,7 @@ public:
             }
         }
         aircraft_limit_ += world.turned_hostile; // ($1181CA)
+        aircraft_count_ += world.turned_hostile;
         // ($1169D0, with the drawing:) a crashed record blows up for 15
         // frames; the radar's lock on it goes ($118588: message $4016).
         for (auto& o : objects_) {
@@ -1586,9 +1608,10 @@ private:
         FlightRules rules;
         rules.world = &world_;
         if (mode_ == FlightMode::practice) reposition_step();
-        // The others' "near" bit (+3 bit 0) lasts the frame of the touch
-        // that set it (where the original clears it is not found;
-        // hypothesis from the demo's recording: before the player's step).
+        // $116BCE: every 16th frame the trigger areas (not in the demo,
+        // `$13AA80`); then the others' "near" bit (+3 bit 0) is cleared
+        // ($116BE4: it lasts the frame of the touch that set it).
+        if (mode_ != FlightMode::demo && (ticks_ & 0xF) == 3) trigger_areas();
         for (auto& o : objects_) o.craft.motion &= ~0x0001;
         // $1183E2: the distance to the locked record, before the move.
         {
@@ -2469,6 +2492,8 @@ private:
     ShotHits shot_hits_{assets_.program, tables_};
     int destroyed_ = 0;                 // `$13AB9B`: the list's aircraft destroyed
     int aircraft_limit_ = 0;            // `$13AB9A`
+    int aircraft_count_ = 0;            // `$13AB99`: aircraft spawned that count towards it
+    TriggerAreas areas_{lists_};
     int escort_ = 0;                    // `$13AA72`: mission 5's frames beside the stolen aircraft
     int outcome_wait_ = 0;              // `$13AA9E` as the outcome's countdown
     std::optional<WorldObject> pod_;    // mission 6's rescue pod (`$13ABB2`)

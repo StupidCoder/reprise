@@ -770,6 +770,13 @@ FlightEvents fly(Aircraft& a, const FlightControls& controls, const FlightRules&
         }
         turn(a, rules, t);
     }
+    if (!a.player && (a.state & 0x0100)) {
+        // $11A5AC: another record's first frame after it was spawned: no
+        // velocity step and no move.
+        a.state &= ~0x0100;
+        move_gear(a);
+        return events;
+    }
     if (rules.flying) {
         move(a, rules, t, events);
     } else {

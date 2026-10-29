@@ -52,6 +52,7 @@ public:
         int variant{};
         std::int16_t offset_x{}, offset_z{};
         int aircraft_limit{}; // `$13AB9A`
+        int aircraft{};       // `$13AB99`: the aircraft spawned that count towards it
         std::uint32_t first_entry{}; // `$13AA2A`: the stage's first entry
     };
     Spawned spawn(const ObjectChoice& choice, const FlightTables& tables) const;
@@ -59,12 +60,37 @@ public:
     // A path entry (`$11DDC0`, by its byte offset into the table).
     Waypoint path(int offset) const;
 
+    // The trigger areas (`$11DF00`, up to the negative word): a box of
+    // cells (x and z, inclusive) and the entries it spawns.
+    struct TriggerArea {
+        std::int16_t min_x{}, max_x{}, min_z{}, max_z{};
+        std::uint32_t entries{};
+        int count{};
+        bool contains(std::int16_t x, std::int16_t z) const {
+            return x >= min_x && x <= max_x && z >= min_z && z <= max_z;
+        }
+    };
+    const std::vector<TriggerArea>& areas() const { return areas_; }
+    const amiga::LoadedImage& program() const { return program_; }
+    // `$11D2FA`: an area's entries into the records (missions only: not in
+    // modes up to 2 nor the practice's $7D), not turned. `index` is the
+    // area walk's bit number; the result is what the spawner leaves in that
+    // register (game.md "The trigger areas"): `index` when nothing is
+    // tried, else 0 when the last entry was spawned, -1 when skipped.
+    int spawn_area(const TriggerArea& area, int index, std::vector<WorldObject>& objects, int& aircraft,
+                   int aircraft_limit, const ObjectChoice& choice, Spawned& out, const FlightTables& tables) const;
+    // `$1181E6`: the path offset of a record's entry, searched from `from`
+    // up to a negative word.
+    std::optional<int> entry_place(std::uint32_t from, int record) const;
+
 private:
-    // `$11D318` for one entry; false when it was skipped.
-    bool spawn_entry(std::uint32_t entry, int area, std::vector<WorldObject>& objects, int& aircraft,
+    // `$11D318` for one entry into its record (replacing the record's
+    // last use); null when it was skipped.
+    WorldObject* spawn_entry(std::uint32_t entry, int area, std::vector<WorldObject>& objects, int& aircraft,
                      int aircraft_limit, const ObjectChoice& choice, Spawned& out, const FlightTables& tables) const;
 
     const amiga::LoadedImage& program_;
+    std::vector<TriggerArea> areas_;
 };
 
 } // namespace interceptor::game

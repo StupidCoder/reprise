@@ -55,6 +55,7 @@
 #include "fa_18_interceptor_amiga/game/sounds.hpp"
 #include "fa_18_interceptor_amiga/game/weapons.hpp"
 #include "fa_18_interceptor_amiga/game/text_screen.hpp"
+#include "fa_18_interceptor_amiga/game/trigger_areas.hpp"
 #include "fa_18_interceptor_amiga/import/disk_import.hpp"
 #include "platform/files.hpp"
 #include "platform/host.hpp"
@@ -1203,6 +1204,67 @@ int trainer_check(const std::filesystem::path& content, const std::filesystem::p
 
 // --- objectcheck ---------------------------------------------------------------
 
+// One recorded record's step in a frame as objectcheck and areacheck run
+// it: the object step (`$11797E`), the trigger areas' turn for home
+// (`$11D60C`, by the frame counter), the autopilot and the flight step,
+// with the globals of the frame (`g`).
+void step_recorded(interceptor::game::WorldObject& o, interceptor::game::Records& all, const Record& g, int frame,
+                   const interceptor::game::ObjectStep& step, const interceptor::game::TriggerAreas& areas,
+                   const interceptor::game::Autopilot& autopilot, const interceptor::game::FlightTables& tables) {
+    using namespace interceptor;
+    game::StepWorld world;
+    world.mode = g.u8(0x13AB96 - 0x13A9E0);
+    world.level = g.s8(0x13AB97 - 0x13A9E0);
+    const auto lock = g.s16(0x13ACB0 - 0x13A9E0);
+    world.locked = lock < 0 ? -1 : lock / 0x200;
+    world.attack_now = g.u8(0x13AAA7 - 0x13A9E0) != 0;
+    world.list = std::uint32_t(g.s32(0x13AA2A - 0x13A9E0));
+    auto& a = o.craft;
+    if (a.state & 0x0200) { // ($1169D0: crashed becomes exploding)
+        a.timer = 15;
+        a.state = std::uint16_t((a.state & ~0x0200) | 0x0400);
+    }
+    step.before_flight(o, all, world);
+    if ((frame & 0x1F) == o.record) areas.send_home(o);
+    game::PilotWorld pw;
+    pw.mode = world.mode;
+    pw.level = world.level;
+    autopilot.fly(a, o.pilot, pw, &o.course);
+    game::FlightRules rules;
+    rules.stall_model = g.u8(0x13AA74 - 0x13A9E0) != 0;
+    rules.bank_turns = g.u8(0x13AA7F - 0x13A9E0) != 0;
+    rules.flying = true;
+    rules.ceiling = g.s32(0x13A9EA - 0x13A9E0);
+    game::FlightControls c;
+    c.recorded = a.controls;
+    const auto roll_before = a.attitude.roll;
+    if (a.state & 0x1000) game::fly(a, c, rules, tables);
+    game::Autopilot::level_out(a, o.pilot, roll_before);
+}
+
+// The fields objectcheck compares ("" when equal).
+std::string record_diff(const interceptor::game::WorldObject& o, const interceptor::game::WorldObject& want) {
+    const auto& a = o.craft;
+    const auto& w = want.craft;
+    std::string diff;
+    const auto check = [&](const char* name, long got, long expected) {
+        if (got != expected) diff += std::string(" ") + name + " " + std::to_string(got) + "/" + std::to_string(expected);
+    };
+    check("role", a.role, w.role); check("timer", a.timer, w.timer);
+    check("ctl", a.controls, w.controls); check("pilot", o.pilot, want.pilot);
+    check("x", a.x, w.x); check("y", a.y, w.y); check("z", a.z, w.z);
+    check("pitch", a.attitude.pitch, w.attitude.pitch); check("heading", a.attitude.heading, w.attitude.heading);
+    check("roll", a.attitude.roll, w.attitude.roll); check("speed", a.speed, w.speed);
+    check("throttle", a.throttle, w.throttle);
+    check("h20", a.handling & ~0x40, w.handling & ~0x40); // (bit 6: on the radar, `$1260CC`)
+    check("tx", o.course.target.cell_x, want.course.target.cell_x); check("tz", o.course.target.cell_z, want.course.target.cell_z);
+    check("tfx", o.course.target.fine_x, want.course.target.fine_x); check("tfz", o.course.target.fine_z, want.course.target.fine_z);
+    check("ty", o.course.target.height, want.course.target.height); check("t38", o.course.target_record, want.course.target_record);
+    check("dist", o.course.distance, want.course.distance); check("b7a", o.course.behaviour, want.course.behaviour);
+    check("s39", a.throttle_steps, w.throttle_steps); check("surf", a.surface, w.surface);
+    return diff;
+}
+
 // Research: steps the given records (other aircraft of a mission) from each
 // frame of a `flightcap.py --recs` recording through the object step
 // (`$11797E`), the autopilot and the flight step, and compares the next
@@ -1214,6 +1276,7 @@ int object_check(const std::filesystem::path& content, const std::filesystem::pa
     const game::Autopilot autopilot(assets.program, tables);
     const game::ObjectLists lists(assets.program);
     const game::ObjectStep step(assets.program, tables, lists);
+    const game::TriggerAreas areas(lists);
     std::vector<int> records;
     for (std::size_t at = 0; at < which.size();) {
         const auto comma = which.find(',', at);
@@ -1253,59 +1316,115 @@ int object_check(const std::filesystem::path& content, const std::filesystem::pa
             // (The player's record steps first in a frame.)
             auto player = aircraft_from(Frame{0, next.player, next.globals});
             game::Records all{&player, Record{next.player}.s16(0x4A), &objects};
-            game::StepWorld world;
-            world.mode = g.u8(0x13AB96 - 0x13A9E0);
-            world.level = g.s8(0x13AB97 - 0x13A9E0);
-            const auto lock = g.s16(0x13ACB0 - 0x13A9E0);
-            world.locked = lock < 0 ? -1 : lock / 0x200;
-            world.attack_now = g.u8(0x13AAA7 - 0x13A9E0) != 0;
-            world.list = std::uint32_t(g.s32(0x13AA2A - 0x13A9E0));
             auto it = std::find_if(objects.begin(), objects.end(), [&](const game::WorldObject& o) { return o.record == r; });
-            auto& o = *it;
-            auto& a = o.craft;
-            if (a.state & 0x0200) { // ($1169D0: crashed becomes exploding)
-                a.timer = 15;
-                a.state = std::uint16_t((a.state & ~0x0200) | 0x0400);
-            }
-            step.before_flight(o, all, world);
-            game::PilotWorld pw;
-            pw.mode = world.mode;
-            pw.level = world.level;
-            autopilot.fly(a, o.pilot, pw, &o.course);
-            game::FlightRules rules;
-            rules.stall_model = g.u8(0x13AA74 - 0x13A9E0) != 0;
-            rules.bank_turns = g.u8(0x13AA7F - 0x13A9E0) != 0;
-            rules.flying = true;
-            rules.ceiling = g.s32(0x13A9EA - 0x13A9E0);
-            game::FlightControls c;
-            c.recorded = a.controls;
-            const auto roll_before = a.attitude.roll;
-            if (a.state & 0x1000) game::fly(a, c, rules, tables);
-            game::Autopilot::level_out(a, o.pilot, roll_before);
-            const auto want = object_from(r, next.recs.at(r), next.globals);
-            const auto& w = want.craft;
-            std::string diff;
-            const auto check = [&](const char* name, long got, long expected) {
-                if (got != expected) diff += std::string(" ") + name + " " + std::to_string(got) + "/" + std::to_string(expected);
-            };
-            check("role", a.role, w.role); check("timer", a.timer, w.timer);
-            check("ctl", a.controls, w.controls); check("pilot", o.pilot, want.pilot);
-            check("x", a.x, w.x); check("y", a.y, w.y); check("z", a.z, w.z);
-            check("pitch", a.attitude.pitch, w.attitude.pitch); check("heading", a.attitude.heading, w.attitude.heading);
-            check("roll", a.attitude.roll, w.attitude.roll); check("speed", a.speed, w.speed);
-            check("throttle", a.throttle, w.throttle);
-            check("h20", a.handling & ~0x40, w.handling & ~0x40); // (bit 6: on the radar, `$1260CC`)
-            check("tx", o.course.target.cell_x, want.course.target.cell_x); check("tz", o.course.target.cell_z, want.course.target.cell_z);
-            check("tfx", o.course.target.fine_x, want.course.target.fine_x); check("tfz", o.course.target.fine_z, want.course.target.fine_z);
-            check("ty", o.course.target.height, want.course.target.height); check("t38", o.course.target_record, want.course.target_record);
-            check("dist", o.course.distance, want.course.distance); check("b7a", o.course.behaviour, want.course.behaviour);
-            check("s39", a.throttle_steps, w.throttle_steps); check("surf", a.surface, w.surface);
+            step_recorded(*it, all, g, now.number, step, areas, autopilot, tables);
+            const std::string diff = record_diff(*it, object_from(r, next.recs.at(r), next.globals));
             ++compared;
             if (diff.empty()) ++matched;
             else if (compared - matched < 40) std::printf("frame %d rec %d role %d:%s\n", next.number, r, Record{now.recs.at(r)}.u8(5), diff.c_str());
         }
     }
     std::printf("%d of %d record frames match\n", matched, compared);
+    return matched == compared ? 0 : 1;
+}
+
+// --- areacheck ----------------------------------------------------------------
+
+// Research: the trigger areas (`$11D17A`) on each frame of a `flightcap.py
+// --recs` recording: from the frame's records, globals and the player's
+// cell, the areas' walk; records it spawns step in the same frame; then
+// the bits `$13AA8D`, the count `$13AB99` and every recorded record that
+// is active in either are compared with the next frame.
+int area_check(const std::filesystem::path& content, const std::filesystem::path& capture) {
+    using namespace interceptor;
+    const auto assets = data::load_assets(content);
+    const auto tables = game::read_flight_tables(assets.program);
+    const game::Autopilot autopilot(assets.program, tables);
+    const game::ObjectLists lists(assets.program);
+    const game::ObjectStep step(assets.program, tables, lists);
+    struct Line {
+        int number{};
+        std::vector<std::uint8_t> globals, player;
+        std::map<int, std::vector<std::uint8_t>> recs;
+    };
+    std::vector<Line> lines;
+    std::ifstream in(capture);
+    for (std::string text; std::getline(in, text);) {
+        if (text.empty()) continue;
+        Line l;
+        l.number = std::stoi(text.substr(text.find("\"frame\": ") + 9));
+        l.globals = hex_field(text, "glob");
+        l.player = hex_field(text, "obj");
+        for (int r = 1; r < 16; ++r) {
+            if (text.find("\"" + std::to_string(r) + "\": \"") != std::string::npos) l.recs[r] = hex_field(text, std::to_string(r));
+        }
+        lines.push_back(std::move(l));
+    }
+    const auto G = [](std::uint32_t address) { return address - 0x13A9E0; };
+    int walks = 0, spawns = 0, matched = 0, compared = 0;
+    for (std::size_t k = 0; k + 1 < lines.size(); ++k) {
+        const auto& now = lines[k];
+        const auto& next = lines[k + 1];
+        if (next.number != now.number + 1) continue;
+        const Record g{now.globals}, gn{next.globals};
+        std::vector<game::WorldObject> objects;
+        for (const auto& [n, bytes] : now.recs) objects.push_back(world_object_from(n, bytes, now.globals));
+        game::TriggerAreas areas(lists);
+        areas.set_inside(g.u8(G(0x13AA8D)));
+        int count = g.u8(G(0x13AB99));
+        const int limit = g.u8(G(0x13AB9A));
+        std::vector<int> spawned;
+        if ((now.number & 0xF) == 3 && !g.u8(G(0x13AA80))) {
+            ++walks;
+            const Record p{now.player};
+            game::ObjectChoice choice;
+            choice.mode = g.u8(G(0x13AB96));
+            choice.level = g.s8(G(0x13AB97));
+            choice.variant_random = g.u16(G(0x13ADE8));
+            areas.check(p.s16(6), p.s16(8), objects, [&](const game::ObjectLists::TriggerArea& area, int index) {
+                std::vector<bool> was;
+                for (const auto& o : objects) was.push_back(o.active());
+                game::ObjectLists::Spawned offsets;
+                const int result = lists.spawn_area(area, index, objects, count, limit, choice, offsets, tables);
+                for (std::size_t i = 0; i < objects.size(); ++i) {
+                    if (objects[i].active() && !was[i]) spawned.push_back(objects[i].record);
+                }
+                return result;
+            });
+        }
+        auto player = aircraft_from(Frame{0, next.player, next.globals});
+        game::Records all{&player, Record{next.player}.s16(0x4A), &objects};
+        for (const int r : spawned) {
+            ++spawns;
+            auto it = std::find_if(objects.begin(), objects.end(), [&](const game::WorldObject& o) { return o.record == r; });
+            step_recorded(*it, all, g, now.number, step, areas, autopilot, tables);
+        }
+        std::string diff;
+        if (areas.inside() != gn.u8(G(0x13AA8D)))
+            diff += " aa8d " + std::to_string(areas.inside()) + "/" + std::to_string(gn.u8(G(0x13AA8D)));
+        if (count != gn.u8(G(0x13AB99))) diff += " ab99 " + std::to_string(count) + "/" + std::to_string(gn.u8(G(0x13AB99)));
+        for (const auto& [n, bytes] : next.recs) {
+            const auto want = world_object_from(n, bytes, next.globals);
+            auto it = std::find_if(objects.begin(), objects.end(), [&](const game::WorldObject& o) { return o.record == n; });
+            const bool spawned_now = std::find(spawned.begin(), spawned.end(), n) != spawned.end();
+            if (it == objects.end()) continue;
+            if (it->active() != want.active()) {
+                diff += " rec " + std::to_string(n) + " active " + std::to_string(it->active()) + "/" + std::to_string(want.active());
+                continue;
+            }
+            if (!spawned_now) continue;
+            const auto d = record_diff(*it, want);
+            if (!d.empty()) diff += " rec " + std::to_string(n) + ":" + d;
+            if (it->craft.type != want.craft.type || it->area != want.area || (it->craft.state & ~0x6000) != (want.craft.state & ~0x6000))
+                diff += " rec " + std::to_string(n) + " type/area/state " + std::to_string(it->craft.type) + "," +
+                        std::to_string(it->area) + "," + std::to_string(it->craft.state) + " / " +
+                        std::to_string(want.craft.type) + "," + std::to_string(want.area) + "," + std::to_string(want.craft.state);
+        }
+        ++compared;
+        if (diff.empty()) ++matched;
+        else if (compared - matched < 30) std::printf("frame %d:%s\n", next.number, diff.c_str());
+    }
+    std::printf("%d walks, %d spawns; %d of %d frames match\n", walks, spawns, matched, compared);
     return matched == compared ? 0 : 1;
 }
 
@@ -1541,6 +1660,9 @@ int main(int argc, char** argv) {
         }
         if (command == "objectcheck" && argc == 5) {
             return object_check(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]), argv[4]);
+        }
+        if (command == "areacheck" && argc == 4) {
+            return area_check(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]));
         }
         if (command == "democheck" && argc == 4) {
             return demo_check(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]));

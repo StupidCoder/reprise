@@ -8,6 +8,7 @@ namespace {
 constexpr std::uint32_t lists = 0x11DFB2;
 constexpr std::uint32_t paths = 0x11DDC0;
 constexpr std::uint32_t type_records = 0x115F4C; // 20 bytes each
+constexpr std::uint32_t trigger_areas = 0x11DF00; // longs to the areas
 
 // An entry's words.
 namespace entry {
@@ -23,7 +24,37 @@ std::int32_t world(std::int16_t cell, std::int16_t fine) { return (std::int32_t(
 
 } // namespace
 
-ObjectLists::ObjectLists(const amiga::LoadedImage& program) : program_(program) {}
+ObjectLists::ObjectLists(const amiga::LoadedImage& program) : program_(program) {
+    for (std::uint32_t at = trigger_areas; program_.s16(at) >= 0 && areas_.size() < 8; at += 4) {
+        const std::uint32_t a = program_.u32(at);
+        areas_.push_back({program_.s16(a), program_.s16(a + 2), program_.s16(a + 4), program_.s16(a + 6), a + 10,
+                          program_.s16(a + 8)});
+    }
+}
+
+int ObjectLists::spawn_area(const TriggerArea& area, int index, std::vector<WorldObject>& objects, int& aircraft,
+                            int aircraft_limit, const ObjectChoice& choice, Spawned& out,
+                            const FlightTables& tables) const {
+    if (choice.mode <= 2 || choice.mode == 0x7D) return index;
+    // The spawner keeps its result in the walk's register, which also
+    // gives the next entry's area number (+$5D − 1).
+    int result = -1;
+    for (int i = 0; i < area.count; ++i) {
+        const int area_number = i == 0 ? index : result;
+        result = spawn_entry(area.entries + std::uint32_t(i) * entry::size, area_number, objects, aircraft,
+                             aircraft_limit, choice, out, tables)
+                     ? 0
+                     : -1;
+    }
+    return result;
+}
+
+std::optional<int> ObjectLists::entry_place(std::uint32_t from, int record) const {
+    for (int guard = 0; guard < 64 && from && program_.s16(from) >= 0; ++guard, from += entry::size) {
+        if ((program_.u16(from + entry::heads_for) & 0xFF) == record) return program_.u16(from + entry::path);
+    }
+    return std::nullopt;
+}
 
 Waypoint ObjectLists::path(int offset) const {
     const std::uint32_t at = paths + std::uint32_t(program_.s16(paths + std::uint32_t(offset)));
@@ -56,9 +87,11 @@ ObjectLists::Spawned ObjectLists::spawn(const ObjectChoice& choice, const Flight
     for (std::uint32_t at = list; program_.s16(at) >= 0; at += entry::size) {
         // The first entry always; the others up to the mission's level.
         if (at != list && (program_.u16(at + entry::flags) & flags::level) > choice.level) continue;
-        if (!spawn_entry(at, -1, out.objects, aircraft, out.aircraft_limit, choice, out, tables)) continue;
+        // ($11D2E2: the area number −2, so +$5D −1.)
+        WorldObject* spawned = spawn_entry(at, -2, out.objects, aircraft, out.aircraft_limit, choice, out, tables);
+        if (!spawned) continue;
         // $11CFE4: turned towards where it heads for.
-        auto& o = out.objects.back();
+        auto& o = *spawned;
         const std::uint16_t heads_for = program_.u16(at + entry::heads_for);
         std::int32_t to_x = 0, to_z = 0;
         if (heads_for & 0x8000) {
@@ -86,14 +119,13 @@ ObjectLists::Spawned ObjectLists::spawn(const ObjectChoice& choice, const Flight
         o.craft.body = body_matrix(tables, o.craft.attitude);
         o.craft.view = view_matrix(tables, o.craft.attitude);
     }
-    std::stable_sort(out.objects.begin(), out.objects.end(),
-                     [](const WorldObject& a, const WorldObject& b) { return a.record < b.record; });
+    out.aircraft = aircraft;
     return out;
 }
 
-bool ObjectLists::spawn_entry(std::uint32_t at, int area, std::vector<WorldObject>& objects, int& aircraft,
-                              int aircraft_limit, const ObjectChoice& choice, Spawned& out,
-                              const FlightTables& tables) const {
+WorldObject* ObjectLists::spawn_entry(std::uint32_t at, int area, std::vector<WorldObject>& objects, int& aircraft,
+                                      int aircraft_limit, const ObjectChoice& choice, Spawned& out,
+                                      const FlightTables& tables) const {
     const auto& m = program_;
     const std::uint16_t type_offset = m.u16(at + entry::type_record);
     const std::uint8_t type = std::uint8_t(m.u16(at + entry::type));
@@ -101,12 +133,14 @@ bool ObjectLists::spawn_entry(std::uint32_t at, int area, std::vector<WorldObjec
     const std::uint16_t f = m.u16(at + entry::flags);
     // Only in its mode; not into a record in use; not past the mission's
     // number of aircraft.
-    if ((f & flags::mode) && int((f & flags::mode) >> 8) != choice.mode) return false;
+    if ((f & flags::mode) && int((f & flags::mode) >> 8) != choice.mode) return nullptr;
     const int record = heads_for & 0x7F;
-    for (const auto& o : objects) {
-        if (o.record == record && o.active()) return false;
-    }
-    if (aircraft_limit <= aircraft) return false;
+    const auto last = std::find_if(objects.begin(), objects.end(), [&](const WorldObject& o) { return o.record == record; });
+    if (last != objects.end() && last->active()) return nullptr;
+    if (aircraft_limit <= aircraft) return nullptr;
+    // A record that held a type $15 (the cruise missile) is not used again
+    // while its cell x is not 0.
+    if (last != objects.end() && last->craft.type == 0x15 && (last->craft.x >> 22) != 0) return nullptr;
 
     WorldObject o;
     o.record = record;
@@ -153,7 +187,7 @@ bool ObjectLists::spawn_entry(std::uint32_t at, int area, std::vector<WorldObjec
         place.cell_x = std::int16_t(place.cell_x + dx);
         place.cell_z = std::int16_t(place.cell_z + dz);
     }
-    o.area = std::int8_t(area);
+    o.area = std::int8_t(area + 1);
     o.course.behaviour = 3;
     if ((type & 0xF0) != 0x20) a.state |= 0x1080;
     // Where it heads for: a path's place, or (by record) its own place
@@ -180,8 +214,13 @@ bool ObjectLists::spawn_entry(std::uint32_t at, int area, std::vector<WorldObjec
     a.attitude = {};
     a.body = body_matrix(tables, a.attitude);
     a.view = view_matrix(tables, a.attitude);
-    objects.push_back(o);
-    return true;
+    // The records stay in record order.
+    if (last != objects.end()) {
+        *last = o;
+        return &*last;
+    }
+    const auto at_record = std::find_if(objects.begin(), objects.end(), [&](const WorldObject& p) { return p.record > record; });
+    return &*objects.insert(at_record, o);
 }
 
 } // namespace interceptor::game

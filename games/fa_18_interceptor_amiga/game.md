@@ -1547,9 +1547,9 @@ goes at once (`$11A996` → `$11AA70`: state bit 6 cleared, `$13AB48` $C) —
 missiles and aircraft alike. `$11C0BA`: +$20 bit 7 on both when the other
 is touchable; the log counts Sidewinder (+$44) and AMRAAM (+$40) hits of
 the player's group on something not touchable, and missile hits on the
-player (+$48). The others' "near" bit (+3 bit 0) lasts one frame (where
-it is cleared was not found; the port clears it before the player's
-step, **hypothesis** that fits the recording).
+player (+$48). The others' "near" bit (+3 bit 0) lasts one frame: it is
+cleared for records 0-14 at the object step's start (`$116BE4`, after
+the trigger areas, before the player's step).
 
 **Crash, explosion, fall** (`$1169D0` with the drawing; `$11A398` at the
 start of a record's flight step): a crashed record ($200) explodes for
@@ -1693,8 +1693,8 @@ REFLECTS THIS COMPLETED MISSION") and 83, `$1034A0`: config +6 the
 mission, +7 its stage, completed + 1 (+$38), the level and the mission's
 stage + 1 (at most 3), the record written. A failure that does not end
 the flight adds 86 and 83 and the flight goes on (`$13AA88` 2: no
-landing check). The camera turns and the trigger areas (`$11D17A`, more
-aircraft once the player enters a box) are not built.
+landing check). The camera turns are not built; the trigger areas are
+("The trigger areas").
 
 ### The missions' objects (`$11CF06`, 2026-10-29)
 
@@ -1734,9 +1734,83 @@ visual confirmation, stage 0: the carrier (scattered by up to one cell
 each way), a type-$12 (shape 6) heading for the carrier, from level 1 a
 type $13 (shape 7). 4-8 likewise with their mission's object (4: type $14
 heading for a path place, role 8; 5: two type $10; 6: a type $32 (rescue
-raft?); 7: type $15; 8: type $21, the submarine **hypothesis**). Trigger
-areas (`$11DF00`, 8 boxes of cells, `$11D17A`, missions only) spawn more
-entries when the player enters them (`$11D2FA`) — not built.
+raft?); 7: type $15; 8: type $21, the submarine **hypothesis**). The
+trigger areas spawn more entries when the player enters a box ("The
+trigger areas"). An entry is skipped too when its record last held a
+type $15 whose cell x is not 0 (`$11D3B4`: the cruise missile's record
+is not used again).
+
+### The trigger areas (`$11D17A`, 2026-10-29)
+
+`$11DF00`: longs to the areas, up to a negative word. An area: a box of
+cells (x from, x to, z from, z to; inclusive), a count, that many object
+list entries (10 bytes, as above). In this program four:
+
+| area | box x | box z | count | entry |
+|---|---|---|---|---|
+| 0 | 65-67 | 65-67 | 0 | (entries follow, not counted) |
+| 1 | 62-64 | 69-73 | 0 | (likewise) |
+| 2 | 50-76 | 67-76 | 1 | type $12 (shape 6) into record 12 at path $6E (76, 76, height 4096), heading for record 14 (the carrier), any mode (its level bits 1 are not tested here) |
+| 3 | 75-77 | 75-77 | 1 | type $15 into record 4, mode 8 only, role 8, +1 bit 0, heading for path entry 9 |
+
+The walk (`$116BCE`: when the frame counter `$13ABCA` & 15 is 3, in the
+object step's start before the player's step — also while an outcome
+text holds the objects — and not in the demo, `$13AA80`): for each area,
+with a bit number d7 from 0 in `$13AA8D`: the player's cell (record 0's
++6 / +8) in the box and the bit clear → the bit set and the area's
+entries spawned (`$11D2FA`); in the box and the bit set → spawned again
+(a record still active is skipped, so records destroyed come back, up to
+`$13AB9A`); out of the box and the bit set → the bit cleared and the
+area's records sent back: those whose +$38 is negative with a record in
+bits 0-6 (following another record, or $FF a path point) are left; else
+by the entry's "heads for": the player (0) → its own entry's place,
++$38 $80, behaviour 3/4 → 5; a path point → that point, +$38 $FF,
+behaviour 3; a record → that record's place if active (+$38 record |
+$80, behaviour 3), else its own place as for the player. +1 bit 0 is
+cleared in each case. The walk ends after bit number 7 or at the
+negative word.
+
+`$11D2FA` spawns only in modes above 2 other than the practice's $7D —
+so also in the qualification (mode 9, aircraft limit 2), where area 2's
+bogey appears (recording `area1.jsonl`). It runs the list spawner
+(`$11D318`) over the area's entries without the level test and without
+turning them (heading 0); scattered entries use the kept offsets when
+flown again, else `$13ADE8`'s fresh bits (the port: a fresh draw; flying
+again with the same variant is not kept yet, for the lists either). Each record gets +$5D = d7 + 1.
+
+**The original's slip** (kept): the spawner returns its result in d7
+(0: the last entry spawned, −1: skipped, and −1 for a count of 0), the
+same register as the walk's bit number. After an area is spawned the
+walk goes on with bit number result + 1 for the next area, and the next
+entry of the same area gets +$5D = result + 1. Entering area 0 (count 0)
+sets bit 0 and then tests area 1 against bit 0 too, which clears it when
+the player is not in area 1: `$13AA8D` stays 0 in area 0 (recording
+`area3.jsonl`). With these tables only area 2's +$5D (3) is affected
+when area 0 or 1 was entered first; the port reproduces the register.
+
+The way home (`$11D60C`, in a record's flight step `$11A380` when
+frame & $1F is its record number, before the explosion's end): an
+aircraft of class $10, not in role 8, with +$5D ≥ 1 and outside its
+area's box (+$5D − 1) heads for its entry's place: behaviour 3/4 → 5,
++1 bit 0 cleared, +$38 $FF (+$5D 0: a debug message `$10F20E`, now an
+empty routine). When the record an aircraft follows is gone (`$1181E6`),
+its entry is searched in the stage's list and then from its area's
+entries on (to a negative word; not found, the original would loop).
+
+A spawned record's first flight step does not move it (`$11A5AC`: state
+$0100 is cleared and the move and velocity step `$106B0E` skipped; speed
+and turn still run) — the same for the lists' records at the start.
+
+Checked (`fa_18_interceptor_assets areacheck <content> <recording>`: the
+walk from each recorded frame, spawned records stepped, `$13AA8D`,
+`$13AB99` and the records compared): `area1.jsonl` (qualification,
+player poked into area 2: the spawn) 24 of 24 frames; `area2.jsonl`
+(mission 6, area 2 entered and left, 16 walks) 259 of 259; `area3.jsonl`
+(area 0) 24 of 24. `objectcheck … area2.jsonl 12`: the spawned bogey
+143 of 143 frames, including the way home at frames 396, 428, 460 and
+492 (it then follows the player again by the level's box). Not
+recorded: area 3 (mission 8's type $15), a respawn while inside, the
+leave rules for a record following the player or a path point.
 
 ### The missions' aircraft (`$11797E`, `$120C66`, 2026-10-29)
 
@@ -2053,6 +2127,12 @@ the spin warning.
   only reached on faster machines (section 2).
 - **Unused message class**: the message drawer handles attribute class 0
   (bits 7-6 clear), but no message record uses it.
+- **The trigger walk's register** (`$11D17A`): the bit number of the
+  areas' walk is overwritten by the spawner's result ("The trigger
+  areas"); kept.
+- **x below 0** (`$11A640`): a record moved past x = 0 has its z set
+  to the move instead of x clamped (only at the world's edge; the port
+  clamps x).
 - **Flash with no noise slot**: without the noise slot `$10A0DC` raises the
   engine's boom event instead (a fallback for low chip memory).
 
@@ -2075,6 +2155,8 @@ Research files live in `.analysis/fa_18_interceptor_amiga/` (`harness/`,
   key ticks), `soundcheck` (sound calls and message line: sd2, cr5,
   td1-td3 equal in every frame), `weaponcheck` (missiles and projectiles
   against `--objs` recordings: wpm, wpg, wpa equal in every frame),
+  `objectcheck` (missions' records stepped from each recorded frame),
+  `areacheck` (the trigger areas: area1-3 equal in every frame),
   `hudcheck` (the head-up display for given readings against a
   `screen.py` colour dump: `wp/gun.idx` F/A-18, `f16b.idx` F-16, no pixel
   differs), `fly` (headless module run from the title,

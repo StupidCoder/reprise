@@ -113,10 +113,11 @@ from drawing, and must still respect the passes' model rule).
     hitting, the explosion, fall and end, the lock dropped, the rounds'
     hit test with the drawer's detail levels, checked against three
     recordings; left: the drawer's list as such and the ships' hull test), the objects' touches and crashes, the trigger areas
-    (`$11D17A`); the missions' flow is built for choosing (6, 7, F1-F6),
+    (`$11D17A`: spawn, again while inside, sent back on leaving, the way
+    home `$11D60C`; checked with `areacheck` on area1-3; area 3 and a
+    respawn not recorded); the missions' flow is built for choosing (6, 7, F1-F6),
     the briefings, every mission's objective and failures, mission 6's
-    rescue pod, completion in the log; left: the trigger areas
-    (`$11D17A`), the camera's turns to Air Force One and the cruise
+    rescue pod, completion in the log; left: the camera's turns to Air Force One and the cruise
     missile, the aircraft question of mission 3's runway start, the radio
     noise, checks of missions 4-8 against recordings.
 12. **Dusk and night**: palettes 3-9 (the fades).

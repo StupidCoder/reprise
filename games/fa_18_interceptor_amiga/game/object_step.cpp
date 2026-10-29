@@ -253,15 +253,18 @@ void ObjectStep::follow(WorldObject& o, Records& records, StepWorld& world) cons
         if (!records.active(r)) {
             // $1181DE: the record is gone: back to its own list entry's
             // place.
+            // Not in the stage's list, the entries of the trigger area
+            // that spawned it (+$5D) and on (to a negative word; the
+            // original searches again forever when it is not there).
             if (a.state & 0x1000) {
-                std::uint32_t at = world.list;
-                for (int guard = 0; guard < 32 && at && m.s16(at) >= 0; ++guard, at += 10) {
-                    if ((m.u16(at + 4) & 0xFF) == o.record) {
-                        c.target = lists_.path(m.u16(at + 6));
-                        c.target_record = 0xFF;
-                        a.state &= ~0x0001;
-                        break;
-                    }
+                auto place = lists_.entry_place(world.list, o.record);
+                const auto& areas = lists_.areas();
+                if (!place && o.area > 0 && o.area <= int(areas.size()))
+                    place = lists_.entry_place(areas[std::size_t(o.area - 1)].entries, o.record);
+                if (place) {
+                    c.target = lists_.path(*place);
+                    c.target_record = 0xFF;
+                    a.state &= ~0x0001;
                 }
             }
             world.attack_now = false;
