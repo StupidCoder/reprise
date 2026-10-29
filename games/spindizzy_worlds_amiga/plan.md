@@ -197,8 +197,8 @@ rate apart from drawing.
 - The random generator starts at 0 at boot (the attract and menus draw
   no numbers in the code read); not checked against the original after
   a long front-end session.
-- Sprite colour 24 and the pillars' screen columns (−1 and 303) follow
-  the hardware registers; not checked against a window capture.
+- Sprite colour 24 follows the hardware registers; not checked against a
+  window capture (the pillars' columns 0 and 304 are).
 - Not compared yet: the "lost" tops, the ice timeout, the brake, a lift
   top without its lift, the clue boxes; of the Tutorial, levels 6, 7 and
   14 played through (their buttons, lifts, gates) and level 5's

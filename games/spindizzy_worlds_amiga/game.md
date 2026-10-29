@@ -1037,7 +1037,9 @@ $14980: SELECT.SWP's first $1400 bytes are the panel (32 rows from row
 column 32, row 179, frames $41670 + rotation × $A0.
 
 The pillars ($10FC6) are two pairs of attached hardware sprites at
-HSTART $80 and $1B0 (against DIWSTRT $81: screen x −1 and 303), 168 rows
+HSTART $80 and $1B0 (screen x 0 and 304: a sprite at HSTART $80 shows
+from display x 0, measured on an FS-UAE capture of Tutorial 6, where they
+end flush with the panel's elbows; the port first had −1 and 303), 168 rows
 from $1E800: 8 top rows, 128 gauge rows ($1E8E0 empty, $1E8F0 full,
 copied raw), 20 rows from $1E840, 12 from $1E880. Converted rows ($10F96)
 turn colour 0 into colour 8 (sprite colour 24, set black). The gauge

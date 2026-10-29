@@ -9,8 +9,11 @@ constexpr std::uint32_t world_names = 0x119EE; // 13 bytes each ($119E0)
 constexpr std::uint32_t compass_frames = 0x41670;
 constexpr std::uint32_t pillar_rows = 0x1E800;
 constexpr std::uint32_t gauge_full = 0x1E8F0, gauge_empty = 0x1E8E0;
-constexpr int left_pillar_x = -1;          // HSTART $80 ($11016) against DIWSTRT $81
-constexpr int right_pillar_x = 0x1B0 - 0x81; // HSTART $1B0 ($1102C)
+// HSTART $80 ($11016) and $1B0 ($1102C): a sprite at HSTART $80 shows from
+// display x 0 (an FS-UAE capture: the pillars end where the panel's elbows
+// end, columns 0-15 and 304-319).
+constexpr int left_pillar_x = 0;
+constexpr int right_pillar_x = 0x1B0 - 0x80;
 
 // One row of 16 pixels from four plane words.
 void planar_row(Screen& s, int x, int y, std::uint16_t p0, std::uint16_t p1, std::uint16_t p2, std::uint16_t p3,
