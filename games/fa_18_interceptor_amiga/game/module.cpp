@@ -108,6 +108,13 @@ public:
                 k.typed = ' ';
             }
             for (int d = 1; d <= 9; ++d) if (pressed(key::digits[d])) k.digit = d;
+            // F1-F6: the missions, the C64's way (F2, F4, F6 with Shift);
+            // Ctrl+1 - Ctrl+6 too.
+            const bool f[3] = {input.f1 && !f_was_[0], input.f3 && !f_was_[1], input.f5 && !f_was_[2]};
+            for (int i = 0; i < 3; ++i) if (f[i]) k.mission = 3 + 2 * i + (input.shift ? 1 : 0);
+            for (int d = 1; d <= 6; ++d) {
+                if (input.ctrl_keys[key::digits[d]] && !ctrl_digits_was_[std::size_t(d)]) k.mission = 2 + d;
+            }
             k.enter = pressed(key::return_key);
             k.backspace = pressed(key::backspace);
             k.escape = pressed(key::tab);
@@ -153,7 +160,7 @@ public:
         if (phase_ == Phase::end_wait || phase_ == Phase::end_text || phase_ == Phase::ready ||
             phase_ == Phase::descent || phase_ == Phase::to_ready || phase_ == Phase::fade_in ||
             phase_ == Phase::fade_out || phase_ == Phase::briefing || phase_ == Phase::landed ||
-            phase_ == Phase::lead_lost) {
+            phase_ == Phase::lead_lost || phase_ == Phase::mission_text) {
             if (phase_ == Phase::briefing) {
                 // ($101D06: any key ends the briefing; `$13AA93`.)
                 bool any = input.fire && !fire_was_;
@@ -380,6 +387,7 @@ public:
         switch (mode_) {
         case FlightMode::demo: return 0x7F;
         case FlightMode::qualification: return 9;
+        case FlightMode::mission: return mission_;
         default: return 1;
         }
     }
@@ -390,6 +398,8 @@ public:
         ObjectChoice choice;
         choice.mode = list_mode();
         choice.variant_random = int(random_() & 0xFFFF);
+        choice.level = level_;
+        if (mode_ == FlightMode::mission) choice.stage = pilot_.stage(mission_);
         const auto spawned = lists_.spawn(choice, tables_);
         objects_ = spawned.objects;
         list_start_ = spawned.first_entry;
@@ -555,6 +565,7 @@ private:
         briefing,     // $101CC0 / $101D06: the qualification's text, until typed or a key
         landed,       // $1031F4 / $103AA8: the qualifying landing's texts, then a new launch
         lead_lost,    // $103A4C: the practice's lead lost: block 72, then the main menu
+        mission_text, // $1031F4: a mission's texts over the paused flight
         descent,      // $102D58 with the outside camera's flight down (`$13AB9E` = 6)
         to_ready,     // $102D58: five frames in the cockpit
         ready,        // $102E4E / $102EDA: "READY FOR TAKEOFF", then a beep
@@ -593,6 +604,10 @@ private:
             begin_practice();
             return;
         }
+        if (mode_ == FlightMode::mission) {
+            begin_mission(start.mission, start.again);
+            return;
+        }
         fade_ = 15;
         place_ = start.place;
         aircraft_type_ = start.aircraft;
@@ -601,10 +616,14 @@ private:
         text_.queue(place_ == carrier_place ? launch_text : ready_text);
         sounds_.set_active(true);
         restart();
+        start_descent();
+    }
+
+    // The outside camera comes down from the map to the aircraft first
+    // ($102C6E: aimed 23,040 units behind it, $10D44A).
+    void start_descent() {
         flying_ = false;
         ready_done_ = false;
-        // The outside camera comes down from the map to the aircraft first
-        // ($102C6E: aimed 23,040 units behind it, $10D44A).
         descent_ = Descent{};
         descent_.target = plane_offset(0, 0, -0x1680);
         outside_ = true;
@@ -614,6 +633,103 @@ private:
         chase_set_ = true;
         cam_angles_ = cam_angles_was_ = {0x1C20, 0}; // straight down, as the map ($10D2B2)
         phase_ = Phase::descent;
+    }
+
+    // A mission ($1020CC, $102534 ...): three aircraft; the screen fades
+    // in, then (chosen from the menu) the briefing: block 91 and the
+    // mission's first (its stage 0) or later text, the security check
+    // (`$1027C8`: passed here, the disk being cracked), block 93 and the
+    // orders (`$1028DA`: missions started + 1); then the camera's descent,
+    // the bogey's vector and "READY ...". Mission 3 starts on runway 1,
+    // the others on the carrier.
+    void begin_mission(int mission, bool again) {
+        mission_ = mission;
+        brief_ = !again;
+        place_ = mission == 3 ? 0 : carrier_place;
+        aircraft_type_ = 0x11;
+        aircraft_left_ = 3; // ($1020BC)
+        level_ = std::int8_t(std::min<int>(pilot_.level, 3));
+        mission_result_ = 0;
+        airborne_ = false;
+        text_.clear();
+        sounds_.set_active(true);
+        restart();
+        flying_ = false;
+        ready_done_ = false;
+        outside_ = above_ = false;
+        look_ = 0;
+        zoom_ = 0x80;
+        fade_ = 0;
+        fade_ticks_ = 0;
+        briefing_key_ = false;
+        briefing_part_ = 0;
+        phase_ = Phase::fade_in;
+    }
+
+    // `$133FFE` + `$1340DA`: the mission's five text blocks (first
+    // briefing, later briefing, the security check, the orders, success).
+    int mission_text(int index) const {
+        const auto& m = assets_.program;
+        const std::uint32_t at = 0x133FFE + std::uint32_t(m.s16(0x1340DA + 2u * std::uint32_t(mission_ - 3)));
+        return m.s16(at + 2u * std::uint32_t(index));
+    }
+
+    // After the briefing: the descent, the vector and the "ready" line.
+    void mission_descent() {
+        text_.clear();
+        queue_bogey_vector();
+        text_.queue(place_ == carrier_place ? launch_text : ready_text);
+        start_descent();
+    }
+
+    // $118650 ... (each frame of a mission's flight): the objective (mission
+    // 3: the radar's confirmation, `$13AB5F` < 0), then the landing
+    // (`$118BA2`: on the ground at a standstill on a runway, or the deck
+    // when it started on the carrier, after having flown - +$21 bit 0,
+    // hypothesis: set at take-off). Each pauses the flight for its texts
+    // (`$1031F4`): the success text and "RETURN TO BASE / CARRIER"; then
+    // "YOUR LOG NOW REFLECTS THIS COMPLETED MISSION" and the Shift-Esc hint,
+    // with the mission completed in the log (`$1034A0`).
+    void mission_tick() {
+        if (mode_ != FlightMode::mission) return;
+        if (mission_result_ == 0) {
+            const bool done = mission_ == 3 && radar_.confirmation() < 0;
+            if (!done) return;
+            mission_result_ = 1;
+            text_.clear();
+            text_.queue(mission_text(4));
+            text_.queue(mission_ == 3 ? 85 : 86);
+            pause_for_texts();
+            return;
+        }
+        if (mission_result_ == 1) {
+            const bool on_place = place_ == carrier_place ? (aircraft_.surface & 0xC0) != 0 : (aircraft_.surface & 0x04) != 0;
+            if (!airborne_ || !(aircraft_.motion & flag::on_ground) || !on_place || aircraft_.airspeed != 0) return;
+            mission_result_ = 4;
+            complete_mission();
+            text_.clear();
+            text_.queue(84);
+            text_.queue(menu_hint_text);
+            pause_for_texts();
+        }
+    }
+
+    // $1034A0: the log takes the mission: the last mission and its stage,
+    // completed + 1, the level and the mission's stage + 1 (at most 3);
+    // written ($10858A).
+    void complete_mission() {
+        pilot_.last_mission = std::uint8_t(mission_);
+        pilot_.last_stage = pilot_.stage(mission_);
+        ++pilot_.missions_completed;
+        level_ = std::int8_t(std::min(level_ + 1, 3));
+        pilot_.level = std::uint16_t(level_);
+        pilot_.set_stage(mission_, std::uint8_t(std::min(pilot_.stage(mission_) + 1, 3)));
+        write_pilot(content_, pilot_);
+    }
+
+    void pause_for_texts() {
+        flying_ = false;
+        phase_ = Phase::mission_text;
     }
 
     // The demo ($10215E, $101BF4): mission 3's start on the carrier's
@@ -815,6 +931,10 @@ private:
     }
 
     void remember_keys(const app::GameInput& input) {
+        f_was_[0] = input.f1;
+        f_was_[1] = input.f3;
+        f_was_[2] = input.f5;
+        for (int d = 0; d < 10; ++d) ctrl_digits_was_[std::size_t(d)] = input.ctrl_keys[key::digits[d]];
         keys_was_ = input.c64_keys;
         fire_was_ = input.fire;
         ctrl_tab_was_ = input.ctrl_keys[key::tab];
@@ -870,6 +990,20 @@ private:
                     phase_ = Phase::briefing;
                     break;
                 }
+                if (mode_ == FlightMode::mission) {
+                    if (!brief_) {
+                        mission_descent();
+                        break;
+                    }
+                    sounds_.set_active(false);
+                    text_.clear();
+                    text_.queue(91);
+                    text_.queue(mission_text(pilot_.stage(mission_) == 0 ? 0 : 1));
+                    briefing_part_ = 1;
+                    briefing_key_ = false;
+                    phase_ = Phase::briefing;
+                    break;
+                }
                 if (mode_ == FlightMode::qualification) text_.queue(launch_text);
                 countdown_ = 5;
                 phase_ = Phase::to_ready;
@@ -904,6 +1038,20 @@ private:
                 phase_ = Phase::descent;
                 break;
             }
+            if ((text_.done() || briefing_key_) && mode_ == FlightMode::mission) {
+                briefing_key_ = false;
+                if (briefing_part_ == 1) {
+                    text_.clear();
+                    text_.queue(93);
+                    text_.queue(mission_text(3));
+                    ++pilot_.missions_started; // (written with the log)
+                    briefing_part_ = 2;
+                    break;
+                }
+                sounds_.set_active(true);
+                mission_descent();
+                break;
+            }
             if (text_.done() || briefing_key_) {
                 sounds_.set_active(true); // ($101D18)
                 text_.clear();
@@ -919,6 +1067,18 @@ private:
             } else if (countdown_ < 0) {
                 leave_flight();
                 front_.to_menu();
+            }
+            break;
+        case Phase::mission_text:
+            // ($102EFE: the flight goes on once they are typed; the wait
+            // after them is the landing's - hypothesis.)
+            if (!text_.done()) {
+                if (text_.tick()) sounds_.click();
+                if (text_.done()) countdown_ = 0x64 / 6;
+            } else if (countdown_ < 0) {
+                text_.clear();
+                flying_ = true;
+                phase_ = Phase::flying;
             }
             break;
         case Phase::landed:
@@ -947,7 +1107,8 @@ private:
                 } else {
                     leave_flight();
                     // ($101AF4: after the maneuvers' demo comes their practice.)
-                    front_.again(mode_ == FlightMode::qualification ? 5 :
+                    if (mode_ == FlightMode::mission) front_.again_mission(mission_);
+                    else front_.again(mode_ == FlightMode::qualification ? 5 :
                                  (mode_ == FlightMode::maneuvers || mode_ == FlightMode::practice) ? 4 : 2);
                 }
             }
@@ -1184,6 +1345,8 @@ private:
         if (mode_ == FlightMode::practice) lead_tick();
         objects_tick();
         radar_tick();
+        if (events.took_off) airborne_ = true;
+        mission_tick();
 
         chase_camera();
         ++ticks_;
@@ -1983,6 +2146,12 @@ private:
     bool trigger_ = false;              // record 4's +2 bit 3 (the fire key)
     bool reposition_ = false;           // the player's +2 bit 3 (Return)
     bool brief_ = false;                // the qualification's briefing comes (`$13AB1B` clear)
+    int mission_ = 0;                   // `$13AB96` of a mission (3-8)
+    int mission_result_ = 0;            // `$13AA88`'s course: 0, 1 the objective, 4 landed after it
+    int briefing_part_ = 0;             // a mission's briefing: 1 the first text, 2 the orders
+    bool airborne_ = false;             // +$21 bit 0 (hypothesis: flown since the start)
+    std::array<bool, 3> f_was_{};       // F1, F3, F5 held last frame
+    std::array<bool, 10> ctrl_digits_was_{};
     bool briefing_key_ = false;         // a key during the briefing
     int radar_range_ = 0xD;             // +$63 low nibble: 9, B, D (2, 10, 40 miles; key R)
     bool ecm_ = false;                  // $13ABA5 (key J)

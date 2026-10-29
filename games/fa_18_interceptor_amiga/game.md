@@ -1521,6 +1521,52 @@ two records' view matrices' third columns (x and z). The port turns the
 carrier's points from its own record (`Carrier::place`), so a carrier
 at any heading works.
 
+### The missions' flow (2026-10-29)
+
+**Choosing** (`$10EACC`): menu keys 1-5 and 8 always; 7 and F1-F6 only
+once qualified (config +0). 7: the last advanced mission (config +6) +
+1, from 3 again outside 3-8, `$13AA82` 1 (its line 107 shown). F1-F6:
+missions 3-8; 3 always, mission m when config +$12 + (m − 1) is not 0.
+Item 6 (`$1022CE`): block 64 ("SELECTABLE MISSIONS ... F1 - VISUAL
+CONFIRMATION MISSION"), then for each mission 3-8 whose config +$12 + m
+is not 0 the next of hunk 64's first words (blocks 77-81, the F2-F6
+lines), block 110; the menu's keys go on. So config +$12 + m is mission
+m's stage (0-3) and also opens mission m + 1. The port takes F1, F3, F5
+as the C64 has them, F2, F4, F6 with Shift, and Ctrl+1 - Ctrl+6.
+
+**Start** (`$10201E` for 3-8): the radio noise (`$109D7A(40)`, not
+built), three aircraft, the objects (`$11CF06` with the stage and the
+level `$13AB97` = config +2, `$10D170`), place 4 (the carrier) — mission 3
+place 1 (runway 1, `$1021F8`) — with the F/A-18. `$102534`: the screen
+fades in; chosen from the menu (`$13AB1B` clear): block 91 (NORAD
+STRATEGIC COMMAND) and the mission's first briefing (its stage 0) or the
+later one (`$119508`: per mission five blocks from `$133FFE` +
+`$1340DA`: mission 3: 26, 27, 95, 29, 30 — first briefing, later
+briefing, the security check, the orders, success; 4: 31, 32, 95, 34, 35;
+5: 39, 40, 95, 42, 43; 6: 46, 47, 95, 49, 50; 7: 52, 53, 95, 55, 56; 8:
+59, 60, 95, 62, 63), the security check (`$1027C8`: passed — the disk is
+cracked; the port leaves it out), block 93 (CLEARANCE CONFIRMED) and the
+orders, missions started + 1 (config +$36, `$1028DA`); then the camera's
+descent, block 88 (the vector) and "READY ..." as free flight's. The
+aircraft question for mission 3's runway start (`$102C36`, block 75) is
+not built (the port flies the F/A-18).
+
+**Outcome** (`$1185BE` per frame of a mission, `$118650`... by mode):
+mission 3 once confirmed (the radar's `$13AB5F` < 0, "The radar"):
+`$13AA88` = $FF, `$13AB1A` 3, after 4 frames (`$13AB1C`) `$1031C8` /
+`$1031F4` types the success text (index 4) and block 85 ("RETURN TO
+BASE"; 86 "RETURN TO CARRIER" for the others) while the objects stand
+(`$13AA9E`); then the flight goes on (`$102EFE`, `$13AA88` 1). Landed
+(`$118BA2`: +$21 bit 0 — set in the take-off/landing step `$1071AE`,
+**hypothesis**: the aircraft has flown — on the ground, on a runway
+(+4 bit 2) or, started on the carrier, on its deck (+4 & $C0), airspeed
+0): `$13AA88` $FC → blocks 84 ("YOUR LOG NOW REFLECTS THIS COMPLETED
+MISSION") and 83, `$1034A0`: config +6 the mission, +7 its stage,
+completed + 1 (+$38), the level and the mission's stage + 1 (at most 3),
+the record written. Failures (`$13AA88` −2: blocks by mission, 66 by
+default; −3 in mission 4: 76) and missions 4-8's objectives
+(`$11867C`, `$1187BA`, `$118914`, `$118998`) are not built.
+
 ### The missions' objects (`$11CF06`, 2026-10-29)
 
 `$11CF06` (each flight's start, after the choice; maneuvers' $7D has its

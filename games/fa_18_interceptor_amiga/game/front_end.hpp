@@ -29,12 +29,13 @@ struct FrontKeys {
     bool shift_escape = false;
     int digit = -1;        // 1-9 of the top row
     bool shift_2 = false;
+    int mission = 0;       // F1-F6: missions 3-8 (0: none)
 };
 
 // What the menu started ($13AB96): free flight (1), the demo ($7F, menu
 // item 1), the maneuvers' demo (2), their practice ($7D), the
-// qualification (9).
-enum class FlightMode { free_flight, demo, maneuvers, practice, qualification };
+// qualification (9), the missions (3-8).
+enum class FlightMode { free_flight, demo, maneuvers, practice, qualification, mission };
 
 // A flight as the player chose it.
 struct FlightStart {
@@ -44,6 +45,7 @@ struct FlightStart {
     // Started again (Esc, a qualifying landing): the security check counts
     // as passed (`$13AB1B`) and the qualification's briefing is left out.
     bool again = false;
+    int mission = 0;       // 3-8 (`$13AB96`) for FlightMode::mission
 };
 
 class FrontEnd {
@@ -61,6 +63,8 @@ public:
     // $101A96 → $101E04 (Esc, a qualifying landing): the chosen item's
     // line again for 150 frames, then the item starts again.
     void again(int item);
+    // A mission flown again (Esc): no line, the shorter wait.
+    void again_mission(int mission);
 
     // One frame; the start of free flight when the player has chosen it.
     std::optional<FlightStart> tick(const FrontKeys& keys);
@@ -90,6 +94,8 @@ private:
     void go(Screen s) { screen_ = s; }
     void menu_screen();
     void show_chosen(int item, int line);
+    void missions_list();
+    bool mission_open(int mission) const;
     void flight_log();
     void choose(const FrontKeys& keys);
     data::TextBlock block(int number) const;
@@ -104,6 +110,7 @@ private:
     int countdown_ = 0;           // $13ADC6
     int frame_ = 0;               // frames on this screen
     int choice_ = 0;              // $13AB96: the menu item
+    int mission_ = 0;             // the chosen mission (3-8)
     bool unbuilt_ = false;        // the chosen item is not rebuilt yet
     bool again_ = false;          // `$13AB1B`: started again, the check passed
     int place_ = -1;              // $13AB38, chosen

@@ -15,10 +15,10 @@ namespace interceptor::game {
 
 struct PilotRecord {
     bool qualified = false;           // +0
-    std::uint16_t word_2 = 0;         // +2 (not traced)
+    std::uint16_t level = 0;          // +2: `$13AB97`, one up per completed mission (at most 3)
     std::uint16_t launches = 0;       // +4: 0 for a new pilot
     std::uint8_t last_mission = 0;    // +6: the last advanced mission
-    std::uint8_t byte_7 = 0;          // +7 (not traced)
+    std::uint8_t last_stage = 0;      // +7: the last mission's stage when completed
     std::uint32_t flight_seconds = 0; // +8
     std::array<std::uint8_t, 0x12> bytes_c{}; // +$C-$1D (+$14-$19: missions 3-8 open)
     std::string call_sign;            // +$1E, 24 bytes, zero-terminated
@@ -33,6 +33,11 @@ struct PilotRecord {
     static constexpr std::size_t size = 78;
     static PilotRecord decode(const std::vector<std::uint8_t>& bytes);
     std::vector<std::uint8_t> encode() const;
+
+    // Mission m's stage (+$12 + m: 0-3, one up per completion; non-zero
+    // also opens mission m + 1).
+    std::uint8_t stage(int mission) const { return bytes_c[std::size_t(0x12 + mission - 0xC)]; }
+    void set_stage(int mission, std::uint8_t v) { bytes_c[std::size_t(0x12 + mission - 0xC)] = v; }
 
     // $108556 (the flight log's Shift 2): the whole record cleared, call
     // sign and launches too: a new pilot.

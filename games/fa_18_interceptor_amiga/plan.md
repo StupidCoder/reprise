@@ -111,8 +111,10 @@ from drawing, and must still respect the passes' model rule).
     T lock, mission 3's confirmation, the player's distance). Left: the
     threat lamps, weapons against objects (the shots' hit tests over the
     drawer's list `$13ACB6`, `$11AE96`; missiles near and hits), the objects' touches and crashes, the trigger areas
-    (`$11D17A`), the missions' flows (briefings, outcomes `$118650`...),
-    the log.
+    (`$11D17A`); the missions' flow is built for choosing (6, 7, F1-F6),
+    the briefings and mission 3's outcome and completion; left: missions
+    4-8's objectives and failures (`$11867C`...), the aircraft question
+    of mission 3's runway start, the radio noise.
 12. **Dusk and night**: palettes 3-9 (the fades).
 13. **Saves**: quick save and load of the module's state.
 

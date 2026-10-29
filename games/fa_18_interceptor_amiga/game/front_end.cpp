@@ -128,10 +128,16 @@ void FrontEnd::choose(const FrontKeys& keys) {
     case 3: line = 103; break;              // training demo (2)
     case 4: line = 104; break;              // training practice ($7D)
     case 5: line = 105; break;              // qualification (9)
-    case 6: sounds_.menu_key(); return;     // the missions list (-1): not rebuilt
+    case 6:                                 // the missions list (-1)
+        sounds_.menu_key();
+        missions_list();
+        return;
     case 7:                                 // the next advanced mission
         sounds_.menu_key();
         if (!pilot_.qualified) return;
+        // ($10EB24: the last one + 1, from 3 again past 8.)
+        mission_ = pilot_.last_mission + 1;
+        if (mission_ < 3 || mission_ > 8) mission_ = 3;
         line = 107;
         break;
     case 8:                                 // the flight log (-2)
@@ -143,6 +149,40 @@ void FrontEnd::choose(const FrontKeys& keys) {
     if (d != 7) sounds_.menu_key();
     again_ = false;
     show_chosen(d, line);
+}
+
+// $1022CE: block 64, then a line for every mission open after the first
+// (the lines of hunk 64's first words, 77-81, in order: mission m's stage
+// byte opens mission m + 1), block 110; the menu's keys go on.
+void FrontEnd::missions_list() {
+    text_.clear();
+    text_.set_line_spacing(12);
+    text_.queue(64);
+    int line = 77;
+    for (int m = 3; m < 9; ++m) {
+        if (pilot_.stage(m) != 0) text_.queue(line++);
+    }
+    text_.queue(110);
+    go(Screen::menu);
+}
+
+// $10EB5E: only once qualified; mission 3 then always, mission m once the
+// one before it was completed (its stage byte).
+bool FrontEnd::mission_open(int mission) const {
+    if (!pilot_.qualified || mission < 3 || mission > 8) return false;
+    return mission == 3 || pilot_.stage(mission - 1) != 0;
+}
+
+void FrontEnd::again_mission(int mission) {
+    palette_ = menu_palette;
+    again_ = true;
+    mission_ = mission;
+    choice_ = 10;
+    unbuilt_ = false;
+    text_.clear();
+    sounds_.set_tune_target(0);
+    countdown_ = 0x96;
+    go(Screen::chosen);
 }
 
 void FrontEnd::again(int item) {
@@ -157,7 +197,7 @@ void FrontEnd::again(int item) {
 // without the tune or once the security check was passed).
 void FrontEnd::show_chosen(int item, int line) {
     choice_ = item;
-    unbuilt_ = item < 1 || item > 5;
+    unbuilt_ = (item < 1 || item > 5) && item != 7 && item != 10;
     text_.clear();
     text_.set_line_spacing(12);
     text_.queue(line);
@@ -253,8 +293,22 @@ std::optional<FlightStart> FrontEnd::tick(const FrontKeys& keys) {
         }
         break;
     case Screen::menu:
-        if (keys.digit > 0) choose(keys);
-        else if (keys.escape) menu_screen();
+        if (keys.digit > 0) {
+            choose(keys);
+        } else if (keys.mission && mission_open(keys.mission)) {
+            // ($101E04: a mission chosen by its key shows no line.)
+            sounds_.menu_key();
+            mission_ = keys.mission;
+            again_ = false;
+            text_.clear();
+            choice_ = 10;
+            unbuilt_ = false;
+            sounds_.set_tune_target(0);
+            countdown_ = sounds_.has_tune() ? 0xD2 : 0x96;
+            go(Screen::chosen);
+        } else if (keys.escape) {
+            menu_screen();
+        }
         break;
     case Screen::chosen:
         if (countdown_ < 0) {
@@ -262,6 +316,10 @@ std::optional<FlightStart> FrontEnd::tick(const FrontKeys& keys) {
             sounds_.stop_tune();
             if (unbuilt_) {
                 to_menu();
+            } else if (choice_ == 7 || choice_ == 10) {
+                // $1020CC: a mission ($109D7A(40): the radio's noise, not
+                // built).
+                return FlightStart{mission_ == 3 ? 0 : 3, 0x11, FlightMode::mission, again_, mission_};
             } else if (choice_ == 1) {
                 // $10215E: the demo, mission 3's world from the carrier.
                 sounds_.ambience(8);
