@@ -24,7 +24,7 @@ What remains for a complete re-implementation of the fifth adventure
    trail over the fur in Commu; the fur shader's alpha; the shows' multiple
    lights and spot light; the select and tutorial scripts beyond the first
    stage; service 1204 (repeat pulse) is a hypothesis.
-2. **Ruins**: the guide mode (commands 131..144, item 11) is not ported; the ruins' own draw pool; the block's roll while sliding;
+2. **Ruins**: the guide mode is ported but not compared (item 11); the ruins' own draw pool; the block's roll while sliding;
    motion blend frames; leaving the ruins (an extra pop: **hypothesis**).
 3. **Robot game**: the goal, key, fuel-out and bonus stages not compared;
    timing drift from the 30 Hz script cadence.
@@ -81,31 +81,35 @@ What remains for a complete re-implementation of the fifth adventure
    - Checked after the change: all 150 puzzles (`solve5.sh`), puzzle 1's
      key frames (`regress5.sh`), the sixth adventure's 168 (`solve6.sh`),
      and the auto-player to the staff roll (game frame ~1.03M, step 900).
-   - Still missing in the full run: only the ruins loop commands 139..142
-     (2110 to the top loop; counted as 2110139..2110142). They belong to the
-     **guide mode** (item 11), not to the story.
+   - Still missing in the full run before the guide port: only the ruins
+     loop commands 139..142, which belong to the **guide mode** (item 11,
+     now ported with 131..148 and 2210, 0x130870: a block started on the
+     top loop's first thread). After the port the full run reports no
+     missing service and still reaches the staff roll.
    - Script blocks called by hash but absent after item pick-ups: open.
 10. **Investigation cursor**: the capped step (`0x2D0FE0`) is not modelled.
     Some coins cannot be picked (the pilot skips them).
-11. **Ruins guide mode** (read 2026-10-29, not ported): the paid hint of
-    the ruins floors. Each floor's `mini/ruin_guide_0N.xs` (loaded after the
-    floor by 0x1d1564; records 5100..5111: the guide character
-    "mirra_00", start cells, an event for a failed demonstration
-    "《ＤＸ》ガイド失敗ミイラ", then routes of 5104 {steps} / 5106 {action
-    1500..1508, row, column, ..., wait} / 5105 steps, 0x44 bytes each) is
-    not read. The ruins loop's guide (+0x4c38c): 139 (0x15f580; with the
-    guide running, 0x1cf218 steps it first) runs 0x1cef58, which sets +0x28
-    (131's value) when Layton stands on a route's start cell, and the script
-    (GuidBtnProc) then shows "obj_btn_guide_begin"; paying a guide coin
-    ("《ＤＸ》ガイドコイン支払い済み") restarts the loop as Run_GuideMode
-    (134, 132) and the mummy walks the route (133 -> 0x1ceb2c, 143, 144).
-    140 {1..3} (0x161544) with the guide on checks flags 0x5de..0x5e1 and
-    may end it (0x1cecb8); 141 {name, n} (0x15ccb0) ends or marks the guide
-    when the named character is the guide's; 142 {value} / {row, column,
-    value} (0x15f714) sets the routes' step bytes +0xc. Without the guide
-    running, 140 and 141 only set +0x4c3b0 to 1 and 142 changes data the
-    story never reads; the button never appears in the port. Jump table of
-    the ruins commands 136..144: 0x1c7554.
+11. **Ruins guide mode** (ported 2026-10-29; game.md "The ruins' guide").
+    Played through with the research pilot (`A5_GUIDE=1`, from a
+    checkpoint before the ruins): floor 1's route offered at its start
+    cell, the tutorial event (06_068200), the coin prompt, the restart,
+    the intro event (06_060150) bringing Layton onto the markers, the three
+    phases (walk, dig while the mummy falls into the hole, walk to the 1508
+    marker) and Clear_GuideMode. `A5_GUIDE=fail` steps off the markers: the
+    failure event (06_068230, ガイド失敗ミイラ) plays, the room resets and the
+    retried guide is cleared. The same run takes and clears both routes
+    of floor 2 (five pushes; a mummy route of pushes) and floor 3's first
+    two routes (pushes; nine phases with three digs), so the push and dig
+    judgements hold in play. The full story run (no guide taken) passes
+    the rooms' telops; the pilot watches them (DrawGuideTelop holds the
+    main thread for about 170 frames). Open:
+    - Not compared with the console (no capture of the guide yet): the
+      markers' look and timing, the telop, floors 4.. .
+    - The ruins' view care (0x1c8270) and draw pool (0x1d0808) are not
+      ported: markers are drawn for the whole shown phase, also in rooms the
+      unexplored-room shells still cover.
+    - The markers' rotation for turned steps (5106's x codes) is the
+      quaternion product decomposed into the objects' X, Y, Z angles.
 12. **Trial flag** and the console's save creation page at boot: not modelled.
 13. **Saves**: the 0xA08-byte side file (copies of progress ranges, the
     volume) is not written; erasing and copying slots not looked at; 11019

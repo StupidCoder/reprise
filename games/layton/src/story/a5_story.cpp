@@ -1066,6 +1066,14 @@ bool Story::loopCommand(int number, xq::Call& c, std::size_t first) {
     return t && t->command(number, c, first);
 }
 
+bool Story::loopBlock(const std::string& block) {
+    // Started, not run: the thread takes it up on its next run (the
+    // caller is usually the loop's other thread, an event's script).
+    Loop* t = top();
+    const xq::Program* p = game.newestScript();
+    return t && p && t->threads[0]->start(*p, block);
+}
+
 std::string Story::stackText() const {
     std::string s;
     for (const auto& l : stack_) {

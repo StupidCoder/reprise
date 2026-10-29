@@ -3841,6 +3841,16 @@ void Game::registerGameServices() {
         }
         return loops && loops->loopCommand(c.integer(0), c, 1);
     });
+    // 2210 (0x130870): a block of the top loop's script starts on its first
+    // thread {name} (the guide's tutorial event hands over to the ruins'
+    // BeginSelect_GuideMode so).
+    m.service(2210, [this](Call& c) {
+        const std::string* name = c.count() ? c.text(0) : nullptr;
+        if (!name) {
+            return false;
+        }
+        return done(c, loops && loops->loopBlock(*name) ? 1 : 0);
+    });
     // The loop requests (the game's loop manager, requests at +0x1d3c,
     // carried out at the next frame). 2104 (0x1425b0 -> 0x2c592c): a loop
     // by number on top [value 0, value 1]; 2102 (0x122694 -> 0x2d4c98): the

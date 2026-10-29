@@ -235,6 +235,7 @@ public:
     bool requestEvent(const xq::Value& event, int branch) override;
     xq::Value loopValue(int i) const override;
     bool loopCommand(int number, xq::Call& c, std::size_t first) override;
+    bool loopBlock(const std::string& block) override;
     // A typed key for the top loop (Loop::keyboard).
     void keyboard(const NameInput& key);
 

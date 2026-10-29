@@ -433,7 +433,24 @@ recognised at pen-up.
   - Mummies notice the protagonist along rows and columns, narrowed by walls,
     and chase the protagonist by a best-first search.
   - Paired switches need both down.
-  - Guide files hold the official demonstrations (DX only).
+  - **The guide** (`mini/ruin_guide_0N.xs`, records 5100..5112; the loop's
+    +0x4c38c): a paid hint. Each route has a start cell (standing there
+    offers the guide: the "guide" button), Layton's and Randall's start
+    cells and facings, an intro event, a failure event, a telop for its
+    room, a wait, and phases of markers (`room%02d_phase_%02d_%02d`
+    effects: r402 walk 1500 / 1508, r405 route 1501, r403 dig 1502, r401
+    push 1503..1506). After the coin (BeginSelect_GuideMode, 134
+    "Run_GuideMode") the loop restarts, the pair stands at the route's
+    cells, the intro event plays and the first phase's markers come up one
+    after another (5 frames apart from 10). Layton's moves are judged
+    against the shown phase (0x2bbf8c): standing on a cell off the counted
+    walk markers is a failure (+0x2b: PlayGuideLeaveEvt plays the failure
+    event, Reset_GuideRoom starts the route again); the last counted walk
+    marker of a walk-only phase, a 1508 marker, or a dig or push from the
+    marker's side facing it moves on to the next phase (0x2bd3cc); after
+    the last phase Clear_GuideMode ends the guide (133) and the next route
+    is offered. The European release runs it (its coin prompt "Rätselhilfe
+    einschalten?").
 - **The rabbit** (6000..6005): a hub with a motion machine, care (Commu), a
   notebook, show puzzles and shows.
 - **The robot game** (6100): pieces on a board move by their types' script

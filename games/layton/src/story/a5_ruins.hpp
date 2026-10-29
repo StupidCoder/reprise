@@ -101,6 +101,14 @@ public:
     virtual int slide(std::vector<Block>& layout, std::size_t k, int dr, int dc) = 0;
     // An event waits or plays, or thread 1 runs.
     virtual bool eventRunning() const = 0;
+    // The guide mode: offered (131), running, failed, cleared; the route
+    // and phase; the shown phase's markers {action, row, column, counted}.
+    struct Guide {
+        bool offered = false, running = false, failed = false, cleared = false;
+        int route = -1, phase = -1, routes = 0;
+        std::vector<std::array<int, 4>> markers;
+    };
+    virtual Guide guide() const = 0;
 };
 
 // The ruins loop's inspector, or null for any other loop.

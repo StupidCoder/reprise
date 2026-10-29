@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <map>
 #include <unordered_map>
 #include <optional>
@@ -33,6 +34,8 @@ constexpr int kRooms = 15;   // +0x45448, 0x20 bytes each (5014)
 constexpr int kEvents = 120; // +0x28f8, 100 bytes each (5010 / 5011)
 constexpr int kObjects = 100; // +0x57d8 / +0x2f08, 0x5c bytes each (5012 / 5013)
 constexpr int kActors = 70;   // +0x2470, 12 bytes each
+// The guide's "none" for a facing, a marker's lift and delay (FLT_MAX).
+constexpr float kNoAngle = std::numeric_limits<float>::max();
 
 // The actors the script names.
 const std::string kLayton = "\x83\x7e\x83\x6a\x83\x8c\x83\x43\x83\x67\x83\x93"; // ミニレイトン
@@ -361,6 +364,25 @@ public:
         return a && canStep(*a, {r0, c0}, {r1, c1}, h);
     }
     bool eventRunning() const override { return eventBusy(); }
+    Guide guide() const override {
+        Guide g;
+        g.offered = guide_.b4 != 0;
+        g.running = guide_.b5 != 0;
+        g.failed = guide_.b7 != 0;
+        g.cleared = guide_.b8 != 0;
+        g.route = guide_.route;
+        g.phase = guide_.phase;
+        g.routes = int(guide_.routes.size());
+        if (guide_.route >= 0 && std::size_t(guide_.route) < guide_.routes.size()) {
+            const auto& r = guide_.routes[std::size_t(guide_.route)];
+            if (guide_.phase >= 0 && std::size_t(guide_.phase) < r.phases.size()) {
+                for (const auto& s : r.phases[std::size_t(guide_.phase)]) {
+                    g.markers.push_back({s.action, s.cell.row, s.cell.column, s.counted ? 1 : 0});
+                }
+            }
+        }
+        return g;
+    }
     std::vector<Block> blocks() const override {
         std::vector<Block> list;
         for (const auto& g : floor_.objects) {
@@ -771,10 +793,66 @@ private:
     } runner_;
     EventPlayback playback_; // +0x28e8
     bool somethingHappened_ = false; // +0x628 (697), cleared each frame by 0x1c798c
-    // The guide (+0x4c38c, 0x1cef58 / 0x1cf218): its flags read by 131 ..
-    struct Guide {
-        std::int8_t b4 = 0, b5 = 0, b6 = 0, b7 = 0, b8 = 0, b9 = 0, bb = 0, bc = 0, bd = 0;
+    // The guide mode (+0x4c38c): the paid hint of a floor. Its routes come
+    // from mini/ruin_guide_0N.xs (0x1d1564; records 5100..5112). Standing
+    // on a route's start cell offers the guide; once paid (134
+    // "Run_GuideMode"), Layton and Randall start from the route's cells and
+    // the route's markers show, phase by phase, where to walk, dig and push.
+    // A move against the markers is a failure (+0x2b), the last phase done
+    // calls Clear_GuideMode.
+    struct GuideStep {         // 0x4c bytes (0x1d0448)
+        std::string name;      // +0: "room%02d_phase_%02d_%02d" (route, phase, step); its marker's name
+        int action = -1;       // +0x24: 1500 walk, 1501 goal, 1502 dig, 1503..1506 push, 1508 walk
+        int look = 0xff;       // +0x26: the marker's look: 0 dim, 1 coming, 2 shown, 3 going
+        CellIndex cell;        // +0x28
+        std::array<float, 3> turn{}; // +0x30: radians (5106's turn codes)
+        float lift = kNoAngle;       // +0x3c: added to the marker's height (none: FLT_MAX)
+        float delay = kNoAngle;      // +0x40: frames before the marker shows
+        bool counted = false;        // +0x44: a walk step Layton must reach (5106's fourth operand)
+        int sound = 0;               // +0x48: an effect as the marker shows
+    };
+    struct GuideRoute {        // 0x44 bytes (0x1cea30)
+        CellIndex telopCell;   // +0 / +4 (5111): where the room's telop shows
+        std::string telop;     // +8: its picture
+        bool telopShown = false;     // +0xc (142)
+        CellIndex laytonCell;  // +0x10 (5107), turn +0x30
+        CellIndex randallCell; // +0x18 (5108), turn +0x34
+        float laytonTurn = 0, randallTurn = 0;
+        CellIndex start;       // +0x20 (5109): standing here offers the guide
+        std::string intro;     // +0x28 (5110): the event as the guide starts
+        std::string failure;   // +0x2c: the event after a failure (144)
+        std::vector<std::vector<GuideStep>> phases; // +0x38 (5102; 5104 .. 5105 each)
+        std::size_t built = 0; // +0x3c: phases read so far
+        float wait = 0;        // +0x40 (5112): frames before the first markers
+    };
+    struct GuideMode {
+        std::vector<GuideRoute> routes; // +0x5c / +0x58
+        int route = 0;         // +0x1c: the route offered or run
+        int phase = -1;        // +0x1e: the phase shown
+        int blink = 0;         // +0x20: the walk marker whose look turns
+        int result = 1;        // +0x24: 140's verdict (1 none, bit 1 wrong, bit 2 right)
+        CellIndex cell;        // +0x10: where Layton acted (140) ..
+        float angle = kNoAngle; // +0x18: .. facing (degrees)
+        float wait = 0;        // +0x34: the route's wait running out
+        std::string lastMarker; // +0x60: a marker fading (143)
+        // +0x28 offered (131), +0x29 running (132 / 136), +0x2a starting
+        // (134), +0x2b failed (137), +0x2c cleared (138), +0x2d the phase's
+        // markers all shown (145), +0x2e the intro event played, +0x2f a
+        // telop showing (148), +0x30 the wait runs (146), +0x31 (147).
+        std::int8_t b4 = 0, b5 = 0, b6 = 0, b7 = 0, b8 = 0, b9 = 0, be = 0, bb = 0, bc = 0, bd = 0;
     } guide_;
+    void loadGuide();
+    void guideDelays(std::vector<GuideStep>& steps, bool built);
+    adventure56::Object3D* guideMarker(const GuideStep& s);
+    void guideSpawnMarkers();
+    void guideNextPhase();
+    void guideActed(bool right);
+    void guideOffer();
+    void guideStart();
+    void guideEnd();
+    int guideCheck(int action);
+    std::string guideTelopAt(CellIndex at) const;
+    void guideFrame();
     bool flag630_ = false;      // +0x630 (704 / 705): Layton may not step onto Randall
     bool flag634_ = false;
     std::unordered_map<const Actor*, CellIndex> imagined_; // RuinsInspector::imagineBlocks
@@ -1027,7 +1105,716 @@ bool RuinsLoop::loadFloor() {
             break;
         }
     }
+    loadGuide();
     return true;
+}
+
+// ---------------------------------------------------------------- guide
+
+void playOnce(adventure56::Object3D& o, const std::string& name);
+
+void RuinsLoop::loadGuide() {
+    // 0x1d1564 after the floor (0x1c92b8): mini/ruin_guide_0N.xs through the
+    // record handlers 5100..5112. The guide's own state (the route offered,
+    // its flags) stays: a paid guide restarts the loop and reloads the
+    // floor (134).
+    guide_.routes.clear();
+    char path[40];
+    std::snprintf(path, sizeof path, "mini/ruin_guide_%02d", floorNumber_);
+    const fs::path file = game_.pack.find(path, ".xs");
+    if (file.empty()) {
+        return;
+    }
+    const auto list = import::adventure56::parseXscr(game_.pack.read(file));
+    std::size_t routes = 0; // +0x58 while reading: the route being read
+    auto route = [&]() -> GuideRoute* {
+        return routes < guide_.routes.size() ? &guide_.routes[routes] : nullptr;
+    };
+    auto building = [&]() -> std::vector<GuideStep>* {
+        GuideRoute* r = route();
+        return r && r->built < r->phases.size() ? &r->phases[r->built] : nullptr;
+    };
+    for (const auto& c : list.commands) {
+        const auto row = rowOf(list, c);
+        switch (c.opcode) {
+        case 5100: // 0x165c20 -> 0x1cea30: the routes {count}
+            if (!row.empty()) {
+                guide_.routes.assign(std::size_t(std::max(0, intAt(row, 0))), GuideRoute{});
+                routes = 0;
+            }
+            break;
+        case 5102: // 0x161eec: the route's phases {name, count}
+            if (GuideRoute* r = row.size() >= 2 ? route() : nullptr) {
+                r->phases.assign(std::size_t(std::max(0, intAt(row, 1) & 0xffff)), {});
+                r->built = 0;
+            }
+            break;
+        case 5104: // 0x163128 -> 0x1cf5d8: a phase {steps}
+            if (auto* steps = row.empty() ? nullptr : building()) {
+                steps->clear();
+                steps->reserve(std::size_t(std::max(0, intAt(row, 0) & 0xffff)));
+            }
+            break;
+        case 5106: { // 0x1cc12c -> 0x1d0448: a step {action, row, column [, counted [, turn y [, turn x [, lift [, sound]]]]]}
+            auto* steps = row.size() >= 3 ? building() : nullptr;
+            if (!steps) {
+                break;
+            }
+            GuideStep s;
+            char name[32];
+            std::snprintf(name, sizeof name, "room%02d_phase_%02d_%02d", int(routes), int(route()->built),
+                          int(steps->size()));
+            s.name = name;
+            s.action = std::int16_t(intAt(row, 0));
+            s.cell = {intAt(row, 1) & 0xffff, intAt(row, 2) & 0xffff};
+            s.counted = row.size() > 3 ? row[3].truthy() : true;
+            // The turn codes: 1514 pi, 1515 0, 1516 -pi/2, 1517 pi/2 about
+            // y; 1519 -pi/4, 1520 pi/4 about x (others keep 0).
+            constexpr float kPi = 3.14159274f;
+            if (row.size() > 4) {
+                switch (intAt(row, 4)) {
+                case 1514: s.turn[1] = kPi; break;
+                case 1515: s.turn[1] = 0.0f; break;
+                case 1516: s.turn[1] = -kPi / 2; break;
+                case 1517: s.turn[1] = kPi / 2; break;
+                default: break;
+                }
+            }
+            if (row.size() > 5) {
+                switch (intAt(row, 5)) {
+                case 1519: s.turn[0] = -kPi / 4; break;
+                case 1520: s.turn[0] = kPi / 4; break;
+                default: break;
+                }
+            }
+            s.lift = row.size() > 6 ? realAt(row, 6) : kNoAngle;
+            s.sound = row.size() > 7 ? intAt(row, 7) : 0;
+            s.look = 2;
+            steps->push_back(std::move(s));
+            break;
+        }
+        case 5105: // 0x160550 -> 0x1cf0c0: the phase ends
+            if (auto* steps = building()) {
+                guideDelays(*steps, true);
+                ++route()->built;
+            }
+            break;
+        case 5103: // 0x15e0a8: the route ends
+            ++routes;
+            break;
+        case 5107:   // 0x1630a8: Layton's cell and turn {row, column, degrees}
+        case 5108: { // 0x1604d0: Randall's
+            GuideRoute* r = row.size() >= 3 ? route() : nullptr;
+            if (!r) {
+                break;
+            }
+            const CellIndex at{intAt(row, 0) & 0xffff, intAt(row, 1) & 0xffff};
+            const float turn = realAt(row, 2) * 0.017453292f;
+            (c.opcode == 5107 ? r->laytonCell : r->randallCell) = at;
+            (c.opcode == 5107 ? r->laytonTurn : r->randallTurn) = turn;
+            break;
+        }
+        case 5109: // 0x161e84: the start cell {row, column}
+            if (GuideRoute* r = row.size() >= 2 ? route() : nullptr) {
+                r->start = {intAt(row, 0) & 0xffff, intAt(row, 1) & 0xffff};
+            }
+            break;
+        case 5110: // 0x161e00: the events {intro [, failure]}
+            if (GuideRoute* r = row.empty() ? nullptr : route()) {
+                r->intro = textAt(row, 0);
+                r->failure = row.size() > 1 ? textAt(row, 1) : std::string();
+            }
+            break;
+        case 5111: // 0x161d84: the telop {row, column, picture}
+            if (GuideRoute* r = row.size() >= 3 ? route() : nullptr) {
+                r->telopCell = {intAt(row, 0) & 0xffff, intAt(row, 1) & 0xffff};
+                r->telop = textAt(row, 2);
+                r->telopShown = false;
+            }
+            break;
+        case 5112: // 0x15e058: the wait before the markers {frames}
+            if (GuideRoute* r = row.empty() ? nullptr : route()) {
+                r->wait = float(std::uint32_t(intAt(row, 0)));
+            }
+            break;
+        default: // 5101 (0x1656d8): the reading ends
+            break;
+        }
+    }
+}
+
+void RuinsLoop::guideDelays(std::vector<GuideStep>& steps, bool built) {
+    // When markers show: the walk markers (1500, 1501, 1508) one after the
+    // other every 5 frames from 10, the action markers with the last walk
+    // marker before them, others at 10. As a phase is read (0x1cf0c0) the
+    // walk markers come in (look 3; the last one shown, 2) and the dig and
+    // push markers (1502..1506) are dim (0); a guide starting (0x1cf218)
+    // only times them, dig markers with the walk markers.
+    int walks = 0, lastWalk = -1;
+    for (std::size_t i = 0; i < steps.size(); ++i) {
+        GuideStep& s = steps[i];
+        const bool walk = s.action == 1500 || s.action == 1501 || s.action == 1508;
+        const bool acted = built ? s.action >= 1502 && s.action <= 1506 : s.action == 1502;
+        if (walk) {
+            s.delay = float(walks * 5 + 10);
+            if (built) {
+                s.look = 3;
+                lastWalk = int(i);
+            }
+            ++walks;
+        } else if (acted) {
+            s.delay = float(std::max(walks - 1, 0) * 5 + 10);
+            if (built) {
+                s.look = 0;
+            }
+        } else {
+            s.delay = 10.0f;
+        }
+    }
+    if (lastWalk >= 0) {
+        steps[std::size_t(lastWalk)].look = 2;
+    }
+}
+
+adventure56::Object3D* RuinsLoop::guideMarker(const GuideStep& s) {
+    return game_.scene.object3D(xq::hash(s.name));
+}
+
+void RuinsLoop::guideSpawnMarkers() {
+    // 0x1cf700: every marker of the route from the effect pool (0x292dec),
+    // by its action: r402 walk (1500, 1508), r405 goal (1501), r403 dig
+    // (1502), r401 push (1503..1506, turned to the push: pi, 0, 3pi/2,
+    // pi/2). It stands on its cell (a raised cell kind 1002 one unit up,
+    // 1001 / 1007 six, an actor's part 411 / 412 half a unit), unseen
+    // (alpha 0, switched off: 0x2bd3cc shows a phase), lifted by the
+    // step's lift, turned about y and then x.
+    if (guide_.route < 0 || std::size_t(guide_.route) >= guide_.routes.size()) {
+        return;
+    }
+    constexpr float kPi = 3.14159274f;
+    for (auto& phase : guide_.routes[std::size_t(guide_.route)].phases) {
+        for (GuideStep& s : phase) {
+            std::string resource;
+            float baseTurn = 0.0f;
+            switch (s.action) {
+            case 1500: case 1508: resource = "r402"; break;
+            case 1501: resource = "r405"; break;
+            case 1502: resource = "r403"; break;
+            case 1503: resource = "r401"; baseTurn = kPi; break;
+            case 1504: resource = "r401"; break;
+            case 1505: resource = "r401"; baseTurn = 3 * kPi / 2; break;
+            case 1506: resource = "r401"; baseTurn = kPi / 2; break;
+            default: continue;
+            }
+            const Cell* cell = floor_.cellAt(s.cell);
+            std::array<float, 3> at{};
+            if (cell) {
+                at = {cell->x, cell->y, cell->z};
+                if (cell->kind == 1002) {
+                    at[1] += 1.0f;
+                }
+                if (cell->kind == 1001 || cell->kind == 1007) {
+                    at[1] += 6.0f;
+                }
+                if (const PartDef* p = partOn(s.cell); p && (p->id == 411 || p->id == 412)) {
+                    at[1] += 0.5f;
+                }
+            }
+            if (spawnEffect(s.name, resource, "", "", at, {0.0f, 0.0f, 0.0f}).empty()) {
+                continue;
+            }
+            adventure56::Object3D* o = guideMarker(s);
+            if (!o) {
+                continue;
+            }
+            if (cell) {
+                o->alpha.set({0.0f});
+            }
+            o->touchOn = false;
+            o->switch14 = false;
+            o->drawn = false;
+            if (s.lift != kNoAngle) {
+                auto p = o->position.value();
+                p[1] += s.lift;
+                o->position.set(p);
+            }
+            if (s.turn == std::array<float, 3>{0.0f, 0.0f, 0.0f}) {
+                o->rotation3.set({0.0f, baseTurn, 0.0f});
+            } else {
+                // The quaternion of y by (turn y + base) times that of x by
+                // turn x, as the objects' X, Y, Z angles (Scene::detach3D).
+                const float y = s.turn[1] + baseTurn, x = s.turn[0];
+                const float cy = std::cos(y), sy = std::sin(y), cx = std::cos(x), sx = std::sin(x);
+                // Ry * Rx = [[cy, sy sx, sy cx], [0, cx, -sx], [-sy, cy sx, cy cx]].
+                const float ex = std::atan2(sx, cy * cx);
+                const float ey = std::asin(std::clamp(sy * cx, -1.0f, 1.0f));
+                const float ez = std::atan2(-sy * sx, cy);
+                o->rotation3.set({ex, ey, ez});
+            }
+        }
+    }
+}
+
+void RuinsLoop::guideNextPhase() {
+    // 0x2bd3cc: the next phase: the shown phase's markers leave the view's
+    // care (no longer drawn), the next one's are drawn, those already due
+    // fading in over 15 frames. Past the last phase the route is cleared
+    // (Clear_GuideMode).
+    if (guide_.route < 0 || std::size_t(guide_.route) >= guide_.routes.size()) {
+        return;
+    }
+    GuideRoute& r = guide_.routes[std::size_t(guide_.route)];
+    const int shown = guide_.phase++;
+    if (shown >= 0 && std::size_t(shown) < r.phases.size()) {
+        for (const GuideStep& s : r.phases[std::size_t(shown)]) {
+            if (auto* o = guideMarker(s)) {
+                o->drawn = false;
+            }
+        }
+    }
+    if (std::size_t(guide_.phase) < r.built) {
+        for (const GuideStep& s : r.phases[std::size_t(guide_.phase)]) {
+            if (auto* o = guideMarker(s)) {
+                // (The ruins' view care, 0x1c8270, switches a marker on
+                // while it is in view; the port draws it throughout.)
+                o->touchOn = true;
+                o->switch14 = true;
+                o->drawn = true;
+                if (s.delay < 0.0f) {
+                    o->alpha.start({1.0f}, 15.0f, 0);
+                }
+            }
+        }
+    }
+    if (int(r.built) <= guide_.phase) {
+        guide_.b8 = 1;
+        threads[0]->callback("Clear_GuideMode", {});
+    }
+    guide_.blink = 0;
+    guide_.b9 = 0;
+}
+
+void RuinsLoop::guideActed(bool right) {
+    // 0x1cecb8 (140, after a dig or push the markers judged): the phase's
+    // markers fade out over 6 frames (143 waits for the last), where Layton
+    // stands and faces is kept for 141's judgement; a right action in the
+    // last phase clears the route.
+    if (guide_.route < 0 || std::size_t(guide_.route) >= guide_.routes.size()) {
+        return;
+    }
+    GuideRoute& r = guide_.routes[std::size_t(guide_.route)];
+    if (guide_.phase >= 0 && std::size_t(guide_.phase) < r.phases.size()) {
+        for (const GuideStep& s : r.phases[std::size_t(guide_.phase)]) {
+            if (auto* o = guideMarker(s)) {
+                o->alpha.start({0.0f}, 6.0f, 0);
+                guide_.lastMarker = s.name;
+            }
+        }
+    }
+    float angle = 0.0f;
+    if (Actor* l = actor(kLayton)) {
+        guide_.cell = cellOf(*l);
+        if (auto* o = game_.scene.object3D(l->hash)) {
+            angle = o->rotation3.value()[1];
+        }
+    }
+    guide_.angle = angle * 57.29578f;
+    if (int(r.built) <= guide_.phase + 1 && right) {
+        guide_.b8 = 1;
+        threads[0]->callback("Clear_GuideMode", {});
+    }
+}
+
+void RuinsLoop::guideOffer() {
+    // 0x1cef58 (139, and each frame): while no event plays, Layton on a
+    // route's start cell offers that route (+0x28, 131); standing on an
+    // object whose event is of kind 400 withdraws the offer.
+    if (runner_.playing || runner_.queued) {
+        return;
+    }
+    Actor* l = actor(kLayton);
+    if (!l) {
+        return;
+    }
+    const CellIndex at = cellOf(*l);
+    if (guide_.b4 == 0) {
+        for (std::size_t i = 0; i < guide_.routes.size(); ++i) {
+            if (guide_.routes[i].start == at) {
+                guide_.route = int(i);
+                guide_.b4 = 1;
+                break;
+            }
+        }
+    }
+    const GridObject* o = objectAt(at, 0);
+    if (o && o->event >= 0 && std::size_t(o->event) < floor_.events.size() &&
+        floor_.events[std::size_t(o->event)].kind == 400) {
+        guide_.b4 = 0;
+    }
+}
+
+void RuinsLoop::guideStart() {
+    // 0x1cf218 (139 after 134 restarted the loop for the guide): the
+    // markers' times afresh, Layton and Randall to the route's cells and
+    // turns, ResetMirraRoom when Layton's room holds a mummy's marker (an
+    // object of event kind 1001), the guide's block (134's name: "Run_
+    // GuideMode"), the route's wait.
+    if (guide_.route < 0 || std::size_t(guide_.route) >= guide_.routes.size()) {
+        return;
+    }
+    GuideRoute& r = guide_.routes[std::size_t(guide_.route)];
+    for (std::size_t i = 0; i < r.built; ++i) {
+        guideDelays(r.phases[i], false);
+    }
+    const auto setUp = [this](const std::string& name, CellIndex at, float turn) {
+        Actor* a = actor(name);
+        if (!a) {
+            return;
+        }
+        place(*a, at);
+        if (auto* o = game_.scene.object3D(a->hash)) {
+            o->rotation3.set({0.0f, turn, 0.0f});
+        }
+    };
+    setUp(kLayton, r.laytonCell, r.laytonTurn);
+    setUp(kRandall, r.randallCell, r.randallTurn);
+    if (const Cell* cell = floor_.cellAt(r.laytonCell);
+        cell && cell->room >= 0 && cell->room < kRooms && floor_.rooms[std::size_t(cell->room)].marker1001) {
+        threads[0]->callback("ResetMirraRoom", std::array<Value, 1>{Value::ofInt(floorNumber_)});
+    }
+    if (!guideName_.empty()) {
+        threads[0]->callback(guideName_, {});
+    }
+    guide_.b5 = guide_.b6 = guide_.b7 = guide_.b8 = guide_.b9 = guide_.be = guide_.bc = 0;
+    guide_.wait = r.wait;
+    guide_.phase = -1;
+    guide_.cell = {};
+    guide_.angle = kNoAngle;
+    guide_.lastMarker.clear();
+    guide_.result = 1;
+}
+
+void RuinsLoop::guideEnd() {
+    // 0x1ceb2c (133): the route's markers go back to the pool; the guide
+    // stops. A cleared route passes the offer to the next one.
+    if (guide_.route >= 0 && std::size_t(guide_.route) < guide_.routes.size()) {
+        for (auto& phase : guide_.routes[std::size_t(guide_.route)].phases) {
+            for (const GuideStep& s : phase) {
+                std::string name = s.name;
+                if (guideMarker(s)) {
+                    dropEffect(name);
+                }
+            }
+        }
+    }
+    guide_.b5 = guide_.b6 = guide_.b7 = 0;
+    guide_.phase = -1;
+    guide_.cell = {};
+    guide_.angle = kNoAngle;
+    if (guide_.b8) {
+        ++guide_.route;
+        guide_.b4 = 0;
+    }
+    guide_.b8 = guide_.b9 = guide_.be = guide_.bc = 0;
+    guide_.result = 1;
+    guide_.lastMarker.clear();
+}
+
+int RuinsLoop::guideCheck(int action) {
+    // 0x2bbf8c: Layton against the shown phase's markers of an action
+    // (bits: 1 nothing to say, 2 wrong, 4 right). Layton's cell and facing
+    // (degrees, floored) are those kept by 140 when set, else his own;
+    // he must be at rest... (class 1: Layton).
+    if (guide_.route < 0 || std::size_t(guide_.route) >= guide_.routes.size() || guide_.phase == -1) {
+        return 1;
+    }
+    Actor* l = actor(kLayton);
+    if (!l || l->klass != 1) {
+        return 1;
+    }
+    CellIndex at = cellOf(*l);
+    float angle = 0.0f;
+    if (auto* o = game_.scene.object3D(l->hash)) {
+        angle = o->rotation3.value()[1];
+    }
+    if (guide_.cell.row != -1 || guide_.cell.column != -1) {
+        at = guide_.cell;
+    }
+    angle *= 57.29578f;
+    if (guide_.angle != kNoAngle) {
+        angle = guide_.angle;
+    }
+    angle = std::floor(angle);
+    GuideRoute& r = guide_.routes[std::size_t(guide_.route)];
+    if (int(r.built) <= guide_.phase) {
+        return 1;
+    }
+    const auto& steps = r.phases[std::size_t(guide_.phase)];
+    const auto near = [](float a, float want) { return want <= a + 5.0f && a - 5.0f <= want; };
+    if (action == 1500 || action == 1501) {
+        // Walks: right on the last counted walk marker of a phase that has
+        // only walks; wrong at rest anywhere else; uncounted ones say
+        // nothing.
+        bool hit = false, others = false;
+        int last = -1, hitAt = -1, uncounted = 0, walks = 0;
+        for (std::size_t i = 0; i < steps.size(); ++i) {
+            const GuideStep& s = steps[i];
+            if (s.action != 1500 && s.action != 1501) {
+                others = true;
+                continue;
+            }
+            if (!s.counted) {
+                ++uncounted;
+            } else {
+                last = int(i);
+                if (s.cell == at) {
+                    hit = true;
+                    hitAt = int(i);
+                }
+            }
+            ++walks;
+        }
+        if (uncounted == walks) {
+            hit = true;
+        }
+        if (last < 0) {
+            return 1;
+        }
+        if (!hit) {
+            return 2;
+        }
+        const bool atLast = hitAt < 0 ? hitAt == 0 : last == hitAt;
+        return atLast && !others ? 5 : 1;
+    }
+    if (action == 1508) {
+        int result = 1;
+        for (const GuideStep& s : steps) {
+            if (s.action == 1508 && s.cell == at) {
+                result |= 4;
+            }
+        }
+        return result;
+    }
+    // Digs and pushes: in a room with a mummy's marker anything else is
+    // wrong (a dig only when the phase has no 1508 walk).
+    int result = 1;
+    if (const Cell* cell = floor_.cellAt(at);
+        cell && cell->room >= 0 && cell->room < kRooms && floor_.rooms[std::size_t(cell->room)].marker1001) {
+        bool wrong = true;
+        if (action == 1502) {
+            for (const GuideStep& s : steps) {
+                if (s.action == 1508) {
+                    wrong = false;
+                }
+            }
+        }
+        if (wrong) {
+            result = 2;
+        }
+    }
+    const GuideStep* step = nullptr;
+    for (const GuideStep& s : steps) {
+        if (s.action == action) {
+            step = &s;
+            break;
+        }
+    }
+    if (!step) {
+        return result;
+    }
+    const CellIndex m = step->cell;
+    const bool south = at == CellIndex{m.row + 1, m.column}, north = at == CellIndex{m.row - 1, m.column};
+    const bool west = at == CellIndex{m.row, m.column - 1}, east = at == CellIndex{m.row, m.column + 1};
+    if (!south && !north && !west && !east) {
+        if (action != 1502 && l->state == 6) {
+            return 2; // a push asked for beside no push marker
+        }
+        return result;
+    }
+    if (action == 1502) {
+        // A dig: beside the marker, facing it.
+        if (south && (near(angle, 180.0f) || near(angle, -180.0f))) {
+            return 5;
+        }
+        if (north && near(angle, 0.0f)) {
+            return 5;
+        }
+        if (west && near(angle, 90.0f)) {
+            return 5;
+        }
+        if (east && near(angle, -90.0f)) {
+            return 5;
+        }
+        return 2;
+    }
+    if (action < 1503 || action > 1506) {
+        return result;
+    }
+    // A push: beside the marker facing its direction (1503 180, 1504 0,
+    // 1505 -90, 1506 90 degrees; the original compares every side with
+    // that one facing).
+    const float want = action == 1503 ? 180.0f : action == 1505 ? -90.0f : action == 1506 ? 90.0f : 0.0f;
+    if (south && (near(angle, want) || near(angle, -want))) {
+        return 5;
+    }
+    if ((north || east || west) && near(angle, want)) {
+        return 5;
+    }
+    return 2;
+}
+
+std::string RuinsLoop::guideTelopAt(CellIndex at) const {
+    // 0x1d05bc: in a room not yet seen on this floor, the telop of a route
+    // whose telop cell Layton stands on and that has not shown it.
+    const Cell* cell = floor_.cellAt(at);
+    if (!cell) {
+        return {};
+    }
+    const unsigned room = unsigned(std::max(0, cell->room)) & 0xff;
+    const unsigned f = unsigned(floorNumber_ - 1) & 0xff;
+    if (f < 8 && room < 32 && ((record_.roomsSeen[f] >> room) & 1u) != 0) {
+        return {};
+    }
+    for (const GuideRoute& r : guide_.routes) {
+        if (r.telopCell == at && !r.telopShown) {
+            return r.telop;
+        }
+    }
+    return {};
+}
+
+void RuinsLoop::guideFrame() {
+    // 0x1cfca0, each frame while no event plays: a room's telop
+    // (DrawGuideTelop, once: 《ＤＸ》テロップフラグ), the offer, and the
+    // running guide: its intro event, the wait, the markers phase by phase
+    // and Layton's walks judged against them.
+    if (runner_.playing || runner_.queued) {
+        return;
+    }
+    constexpr float kStep = 1.0f; // the loop's frame step (as the actors')
+    static const std::string kTelopFlag =
+        "\x81\x73\x82\x63\x82\x77\x81\x74\x83\x65\x83\x8d\x83\x62\x83\x76\x83\x74\x83\x89\x83\x4f"; // 《ＤＸ》テロップフラグ
+    if (Actor* l = actor(kLayton)) {
+        const int flag = game_.flagId(kTelopFlag);
+        const bool told = flag >= 0 && game_.flag(flag);
+        if (!told && guide_.bb == 0) {
+            const std::string telop = guideTelopAt(cellOf(*l));
+            if (!telop.empty() &&
+                threads[0]->callback("DrawGuideTelop", std::array<Value, 1>{Value::ofText(telop)})) {
+                if (flag >= 0) {
+                    game_.setFlag(flag, true);
+                }
+                guide_.bb = 1;
+            }
+        }
+    }
+    guideOffer();
+    if (guide_.b5 == 0 || guide_.b8 != 0 || guide_.route < 0 ||
+        std::size_t(guide_.route) >= guide_.routes.size()) {
+        return;
+    }
+    GuideRoute& r = guide_.routes[std::size_t(guide_.route)];
+    if (!r.intro.empty() && guide_.be == 0) {
+        queueEvent(r.intro, false, nullptr);
+        guide_.be = 1;
+        return;
+    }
+    if (guide_.bc == 0) {
+        return;
+    }
+    if (guide_.wait > 0.0f) {
+        guide_.wait = std::max(guide_.wait - kStep, 0.0f);
+        return;
+    }
+    if (guide_.phase < 0) {
+        guideSpawnMarkers();
+        guideNextPhase();
+    }
+    if (guide_.phase < 0 || std::size_t(guide_.phase) >= r.phases.size()) {
+        return;
+    }
+    auto& steps = r.phases[std::size_t(guide_.phase)];
+    bool allDue = true;
+    int walk = 0;
+    for (GuideStep& s : steps) {
+        if (s.delay < 0.0f) {
+            continue;
+        }
+        s.delay -= kStep;
+        if (s.delay >= 0.0f) {
+            allDue = false;
+            continue;
+        }
+        s.delay = -1.0f;
+        const bool walkMarker = s.action == 1500 || s.action == 1508;
+        if (!walkMarker) {
+            s.look = 2;
+        } else {
+            const int index = walk++;
+            if (guide_.b9 != 0) {
+                // The phase is all shown: every 10 frames the walk markers
+                // turn in order, one at a time (dim -> coming -> going).
+                s.delay = 10.0f;
+                if (guide_.blink == index) {
+                    if (s.look == 2) {
+                        guide_.blink = 0;
+                        continue;
+                    }
+                    if (s.look == 0 || s.look == 3) {
+                        s.look = 1;
+                    } else {
+                        ++guide_.blink;
+                        s.look = 3;
+                    }
+                } else if (s.look == 3) {
+                    continue;
+                } else if (s.look < 2) {
+                    s.look = 3;
+                }
+            }
+        }
+        adventure56::Object3D* o = guideMarker(s);
+        if (o) {
+            if (guide_.b9 == 0) {
+                o->alpha.set({1.0f});
+            }
+            const auto material = [o](const std::string& name, bool once) {
+                o->materialMotion = name;
+                o->materialMotionTime = 0;
+                o->materialMotionOnce = once;
+                o->materialMotionDone = false;
+            };
+            if (walkMarker) {
+                switch (s.look) {
+                case 1: material("001_\x97\xa7\x82\xbfIN", true); break;   // 001_立ちIN
+                case 2: material("002_\x97\xa7\x82\xbfLOOP", false); break; // 002_立ちLOOP
+                case 3: material("003_\x97\xa7\x82\xbfOUT", true); break;  // 003_立ちOUT
+                case 0: material("004_\x88\xc3LOOP", true); break;          // 004_暗LOOP
+                default: break;
+                }
+            } else if (s.action == 1501) {
+                material("r405_001", false);
+            } else if (s.look == 2) {
+                playOnce(*o, "001_\x97\xa7\x82\xbf"); // 001_立ち (0x2936c0)
+            }
+        }
+        if (guide_.b9 == 0 && s.sound != 0) {
+            game_.playEffect(s.sound);
+        }
+    }
+    if (guide_.b9 == 0 && allDue) {
+        guide_.b9 = 1;
+        for (GuideStep& s : steps) {
+            s.delay = 0.0f;
+        }
+    }
+    const int verdict = guideCheck(1500) | guideCheck(1501) | guideCheck(1508);
+    if (verdict & 2) {
+        guide_.b7 = 1;
+    }
+    if (verdict & 4) {
+        guideNextPhase();
+    }
 }
 
 Actor* RuinsLoop::actor(const std::string& name) {
@@ -3876,6 +4663,7 @@ void RuinsLoop::afterFrame() {
             o->drawn = !hidden;
         }
     }
+    guideFrame();
     freeRemovals();
     runActors();
     endEvent();
@@ -4297,12 +5085,25 @@ bool RuinsLoop::command(int number, xq::Call& c, std::size_t first) {
         }
         return result(c, Value::ofInt(1));
     }
-    case 305: // 0x140ec8: an event by name plays {name}
+    case 305: { // 0x140ec8: an event by name plays {name or its hash}
+        // (144 hands over the guide's failure event as a hash, as the
+        // game keeps it.)
         if (n < 1) {
             return false;
         }
-        queueEvent(textOf(c, first), false, nullptr);
+        std::string name = textOf(c, first);
+        if (name.empty() && !c.at(first).isText()) {
+            const std::uint32_t h = c.at(first).toUint();
+            for (const auto& e : game_.story.events) {
+                if (h != 0 && xq::hash(e.name) == h) {
+                    name = e.name;
+                    break;
+                }
+            }
+        }
+        queueEvent(name, false, nullptr);
         return result(c, Value::ofInt(1));
+    }
     case 401: { // 0x14631c: screen 0's depth to 78 and strength to 1 over 30 frames
         auto& cam = game_.scene.cameras[0];
         cam.stereoDistance.start({78.0f}, 30.0f, 3);
@@ -4319,15 +5120,99 @@ bool RuinsLoop::command(int number, xq::Call& c, std::size_t first) {
         guideName_ = n > 0 ? textOf(c, first) : std::string();
         guide_.b6 = 1; // +0x4c3b6
         return true;
-    case 133: // 0x150604 -> 0x1ceb2c: the guide (not ported)
-    case 139: // 0x15f580: the guide's frame (0x1cef58; its data, ruin_guide_0N, is not read)
-    case 140:
-    case 141:
-    case 142:
-    case 143:
-    case 144:
-        ++game_.missing[2110000 + number];
-        return result(c, Value::ofInt(0));
+    case 133: // 0x150604 -> 0x1ceb2c: the guide ends (End_GuideMode)
+        guideEnd();
+        return result(c, Value::ofInt(1));
+    case 139: // 0x15f580: a guide being started begins (0x1cf218); the offer (0x1cef58)
+        if (guide_.b6) {
+            guideStart();
+        }
+        guideOffer();
+        return result(c, Value::ofInt(1));
+    case 140: { // 0x161544: Layton dug (1), pushed (2) or switched (3) {kind}
+        // While the guide runs the action is judged against the shown
+        // phase's markers (a switch is always right); a right or wrong one
+        // fades the markers (0x1cecb8). 141 reads the verdict.
+        if (n < 1) {
+            return false;
+        }
+        int verdict = 1;
+        if (guide_.b5) {
+            switch (c.integer(first)) {
+            case 1:
+                verdict = guideCheck(1502);
+                break;
+            case 2:
+                verdict = guideCheck(1503) | 1 | guideCheck(1504) | guideCheck(1505) | guideCheck(1506);
+                break;
+            case 3:
+                verdict = 5;
+                break;
+            default:
+                break;
+            }
+            if (verdict & 6) {
+                guideActed((verdict & 2) == 0);
+            }
+        }
+        guide_.result = verdict;
+        return result(c, Value::ofInt(1));
+    }
+    case 141: { // 0x15ccb0: an actor's move ended {name, n}
+        // Layton's after a judged action: right goes to the next phase,
+        // wrong is a failure (+0x2b).
+        if (n < 2) {
+            return false;
+        }
+        if (guide_.b5 && xq::hash(textOf(c, first)) == xq::hash(kLayton)) {
+            if (guide_.result & 4) {
+                guideNextPhase();
+                guide_.cell = {};
+                guide_.angle = kNoAngle;
+            } else if (guide_.result & 2) {
+                guide_.b7 = 1;
+            }
+        }
+        guide_.result = 1;
+        return result(c, Value::ofInt(1));
+    }
+    case 142: { // 0x15f714: the routes' telops shown {shown} or the one at a cell {row, column, shown}
+        if (n == 0) {
+            return false;
+        }
+        if (n < 2) {
+            const bool shown = c.at(first).truthy();
+            for (GuideRoute& r : guide_.routes) {
+                r.telopShown = shown;
+            }
+        }
+        if (n > 2) {
+            const CellIndex at{c.integer(first), c.integer(first + 1)};
+            const bool shown = c.at(first + 2).truthy();
+            for (GuideRoute& r : guide_.routes) {
+                if (r.telopCell == at) {
+                    r.telopShown = shown;
+                }
+            }
+        }
+        return true;
+    }
+    case 143: { // 0x159308: the last faded marker still fading (Clear_GuideMode waits)
+        auto* o = guide_.lastMarker.empty() ? nullptr : game_.scene.object3D(xq::hash(guide_.lastMarker));
+        return result(c, Value::ofInt(o && o->alpha.moving() ? 1 : 0));
+    }
+    case 144: { // 0x15f5b4: the route's failure event {-> its name's hash} (0 when none)
+        if (n < 1) {
+            return false;
+        }
+        Value v = Value::ofInt(0);
+        if (guide_.b5 && !guide_.b8 && guide_.route >= 0 && std::size_t(guide_.route) < guide_.routes.size()) {
+            const std::string& failure = guide_.routes[std::size_t(guide_.route)].failure;
+            v = Value::ofInt(failure.empty() ? 0 : std::int32_t(xq::hash(failure))); // (a hash, as 5110 keeps it)
+        }
+        put(c, first, v);
+        return result(c, Value::ofInt(1));
+    }
     case 130: // 0x156080: +0x21fc (an event resumed the loop)
         return result(c, Value::ofInt(restoring_ ? 1 : 0));
     case 115: { // 0x15061c: a cell's kind {row, column} (-1 none)

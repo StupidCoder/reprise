@@ -189,6 +189,9 @@ public:
     // 2110 (0x12cb68 -> the top loop's vtable +0x4c): a command to the
     // loop; false when it takes none.
     virtual bool loopCommand(int number, xq::Call& c, std::size_t first) = 0;
+    // 2210 (0x130870 -> 0x334b28): a block of the newest script starts on
+    // the top loop's first thread (the running one ends).
+    virtual bool loopBlock(const std::string& block) = 0;
 };
 
 class Game final : public adventure56::MessageHost {
