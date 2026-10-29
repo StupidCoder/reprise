@@ -34,20 +34,18 @@ from drawing, and must still respect the passes' model rule).
    copy protection), the log disk messages (the folder is always there).
 2. **Music** — done 2026-10-29: the title tune is the chain of sample
    slots 13-34 (no sequencer), with the master volume's glide.
-3. **Cockpit** — partly done 2026-10-29: the head-up display (speed,
-   height, load factor, heading tape, waterline marks; off while "READY
-   FOR TAKEOFF" is typed), latitude and longitude. Left: the compass
-   strip and attitude ball (blits from the chip hunk 62, layout not
-   decoded), the radar display (`$125E22`, `$126EEA`), the fuel bar
-   (`$125514`, rule known), the lights (gear symbol, the small indicator
-   above ECM), the HUD's pitch ladder and flight-path marker
-   (`$128ECC`, `$1289C4`, `$128734`), the cockpit look directions
-   (`$13AA97`) and zoom keys; the numbers' exact glyph tables.
+3. **Cockpit** — done 2026-10-29 for free flight: the head-up display,
+   latitude and longitude, the fuel bar, the compass strip, the gear
+   symbol, the radar's scan and own mark, the panel's own colours. Left:
+   the GEAR box's lighting while the gear-speed warning blinks, the
+   alert lights' colours (`$125D26`, from the alerts of task 7), the
+   radar contacts and the weapons' marks (tasks 7-8), the cockpit look
+   directions (`$13AA97`) and zoom keys (`$13AD32`).
 4. **Warnings and messages** — partly done 2026-10-29: fuel low,
    critical and exhausted in the message line, the 7.8 G beep and the
    blackout counter (engine at half volume). Left: the radar and missile
    alerts and collision proximity (they need the other objects, task 7),
-   "AT MAXIMUM ALTITUDE" (poster not found), the blackout's picture
+   the blackout's picture
    (see game.md "Warnings").
 5. **Collisions** — done as far as the original has them: it has no
    collisions with scenery (game.md "Warnings"); ground and water

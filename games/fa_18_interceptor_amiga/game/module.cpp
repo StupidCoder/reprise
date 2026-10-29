@@ -187,6 +187,14 @@ public:
             readings.message_colour = messages_.colour();
             cockpit_.draw(frame, margin_, readings);
             if (phase_ == Phase::ready) text_.draw(frame, margin_);
+            // The panel is a view port of its own with `pix/inst5`'s colour
+            // map, whose colours 16-31 repeat 0-15 (the flight palette's
+            // 16-31 are their darker copies).
+            to_image(frame, image, *palette);
+            for (int y = Cockpit::view_bottom + 1; y < frame.height; ++y)
+                for (int x = 0; x < frame.width; ++x)
+                    image.put(x, y, data::to_color((*palette)[frame.pixels[std::size_t(y * frame.width + x)] & 15]));
+            return image;
         }
         return to_image(frame, image, *palette);
     }

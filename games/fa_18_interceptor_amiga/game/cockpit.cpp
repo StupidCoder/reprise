@@ -28,6 +28,7 @@ CockpitReadings read_cockpit(const Aircraft& a) {
     r.thrust_percent = a.throttle * 100 / 120;
     r.fuel_pounds = int(a.fuel >> 8);                     // $126D26
     r.heading80 = a.attitude.heading;
+    r.gear = a.gear & 0x7F;
     // $126960: (pitch rate + 1/8 of it) / 8, from 1 G; the bank turn's
     // share ($13AC36) is left out.
     const int pull = (a.pitch_rate + (a.pitch_rate >> 3)) >> 3;
@@ -38,6 +39,12 @@ CockpitReadings read_cockpit(const Aircraft& a) {
 }
 
 Cockpit::Cockpit(const data::Assets& assets) : font_(assets.small_font), messages_(assets.messages) {
+    for (std::size_t k = 0; k < gear_images_.size(); ++k) {
+        const std::uint32_t at = assets.program.u32(0x12591E + std::uint32_t(4 * k)); // $125998's table
+        for (std::uint32_t i = 0; i < gear_images_[k].size(); ++i) gear_images_[k][i] = assets.program.u8(at + i);
+    }
+    strip_.emplace();
+    for (std::uint32_t i = 0; i < strip_->size(); ++i) (*strip_)[i] = assets.program.u8(0x132D9C + i);
     for (const auto& p : assets.pictures) {
         if (p.file == "pix/inst5") panel_ = &p.picture;
         if (p.file == "pix/frnt5") shield_ = &p.picture;
@@ -149,6 +156,46 @@ void Cockpit::draw(IndexedImage& image, int left, const CockpitReadings& r) cons
     };
     degrees(r.north_tenths, 180);
     degrees(r.west_tenths, 188);
+    // The fuel bar ($125514): 22 rows from row 180 up, lit (colour 4) for
+    // (fuel & $7FFF) / 1024 - 1 of them, columns 111-114.
+    {
+        int lit = ((r.fuel_pounds & 0x7FFF) >> 10) - 1;
+        for (int k = 0; k < 22; ++k, --lit)
+            for (int x = 111; x <= 114; ++x) image.put(left + x, 180 - k, lit > 0 ? display_green : black);
+    }
+    // The gear's symbol in the GEAR box ($125988): one of four 32 x 7
+    // images by the gear's travel, black on the box, from row 189.
+    {
+        const auto& image_bits = gear_images_[std::size_t((r.gear >> 5) & 3)];
+        for (int row = 0; row < 7; ++row)
+            for (int x = 0; x < 32; ++x)
+                if (image_bits[std::size_t(row * 4 + x / 8)] & (0x80 >> (x % 8))) image.put(left + x, 189 + row, black);
+    }
+    // The radar display ($125E22): the scan's two edges (from $125E86,
+    // colour 3; drawn from 163 up to 148) and the own aircraft's mark
+    // ($125F0E, colour 12). (Contacts need the other objects.)
+    for (int k = 0; k <= 15; ++k) {
+        image.put(left + 154 - k, 163 - k, 3);
+        image.put(left + 162 + k, 163 - k, 3);
+    }
+    for (int x = 157; x <= 159; ++x) image.put(left + x, 168, 12);
+    image.put(left + 158, 167, 12);
+    // The compass strip ($125B74): the chip data's "W N E S" strip
+    // (`$132D9C`: 7 rows of 96 pixels, a letter every 12, 7.5 degrees a
+    // pixel) seen through the window at 192-225, the red index at 208.
+    if (strip_) {
+        const int shift = r.heading80 / 600;
+        for (int y = 150; y <= 157; ++y)
+            for (int x = 192; x <= 225; ++x) image.put(left + x, y, 3);
+        for (int row = 1; row <= 5; ++row) {
+            for (int x = 192; x <= 225; ++x) {
+                const int col = ((x - 207 + shift - 36) % 48 + 48) % 48;
+                const auto byte = (*strip_)[std::size_t(row * 12 + col / 8)];
+                if (byte & (0x80 >> (col % 8))) image.put(left + x, 151 + row, 2);
+            }
+        }
+        for (int y = 151; y <= 157; ++y) image.put(left + 208, y, 1);
+    }
     number(r.feet, 262, 158, 6, display_green, black);
     number(r.knots, 256, 166, 4, display_green, black);
     number(r.thrust_percent, 248, 175, 3, display_green, black);

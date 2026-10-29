@@ -788,10 +788,32 @@ height's `$127E6C` leaves a gap after the thousands).
   tape: a tick every 5° 2 px apart on row 61 (every 10° also row 60,
   with its tens of degrees 3 px right of it on rows 53-57), the index at
   159 rows 63-65, ticks shown from x 126 to 185.
-- The compass strip ($125B74) and the attitude ball ($125930) are blits
-  from the chip hunk 62 (`$132D9C`, `$132C9C`) with the heading / 2 as
-  the strip's scroll and +$7C picking the ball's picture; the data's
-  layout is not decoded yet.
+- The compass strip ($125B74): chip hunk 62 at `$132D9C`, 7 rows of 12
+  bytes (96 px): a blank row, "W N E S W N E S" (a letter every 12 px,
+  dots between them on the third glyph row), a blank row: 7.5° a pixel.
+  Blitted into the window at x 192-225, rows 150-157 (glyph colour 2 on
+  colour 3), scrolled by the heading; the red index (colour 1) at x 208
+  is the panel's. Port: strip column = (x − 207 + heading80 / 600 − 36)
+  mod 48 (checked against `ff_runway.png` and `cap/009.png`).
+- The gear symbol ($125930's second part): one of four 32 × 7 images by
+  (+$7C & $7F) >> 5 (table `$12591E`: `$132D0C` down, `$132CF0`,
+  `$132CD4`, `$132CB8` up), black, at row 189 of the GEAR box. The
+  first part (`$1C70`) lights the box (another blit while the gear-speed
+  warning `$13AB36` blinks): not rebuilt.
+- The ball ($124C3A) is the panel picture's: the routine only blits the
+  ball area back and draws the aircraft mark (204-214, row 172, colour
+  2) and scale dots (colour 13) when the zoom (`$13AC76`) allows; the
+  horizon does not move with the attitude.
+- The radar ($125E22): the scan's edges from `$125E86` ((154,163) to
+  (139,148), (162,163) to (177,148), colour 3) every 16th frame, the own
+  mark ($125F0E: (158,167), (157-159,168), colour 12), then the contacts
+  from `$143A08` (other objects).
+- `$1289C4`, `$128734`, `$128ECC`: the weapons' aiming marks and target
+  box (task 8); the head-up display has no pitch ladder.
+- The panel is a view port of its own (rows 145-199) with `pix/inst5`'s
+  colour map: palette 2's first 16 colours twice (9 and 11 swapped is
+  the picture's own order). The flight palette's colours 16-31 are a
+  darker copy, so the panel's pixels (colours 16-31) show as 0-15.
 
 ### Warnings (2026-10-29)
 
@@ -816,7 +838,8 @@ from `$11A04C − (15 − step) × 32`) run through palette 1's orange and
 then program bytes; on the running original no change of the flight
 view's colours was seen (`screen.py` captures with `$13AB79` poked to
 15 while `$13AB90` stepped down): **hypothesis** they reach a view port
-not shown in flight. Not rebuilt: the visual blackout.
+not shown in flight. Not rebuilt: the visual blackout. No code posts "AT MAXIMUM ALTITUDE" (record 8): the
+ceiling `$13A9EA` only limits the climb (`$106ABE`).
 
 Collision proximity ($D00A with the crash beep, `$11A50E`) is posted when
 the collision test (`$11B6A2` → `$11B6AA`) marks motion bit 0: that test
