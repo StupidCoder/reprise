@@ -2,63 +2,125 @@
 #include <algorithm>
 
 namespace interceptor::game {
-namespace {
 
-constexpr int line_spacing = 11; // $13AA2E = $1B8 bytes
-
-} // namespace
-
-TextScreen::TextScreen(const data::Assets& assets, int block) : assets_(assets) {
-    const auto found = std::find_if(assets.texts.begin(), assets.texts.end(),
+void TextRunner::queue(int block) {
+    const auto found = std::find_if(assets_.texts.begin(), assets_.texts.end(),
                                     [&](const data::TextBlock& b) { return b.number == block; });
-    if (found != assets.texts.end()) block_ = &*found;
+    if (found != assets_.texts.end()) queue(*found);
 }
 
-bool TextScreen::next_character() {
-    const auto& line = block_->lines[std::size_t(line_)];
-    while (shown_ < line.text.size() && (line.flags & 2) && line.text[shown_] == ' ') ++shown_;
-    return shown_ < line.text.size();
+void TextRunner::queue(data::TextBlock block) {
+    queued_.push_back(std::move(block));
+    idle_frames_ = 0;
 }
 
-bool TextScreen::tick() {
-    if (finished()) return false;
-    if (wait_ > 0 && --wait_ > 0) return false;
-    if (pausing_) {
-        pausing_ = false;
-        ++line_;
-        shown_ = 0;
-        if (finished()) return false;
-    }
-    const auto& line = block_->lines[std::size_t(line_)];
-    if (!next_character()) {
-        // The line's end: its pause (at least the frame), then the next line.
-        pausing_ = true;
-        wait_ = std::max(1, line.delay * 4);
-        return false;
-    }
-    ++shown_;
-    wait_ = std::max(1, line.speed);
+void TextRunner::clear() {
+    blocks_.clear();
+    queued_.clear();
+    current_ = 0;
+    idle_frames_ = 0;
+    spacing_ = 11;
+    input_ = Input::off;
+    text_.clear();
+}
+
+void TextRunner::begin_input(int length) {
+    input_ = Input::armed;
+    input_length_ = length;
+    text_.clear();
+}
+
+bool TextRunner::type(char c) {
+    if (input_ != Input::typing || int(text_.size()) >= input_length_) return false;
+    if (!assets_.text_font.glyph(c)) return false;
+    text_.push_back(c);
     return true;
 }
 
-void TextScreen::draw(IndexedImage& image, int left) const {
-    if (!block_) return;
-    const auto& font = assets_.text_font;
-    int y = block_->row;
-    for (int l = 0; l <= std::min(line_, lines() - 1); ++l) {
-        const auto& line = block_->lines[std::size_t(l)];
-        const std::size_t count = l < line_ ? line.text.size() : shown_;
-        for (std::size_t i = 0; i < count && i < assets_.text_columns.size(); ++i) {
-            const auto* glyph = font.glyph(line.text[i]);
-            if (!glyph) continue;
-            const int x0 = left + block_->column * 8 + assets_.text_columns[i];
-            for (int r = 0; r < font.rows && r < int(glyph->size()); ++r) {
-                for (int b = 0; b < 8; ++b) {
-                    if ((*glyph)[std::size_t(r)] & (0x80 >> b)) image.put(x0 + b, y + r, line.colour);
-                }
-            }
+void TextRunner::backspace() {
+    if (input_ == Input::typing && !text_.empty()) text_.pop_back();
+}
+
+void TextRunner::enter() {
+    if (input_ != Input::typing) return;
+    input_ = Input::ended;
+    // The field's line is done: the block goes on with its next line.
+    auto& r = blocks_[std::size_t(current_)];
+    r.block.lines[0].text = text_; // (the field keeps the call sign)
+    r.line = 1;
+    r.shown = 0;
+    r.wait = 1;
+    r.pausing = false;
+}
+
+bool TextRunner::step(Running& r) {
+    if (r.finished()) return false;
+    if (r.wait > 0 && --r.wait > 0) return false;
+    if (r.pausing) {
+        r.pausing = false;
+        ++r.line;
+        r.shown = 0;
+        if (r.finished()) return false;
+    }
+    const auto& line = r.block.lines[std::size_t(r.line)];
+    const bool typed = line.flags & 1;
+    bool clicked = false;
+    do {
+        while (r.shown < line.text.size() && (line.flags & 2) && line.text[r.shown] == ' ') ++r.shown;
+        if (r.shown >= line.text.size()) {
+            // The line's end: its pause (at least the frame), then the next.
+            r.pausing = true;
+            r.wait = std::max(1, line.delay * 4);
+            return clicked;
         }
-        y += line_spacing;
+        ++r.shown;
+        clicked = typed;
+    } while (!typed);
+    r.wait = std::max(1, line.speed);
+    return clicked;
+}
+
+bool TextRunner::tick() {
+    if (current_ >= int(blocks_.size())) {
+        if (queued_.empty()) {
+            ++idle_frames_;
+            return false;
+        }
+        blocks_.push_back({std::move(queued_.front())});
+        queued_.pop_front();
+        if (input_ == Input::armed) input_ = Input::typing;
+    }
+    auto& r = blocks_[std::size_t(current_)];
+    if (input_ == Input::typing && r.line == 0) return false; // the field waits for Return
+    if (input_ == Input::ended) input_ = Input::off;
+    const bool clicked = step(r);
+    if (r.finished()) ++current_;
+    return clicked;
+}
+
+void TextRunner::draw(IndexedImage& image, int left) const {
+    const auto& font = assets_.text_font;
+    const auto glyph_at = [&](char c, int x0, int y, int colour) {
+        const auto* glyph = font.glyph(c);
+        if (!glyph) return;
+        for (int row = 0; row < font.rows && row < int(glyph->size()); ++row)
+            for (int b = 0; b < 8; ++b)
+                if ((*glyph)[std::size_t(row)] & (0x80 >> b)) image.put(x0 + b, y + row, colour);
+    };
+    for (std::size_t n = 0; n < blocks_.size(); ++n) {
+        const auto& r = blocks_[n];
+        const auto& block = r.block;
+        int y = block.row;
+        const int last = std::min(r.line, int(block.lines.size()) - 1);
+        for (int l = 0; l <= last; ++l) {
+            const auto& line = block.lines[std::size_t(l)];
+            const bool field = input_ == Input::typing && l == 0 && int(n) == current_;
+            const std::string& text = field ? text_ : line.text;
+            const std::size_t count = field || l < r.line || r.finished() ? text.size() : r.shown;
+            for (std::size_t i = 0; i < count && i < text.size() && i < assets_.text_columns.size(); ++i)
+                glyph_at(text[i], left + block.column * 8 + assets_.text_columns[i], y, line.colour);
+            y += spacing_;
+        }
     }
 }
 

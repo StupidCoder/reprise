@@ -5,6 +5,8 @@
 #include <array>
 #include <cstdint>
 #include <map>
+#include <optional>
+#include <vector>
 #include <vector>
 
 // The outside view: sky, land, the bay's water and the scenery of the three
@@ -32,18 +34,33 @@ struct Camera {
     std::array<double, 9> matrix{};   // rows x, y, z of camera space (scaled)
 };
 
+// A moving object to draw (the player's aircraft from outside): its type
+// (the shape table's index), position and body matrix ($4000 = 1).
+struct Vehicle {
+    int type{};
+    std::array<double, 3> position{};
+    std::array<std::int16_t, 9> body{};
+};
+
 class Scene {
 public:
     Scene(const data::Assets& assets, const data::World& world);
 
     // Draws into rows [0, bottom] of `image`, the horizontal centre at
     // column `centre` (159 in the original's 320 columns).
-    void draw(IndexedImage& image, int centre, int bottom, const Camera& camera) const;
+    void draw(IndexedImage& image, int centre, int bottom, const Camera& camera,
+              const std::vector<Vehicle>& vehicles = {}) const;
+
+    // Where a world point shows (column, row), or nothing behind the camera.
+    static std::optional<std::array<int, 2>> project(const Camera& camera, const std::array<double, 3>& point,
+                                                     int centre);
 
 private:
     const data::World& world_;
+    const amiga::LoadedImage& program_;
+    mutable std::map<int, std::vector<data::DetailLevel>> vehicle_levels_; // read when first drawn
     std::map<int, std::vector<data::DetailLevel>> levels_; // vehicle and scenery formats
-    std::map<int, data::Shape> ground_;                    // flat ground shapes ($112D76)
+    std::map<int, std::vector<data::DetailLevel>> ground_; // flat ground shapes by distance ($112D76)
 };
 
 } // namespace interceptor::game

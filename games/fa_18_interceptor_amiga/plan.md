@@ -3,16 +3,19 @@
 What remains for a complete, playable re-implementation, and the known
 bugs and differences. How the game works and what was learned: game.md.
 
-## Where it stands (2026-10-29)
+## Where it stands (2026-10-29, second milestone)
 
-Playable: free flight from the three runways in the cockpit view, the
-original's flight model tick for tick, the outside view with scenery and
-detail levels, the panel's numbers, the message line with the ground and
-stall warnings, the original's sounds (engine, wind, gear, tyres, crash,
-beeps), the crash (noise, orange flash, restart, five aircraft, end text).
-Options: starting runway, widescreen, smooth motion up to 120 Hz, VHS,
-sound. Checked against the original: `flightcheck`, `soundcheck`,
-`viewcheck` (game.md section 7). Nothing of this milestone is committed.
+Playable from the title: the title with its tune, credits, call-sign
+entry or welcome back, main menu, flight log, free flight's start map
+and aircraft choice, then free flight from the three runways in the
+cockpit view: the original's flight model tick for tick, the head-up
+display, the panel's numbers, the message line with the stall and fuel
+warnings, the 7.8 G warning, the original's sounds, the crash (noise,
+flash, five aircraft, end text, back to the menu); a first outside view.
+Options: widescreen, smooth motion up to 120 Hz, VHS, sound. Checked against the
+original: `flightcheck`, `soundcheck`, `viewcheck`, front-end screens
+and the map's markers (game.md sections 2 and 7). Nothing of this is
+committed.
 
 Owner's design notes: widescreen and smooth motion stay (own renderer from
 game state, rules at 15 Hz); a planned option, off by default, always
@@ -21,25 +24,46 @@ from drawing, and must still respect the passes' model rule).
 
 ## Remaining tasks towards a full game
 
-1. **Front end**: title picture with the intro tune, credits, flight-log
-   disk check and call-sign entry, main menu, free-flight start map
-   (places 1-5) and aircraft choice (F/A-18, F-16), Esc / Shift-Esc,
-   pilot log read and written (`textply`, `textctl`, `config` layouts);
-   the screen-text runner's keyboard mode.
-2. **Music**: the title tune's sequencer and instruments (slots 13-34),
-   text201.
-3. **Cockpit**: attitude ball, compass tape, radar display and range,
-   G meter and HUD symbols (heading, pitch ladder, speed and height), the
-   eject/brake/gear/ECM lights, latitude and longitude, zoom keys; the
-   original's glyph position tables (`$126524`, `$126544`).
-4. **Warnings and messages**: fuel (low, critical, exhausted), G load and
-   blackout (`$117128`, `$13AB79`, which also halves the engine sound),
-   collision proximity (`$11A50E`), radar and missile alerts with their
-   beeps ($01, $02, $10, $100, $800).
-5. **Collisions**: scenery and the ground at speed (`$11B6A2`, state bit
-   15, the impact noise `$10A0DC(28, 48)`); ditching in water.
-6. **Other views**: the external and tower views the view keys select
-   (`$10E4xx`), with their sound rules (volumes for outside views).
+1. **Front end** — done 2026-10-29 for free flight: title with its tune,
+   credits, call-sign entry / welcome back, main menu, flight log (with
+   write and reset), the start map with its markers, the aircraft choice,
+   "READY FOR TAKEOFF", Esc / Shift-Esc, the pilot record (`config`).
+   Left: the map's descent of the outside camera to the aircraft (cut
+   straight to the cockpit), the missions list (6) and the other items'
+   screens (with their modes, tasks 10-11), the security check (skipped:
+   copy protection), the log disk messages (the folder is always there).
+2. **Music** — done 2026-10-29: the title tune is the chain of sample
+   slots 13-34 (no sequencer), with the master volume's glide.
+3. **Cockpit** — partly done 2026-10-29: the head-up display (speed,
+   height, load factor, heading tape, waterline marks; off while "READY
+   FOR TAKEOFF" is typed), latitude and longitude. Left: the compass
+   strip and attitude ball (blits from the chip hunk 62, layout not
+   decoded), the radar display (`$125E22`, `$126EEA`), the fuel bar
+   (`$125514`, rule known), the lights (gear symbol, the small indicator
+   above ECM), the HUD's pitch ladder and flight-path marker
+   (`$128ECC`, `$1289C4`, `$128734`), the cockpit look directions
+   (`$13AA97`) and zoom keys; the numbers' exact glyph tables.
+4. **Warnings and messages** — partly done 2026-10-29: fuel low,
+   critical and exhausted in the message line, the 7.8 G beep and the
+   blackout counter (engine at half volume). Left: the radar and missile
+   alerts and collision proximity (they need the other objects, task 7),
+   "AT MAXIMUM ALTITUDE" (poster not found), the blackout's picture
+   (see game.md "Warnings").
+5. **Collisions** — done as far as the original has them: it has no
+   collisions with scenery (game.md "Warnings"); ground and water
+   contact were rebuilt with the flight. Object collisions and collision
+   proximity come with task 7. Open: what landing on water does
+   (ditching: a crash here, not traced).
+6. **Other views** — partly done 2026-10-29: the outside camera (keypad
+   0 toggles; keypad 4 / 6 step round the aircraft, 8 above, 2 behind;
+   Ctrl with = / - the distance) at the original's offsets with its
+   chase, the aircraft drawn in the scene, the HDG / KTS / FT line below.
+   Left: the camera's orientation and fly-in states (`$11DC90`…, the
+   map's descent to the aircraft too), the vehicle shapes' scale and
+   detail distances (a guessed ×16 scale; the F/A-18 looks wrong from
+   most positions), the tower view (`$13AA9D`, height `$13AF32` from
+   $1000000 to $8000000), the outside views' sound rules, the look
+   directions in the cockpit.
 7. **Moving objects**: the carrier (free-flight places 4-5, the deck,
    catapult and its thump, arrestor hook), other aircraft, missiles,
    parachutes; their object records and flight paths.
@@ -82,11 +106,27 @@ from drawing, and must still respect the passes' model rule).
 - The apron right of runway 1 shows grass where the original paves it.
 - Ditching in water ends like a crash (the original's rule is not
   traced).
-- After the last aircraft the original returns to its main menu; the port
-  starts free flight again (no menu yet).
-- Ground collisions at speed and scenery collisions do not crash the
-  aircraft yet; the panel's speed does not drop to 0 at a crash (state bit
-  15 is set only by the collision code).
-- The view's window of cells is a square, not the original's octant
-  lists; the coarse water grid is not drawn.
-- Only the cockpit view exists; F/A-18 only; no other objects.
+- The start map shows the city blocks of San Francisco (ground types
+  39-42, 99, 100, drawn at any distance) and some trees the original
+  leaves out at that height: the builder's object lists by height and
+  heading (`$136464`) are not rebuilt.
+- The title stays 22 s (the original's loading time on the A500) but a key
+  skips it; the original takes no key there.
+- The F-16 choice flies the F/A-18 (task 9).
+- Free flight does not yet update the pilot record's numbers (flight
+  time, crashes; the crash adds 1 to config +$10, not decoded).
+- The panel's speed does not drop to 0 at a crash (state bit 15 is set
+  by the object collision code, task 7).
+- The crash ends free flight's log update: config +$46 (crashes) is not
+  counted yet.
+- The view's window of object cells is a square, not the original's
+  octant lists; the fine water grid's window below height $9000 (by
+  heading) draws all cells.
+- The outside view's aircraft is drawn at a guessed scale (×16) and
+  with a guessed orientation: it looks wrong from most positions; the
+  camera looks at the aircraft level, the original's orientation is not
+  traced.
+- No look directions in the cockpit, no tower view; F/A-18 only; no
+  other objects.
+- The map cuts straight to the cockpit (the original flies the outside
+  camera down to the aircraft).

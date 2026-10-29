@@ -322,6 +322,8 @@ add_library(fa_18_interceptor_amiga
     games/fa_18_interceptor_amiga/game/cockpit.cpp
     games/fa_18_interceptor_amiga/game/flight_tables.cpp
     games/fa_18_interceptor_amiga/game/messages.cpp
+    games/fa_18_interceptor_amiga/game/front_end.cpp
+    games/fa_18_interceptor_amiga/game/pilot_record.cpp
     games/fa_18_interceptor_amiga/game/module.cpp
     games/fa_18_interceptor_amiga/game/scene.cpp
     games/fa_18_interceptor_amiga/game/sound_driver.cpp

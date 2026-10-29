@@ -1,6 +1,7 @@
 #pragma once
 #include "amiga/paula_channels.hpp"
 #include "fa_18_interceptor_amiga/data/assets.hpp"
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <span>
@@ -70,6 +71,16 @@ public:
     // noise block came from it; the game draws its random periods from it).
     std::int32_t random_bits(int bits);
 
+    // The title tune (slots 13-34) loaded.
+    bool has_tune() const { return tune_; }
+    // $109CE6 / $1015F6: the tune is on (channels 0 and 1 start it at
+    // volume 63) or off; while it is on the master volume glides to its
+    // target ($13A958) by $4000 a vertical blank.
+    void set_tune_playing(bool on) { tune_playing_ = on; }
+    bool tune_playing() const { return tune_playing_; }
+    void set_master_target(int volume) { master_target_ = std::clamp(volume, 0, 0x3F) << 16; }
+    void set_master_volume(int volume); // $14520E at once
+
     // Adds the four channels to `stereo` (interleaved) at `rate`, the
     // vertical-blank ticks falling between the samples where they come.
     void render(std::span<float> stereo, int rate);
@@ -99,7 +110,11 @@ private:
     std::vector<Entry> entries_;
     std::array<int, script_count> script_start_{};
     std::uint32_t shift_register_{};
-    int master_volume_ = 0x3F; // $14520E
+    void fade_master();
+
+    int master_volume_ = 0x3F; // $14520E's high word, as the registers use it
+    std::int32_t master_ = 0x3F0000, master_target_ = 0x3F0000; // 16.16
+    bool tune_ = false, tune_playing_ = false;
     amiga::PaulaChannels paula_;
     double to_blank_ = 0;      // samples left to the next tick
     bool in_interrupt_ = false;

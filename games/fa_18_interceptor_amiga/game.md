@@ -104,18 +104,130 @@ $107D48 main loop.
 ### Screens
 
 The main loop calls the screen procedure in $10A6CC each frame; screens
-set it and queue their texts ("Screen texts"). The log files
-(textply, textctl) are read and written by $108668…, config by $10846C….
-Seen in the texts:
-- Log disk check ($134124…), call sign entry for a new pilot
-  (blocks 1–5), welcome back.
-- Main menu ($101D30): 1 demo, 2 free flight, 3 training demo, 4 training
-  practice, 5 qualification (carrier landing), 6 selectable missions
-  (F1–F6, require qualification), 7 next advanced mission, 8 flight log.
-- Missions (briefings in hunk 64): visual confirmation, emergency defence
-  (Air Force One), intercept stolen aircraft (F-16s), search and rescue,
-  incoming cruise missile, carrier sub. Aircraft choice F/A-18 or F-16.
-- Credits (block 15) "PRESS ANY KEY".
+set it and queue their texts ("Screen texts"). There are about 75 screen
+procedures in $101962-$103C1A (C and hand-written assembler mixed); most
+wait for the frame countdown `$13ADC6` (decremented every frame,
+$101748) to go negative, or for a key flag, then queue texts and set the
+next procedure. Seen in the texts: log disk check, call sign entry,
+welcome back, main menu, missions with briefings (hunk 64), aircraft
+choice, credits (block 15). The front end as rebuilt is described in
+"The front end" below.
+
+### The front end (2026-10-29)
+
+Traced on the running original (`harness/proc.py` prints the screen
+procedure, the countdown and the text queue) and from the code.
+
+**Title.** `pix/splsh` is shown; after an empty loop of $21000 rounds
+the title tune starts (below), then another $43000 rounds; `$107D48`
+then loads the flight sounds from the disk and reads `config`, fades the
+title out (16 steps, each colour component -1 per step, one vertical
+blank and a $A00-round loop each), waits a $100000-round loop and starts
+the main loop. The title's time is therefore loading time: on the A500
+the tune played over the title for about 22 s (measured from the tune's
+start to the main loop's first procedure, `$101962`). The checksum of the
+title picture (`h20`, $C560) gates the tune.
+
+**The title tune** is no sequencer: the music loader (`$1096BA`) makes
+slots 13-34 from texti0a (13, copy 14), texti0b (15, 16), texti1 (17,
+18; copies 21, 22), texti2 (19, 20; copies 23, 24), texti3 (25, 26;
+copies 29, 30), texti4 (27, 28; copies 31, 32) and texti5 (33, 34), all
+at the new-slot period $166, and chains them through the slot records'
+next field: slot n plays slot n+2 after its repeats. Repeat counts:
+13/14: 13 (14 plays), 15/16: 1, 17/18, 21/22, 25/26, 29/30: 2, 33/34: 3,
+the rest 0 (one play); 33/34 go on with 17/18. `$109CE6` stops all four
+channels and starts 13 on channel 0 and 14 on channel 1 at volume 63:
+the same samples on both sides, the tune looping from texti1 for ever.
+Its volume follows the driver's master volume (`$14520E`), which the
+vertical-blank server (`$1092DE` → `$11954C`) moves by $4000 per blank
+(16.16) towards the target `$13A958` while the tune plays (`$13AAC7` ≠
+0): $3F at the title, $1F in the menu, 0 once a menu choice is made (a
+fade of 2.6 s). Without the music samples the tune is text201's two
+looping slots at volume 15 ($109D7A). The tune stops ($10201E, channels
+0 and 1) when the chosen menu item starts.
+
+**Credits** ($101962, $103596): menu palette (palette 0 at $119FCC),
+block 15 typed, then any key ($1035C8; key flag `$13AA93`).
+
+**Pilot.** After the key: palette 2 ($11A04C), the tune's target volume
+$1F, the log disk check (`$108434`: `Info` on DF0:; no disk, not a DOS
+disk, write protected → texts 68-70 and 94, Return retries), `config`
+read (78 bytes, below). Countdown 5, then ($10370A) palette 0 and
+either
+- launches (config +4) = 0: block 1 ("WELCOME TO YOUR FIRST TOUR OF
+  DUTY ... ENTER YOUR CALLSIGN"), then block 3 in the typing mode
+  (`$13AAD0` = 2, at most 20 characters, `$13AAE5`): its first line is
+  the input field; keys are buffered ($13AAD1, 10 raw codes) and echoed
+  through the keymap `$127DCA` with a click each; Backspace (raw $41)
+  takes the last one back; Return ends the field (`$10858A` writes
+  `config`) and the block goes on ("YOU ARE NOW OFFICIALLY ENLISTED");
+- else block 2, "WELCOME <call sign>" (the name copied into the text,
+  config +$1E, at most 24 characters up to a zero), until a key or the
+  block's end.
+Then launches + 1 and the main menu.
+
+**Main menu** ($101D30): palette 0, line spacing 12, block 6 and blocks
+100-109. Keys ($10EACC, the key handler `$10DAC8`) set the choice
+`$13AB96`: 1 → $7F (demo, only with the demo recording loaded), 2 → 1
+(free flight), 3 → 2 (training demo), 4 → $7D (training practice), 5 →
+9 (qualification), 6 → -1 (selectable missions list), 7 → the next
+advanced mission (config +6 + 1, kept within 3-8; only when qualified,
+config +0), 8 → -2 (flight log), F1-F6 → missions 3-8 (each needing its
+flag at config +$14-$19; 3 always). A choice clicks (`$127D8A`). Then
+($101E04) the screen is cleared and only the chosen item's line is
+typed again (blocks 101-105, 107), the tune fades to 0 and after 210
+frames (150 without the tune or once the security check was passed)
+`$10201E` stops the tune and starts the item; free flight first starts
+the wind at volume 8 (`$109F9A(8)`; without the wind sample the
+outside engine, `$109E46($300, 8)`).
+
+**Flight log** (8): block 87 with the numbers written into it
+(`$1193EE`, right-aligned, no leading zeros): config +$36 missions
+started, +$38 completed, +$3A/+$3C cannon rounds fired/hits, +$3E/+$40
+AMRAAMs, +$42/+$44 Sidewinders, +$8 (long) flight time in seconds as
+hours and minutes, +$46 crashes, +$48 hits from missiles. Keys: Esc
+main menu, 1 write `config` (then, for a pilot with at most one launch,
+back to the welcome), Shift 2 clears the whole record (`$108556`: call sign and launches
+too, so writing it makes a new pilot).
+
+**Free flight** ($102174): the map camera `$10D3D8` (position
+$10800000, $3000000, $10C00000 in the world's 16.8 units, looking
+straight down: view matrix rows ($A8, 0, 0), (0, 0, $FC), (0, -$80,
+0)), five aircraft (`$13AB87`), then the map fades in ($13AB90 → 15:
+the 16-colour palette at `$11A04C - (15 - step) × 32`, a step every
+third vertical blank) and the security check runs (`$1027C8`: blocks
+95/96 for missions, block 71 and the input field block 4; on this
+cracked disk block 71 reads "CRACKED BY A-HA" and any answer passes;
+the check is skipped once passed, `$13AB1B`). Block 7 ("SELECT YOUR FREE
+FLIGHT STARTING LOCATION") at the bottom over the strip; the places of
+`$137CF6` (16-byte records: the three runways by cell and offset, then
+moving objects $800E and $800F, the carrier) are marked with their
+digit at their projected position (`$11FB9E`, colour 9), the chosen one
+blinking. A digit key chooses ($10EBB4, `$13AB38` = place - 1). For a
+place other than 4 block 75 asks for the aircraft (1 F/A-18, `$13AB39`
+= $11; 2 F-16, $10). Then the aircraft is set at the place ($10D51E)
+and the outside camera flies from the map down to it (`$11DC90`…, the
+camera chase of the outside views, `$13AB9E` = 6) before the cockpit
+view starts; on the way block 89 ("READY FOR TAKEOFF", block 90 "READY
+TO LAUNCH" on the carrier) is typed.
+
+**Pilot record** (`config`, 78 bytes, big-endian; the disk's copy has
+pilot "R" with one launch):
+
+| Offset | Size | Meaning |
+|---|---|---|
+| +0 | word | qualified (missions open) |
+| +4 | word | launches (0: a new pilot) |
+| +6 | byte | the last advanced mission |
+| +8 | long | flight time, seconds |
+| +$14-$19 | bytes | missions 3-8 open (written per mission) |
+| +$1E | 24 | call sign, zero-terminated |
+| +$36-$48 | words | the flight log's numbers (above) |
+
+`text/textply` (3,676 bytes) and `text/textctl` (14,704 = 4 × 3,676)
+are not the log: they are read into the demo's recording buffer
+(`$108668` → `$14508C`, `$145098`): one byte and one long per recorded
+frame (**hypothesis**: the demo flight, menu item 1).
 
 ### Input
 
@@ -206,15 +318,15 @@ only with more than 200,000 bytes of chip memory free), $109660 (text201).
 | texttre | 5 | |
 | textwnd | 8 (9) | slot 9 starts $792 in and loops |
 | textger | 11 | loops |
-| texti0a, texti0b, texti1–5 | 13–34 | music instruments; copies 14–34 get their own periods |
+| texti0a, texti0b, texti1–5 | 13–34 | the title tune: pieces chained slot to slot ("The front end") |
 | text201 | 35 (36) | periods $B3 / $B5, loops |
 
 Slot 4 ($20 bytes, a square wave) and 6 ($800 bytes of noise, copy 10)
 are made at load ($145E20, $145EFE). Roles, traced (this document): textcpt
 the engine heard in the cockpit, textegn with the afterburner, textwnd
 the wind at idle, textger the gear, texttre the tyres, slot 6 the crash.
-The music sequencer (Dave Warhol's tune at the title) is in hunks 74–86;
-not decoded yet.
+There is no music sequencer: Dave Warhol's title tune is the chain of
+slots 13-34 (section 2, "The front end").
 
 ### Palettes ($119FCC, hunk 21)
 
@@ -447,8 +559,17 @@ cell corner, exactly (`listcheck.py`, `abscheck.py`).
 
 **Water** (`$11F27C`, colour 6 over land, which is the colour-4 ground):
 a fine grid at `$138160` (32 × 32 words, rows z, 64 bytes apart; one
-cell per coarse map cell) and a coarse one at `$137F9C` (8 × 8, used
-from height `$3F8` up; its cell layout differs, not decoded). A positive
+cell per coarse map cell) and a coarse one at `$137F9C` (8 × 8 words,
+row by row: cells of 2^20 world units, 2^28 in 32-bit units, the world's
+corner at cell (4, 4); points in 1/4096 of a cell, reaching past its
+edges; each cell's long points at its own polygons). `$11F27C` draws,
+when the camera is above height `$3F8` (32-bit units, the zoom applied
+below `$7FFF0`), first the coarse cells of a window around the camera's
+coarse cell (`$11E712`: 16 lists by the camera's quarter of its cell,
+indices into the offset pairs `$11E6E0`; four cells from `$11E812` below
+height `$5000`), then the fine grid's cells: above `$10000` the 5 × 5
+around the camera (`$11E8A2`), above `$9000` 3 × 3 (`$11E852`), lower
+lists by the heading (`$11F1BC`… with `$13AB40`, not rebuilt). A positive
 word is the offset of the cell's data from the grid base; data starting
 with a negative word means no water. Cell data: a long (a simpler
 version for far cells, `$11F6E0`; negative: none), then polygons `count,
@@ -463,7 +584,11 @@ list (long), point block (long)`, a polygon list; points from +6
 (count, 4 bytes, then x, z), sub-points at +6 + offset (index offset /
 4); bands as elsewhere but a positive second value skips one more word
 (`$112F18`); ops `$60` `$64` `$68` (colour 7). City blocks with parks,
-islands.
+islands. A type's lists are chained by distance: a list's first word is
+how near (× 16 world units, `$7FFF` any distance) the object must be,
+the long after it the next list for farther away (`$112F04`; negative:
+nothing). City blocks: `$4D0`, then `$C00`, then nothing; the downtown
+types 39-42, 99 and 100 are `$7FFF`.
 
 **The view** (`$123894`): camera space = the matrix `$13AEC8` (rows
 x, y, z, 1.0 = 256, rows scaled by the field of view: about 167, 251,
@@ -494,7 +619,8 @@ Research notes (2026-10-28), from this ROM and runs of it only.
 Main menu key 2 → map of the bay "SELECT YOUR FREE FLIGHT STARTING
 LOCATION" with places 1-4 (key; 4 is at sea, the carrier) → "SELECT
 1 ... F/A-18 HORNET 2 .... F-16 FALCON" → cockpit view on the runway
-(place 1: heading $8C0 = 28°, throttle 9, brakes off, gear down).
+(place 1: heading $8C0 = 28°, throttle 9, brakes off, gear down). The
+screens in between: "The front end" (section 2).
 Captures `.analysis/fa_18_interceptor_amiga/work/ref/ff_select.png`, `ff_aircraft.png`, `ff_runway.png`.
 
 ### Objects
@@ -597,6 +723,104 @@ bevels colour 8, posts x 85 and 233 rows 45-144 (colour 0); digits of the
 5-row font, 4 px apart, right-aligned with the last digit at x 262 (ft, row
 158), 256 (kts, 166), 248 (thrust, 175), 243 (zoom, 184), fuel 104-120 row
 183 (black on colour 8), radar range 148-152 row 184.
+
+### The panel and head-up display drawers (2026-10-29)
+
+Each frame `$101124` calls the panel drawers, several only every 2nd,
+4th, 8th or 16th frame (`$13ABCA` low bits) or for a few frames after a
+change (counters `$13AB26`-`$13AB35`): `$125360`, `$1255B2`, `$125E22`
+(radar), `$127EB8` (head-up display), `$125D26`, `$125B74` (compass
+strip), `$126AB2`, `$126B48`, `$126D74`, `$126C16`, `$126D26`,
+`$125514` (fuel bar), `$124C3A`, `$1274A4` (weapon readout: SW / AM /
+GUN and ARM / NO from +$5F, +$60, +$63), `$1255FC` (stores display),
+`$126DCE` / `$126E5C` (latitude, longitude), `$1266C8` (zoom), `$125930`
+(attitude ball), `$126660` (radar range), `$126EEA`, `$125758`. Numbers
+go through `$119F6C` (to decimal) and `$1276A0` / `$127390` with glyph
+position tables (pairs: byte offset, pixel shift in the top nibble; the
+height's `$127E6C` leaves a gap after the thousands).
+
+- Latitude ($126DCE): ((z − $10000000) >> 8) / $7000 + 375 tenths of a
+  degree north; longitude ($126E5C): ((x − $0F000000) >> 8) / $5999 +
+  1220 tenths west; black digits on the blue boxes (rows 180 and 188,
+  cells 292, 295, 299, point 302, tenth 305).
+- Thrust ($126D74): throttle × 256 / $133 %. Radar range ($126660): from
+  +$63's low nibble, 9 → 2 mi, $B → 10, else 40. Zoom ($1266C8): $13AD32
+  $80 → 1.0, $40 → 2.0, else 4.0.
+- Fuel bar ($125514): `$13ABE6` & $7FFF >> 10 lit rows of 22, columns
+  112 and 114 from row 180 up, colour 4 (unlit 0).
+- Head-up display ($127EB8, cockpit view only, readouts once `$13AA91`
+  is set as the flight starts): speed +$6E / 12 kt (0 when crashed) and
+  height (y >> 10) × 5 ft as digits with "KT" / "FT" (`$127F6C`,
+  `$1281B2`; with type +$62 = $10 tapes instead), load factor "1.4 G"
+  (`$126960`: (pitch rate + pitch rate / 8 + the bank turn's `$13AC36`) /
+  8, from 1 G: shown 10 − that in tenths, "-" when below 0), the fixed
+  marks of `$128D42` (the index under the heading tape, the waterline
+  marks at rows 90, x 141-145 and 173-177, colour $A). Colour 13.
+  Positions measured on `work/ref/cap/009.png`: speed digits at 90, 94,
+  98, 102 row 84, "KT" 96 row 91; height digits at 205, 209, 213, 219,
+  223, 227 row 84, "FT" 226 row 91; "x.x G" from 90 row 121; heading
+  tape: a tick every 5° 2 px apart on row 61 (every 10° also row 60,
+  with its tens of degrees 3 px right of it on rows 53-57), the index at
+  159 rows 63-65, ticks shown from x 126 to 185.
+- The compass strip ($125B74) and the attitude ball ($125930) are blits
+  from the chip hunk 62 (`$132D9C`, `$132C9C`) with the heading / 2 as
+  the strip's scroll and +$7C picking the ball's picture; the data's
+  layout is not decoded yet.
+
+### Warnings (2026-10-29)
+
+`$103D4C` picks the message for the first warning that is on, in this
+order: crash imminent ($13ABB8 bit 15, $9C06), (missile alerts from
+$13AB5E bits 4 and 5: $8010, $8012), fuel exhausted ($C004), stall
+($C001), fuel critical ($8002, blinking with "LOW FUEL -"), (cruise
+missile $8024, enemy near $800E), low fuel ($0C09), (friendly near
+$400D). The fuel warnings come from the flight step (`$1055F8`, while the
+flight runs): fuel at 0 → exhausted (bit 6 of `$13AE43`, the afterburner
+goes out); below $70800 (1,800 lb) critical (bit 1); below $BB800
+(3,000 lb) low (bit 0).
+
+Load factor (`$117128`, every frame): |(pitch rate + pitch rate / 8 +
+`$13AC36`) / 8| ≥ $4E (7.8 G) beeps once (`$127D6A(8)`, latch
+`$13AB78`). Every real second (`$119954`) the overload counter `$13AB79`
+goes up (at most 15) while latched, else down to −1; above 5 the
+engine's volume is halved (`$1054A8`) and the screen procedure asks for
+the palette step `$13AB91` = 2 (`$10317A`, otherwise 15). The palette
+steps (`$1092DE`: `$13AB90` towards `$13AB91`, LoadRGB4 of 16 colours
+from `$11A04C − (15 − step) × 32`) run through palette 1's orange and
+then program bytes; on the running original no change of the flight
+view's colours was seen (`screen.py` captures with `$13AB79` poked to
+15 while `$13AB90` stepped down): **hypothesis** they reach a view port
+not shown in flight. Not rebuilt: the visual blackout.
+
+Collision proximity ($D00A with the crash beep, `$11A50E`) is posted when
+the collision test (`$11B6A2` → `$11B6AA`) marks motion bit 0: that test
+compares the player with the other objects' records (boxes of $5000 to
+$10000 around them, the carrier's deck polygons from `$12E298` /
+`$12EF74`) only. **No scenery collisions:** besides the scene builder
+(`$10F35C`, `$11005C`) no code reads the scenery maps (`$137584`,
+`$137684`, `$137784`); the only collisions with the world are the
+ground and water contacts of the flight step (rebuilt). The damage
+routine (`$11A8xx`-`$11AA6A`) adds 1 to the flight log's crashes (config
++$46) on a crash.
+
+### Outside views (2026-10-29, partly)
+
+`$13AA75` is the outside camera's distance (0: the cockpit view, 1-4;
+keys `$10E544` / `$10E5E4` step it), `$13ABA2` its position around the
+aircraft (keypad keys, `$10E4D4`…, 0 behind, 1-7 round the aircraft, 8
+above, 9 below), `$13AA97` the cockpit's look direction (0-11). The
+chase (`$11D8F2`): offsets per position from `$11D734` ($11D770 for the
+F/A-18, $11D7AC for type $14; words x, y, z), scaled 1.5 times at
+distance 1 and doubled per step after it, turned by the aircraft's view
+matrix ($10D486) for positions 0 and 4 and by a level matrix
+(`$13AEFE`, $10D460) for the others, kept 7 units above the ground or
+deck; the camera's states (`$13AAA6`, jump table `$11D710`) fly it in
+from afar, then it moves half the way to its target each frame. Below
+the view (row $A7 = 167, `$13AC74`): "HDG nnn" ($126AB2: heading
+(+$68 >> 3) / 10), "nnn KTS", "nnnnn FT" on row 184 (measured on
+`work/ref/cap/001.png`). The camera's own orientation and the vehicle
+shapes' scale and detail distances are not traced (the port's are
+guesses, see plan.md).
 
 ### The view in the cockpit
 
@@ -765,7 +989,7 @@ ticks at 50 Hz between the samples.
 
 Flags of what loaded: `$13AE4B` bits 0 cpt, 1 egn, 2 tre, 4 wnd, 5 slot
 10, 6 ger, 7 music; `$13AE4A` bits 0 noise, 1 slot 12, 2 text201.
-Music instruments (slots 13-34) are not rebuilt yet.
+The title tune's slots 13-34: section 2, "The front end".
 
 ### The game's sounds
 
@@ -872,8 +1096,12 @@ Research files live in `.analysis/fa_18_interceptor_amiga/` (`harness/`,
 - `fa_18_interceptor_assets` (tools/): `import`, `export`, `viewcheck`,
   `flightcheck` (flight model against recordings: fc1-fc4 equal except
   key ticks), `soundcheck` (sound calls and message line: sd2, cr5,
-  td1-td3 equal in every frame), `fly` (headless module run, pictures and
-  `!wav`).
+  td1-td3 equal in every frame), `fly` (headless module run from the title,
+  pictures and `!wav`; keys: digits, `*` Return, `~` Tab (Esc), `^`
+  Ctrl+Tab (Shift-Esc), `_` space, capitals the letter keys, `@ [ ] { }`
+  the keypad's 0 4 6 8 2).
+- `harness/proc.py`: the running original's screen procedure, frame
+  countdown and text queue (the front end's traces).
 - Captures in `work/ref/`: `fc*.jsonl`, `sd2`, `cr5`, `td1-3`, flash
   timing `flash_cr4.txt`, message bitplanes `msg7.idx`/`msg8.idx`,
   reference screenshots.

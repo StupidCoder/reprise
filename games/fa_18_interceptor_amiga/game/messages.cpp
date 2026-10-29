@@ -41,16 +41,18 @@ void Messages::clock() {
     }
 }
 
-std::uint32_t Messages::update(bool stall_warning) {
+std::uint32_t Messages::update(const Aircraft& a) {
     std::uint32_t beep = 0;
     std::uint16_t code = code_;
     if (!posted_) {
-        // The warnings choose ($13AE40: only the stall's is rebuilt).
-        if (!stall_warning) {
-            if (!kept_) code = 0;
-        } else {
-            code = 0xC001; // STALL, blinking with blank
-        }
+        // The warnings choose ($103D4C), the first that is on: (the
+        // missiles' alerts,) fuel exhausted, stall, fuel critical, (the
+        // cruise missile, an enemy near,) low fuel, (a friendly near).
+        if (a.fuel_warning & fuel::exhausted) code = 0xC004;      // FUEL EXHAUSTED, with blank
+        else if (a.stall_warning) code = 0xC001;                  // STALL, with blank
+        else if (a.fuel_warning & fuel::critical) code = 0x8002;  // LOW FUEL - CRITICAL / LOW FUEL -
+        else if (a.fuel_warning & fuel::low) code = 0x0C09;       // LOW FUEL
+        else if (!kept_) code = 0;
     } else if (code_ == 0) {
         code = 0;
         posted_ = false;

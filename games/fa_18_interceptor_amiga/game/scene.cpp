@@ -122,19 +122,29 @@ private:
 
 } // namespace
 
-Scene::Scene(const data::Assets& assets, const data::World& world) : world_(world) {
+Scene::Scene(const data::Assets& assets, const data::World& world) : world_(world), program_(assets.program) {
     for (const auto* map : {&world.pass_a, &world.pass_b, &world.near}) {
         for (const auto& object : map->objects) {
             if (levels_.count(object.type) || ground_.count(object.type)) continue;
             const auto family = data::shape_family(assets.program, object.type);
             if (family == data::ShapeFamily::none) continue;
-            if (family == data::ShapeFamily::ground) ground_.emplace(object.type, data::read_ground_shape(assets.program, object.type));
+            if (family == data::ShapeFamily::ground) ground_.emplace(object.type, data::read_ground_levels(assets.program, object.type));
             else levels_.emplace(object.type, data::read_detail_levels(assets.program, object.type));
         }
     }
 }
 
-void Scene::draw(IndexedImage& image, int centre, int bottom, const Camera& camera) const {
+std::optional<std::array<int, 2>> Scene::project(const Camera& camera, const std::array<double, 3>& p, int centre) {
+    const double dx = p[0] - camera.position[0], dy = p[1] - camera.position[1], dz = p[2] - camera.position[2];
+    const auto& m = camera.matrix;
+    const double x = m[0] * dx + m[1] * dy + m[2] * dz, y = m[3] * dx + m[4] * dy + m[5] * dz,
+                 z = m[6] * dx + m[7] * dy + m[8] * dz;
+    if (z < near_plane) return std::nullopt;
+    return std::array<int, 2>{int(centre - 160 * x / z), int(90 - 90 * y / z)};
+}
+
+void Scene::draw(IndexedImage& image, int centre, int bottom, const Camera& camera,
+                 const std::vector<Vehicle>& vehicles) const {
     Raster r(image, centre, bottom, camera);
     const auto& eye = camera.position;
     // Sky, then the land as a plane in colour 4 and the bay's water on it,
@@ -144,8 +154,33 @@ void Scene::draw(IndexedImage& image, int centre, int bottom, const Camera& came
                {eye[0] + far_ground, 0, eye[2] + far_ground}, {eye[0] - far_ground, 0, eye[2] + far_ground}},
               land, false);
     std::vector<Point> corners;
-    for (const auto& polygon : world_.water.polygons) {
+    // $11F27C: above height $3F8 the coarse grid's cells around the camera
+    // first, then the fine grid's, in a window that shrinks with height.
+    const double height = eye[1] * 256; // (32-bit units, as the original compares)
+    const auto in = [](const std::vector<std::array<int, 2>>& window, int cx, int cz, const std::array<int, 2>& cell) {
+        for (const auto& o : window)
+            if (cell[0] == cx + o[0] && cell[1] == cz + o[1]) return true;
+        return false;
+    };
+    if (height > 0x3F8) {
+        const auto& coarse = world_.coarse_water;
+        const auto x32 = std::int64_t(eye[0] * 256), z32 = std::int64_t(eye[2] * 256);
+        const int cx = int(x32 >> 28) + data::CoarseWater::origin, cz = int(z32 >> 28) + data::CoarseWater::origin;
+        const int qx = 3 - int((x32 >> 26) & 3), qz = 3 - int((z32 >> 26) & 3);
+        const auto& window = coarse.windows[std::size_t(qz * 4 + qx)];
+        for (std::size_t i = 0; i < coarse.polygons.size(); ++i) {
+            if (!in(window, cx, cz, coarse.cell_of[i])) continue;
+            corners.clear();
+            for (const auto& p : coarse.polygons[i].points) corners.push_back({p[0], 0, p[1]});
+            r.polygon(corners, water, false);
+        }
+    }
+    const auto* water_window = height > 0x10000 ? &world_.window_5x5 : height > 0x9000 ? &world_.window_3x3 : nullptr;
+    const int fx = int(std::floor(eye[0] / world_.water.cell_size)), fz = int(std::floor(eye[2] / world_.water.cell_size));
+    for (std::size_t i = 0; i < world_.water.polygons.size(); ++i) {
+        const auto& polygon = world_.water.polygons[i];
         if (polygon.min_height && eye[1] < *polygon.min_height) continue; // the rest only from that height up
+        if (water_window && !in(*water_window, fx, fz, world_.water.cell_of[i])) continue;
         corners.clear();
         for (const auto& p : polygon.points) corners.push_back({p[0], 0, p[1]});
         r.polygon(corners, water, false);
@@ -161,10 +196,14 @@ void Scene::draw(IndexedImage& image, int centre, int bottom, const Camera& came
             const double dx = object.x - eye[0], dz = object.z - eye[2];
             if (std::abs(dx) > window || std::abs(dz) > window) continue;
             const data::Shape* chosen = nullptr;
+            const double distance = std::sqrt(dx * dx + eye[1] * eye[1] + dz * dz);
             if (const auto g = ground_.find(object.type); g != ground_.end()) {
-                chosen = &g->second;
+                for (const auto& level : g->second) {
+                    if (distance >= level.nearer_than) continue;
+                    if (level.shape) chosen = &*level.shape;
+                    break;
+                }
             } else if (const auto l = levels_.find(object.type); l != levels_.end()) {
-                const double distance = std::sqrt(dx * dx + eye[1] * eye[1] + dz * dz);
                 for (const auto& level : l->second) {
                     if (distance >= level.nearer_than) continue;
                     if (level.shape && level.shape->coarse_pass != near_pass) chosen = &*level.shape;
@@ -189,6 +228,46 @@ void Scene::draw(IndexedImage& image, int centre, int bottom, const Camera& came
             for (const auto& line : shape.lines) r.line(place(line.from), place(line.to), line.colour);
             for (const auto& dot : shape.dots) r.dot(place(dot.at), dot.colour);
         }
+    }
+    // The moving objects ($10FC0C): their shape for the distance, turned
+    // by their body matrix (its rows map the world into the object's axes,
+    // so its columns map the shape back out).
+    for (const auto& v : vehicles) {
+        auto found = vehicle_levels_.find(v.type);
+        if (found == vehicle_levels_.end())
+            found = vehicle_levels_.emplace(v.type, data::read_detail_levels(program_, v.type)).first;
+        const double dx = v.position[0] - eye[0], dy = v.position[1] - eye[1], dz = v.position[2] - eye[2];
+        const double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+        const data::Shape* chosen = nullptr;
+        for (const auto& level : found->second) {
+            if (distance >= level.nearer_than) continue;
+            if (level.shape) chosen = &*level.shape;
+            break;
+        }
+        if (!chosen) continue;
+        const auto& b = v.body;
+        // (Hypothesis: a vehicle's points are 16 times the scenery's scale;
+        // with the scenery's the F/A-18 would be a twentieth of the size the
+        // original's outside views show.)
+        const double scale = chosen->scale * 16;
+        const auto place = [&](const data::ShapePoint& p) {
+            const double x = p.x * scale, y = p.y * scale, z = p.z * scale;
+            return Point{v.position[0] + (b[0] * x + b[3] * y + b[6] * z) / 16384.0,
+                         v.position[1] + (b[1] * x + b[4] * y + b[7] * z) / 16384.0,
+                         v.position[2] + (b[2] * x + b[5] * y + b[8] * z) / 16384.0};
+        };
+        for (const auto& face : chosen->faces) {
+            corners.clear();
+            for (const auto& c : face.corners) corners.push_back(place(c));
+            int colour = face.colour;
+            if (face.facing != data::Facing::always && !r.faces_camera(corners)) {
+                if (face.facing == data::Facing::one_sided) continue;
+                colour = face.back_colour;
+            }
+            r.polygon(corners, colour, true);
+        }
+        for (const auto& line : chosen->lines) r.line(place(line.from), place(line.to), line.colour);
+        for (const auto& dot : chosen->dots) r.dot(place(dot.at), dot.colour);
     }
 }
 

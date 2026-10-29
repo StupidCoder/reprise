@@ -7,7 +7,7 @@
 // The cockpit's message line (game.md "Cockpit messages"): one of the 54
 // message records ($1321C8: an attribute byte, 26 characters, a beep byte)
 // chosen each frame ($103D4C) - a message the game posted ($119C68), else
-// the one for the first warning that is on (the stall's here). A code's low
+// the one for the first warning that is on (stall and fuel here). A code's low
 // byte is the record; its high byte says how it shows: bit 15 blinks
 // between the record and the next one (both bits 15 and 14: and blank),
 // bit 12 at twice the rate, bit 14 alone shows it for a time. The record's
@@ -26,7 +26,7 @@ public:
     void clock();
     // $103D4C, after the flight: the message for this frame. Returns the
     // warning beep's bits for the sound update (sounds.hpp `warning`).
-    std::uint32_t update(bool stall_warning);
+    std::uint32_t update(const Aircraft& aircraft);
 
     std::uint16_t code() const { return code_; }
     // The record on the line now, and its colour (palette index).

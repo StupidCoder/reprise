@@ -62,8 +62,8 @@ ObjectMap read_map(const amiga::LoadedImage& m, std::uint32_t table, bool coarse
 
 // A cell's polygons: [threshold | $8000] count, count x (x, z), until $FFFF.
 void read_water_cell(const amiga::LoadedImage& m, std::uint32_t at, double x0, double z0,
-                     std::vector<WaterPolygon>& out) {
-    const double unit = 65536 / water_cell_points; // world units per point unit
+                     std::vector<WaterPolygon>& out, double cell_size = 65536) {
+    const double unit = cell_size / water_cell_points; // world units per point unit
     std::optional<int> min_height; // a threshold holds for the rest of the cell ($11F73C ends the cell)
     for (int guard = 0; guard < 64; ++guard) {
         int count = m.u16(at);
@@ -85,6 +85,42 @@ void read_water_cell(const amiga::LoadedImage& m, std::uint32_t at, double x0, d
     }
 }
 
+constexpr std::uint32_t coarse_water_grid = 0x137F9C; // 8 x 8 words
+constexpr std::uint32_t water_offsets = 0x11E6E0;     // (x, z) byte pairs
+constexpr std::uint32_t coarse_windows = 0x11E712;    // 16 lists of 16 bytes
+constexpr std::uint32_t window_5x5 = 0x11E8A2, window_3x3 = 0x11E852;
+
+// A window list: offset indices, the last with bit 7 (or $FF ends it).
+std::vector<std::array<int, 2>> read_window(const amiga::LoadedImage& m, std::uint32_t at) {
+    std::vector<std::array<int, 2>> out;
+    for (int i = 0; i < 32; ++i) {
+        const int b = m.u8(at + std::uint32_t(i));
+        if (b == 0xFF) break;
+        const int index = b & 0x7F;
+        out.push_back({m.s8(water_offsets + std::uint32_t(2 * index)), m.s8(water_offsets + std::uint32_t(2 * index + 1))});
+        if (b & 0x80) break;
+    }
+    return out;
+}
+
+CoarseWater read_coarse_water(const amiga::LoadedImage& m) {
+    CoarseWater w;
+    for (int z = 0; z < CoarseWater::cells; ++z) {
+        for (int x = 0; x < CoarseWater::cells; ++x) {
+            const auto offset = m.s16(coarse_water_grid + std::uint32_t(2 * (z * CoarseWater::cells + x)));
+            if (offset <= 0) continue;
+            const std::uint32_t cell = coarse_water_grid + std::uint32_t(offset);
+            if (m.s16(cell) < 0) continue;
+            const double x0 = (x - CoarseWater::origin) * CoarseWater::cell_size;
+            const double z0 = (z - CoarseWater::origin) * CoarseWater::cell_size;
+            read_water_cell(m, cell + 4, x0, z0, w.polygons, CoarseWater::cell_size);
+            w.cell_of.resize(w.polygons.size(), {x, z});
+        }
+    }
+    for (std::size_t k = 0; k < w.windows.size(); ++k) w.windows[k] = read_window(m, coarse_windows + std::uint32_t(16 * k));
+    return w;
+}
+
 WaterGrid read_water(const amiga::LoadedImage& m) {
     WaterGrid grid;
     grid.cells = water_cells;
@@ -98,7 +134,10 @@ WaterGrid read_water(const amiga::LoadedImage& m) {
             // error trap in normal play; with $13AAA0 set its long ends it).
             if (m.s16(cell) < 0) continue;
             const double x0 = x * grid.cell_size, z0 = z * grid.cell_size;
+            const auto before = grid.polygons.size();
             read_water_cell(m, cell + 4, x0, z0, grid.polygons);
+            grid.cell_of.resize(grid.polygons.size(), {x, z});
+            (void)before;
             const auto far = m.s32(cell);
             if (far > 0) read_water_cell(m, std::uint32_t(far), x0, z0, grid.far_polygons);
         }
@@ -184,6 +223,9 @@ World read_world(const amiga::LoadedImage& program) {
     world.pass_b = read_map(program, map_b, true);
     world.near = read_map(program, map_near, false);
     world.water = read_water(program);
+    world.coarse_water = read_coarse_water(program);
+    world.window_5x5 = read_window(program, window_5x5);
+    world.window_3x3 = read_window(program, window_3x3);
     return world;
 }
 

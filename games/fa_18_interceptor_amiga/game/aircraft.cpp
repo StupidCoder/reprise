@@ -730,6 +730,21 @@ FlightEvents fly(Aircraft& a, const FlightControls& controls, const FlightRules&
     FlightEvents events;
     if (!(a.handling & 2) && (a.state & flag::moves)) events = run_engine(a, rules, t);
     events.gear_speed_warning = gear_speed_warning;
+    // The fuel warnings ($1055F8, while the flight runs): exhausted (the
+    // afterburner goes out), critical below 1,800 lb, low below 3,000 lb.
+    if (rules.flying) {
+        if (a.fuel <= 0) {
+            a.fuel = 0;
+            if (a.fuel_warning != fuel::exhausted) a.motion &= ~flag::afterburner;
+            a.fuel_warning = fuel::exhausted;
+        } else if (a.fuel < 0x70800) {
+            a.fuel_warning = fuel::critical;
+        } else if (a.fuel < 0xBB800) {
+            a.fuel_warning = fuel::low;
+        } else {
+            a.fuel_warning = 0;
+        }
+    }
     // The stall warning ($10557C's end, before this tick's stall model):
     // on while stalled in the air with fuel, its beep when it comes on.
     if (!(a.state & 0x8000)) {
@@ -753,6 +768,32 @@ FlightEvents fly(Aircraft& a, const FlightControls& controls, const FlightRules&
     }
     move_gear(a);
     return events;
+}
+
+std::array<std::int32_t, 2> place_position(const amiga::LoadedImage& m, int place) {
+    const std::uint32_t at = 0x137CF6 + std::uint32_t(16 * place);
+    const std::uint32_t pair = 0x110732 + std::uint32_t(4 * m.s16(at + 4));
+    return {m.s16(at) * 0x1000000 + (m.s16(at + 6) + m.s16(pair)) * 0x400 + m.s16(at + 10) * 0x10,
+            m.s16(at + 2) * 0x1000000 + (m.s16(at + 8) + m.s16(pair + 2)) * 0x400 + m.s16(at + 12) * 0x10};
+}
+
+Aircraft start_at_place(const amiga::LoadedImage& m, const FlightTables& t, int place) {
+    const auto [x, z] = place_position(m, place);
+    Aircraft a;
+    a.x = x;
+    a.z = z;
+    a.y = 0x708;
+    a.attitude = {0, std::int16_t(m.s16(0x137CF6 + std::uint32_t(16 * place) + 14) * 80), 0};
+    a.body = body_matrix(t, a.attitude);
+    a.view = view_matrix(t, a.attitude);
+    a.state = 0x11C8;   // $10D8D8: $148 | $1080, then $10D51E's mask
+    a.motion = flag::on_ground;
+    a.throttle = 9;     // $13B49F
+    a.throttle_steps = 1;
+    a.fuel = 6400000;   // 25,000 lb
+    a.bank_turn_limit = 0x1400;
+    a.type = 0x11;      // the F/A-18
+    return a;
 }
 
 } // namespace interceptor::game

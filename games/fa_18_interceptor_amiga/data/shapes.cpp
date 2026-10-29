@@ -649,12 +649,12 @@ Shape read_shape(const amiga::LoadedImage& program, int type) {
 // except that a positive second value skips one more word ($112F18).
 // Opcodes $60 (n, n points, colour), $64 (the first n points, colour),
 // $68 (n points from an offset, colour 7).
-Shape read_ground_shape(const amiga::LoadedImage& m, int type) {
-    const auto record = type_table + std::uint32_t(type) * type_size;
+namespace {
+
+Shape read_ground_list(const amiga::LoadedImage& m, int type, std::uint32_t list) {
     Shape shape;
     shape.type = type;
     shape.detail_levels = 1;
-    std::uint32_t list = m.u32(record + 8);
     if (m.u16(list) & 0x8000) return shape;
     const auto model = m.u32(list + 6);
     shape.model = model;
@@ -716,6 +716,34 @@ Shape read_ground_shape(const amiga::LoadedImage& m, int type) {
         if (word & 0x4000) break;
     }
     return shape;
+}
+
+} // namespace
+
+Shape read_ground_shape(const amiga::LoadedImage& m, int type) {
+    return read_ground_list(m, type, m.u32(type_table + std::uint32_t(type) * type_size + 8));
+}
+
+// The ground lists' chain: each list's first word is how near (x 16 world
+// units) the object must be for it ($7FFF: any distance), the long after it
+// the next, simpler list for farther away (negative: nothing farther).
+std::vector<DetailLevel> read_ground_levels(const amiga::LoadedImage& m, int type) {
+    std::vector<DetailLevel> levels;
+    std::uint32_t list = m.u32(type_table + std::uint32_t(type) * type_size + 8);
+    std::vector<std::uint32_t> seen;
+    while (m.contains(list, 10) && levels.size() < 8) {
+        if (std::find(seen.begin(), seen.end(), list) != seen.end()) break; // (a list naming itself)
+        seen.push_back(list);
+        const int threshold = m.u16(list);
+        if (threshold & 0x8000) break;
+        DetailLevel level;
+        level.nearer_than = threshold == 0x7FFF ? 1e30 : threshold * 16.0;
+        level.shape = read_ground_list(m, type, list);
+        levels.push_back(std::move(level));
+        if (threshold == 0x7FFF) break;
+        list = m.u32(list + 2);
+    }
+    return levels;
 }
 
 ShapeFamily shape_family(const amiga::LoadedImage& program, int type) {

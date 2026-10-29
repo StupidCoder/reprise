@@ -350,6 +350,7 @@ interceptor::game::Aircraft aircraft_from(const Frame& f) {
     a.surface = o.u8(4); a.handling = o.u8(0x20);
     a.type = o.u8(0x62); a.role = o.u8(5); a.timer = o.s16(0x4C);
     a.stall_warning = g.u8(0x13AE43 - 0x13A9E0) & 0x80;
+    a.fuel_warning = std::uint8_t(g.u8(0x13AE43 - 0x13A9E0) & 0x43);
     a.supersonic = g.u16(0x13ABC2 - 0x13A9E0) & 0x4000;
     a.gear_speed_warned = g.u8(0x13AB36 - 0x13A9E0) != 0;
     return a;
@@ -502,7 +503,8 @@ int sound_check(const std::filesystem::path& content, const std::filesystem::pat
                             g.u8(at(0x13AB52)), g.u8(at(0x13AB83)), g.u8(at(0x13AB53)), g.u8(at(0x13AB80))});
     }
     int message_matched = 0;
-    std::optional<game::TextScreen> text;
+    game::TextRunner text(assets);
+    bool typing = false;
     int matched = 0, compared = 0;
     for (std::size_t k = 0; k + 1 < lines.size(); ++k) {
         const auto& now = lines[k].frame;
@@ -530,9 +532,11 @@ int sound_check(const std::filesystem::path& content, const std::filesystem::pat
         } else if (proc == "1039C2" && std::int16_t(g.u16(at(0x13ADC6))) <= 0) {
             sounds.event(game::EngineSound::start);
         } else if (proc == "1039F0" && std::int16_t(g.u16(at(0x13ADC6))) <= 0) {
-            text.emplace(assets, 99);
+            text.clear();
+            text.queue(99);
+            typing = true;
         }
-        if ((proc == "1039F0" || proc == "103A36") && text && text->tick()) sounds.click();
+        if ((proc == "1039F0" || proc == "103A36") && typing && text.tick()) sounds.click();
         messages.clock();
         if (flying) {
             game::ground_warnings(a, messages, sounds);
@@ -554,7 +558,7 @@ int sound_check(const std::filesystem::path& content, const std::filesystem::pat
             if (events.stall_warning) sounds.warn(game::warning::stall);
             if (events.gear_speed_warning) sounds.warn_beep(4);
         }
-        if (proc != "1039F0" && proc != "103A36") sounds.warn(messages.update(a.stall_warning));
+        if (proc != "1039F0" && proc != "103A36") sounds.warn(messages.update(a));
         sounds.update(end);
         // The message line against the next record ($13ADD0, $13ADCE).
         const auto gn = global(next);
@@ -606,6 +610,20 @@ int fly_script(const std::filesystem::path& content, const std::string& prefix, 
         input.c64_keys[26] = has('g'); input.c64_keys[28] = has('b'); input.c64_keys[0] = has('s');
         const int digit_keys[10] = {35, 56, 59, 8, 11, 16, 19, 24, 27, 32};
         for (int d = 0; d < 10; ++d) input.c64_keys[std::size_t(digit_keys[d])] = has(char('0' + d));
+        // The front end: * Return, ~ Tab (Esc), ^ Ctrl+Tab (Shift-Esc), _ the
+        // space bar, capitals the letter keys.
+        input.c64_keys[1] = has('*');
+        input.c64_keys[63] = has('~');
+        input.ctrl_keys[63] = has('^');
+        input.fire = has('_');
+        // The keypad's view keys: @ 0, [ 4, ] 6, { 8, } 2.
+        input.fire2 = has('@'); input.left2 = has('['); input.right2 = has(']');
+        input.up2 = has('{'); input.down2 = has('}');
+        static constexpr std::pair<char, int> letters[] = {
+            {'A', 10}, {'B', 28}, {'C', 20}, {'D', 18}, {'E', 14}, {'F', 21}, {'G', 26}, {'H', 29}, {'I', 33},
+            {'J', 34}, {'K', 37}, {'L', 42}, {'M', 36}, {'N', 39}, {'O', 38}, {'P', 41}, {'Q', 62}, {'R', 17},
+            {'S', 13}, {'T', 22}, {'U', 30}, {'V', 31}, {'W', 9},  {'X', 23}, {'Y', 25}, {'Z', 12}};
+        for (const auto& [c, k] : letters) input.c64_keys[std::size_t(k)] = input.c64_keys[std::size_t(k)] || has(c);
         if (std::find(shots.begin(), shots.end(), tick) != shots.end()) {
             platform::save_png(game->picture(), prefix + std::to_string(tick) + ".png");
         }

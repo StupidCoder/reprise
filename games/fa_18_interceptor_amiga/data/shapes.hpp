@@ -94,5 +94,7 @@ struct DetailLevel {
     std::optional<Shape> shape;
 };
 std::vector<DetailLevel> read_detail_levels(const amiga::LoadedImage& program, int type);
+// A ground shape's lists by distance ($112D76).
+std::vector<DetailLevel> read_ground_levels(const amiga::LoadedImage& program, int type);
 
 } // namespace interceptor::data

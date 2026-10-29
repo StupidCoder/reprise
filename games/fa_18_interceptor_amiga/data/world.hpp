@@ -37,7 +37,25 @@ struct WaterGrid {
     double cell_size{};     // in world units
     std::vector<WaterPolygon> polygons;     // near versions, all cells
     std::vector<WaterPolygon> far_polygons; // simpler versions where present
+    // The cell (x, z) of each of `polygons`.
+    std::vector<std::array<int, 2>> cell_of;
 };
+
+// The coarse water grid ($137F9C): 8 x 8 cells of 2^20 world units, the
+// world's corner at cell (4, 4), polygons in 1/4096 of a cell (they may
+// reach into the next cell). Drawn under the fine grid's polygons whenever
+// the camera is above height $3F8 ($11F27C), the cells of a window around
+// the camera's cell ($11E712: by the camera's quarter of its cell).
+struct CoarseWater {
+    static constexpr int cells = 8, origin = 4;
+    static constexpr double cell_size = 1048576;
+    std::vector<WaterPolygon> polygons;
+    std::vector<std::array<int, 2>> cell_of;
+    // Per quarter (3 - x quarter) + 4 (3 - z quarter): cell offsets (x, z).
+    std::array<std::vector<std::array<int, 2>>, 16> windows;
+};
+
+
 
 // A hard surface ($137D8A): touching down inside one of its quads is on a
 // runway ($11F83A); elsewhere on land the wheels roll on grass, on water
@@ -51,6 +69,11 @@ struct Runway {
 struct World {
     ObjectMap pass_a, pass_b, near;  // $137584, $137684, $137784
     WaterGrid water;                 // the fine grid, $138160
+    CoarseWater coarse_water;        // $137F9C
+    // The fine grid's window around the camera's cell by height ($11F3FA):
+    // above $10000 (32-bit units) 5 x 5 cells ($11E8A2), above $9000 3 x 3
+    // ($11E852); lower it follows the heading (not rebuilt: all cells).
+    std::vector<std::array<int, 2>> window_5x5, window_3x3;
     std::vector<Runway> runways;
 
     bool over_water(double x, double z) const;

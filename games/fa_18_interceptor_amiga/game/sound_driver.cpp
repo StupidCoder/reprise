@@ -113,6 +113,36 @@ SoundDriver::SoundDriver(const data::Assets& assets) {
         slots_[9].length = slots_[3].length - 0x792;
     }
 
+    // $1096BA: the title tune, pieces chained slot to slot (only with every
+    // piece on the disk). Slot n plays n + 2 after its repeats; channel 0
+    // takes the odd slots, channel 1 the copies; 33/34 go back to 17/18.
+    {
+        bool all = load("text/texti0a", 13) && copy(13, 14) && load("text/texti0b", 15) && copy(15, 16) &&
+                   load("text/texti1", 17) && copy(17, 18) && load("text/texti2", 19) && copy(19, 20);
+        all = all && copy(17, 21) && copy(17, 22) && copy(19, 23) && copy(19, 24);
+        all = all && load("text/texti3", 25) && copy(25, 26) && load("text/texti4", 27) && copy(27, 28);
+        all = all && copy(25, 29) && copy(25, 30) && copy(27, 31) && copy(27, 32);
+        all = all && load("text/texti5", 33) && copy(33, 34);
+        if (all) {
+            for (int n = 13; n <= 34; ++n) {
+                auto& s = slots_[std::size_t(n)];
+                s.repeat = s.repeat_reload = 0;
+                s.next = n + 2;
+            }
+            const auto repeats = [&](int n, int count) {
+                slots_[std::size_t(n)].repeat = slots_[std::size_t(n)].repeat_reload = count;
+            };
+            repeats(13, 13), repeats(14, 13), repeats(15, 1), repeats(16, 1);
+            for (int n : {17, 18, 21, 22, 25, 26, 29, 30}) repeats(n, 2);
+            repeats(33, 3), repeats(34, 3);
+            slots_[33].next = 17;
+            slots_[34].next = 18;
+            tune_ = true;
+        } else {
+            for (int n = 13; n <= 34; ++n) slots_[std::size_t(n)] = Slot{};
+        }
+    }
+
     paula_.set_memory(memory_);
     paula_.block_started = [this](int channel) { interrupt(channel); };
 }
@@ -258,8 +288,24 @@ void SoundDriver::step_script(int channel, Slot& s) {
     s.wait = 0; // (a script that never waits: stopped)
 }
 
+// $11954C, from the vertical-blank server while the tune plays: the master
+// volume a step of $4000 nearer its target.
+void SoundDriver::set_master_volume(int volume) {
+    master_ = std::clamp(volume, 0, 0x3F) << 16;
+    master_volume_ = master_ >> 16;
+}
+
+void SoundDriver::fade_master() {
+    if (!tune_playing_ || master_ == master_target_) return;
+    if (master_ < master_target_) master_ = std::min(master_ + 0x4000, 0x3F0000);
+    else master_ = std::max(master_ - 0x4000, 0);
+    master_volume_ = master_ >> 16;
+}
+
 // $145438: per channel, the script, the registers, then the steps.
 void SoundDriver::vertical_blank() {
+    fade_master();
+    master_volume_ = master_ >> 16;
     for (int c = 0; c < 4; ++c) {
         const int n = cells_[std::size_t(c)];
         if (n < 0) continue;

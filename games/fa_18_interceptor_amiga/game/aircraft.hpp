@@ -1,6 +1,8 @@
 #pragma once
+#include "amiga/hunk.hpp"
 #include "fa_18_interceptor_amiga/data/world.hpp"
 #include "fa_18_interceptor_amiga/game/attitude.hpp"
+#include <array>
 #include <cstdint>
 
 // The player's aircraft and its flight model (game.md "The flight step"):
@@ -35,6 +37,11 @@ constexpr std::uint16_t full_power = 0x2000;
 constexpr std::uint16_t wheel_brakes = 0xC000;
 } // namespace flag
 
+// The fuel warnings' bits ($13AE43).
+namespace fuel {
+constexpr std::uint8_t low = 0x01, critical = 0x02, exhausted = 0x40;
+} // namespace fuel
+
 struct Aircraft {
     std::int32_t x{}, y{}, z{};
     std::int32_t vx{}, vy{}, vz{}; // added to the position each tick
@@ -62,6 +69,7 @@ struct Aircraft {
     std::uint8_t role{};             // byte +5
     std::int16_t timer{};            // word +$4C
     bool stall_warning{};            // the stall warning is on ($13AE40 bit 7)
+    std::uint8_t fuel_warning{};     // `fuel` bits ($13AE40 bits 0, 1, 6)
     bool supersonic{};               // past the speed of sound ($13ABC2 bit 14)
     bool gear_speed_warned{};        // the gear is down too fast: warned ($13AB36)
 };
@@ -93,5 +101,13 @@ struct FlightEvents {
 
 FlightEvents fly(Aircraft& aircraft, const FlightControls& controls, const FlightRules& rules,
                  const FlightTables& tables);
+
+// A place of free flight's start table ($137CF6, 16 bytes each: coarse
+// cell x and z, slot, offsets x and z (x 1024), fine offsets x and z (x 16),
+// heading in degrees): its x and z, as $10D51E and the map's markers
+// ($11FB9E) find them. Places 0-2 are the runways.
+std::array<std::int32_t, 2> place_position(const amiga::LoadedImage& program, int place);
+// $10D51E: the aircraft at a runway place, ready for free flight.
+Aircraft start_at_place(const amiga::LoadedImage& program, const FlightTables& tables, int place);
 
 } // namespace interceptor::game

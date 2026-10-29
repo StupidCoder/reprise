@@ -50,6 +50,8 @@ public:
     // The sound update runs ($13AA85: off while the crash's end screen
     // waits).
     void set_active(bool on) { active_ = on; }
+    // $13AB79 above 5: the pilot blacking out hears the engine at half volume.
+    void set_blackout(bool on) { blackout_ = on; }
     // The gear key: its sound starts at the next update ($10E98E).
     void gear_moved();
 
@@ -62,6 +64,17 @@ public:
     void click();                                  // $127D66: a typed character
     void refuse();                                 // $127D82: a key the game refuses
     void warn_beep(int groups);                    // $127D6A: a warning's own beep
+    void menu_key();                               // $127D8A: a menu choice
+    // $109CE6: the title tune from its start (all channels stopped first);
+    // $10201E: the tune stopped (channels 0 and 1).
+    void start_tune();
+    void stop_tune();
+    bool has_tune() const { return driver_.has_tune(); }
+    // $13A958: the volume the tune glides to (0-63).
+    void set_tune_target(int volume) { driver_.set_master_target(volume); }
+    // $10201E: the sound under the free-flight start map: the wind at
+    // `volume`, or the outside engine at period $300 without the wind.
+    void ambience(int volume);
 
     // Research: the counters as a recording of the original has them
     // ($13AAB1, $13AA87, $13AB75, $13AB7A).
@@ -99,6 +112,7 @@ private:
     std::uint8_t gear_seconds_ = 0; // $13AB75: bit 7 starts the sound, 1 stops it
     std::int8_t beep_lock_ = 0;   // $13AB7A: seconds without the warnings' beeps
     std::uint32_t warnings_ = 0;  // $13AE44
+    bool blackout_ = false;
     bool active_ = true;
 };
 

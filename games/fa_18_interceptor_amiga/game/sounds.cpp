@@ -123,9 +123,8 @@ void Sounds::update(const Aircraft& a) {
 int Sounds::engine_volume(const Aircraft& a, int throttle) const {
     if (throttle == 0) return (a.motion & flag::on_ground) && a.airspeed != 0 ? 12 : 0;
     if (restart_in_ != 0) return 0x3F;
-    if (throttle > 8) return 0x3F - (i16(0x78 - throttle) >> 2);
-    return 0x3C - (i16(0x78 - throttle) >> 1);
-    // (A pilot blacking out, $13AB79 above 5, would halve it: not rebuilt.)
+    const int v = throttle > 8 ? 0x3F - (i16(0x78 - throttle) >> 2) : 0x3C - (i16(0x78 - throttle) >> 1);
+    return blackout_ ? v >> 1 : v; // ($1054A8)
 }
 
 // $105502: the wind's volume from the airspeed.
@@ -283,6 +282,31 @@ void Sounds::click() {
 
 void Sounds::warn_beep(int groups) {
     beep(0x12C, 4, 1, 0x12C, 4, 1, 1, groups, groups);
+}
+
+void Sounds::menu_key() {
+    if (driver_.tune_playing()) beep(0x12C, 2, 1, 0x12C, 2, 1, 1, 2, 2);
+    else refuse();
+}
+
+void Sounds::start_tune() {
+    if (!driver_.has_tune() || driver_.tune_playing()) return;
+    stop_all();
+    driver_.play(13, 0, 0x3F);
+    driver_.play(14, 1, 0x3F);
+    driver_.set_tune_playing(true);
+}
+
+void Sounds::stop_tune() {
+    driver_.set_tune_playing(false);
+    driver_.stop(0);
+    driver_.stop(1);
+    driver_.set_master_volume(0x3F);
+}
+
+void Sounds::ambience(int volume) {
+    if (wind_) wind(volume);
+    else engine_outside(0x300, volume);
 }
 
 void Sounds::refuse() {
