@@ -87,12 +87,17 @@ public:
     void set_slot_counter(int slot, std::uint16_t value) { slots_.at(std::size_t(slot)).counter = value; }
     static constexpr int slots = 18;
     const SlidePictures& slide_pictures() const { return slide_pictures_; }
+    // $6AC56: the magnets' pushes, 9 rows (view row) of 8 pairs (view
+    // column / 2) of signed bytes x, y. (Kept with the other tables the
+    // program reads at run time.)
+    const std::array<std::int8_t, 144>& magnet_pushes() const { return magnet_pushes_; }
 
 private:
     void show(const TileAnimation&, TileTable&) const;
     void follow(TileTable&) const;
     std::vector<TileAnimation> slots_; // 18
     SlidePictures slide_pictures_;
+    std::array<std::int8_t, 144> magnet_pushes_{};
     int cursor_{};                     // $6C08A
     bool slot17_on_{true};
     int world_{};

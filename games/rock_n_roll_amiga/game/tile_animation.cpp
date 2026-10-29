@@ -28,6 +28,7 @@ SlidePictures::SlidePictures(const data::Program& program) {
 }
 
 TileAnimator::TileAnimator(const data::Program& program) : slide_pictures_(program) {
+    for (std::uint32_t i = 0; i < magnet_pushes_.size(); ++i) magnet_pushes_[i] = std::int8_t(program.u8(0x6AC56 + i));
     for (int i = 0; i < slot_count; ++i) {
         const std::uint32_t at = program.u32(slot_table + std::uint32_t(i) * 4);
         TileAnimation a;

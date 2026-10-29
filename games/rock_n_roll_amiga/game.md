@@ -199,9 +199,10 @@ mouse is read; not in the start wait.
 
 - **`$6C004`, after them:**
   - $BC shows $B9's frame + 6 bytes (three tiles right);
-  - $52, $65, $66 show $51's + 8, 16, 24 bytes (each piece's strip of four
-    frames is 64 pixels wide), except in world 6. So level 1's $65/$66
-    slopes show these pictures;
+  - $52, $65, $66 show $51's + 8, 16, 24 bytes, except in world 6. These
+    are the four pieces of a ventilator; each piece's strip of four frames
+    is 64 pixels wide. ($65 is also a slope value; level 1 is in world 6,
+    so its cells keep their sheet pictures.)
   - $12 and $13 show $11's frame, and while $11's counter is 0 all three
     show their sheet pictures (offsets $20, $22, $24).
 - **Counters run on.** They start at 0 with the program, run only in level
@@ -475,7 +476,7 @@ friction +400 a frame) and rec3.
 | $AE/$B1/$B5/$B6 arcs | `$6D680`… | Energy −$C0 while their counter ≤ $1100 |
 | $A2/$A5/$A9/$AA gates | `$6D738`… | Energy −$140 at counter 0 or $100; passage by the animated picture |
 | $C0 pushable block | `$6D984` | See "Pushable blocks" |
-| $51/$53/$66/$68 | `$6ACE6` | Listed by the drawer at `$77F40`; what `$6ACE6` does with them is open ($51's picture animates, see "Tile animations") |
+| $51/$53/$66/$68 ventilators | `$6FAA0` → `$6ACE6` | Push the ball by their place in the view (see "Ventilators") |
 
 **Energy** is `$6F45A` (full $7FF); the panel shows `$6F458`.
 
@@ -487,6 +488,35 @@ friction +400 a frame) and rec3.
 
 **Refill:** a collected item leaves `$6EC00` in its cell (`$6EC02`).
 `$6EC00` is then refilled from the header byte +$1D4.
+
+### Ventilators (`$6FAA0`, `$6ACE6`)
+
+The hints call them ventilators: 2 × 2 objects ($51 $52 / $65 $66, and
+$53 … $68). Their cells have no rule of their own; the push comes from
+the drawing.
+
+- **Recording** (`$6FAA0`, the tile drawer): while it draws the 16 × 8
+  view from the camera's cell, every $66, $51, $68, $53 it meets goes into
+  the list at `$77F40` as two signed bytes:
+  - $66: (column, row);
+  - $51: (column + 1, row + 1);
+  - $68 and $53: the same negated.
+
+  The four cells under the ball are markers then, so they are left out.
+- **Pushing** (`$6ACE6`, after the bomb, before the speed clamp `$6ABF0`):
+  - Skipped on a bridge (`$6FDE6`, cleared here), in world 6, and unless
+    the ball rolls normally or as the protective ball (state `$6C274` or
+    `$6C258`; not the ice-proof ball's `$6C266`, not falling).
+  - Each entry up to the first 0 is cleared and used. A negative x
+    negates both values.
+  - The table `$6AC56` (9 rows by view row, 8 pairs by (x − 1) / 2) gives
+    signed bytes fx, fy; the speeds gain fx × 8 and fy × 4. A negative
+    entry gives half that the other way.
+  - A non-zero value clears the steered flag `$70405`.
+- **So the push depends on where the ventilator is in the view**, not on
+  where the ball is; the table assumes the ball near the view's centre.
+- *Checked:* level 3 (world 3), fan1 (near $51/$66) and fan2 (near
+  $53/$68), 149 updates each, the ball moved by them alone.
 
 ### Locks
 
@@ -558,8 +588,22 @@ friction +400 a frame) and rec3.
   - otherwise the cell := $25.
 - **$24** (`$6D880`): the count − 1. At 0, the reward `$6D8CE` (a per-level
   routine, table `$78008`) and the count := $1FFF. The cell := $25 always.
-- **Other counters:** repair sets placed on $14 and small balls (`$6B470`)
-  also count `$6D80E` down.
+- **Other counters:** repair sets placed on $14, and blocks that sink into
+  $14 (`$6B470`; the hints call blocks "small balls"), also count `$6D80E`
+  down.
+- **Rewards** (`$6D8CE`, by level index from table `$78008`). Each reward
+  plays sound 5 and shows a message in the view (see "Notices"):
+
+  | Routine | Reward | Message | Level indexes |
+  | --- | --- | --- | --- |
+  | `$6D8F6` | money + 500 | `$69CA6` "A BONUS OF 500 COINS." | 11 |
+  | `$6D914` | score + 1,500 (shown ×10) | `$69C8A` "15.000 BONUS POINTS." | 10 |
+  | `$6D932` | full energy, after the message (`$6D940`) | `$69C52` "FULL ENERGY." | 1, 8, 12, 24, 30 |
+  | `$6D956` | one more ball (`$699F8` + 1) | `$69C6E` "AN EXTRA BALL." | 4, 7, 14, 21, 32 |
+  | `$6D8EC` | none: colour 0 := $FFF for a moment | | all others |
+
+  Rewards come from the $24 countdown and from the end of the $2D/$2E
+  timed list (`$6ECB0`).
 - **Secret warp** `$69F8A`, target by level number (with the warp text's
   digits at `$67836`):
 
@@ -568,6 +612,34 @@ friction +400 a frame) and rec3.
   | Target index | $20 | $13 | $17 | $0A | $07 | $1D | $11 | $06 (+1 bomb) |
 
   Other levels clear `$69F86` and go on as from the exit.
+- **The warp's message:** `$69F8A` writes the target's level number at
+  `$67836` (inside "A SECRET WARP TO LEVEL nn") and sets the level done
+  (`$6FDEC`), the loop's end (`$6FDEA`) and `$69F86`.
+  - At the level's end (`$6C5F4`), `$69DC2` shows the list `$69CC2`
+    ("CONGRATULATIONS / YOU HAVE ACTIVATED / A SECRET WARP TO LEVEL nn /
+    KEEP UP THE GOOD WORK.").
+  - Then the target level follows, without results or a time record. The
+    energy gains $280 as at the exit, and the bombs are kept.
+  - The list's fourth entry points at the digits themselves, so its column
+    and row are the digits and it prints nothing.
+
+### Notices (`$69EF6`, `$69F1A`)
+
+- **In the view** (rewards, the warp): the view is cleared (`$6B8E6`) and
+  the program waits for the left button's release. Then sound $18, and the
+  texts of a 0-ended pointer list.
+- **The wait** (`$6AB46`), as on the results: colours 1–7 $EE0, colour 1
+  flashing, until a press, then the release.
+- **Hints** (`$69DFA`, bought at a $45 shop): only in the levels numbered
+  8, 11, 18, 20, 24, 29 and 30 (lists `$69AE6`, `$69B1A`, `$69B4E`,
+  `$69B82`, `$69BB6`, `$69BEA`, `$69C1E`). Each tells how to reach that
+  level by a secret warp. Elsewhere the purchase shows nothing.
+  - A hint clears the whole bank (`$6B910`) and shows it through the
+    title's copper list. The texts' origin is `$18FFC` + $644: x 8 ×
+    column, line 8 + 8 × row.
+  - The colours are whatever the registers hold (the panel's, as the play
+    screen's copper list leaves them).
+  - Afterwards the world's graphics are loaded again (`$69EBE` → `$70F96`).
 
 ### Bridges
 
@@ -582,6 +654,33 @@ friction +400 a frame) and rec3.
 - **Ends $DF/$E0 (x) and $E1/$E2 (y):** the cross position snaps first
   (`$70B7A`). The fraction $2000 is kept; above $8000 it goes to the next
   tile, otherwise to this tile with fraction $2000. Then the same as above.
+- **The last axis** (`$6D12E`): every ride along x sets it to 0, along y
+  to 1. The program never resets it.
+- **$E3** (`$6D326`, centre): on the bridge (`$6FDE6`), slow, and the next
+  update only moves the camera (`$6D4FC`). No snap, and the speed is
+  kept: a crossing.
+- **Corners $E8–$EB** (`$6D36A`, `$6D3CE`, `$6D432`, `$6D496`, centre):
+  - The ride goes on along the last axis until the camera's and view's
+    fraction words along it add up to exactly $2000.
+  - There the ball turns: the cross speed is set to ±$2000 and it rides
+    the other axis (by jumping into `$6D18C`/`$6D282`).
+
+  | Corner | Coming along x, turns | Coming along y, turns |
+  | --- | --- | --- |
+  | $E8 | down | left |
+  | $E9 | up | right |
+  | $EA | down | right |
+  | $EB | up | left |
+
+- **$E4–$E7** (`$6D33C`, centre): both speeds negated, then on into $E8's
+  code (no return in between).
+- **Sounds:** `$6D130`/`$6D132`/`$6D13A` only choose the bridge sounds
+  ($16/$17 at the start of a ride, alternating at the ends).
+- *Checked:* level 1:
+  - corner1: up from the end at (40,29), the $EA corner turns the ball
+    right, 159 updates;
+  - corner2: right onto the end at (7,4), $E8 turns it down, $E9 at (8,15)
+    turns it right, 219 updates.
 
 ### Switches
 
@@ -608,7 +707,10 @@ friction +400 a frame) and rec3.
   - When the seconds reach the limit `$6C846` (unsigned), the time is out.
 - **Out of time** (`$6C8F8`): the mouse is ignored and the ball coasts,
   with `$6C848` counting down. When the ball stops or `$6C848` reaches 0,
-  the ball is lost and "OUT OF TIME" is shown.
+  the ball is lost.
+  - "OUT OF TIME" (1, 5) is shown in the cleared view for 15 delays
+    (`$6ABB2`, about 1.4 s), and the music stops.
+  - Then comes a restart, with no prompt.
 - **Set-up** (`$6C778`): step 2, the limit from +$1C6, the hourglass text
   from +$1C0, and `$6EC9C` from +$1DC.
 
@@ -624,7 +726,7 @@ friction +400 a frame) and rec3.
 
   | Item | Picture | Use |
   | --- | --- | --- |
-  | 0 | Exit | Give up (`$6B5A8`); the '?' key does the same |
+  | 0 | Exit | Give up (`$6B5A8`); the '?' key does the same at the end of any update (`$68A36`; the port maps it to the slash key) |
   | 2 | Eye | The overview map (`$6B67E`) |
   | 4 | zz | Pause until the button is let go, pressed and let go again (`$6B612`) |
   | 6 | Bomb | `$6BE9A` |
@@ -734,6 +836,8 @@ friction +400 a frame) and rec3.
 ## After a lost ball (`$6BB86`)
 
 - **Balls left:** `$699F8`, 2 at game start ("3 BALLS REMAINING").
+- **After a fall** (the state routine still `$6C3D6`) there are three
+  delays (`$6BB9E`, about 14 frames) with the level still showing.
 - **A fall with balls left:** the four prompt lines and a wait for a button.
   - **Left: continue.** `$6C5BC` restores the camera and view from the
     continue point `$6C476`.
@@ -1010,6 +1114,15 @@ The port keeps these, because they are part of how the game plays:
   record shows from the next level on.
 - **The continue screen offers "YES / NO" but reads only the left
   button.**
+- **The ventilator list is never ended.** The drawer writes it from the
+  start each update, and `$6ACE6` clears only what it reads. When it
+  doesn't read (bridge, falling, ice-proof ball), the old entries stay and
+  are used later.
+- **A $66 in the view's first column records x = 0**, which ends the list
+  early.
+- **There are no ventilators in world 6**, which includes level 1 (and
+  levels 2, 17, 19 and 20). Its $51/$66 cells are drawn without animation
+  and push nothing.
 - **The overview map ignores its depth while drawing**, and colours some
   cells of the first value range with the second range's colour as well
   (see "The overview map").
@@ -1045,11 +1158,11 @@ The port keeps these, because they are part of how the game plays:
 - **Replay:** `tools/rock_n_roll_replay ball <run>` replays a recording
   natively and compares every logged field. `harness/regress.sh` runs all
   of them.
-  - 28 runs: rail1, ice1, fall2, arrow3, slope1, fall3, finds2, lock2,
+  - 32 runs: rail1, ice1, fall2, arrow3, slope1, fall3, finds2, lock2,
     fall4+cont4, bridge1, beam2, shop3, shop4, clock1, mud1, glass1,
-    switch1, exit1, crumble1, lockcap1, gate1–3, flame1, arc1 (level 1),
-    block1–3 (level 7).
-  - 4,435 updates, all equal.
+    switch1, exit1, crumble1, lockcap1, gate1–3, flame1, arc1, corner1–2
+    (level 1), block1–3 (level 7), fan1–2 (level 3, code 030000030030).
+  - 5,111 updates, all equal.
   - Since gate1, recordings also log the animation cursor and counters
     (`acur`, `ac0`–`ac17`). The replay starts from them, shows every
     slot's current frame (`TileAnimator::show_all`), and compares them

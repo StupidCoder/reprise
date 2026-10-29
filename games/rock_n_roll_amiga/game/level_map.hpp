@@ -78,6 +78,11 @@ struct LevelMap {
     TileTable tiles;
     TileAnimator animation;
 
+    // $77F40: the magnets ($51/$53/$66/$68) the drawer met, as pairs of
+    // view column and row (negated for $53/$68), read and cleared by
+    // $6ACE6 up to the first 0. Entries not read stay for later updates.
+    std::array<std::int8_t, 258> magnets{};
+
     // The pushable block ($6D984, $6B372): one slide at a time. Its state
     // is the program's, kept in fixed places the set-up never resets.
     struct BlockSlide {

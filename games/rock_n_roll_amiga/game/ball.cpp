@@ -337,6 +337,7 @@ Fixed snap_to_rail(Fixed v) {
 // $6D1C6/$6D2BC: riding a bridge along x or y at 2 pixels an update; the
 // mouse is not read next update ($70406) and "slow" stays set ($6D4FC).
 void ride(Ball& b, bool along_x) {
+    b.bridge_along_y = !along_x;
     if (along_x) {
         b.speed_y = 0;
         b.view_x = Fixed(std::uint32_t(b.view_x) & 0xFFFFE000u);
@@ -414,6 +415,67 @@ void hit_wall(Ball& b, LevelMap& map, long index, int n, std::uint8_t becomes, b
     speed = 0;
     b.clock.ticks &= std::uint8_t(~3);
     if (index >= 0 && index < long(map.cells.size())) map.cells[std::size_t(index)] = becomes;
+}
+
+// $6FAA0, while it draws the view (16 columns x 8 rows from the camera's
+// cell, the four cells under the ball left out as markers): each magnet's
+// place goes into the list, $66 as (column, row), $51 as (column + 1,
+// row + 1), and $68/$53 the same negated. The list is written from its
+// start every update and is not ended: what the last update's reading did
+// not clear stays behind it.
+void record_magnets(const Ball& b, LevelMap& map) {
+    const long first = long(std::uint32_t(b.camera_y) >> 16) * map.columns + long(std::uint32_t(b.camera_x) >> 16);
+    const long under = first_cell_of(b, map);
+    std::size_t at = 0;
+    for (int row = 0; row < 8; ++row)
+        for (int column = 0; column < 16; ++column) {
+            const long index = first + long(row) * map.columns + column;
+            if (index == under || index == under + 1 || index == under + map.columns || index == under + map.columns + 1)
+                continue;
+            const std::uint8_t v = map.cell(index);
+            int x = 0, y = 0;
+            if (v == 0x66) x = column, y = row;
+            else if (v == 0x51) x = column + 1, y = row + 1;
+            else if (v == 0x68) x = -column, y = -row;
+            else if (v == 0x53) x = -(column + 1), y = -(row + 1);
+            else continue;
+            if (at + 1 >= map.magnets.size()) return;
+            map.magnets[at++] = std::int8_t(x);
+            map.magnets[at++] = std::int8_t(y);
+        }
+}
+
+// $6ACE6, after the bomb: not on a bridge, not in world 6, and only rolling
+// (normal or protective ball; not the ice-proof one's state $6C266). Each
+// entry up to the first 0 is cleared and pushes the ball: the table at
+// $6AC56 by view row and column / 2 gives x × 8 and y × 4 (a negated entry
+// gives half the push the other way); a push clears the steered flag.
+void magnet_pushes(Ball& b, LevelMap& map, int world) {
+    const bool on_bridge = b.on_bridge;
+    b.on_bridge = false;
+    if (on_bridge || world == 6 || b.mode != BallMode::rolling || b.kind == BallKind::ice_proof) return;
+    const auto& table = map.animation.magnet_pushes();
+    for (std::size_t at = 0; at + 1 < map.magnets.size() && map.magnets[at] != 0; at += 2) {
+        const std::int8_t sign = map.magnets[at];
+        std::uint8_t x = std::uint8_t(map.magnets[at]), y = std::uint8_t(map.magnets[at + 1]);
+        map.magnets[at] = map.magnets[at + 1] = 0;
+        if (sign < 0) {
+            x = std::uint8_t(-x);
+            y = std::uint8_t(-y);
+        }
+        const std::uint8_t pair = std::uint8_t(std::int8_t(x - 1) >> 1 << 1);
+        const std::size_t offset = std::size_t(pair) + std::size_t(std::uint8_t(y << 4));
+        if (offset + 1 >= table.size()) continue;
+        const int fx = table[offset], fy = table[offset + 1];
+        if (fx != 0 || fy != 0) b.steered = false;
+        Fixed dx = Fixed(fx) * 8, dy = Fixed(fy) * 4;
+        if (sign < 0) {
+            dx = -dx >> 1;
+            dy = -dy >> 1;
+        }
+        b.speed_y += dy;
+        b.speed_x += dx;
+    }
 }
 
 // $6D984, for any of the four cells (no centre test): a block is pushed
@@ -635,6 +697,41 @@ void apply_cell(Ball& b, Pocket& pocket, LevelMap& map, long index, std::uint8_t
         if (centre) {
             b.on_bridge = true;
             ride(b, v == 0xDD);
+        }
+    } else if (v == 0xE3) { // $6D326: a bridge crossing, carried on as it goes
+        if (centre) {
+            b.on_bridge = true;
+            b.slow = true;
+            b.carried = true;
+        }
+    } else if (v >= 0xE4 && v <= 0xEB) {
+        // Bridge corners ($6D36A-$6D496): riding on along the last axis
+        // ($6D12E) until the camera's and view's fractions add up to $2000
+        // there, then turning: $E8 into down / left, $E9 up / right, $EA
+        // down / right, $EB up / left (from x / from y). $E4-$E7 ($6D33C)
+        // reverse both speeds first and go on as $E8.
+        if (!centre) return;
+        b.on_bridge = true;
+        if (v <= 0xE7) {
+            b.speed_x = -b.speed_x;
+            b.speed_y = -b.speed_y;
+        }
+        const int corner = v <= 0xE8 ? 0 : v - 0xE8;
+        static constexpr Fixed from_x[4] = {0x2000, -0x2000, 0x2000, -0x2000}; // vertical speed after turning
+        static constexpr Fixed from_y[4] = {-0x2000, 0x2000, 0x2000, -0x2000}; // horizontal speed after turning
+        const auto fraction = [](Fixed camera, Fixed view) { return std::uint16_t(low_word(camera) + low_word(view)); };
+        if (b.bridge_along_y) {
+            if (fraction(b.camera_y, b.view_y) != 0x2000) {
+                ride(b, false);
+            } else {
+                b.speed_x = from_y[std::size_t(corner)];
+                ride(b, true);
+            }
+        } else if (fraction(b.camera_x, b.view_x) != 0x2000) {
+            ride(b, true);
+        } else {
+            b.speed_y = from_x[std::size_t(corner)];
+            ride(b, false);
         }
     } else if (v >= 0xDF && v <= 0xE2) { // bridge ends ($6D142/$6D230): snap across, then ride
         if (centre) {
@@ -958,10 +1055,10 @@ void update_ball(Ball& b, Pocket& pocket, LevelMap& map, const data::World& worl
     } else {
         fall(b); // also in the update the fall starts in ($6CA26 switches the state routine)
     }
+    record_magnets(b, map); // $6FAA0
     touch(b, map, world);
     bounce(b);
     slide_block(b, map); // $6B372
-    clamp_speeds(b);
     // $6F7B6 (before drawing the ball): the continue point, while not
     // falling. The counter is only reset by continue, so after a lost ball
     // and a restart without continue it is not saved (kept from the original).
@@ -971,8 +1068,9 @@ void update_ball(Ball& b, Pocket& pocket, LevelMap& map, const data::World& worl
         b.continue_view_x = b.view_x;
         b.continue_view_y = b.view_y;
     }
-    tick_bomb(b, map);   // $6BE8A
-    b.on_bridge = false; // $6ACE6
+    tick_bomb(b, map);                      // $6BE8A
+    magnet_pushes(b, map, world.number);    // $6ACE6
+    clamp_speeds(b);                        // $6ABF0
     if (b.secret_warp) b.mode = BallMode::warped; // $69F8A sets $6FDEA: the loop ends
 }
 

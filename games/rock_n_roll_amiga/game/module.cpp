@@ -19,6 +19,16 @@ constexpr std::uint32_t no_limit_text = 0x6B10C; // "NO " beside the hourglass w
 constexpr std::uint32_t balls_text = 0x6810B;    // "3  BALLS REMAINING" (5, 5), the digit at $6810D
 constexpr std::uint32_t last_ball_text = 0x68126; // "     LAST BALL" (5, 5)
 constexpr std::uint32_t game_over_text = 0x680EF; // "     GAME OVER" (5, 5)
+constexpr std::uint32_t out_of_time_text = 0x681E8; // "OUT OF TIME" (1, 5)
+constexpr std::uint32_t warp_texts = 0x69CC2;    // the secret warp's message (a list of texts)
+constexpr std::uint32_t warp_digits = 0x67836;   // its level number, in the third text
+constexpr std::uint32_t rewards = 0x78008;       // a reward routine per level index ($6D8CE)
+constexpr int prompt_delay_frames = 3 * 655360 * 50 / 7093790; // $6BB9E: three delays before the prompt
+// Hints ($69DFA): the level number they are shown in, and their text lists.
+constexpr struct {
+    int level;
+    std::uint32_t texts;
+} hints[] = {{8, 0x69AE6}, {11, 0x69B1A}, {18, 0x69B4E}, {20, 0x69B82}, {24, 0x69BB6}, {29, 0x69BEA}, {30, 0x69C1E}};
 constexpr std::uint32_t continue_texts[3] = {0x680D0, 0x68091, 0x680B1}; // "CONTINUE GAME", "LEFT BUTTON … RIGHT BUTTON", "YES … NO"
 constexpr int balls_at_start = 2;               // $699F8: "3 BALLS REMAINING"
 constexpr int bonus_level = 0x20;               // index of the 33rd level (reached by the first secret warp)
@@ -41,7 +51,15 @@ constexpr TypedKey typed_keys[] = {
     {21, 'F'}, {22, 'T'}, {23, 'X'}, {25, 'Y'}, {26, 'G'}, {28, 'B'}, {29, 'H'}, {30, 'U'}, {31, 'V'}, {33, 'I'},
     {34, 'J'}, {36, 'M'}, {37, 'K'}, {38, 'O'}, {39, 'N'}, {41, 'P'}, {42, 'L'}, {62, 'Q'}, {35, '0'}, {56, '1'},
     {59, '2'}, {8, '3'},  {11, '4'}, {16, '5'}, {19, '6'}, {24, '7'}, {27, '8'}, {32, '9'},
+    {55, '?'}, // the slash key: '?' on the original's keyboard map is a shifted key
 };
+
+// A list of text pointers ending with 0 ($69F4E prints them in turn).
+std::vector<ScreenText> read_text_list(const data::Program& program, std::uint32_t list) {
+    std::vector<ScreenText> texts;
+    for (std::uint32_t at = list; program.u32(at) != 0; at += 4) texts.push_back(read_text(program, program.u32(at)));
+    return texts;
+}
 
 // The original's texts: column, row, characters up to $FF.
 std::vector<ScreenText> read_texts(const data::Program& program, std::uint32_t at, int count) {
@@ -111,8 +129,23 @@ public:
             move_counters(input, counts_x, counts_y);
             update_ball(ball_, pocket_, map_, world(), mouse_);
             zero_key_ = key == '0' || (zero_key_ && input.c64_keys[35]);
+            view_flash_ = false;
+            if (ball_.reward_due) { // $6D8CE, called from the cell rule
+                ball_.reward_due = false;
+                if (give_reward()) break;
+            }
+            if (ball_.hint_bought) { // $69DFA, from the $45 shop
+                ball_.hint_bought = false;
+                if (show_hint()) break;
+            }
             extra_drawn_ = extra_drawn_ || ball_.kind_running;
             if (ball_.mode == BallMode::lost || ball_.mode == BallMode::warped) {
+                ball_lost();
+                break;
+            }
+            if (key == '?') { // $68A36: the '?' key gives up like item 0
+                balls_ = 0;
+                ball_.mode = BallMode::lost;
                 ball_lost();
                 break;
             }
@@ -154,7 +187,11 @@ public:
                 restart();
             }
             break;
+        case Phase::fall_pause:
+            if (--message_frames_ <= 0) decide_after_fall();
+            break;
         case Phase::results:
+        case Phase::notice:
         case Phase::continue_offer:
             // $6AB46: wait for the button's release, then (colours flashing,
             // $6B9F4) for a press, then for its release.
@@ -163,6 +200,7 @@ public:
             else if (wait_stage_ == 1 && left) wait_stage_ = 2;
             else if (wait_stage_ == 2 && !left) {
                 if (phase_ == Phase::results) next_level();
+                else if (phase_ == Phase::notice) finish_notice();
                 else start_level(level_index_, true); // $69996 → $686E2
             }
             break;
@@ -206,6 +244,9 @@ public:
             return ending_picture();
         case Phase::continue_offer:
             return continue_picture();
+        case Phase::notice:
+            if (notice_full_screen_) return hint_picture();
+            break;
         default:
             break;
         }
@@ -217,7 +258,8 @@ public:
         // $6AB46: while the results wait, colours 1-7 of the view are $EE0
         // and colour 1 (the new record) flashes.
         auto view_palette = screen_->palette(Screen::bar_lines);
-        if (phase_ == Phase::results && wait_stage_ >= 1) {
+        if (view_flash_) view_palette[0] = amiga::Rgb4(0xFFF); // $6D8EC: a level without a reward
+        if ((phase_ == Phase::results || phase_ == Phase::notice) && wait_stage_ >= 1) {
             for (std::size_t i = 1; i <= 7; ++i) view_palette[i] = amiga::Rgb4(0xEE0);
             if (wait_stage_ == 1) view_palette[1] = amiga::Rgb4(results_flash_colour(wait_frames_));
         }
@@ -246,14 +288,18 @@ public:
     }
 
 private:
-    enum class Phase { front_end, message, waiting, playing, paused, prompt, results, continue_offer, ending, overview };
-    enum class AfterMessage { start_wait, game_over };
+    enum class Phase {
+        front_end, message, waiting, playing, paused, fall_pause, prompt, results, notice, continue_offer, ending, overview
+    };
+    enum class AfterMessage { start_wait, game_over, restart };
+    enum class AfterNotice { play, full_energy, warp };
 
     std::vector<ScreenText> view_texts() const {
         switch (phase_) {
         case Phase::prompt: return prompt_;
         case Phase::message: return {message_};
         case Phase::results: return results_;
+        case Phase::notice: return notice_full_screen_ ? std::vector<ScreenText>{} : notice_;
         case Phase::overview: return overview_texts_;
         default: return {};
         }
@@ -340,6 +386,7 @@ private:
 
     void after_message() {
         if (after_message_ == AfterMessage::game_over) end_game();
+        else if (after_message_ == AfterMessage::restart) restart();
         else phase_ = Phase::waiting;
     }
 
@@ -359,27 +406,132 @@ private:
     }
 
     // $6BB86: the exit leads to the results and the next level, a secret
-    // warp to its target ($69F8A); a fall with balls left asks; otherwise
-    // the level starts again, and with no balls left the game is over.
+    // warp to its message and target ($69F8A, $69DC2); out of time shows
+    // its text first ($6C94E); a fall waits three delays, then asks with
+    // balls left; otherwise the level starts again, and with no balls left
+    // the game is over.
     void ball_lost() {
-        if (ball_.mode == BallMode::warped) {
-            add_energy();
-            const int bombs = pocket_.bombs; // $68B16 keeps the bombs after a warp
-            pocket_.clear_for_restart();
-            pocket_.bombs = bombs;
-            start_level(secret_warp_target(level_index_, pocket_).value_or(level_index_ + 1), false);
-            return;
-        }
-        if (ball_.level_done) {
+        if (ball_.mode == BallMode::warped || ball_.level_done) {
+            if (from_code_) { // $6BB48: a game started from a code has no spare balls after its level
+                balls_ = 0;
+                pocket_.continues = 0;
+                set_balls_message();
+            }
+            add_energy(); // $6BDF8
+            if (ball_.mode == BallMode::warped) {
+                warp_target_ = secret_warp_target(level_index_, pocket_).value_or(level_index_ + 1);
+                // $69F8A writes the target's level number at $67836, inside
+                // the list's third text.
+                const auto& program = assets_.program;
+                std::vector<ScreenText> texts;
+                const int number = warp_target_ + 1;
+                for (std::uint32_t at = warp_texts; program.u32(at) != 0; at += 4) {
+                    const std::uint32_t address = program.u32(at);
+                    auto t = read_text(program, address);
+                    if (warp_digits >= address + 2 && warp_digits + 1 < address + t.text.size()) {
+                        t.text[warp_digits - address] = char('0' + number / 10);
+                        t.text[warp_digits - address + 1] = char('0' + number % 10);
+                    }
+                    texts.push_back(std::move(t));
+                }
+                show_notice(std::move(texts), AfterNotice::warp);
+                return;
+            }
             level_finished();
             return;
         }
-        const bool fell = !ball_.clock.out_of_time;
-        if (fell && balls_ != 0) {
+        if (ball_.clock.out_of_time) {
+            show_message(read_text(assets_.program, out_of_time_text), game_over_frames, AfterMessage::restart);
+            return;
+        }
+        if (ball_.mode == BallMode::lost && !ball_.energy_out) { // the fall's state routine ($6BB94)
+            message_frames_ = prompt_delay_frames;
+            phase_ = Phase::fall_pause;
+            return;
+        }
+        decide_after_fall();
+    }
+
+    void decide_after_fall() {
+        if (!ball_.clock.out_of_time && balls_ != 0) {
             phase_ = Phase::prompt;
             return;
         }
         restart();
+    }
+
+    // In-view notices (rewards, the warp) and the hints' own screen, both
+    // waiting like the results ($69EF6/$69F1A → $6AB46).
+    void show_notice(std::vector<ScreenText> texts, AfterNotice then, bool full_screen = false) {
+        notice_ = std::move(texts);
+        after_notice_ = then;
+        notice_full_screen_ = full_screen;
+        wait_stage_ = 0;
+        wait_frames_ = 0;
+        phase_ = Phase::notice;
+    }
+
+    void finish_notice() {
+        switch (after_notice_) {
+        case AfterNotice::play:
+            phase_ = Phase::playing;
+            break;
+        case AfterNotice::full_energy: // $6D940, after the message
+            pocket_.shown_energy = 0x800;
+            pocket_.energy = 0x7FF;
+            phase_ = Phase::playing;
+            break;
+        case AfterNotice::warp: { // $6C5F4 → $6C68A: the target, the bombs kept ($68B16)
+            const int bombs = pocket_.bombs;
+            pocket_.clear_for_restart();
+            pocket_.bombs = bombs;
+            start_level(warp_target_, false);
+            break;
+        }
+        }
+    }
+
+    // $6D8CE: the level's reward routine (table $78008). Returns true when a
+    // message is shown.
+    bool give_reward() {
+        const std::uint32_t routine = assets_.program.u32(rewards + std::uint32_t(level_index_) * 4);
+        std::uint32_t texts = 0;
+        AfterNotice then = AfterNotice::play;
+        switch (routine) {
+        case 0x6D8F6: // 500 coins
+            pocket_.money += 500;
+            texts = 0x69CA6;
+            break;
+        case 0x6D914: // 1,500 points, shown as 15.000
+            pocket_.score += 1500;
+            texts = 0x69C8A;
+            break;
+        case 0x6D932: // full energy, after the message
+            texts = 0x69C52;
+            then = AfterNotice::full_energy;
+            break;
+        case 0x6D956: // an extra ball
+            ++balls_;
+            set_balls_message();
+            texts = 0x69C6E;
+            break;
+        default: // $6D8EC: colour 0 white for a moment, nothing else
+            view_flash_ = true;
+            return false;
+        }
+        show_notice(read_text_list(assets_.program, texts), then);
+        return true;
+    }
+
+    // $69DFA: the level's hint, on a cleared screen of its own; levels
+    // without one show nothing.
+    bool show_hint() {
+        for (const auto& h : hints)
+            if (h.level == level_index_ + 1) {
+                show_notice(read_text_list(assets_.program, h.texts), AfterNotice::play, true);
+                return true;
+            }
+        return false;
     }
 
     // $6BB3C → $6BDD4 → $6C5F4: a level finished.
@@ -462,6 +614,19 @@ private:
         } catch (const std::exception&) {
             // The records stay for this session; nothing else depends on the file.
         }
+    }
+
+    // $69F1A: a hint on the cleared bank through the title's copper list
+    // (origin $18FFC + $644: x 8 × column, line 8 + 8 × row), in the
+    // colours the registers hold (the panel's, as for the continue screen).
+    platform::Image hint_picture() const {
+        std::vector<std::uint8_t> pixels(std::size_t(FrontEnd::width) * FrontEnd::height, 0);
+        const Canvas canvas{pixels.data(), FrontEnd::width, FrontEnd::height};
+        for (const auto& t : notice_) print_at(canvas, world().bank, 0, 8, t);
+        const auto& palette = screen_->palette(0);
+        platform::Image image(FrontEnd::width, FrontEnd::height);
+        for (std::size_t i = 0; i < pixels.size(); ++i) image.pixels[i] = data::to_color(palette[pixels[i]]);
+        return image;
     }
 
     // $69996: "CONTINUE GAME" on the cleared bank shown through the title's
@@ -553,6 +718,11 @@ private:
     int message_frames_{};
     AfterMessage after_message_{};
     std::vector<ScreenText> results_;
+    std::vector<ScreenText> notice_;
+    AfterNotice after_notice_{};
+    bool notice_full_screen_{};
+    int warp_target_{};
+    bool view_flash_{};
     OverviewView overview_;
     std::vector<ScreenText> overview_texts_;
     data::ScoreTable::Time shown_record_{};

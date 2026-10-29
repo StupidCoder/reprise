@@ -142,6 +142,7 @@ struct Ball {
     // Bridges ($DD-$E2): this update ($6FDE6, cleared by $6ACE6) and the
     // next update's steering only moves the camera ($70406).
     bool on_bridge{};
+    bool bridge_along_y{};            // $6D12E: the last bridge ride's axis (corners turn by it)
     bool carried{};
 
     Clock clock;

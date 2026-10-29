@@ -14,8 +14,8 @@ A game runs from the title to the end:
 - "N BALLS REMAINING", game over with the hall of fame, the continue after
   game over, and the ending.
 
-The ball's rules match the original update for update in 28 recorded runs
-(4,435 updates, in levels 1 and 7; `.analysis/rock_n_roll_amiga/harness/regress.sh`).
+The ball's rules match the original update for update in 32 recorded runs
+(5,111 updates, in levels 1, 3 and 7; `.analysis/rock_n_roll_amiga/harness/regress.sh`).
 There is no music or sound yet. Steering uses the captured mouse.
 
 Finished, in order:
@@ -42,26 +42,18 @@ Finished, in order:
 12. The eye's overview map (with its drawing pace, the map pieces' depth
     and MAGIC MAP; pixel-exact against the original) and pushable blocks
     (push test, slide, sinking, the warp count; block1–3 in level 7).
+13. Ventilators ($6FAA0/$6ACE6, fan1–2 in level 3), the level rewards,
+    hints, the secret warp's and "OUT OF TIME" messages, the pause before
+    the prompt and the '?' key. Bridge corners and crossings $E3-$EB
+    (corner1–2 in level 1).
 
 ## Remaining tasks
 
 ### In-level rules
 
-- [ ] **Cells $51/$53/$66/$68**: the drawer records them at `$77F40` and
-  `$6ACE6` acts on them (fans or magnets?). Not read yet. Their pictures
-  ($51, and $52/$65/$66 following it) already animate.
-- [ ] **Small balls** (`$6B470`): these also count the warp countdown down.
-  Not read yet.
-- [ ] **Level rewards** `$6D8CE` (per-level routines, table `$78008`).
-  `reward_due` is raised but nothing happens.
-- [ ] **Hint shop $45**: the sale is recorded (`hint_bought`), but the
-  hint text (`$69DFA`, after `$6B8E6`) is not shown.
-- [ ] **Messages**: the secret warp's text with its digits (`$69DC2`,
-  `$67836`); "OUT OF TIME" (`$681E8`).
-- [ ] **The pause before the prompt**: three delays (`$6BB9E`, about 14
-  frames) between a fall and the continue/restart texts.
-- [ ] **Give-up key '?'**: today the only way to give up is item 0, which
-  the right button never selects.
+None known: every cell value the 33 levels hold now has its rule (checked
+against the handler table `$733C4`). What is rebuilt but not yet
+compared with the original is under "Verification".
 
 ### Front end
 
@@ -99,6 +91,14 @@ Finished, in order:
 
 ### Verification
 
+- [ ] Compare with captures of the original:
+  - the rewards' and the warp's messages;
+  - a hint screen (its colours: the port uses the panel's palette);
+  - "OUT OF TIME".
+
+  Their texts and order come from the program's lists; the rewards are
+  checked against no recording yet.
+
 - [ ] The gate hit (−$140 when a gate's counter is 0 or $100) and the
   $B9/$AE-group drains are rebuilt from the code. No recording has the
   ball on such a cell at the right moment yet (arc1 crossed $B9 without a
@@ -106,10 +106,12 @@ Finished, in order:
 - [ ] Recordings for the item uses (bomb, repair set, rescue, pause). They
   are rebuilt from the code only, because level 1 has no shops. Needs
   pokes or a later level.
+- [ ] Bridge crossings $E3 and the reversing pieces $E4-$E7: rebuilt from
+  the code, not recorded (level 18 has many).
 - [ ] A vertical block push (directions 1 and 3) and a block sinking into
   $21: rebuilt from the code, not recorded (level 7 has only horizontal
   tracks; levels 21 and 29 have others).
-- [ ] Recordings outside levels 1 and 7, among them:
+- [ ] Recordings outside levels 1, 3 and 7, among them:
   - the $23 teleport;
   - the $24/$26 countdowns and the warp;
   - speed shops and bought balls;
@@ -125,8 +127,10 @@ Finished, in order:
 - The panel's clock shows 0:00 at a level's start. The original shows the
   previous level's time until the first second ends. Like the original, it
   then shows the second before.
-- The rewards, hint text, and the warp and out-of-time messages are
-  missing.
+- A level without a reward turns the view's colour 0 white for one
+  picture. The original writes the colour register directly, so the white
+  shows only from that moment of the frame until the copper list sets it
+  again.
 - The results' flashing colour is an estimate of the original's loop
   speed (`records.cpp`, `results_flash_colour`). The original changes it
   many times a frame.
