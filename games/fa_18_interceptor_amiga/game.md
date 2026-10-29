@@ -1563,6 +1563,105 @@ raft?); 7: type $15; 8: type $21, the submarine **hypothesis**). Trigger
 areas (`$11DF00`, 8 boxes of cells, `$11D17A`, missions only) spawn more
 entries when the player enters them (`$11D2FA`) — not built.
 
+### The missions' aircraft (`$11797E`, `$120C66`, 2026-10-29)
+
+The object step runs the records in order after the player's (`$116C4E`
+...: record 0 first). For an aircraft (class $10) `$11797E` returns 1 (it
+always flies on: `$11797A` is `moveq #1,d0; rts`): the timer −1; with
+"moves" (state $1000) and `$13AA7E`: spinning, it heads for the spot under
+it and its speed goes toward $1200 by $90; otherwise, unless flown as the
+trainer (+2 bit 0) or without a point, the speed it aims for (`$117A16`),
+then where its point is (`$117BA6`). Then `$11A352`: the autopilot
+(`$11A456` → `$120B6E`), the attitude step's rules for others (`$121C6E`),
+the input step and the flight as the player's.
+
+**Distance** (`$118468`, first thing of `$117A16`): +$39's high nibble
+counts frames; at $480 or more away it measures only when the count
+passes $20 (below $900) or $50 (from $900). The way to the point in fine
+units (a cell $4000); beyond $7F00 on an axis +$4A = $7FFF; else
+`$1108C4` with x and the height as the flat pair and z third (the order
+matters: `objectcheck` found it), +4 bit 0 set; at most $1E00 behaviour
+3 → 4, beyond 4 → 3; beyond $1800 +$4A = $7FFF; the weapon nibble of
++$63 by distance ($10 up to $300, $20 to $C00, $30, $F0 far).
+
+**Speed** (`$117A16`): a point ($38 = $FF): cruise ($1D40; type $15
+$1EC0; touchable $15C0; type $14 lands: half its speed on the ground, $600
+below height $6C0 with the gear lowered, else $1680). A record: its speed,
+matched by distance and role (+4 bit 5: ≤ $240 match, ≥ $600 slower;
+roles other than 0/1: ≤ $360 keep, role 6 match, else slower; roles 0/1:
+< $180 slower, the pilot's $60 bits match, else slower within $300):
+"match" is twice its speed up to $1BC0 within $300, else cruise; "slower"
+less an eighth (at most $420); at least $900. The aim is averaged with
+the speed, the step at most $90, and the control byte's throttle bits
+(1 up, 2 down) push towards it.
+
+**The point** (`$117BA6`): role 8 near its point ($480) steps along its
+path (`$11DDC0` from +$3A: the entry equal to the point, then the next;
+after the last the autopilot is let go, state bit 7; a type $15 crashes).
+Role 8 then goes to the attack part (its a3 there is left over from the
+caller; the port takes the player — **hypothesis**). A touchable record
+(+1 bit 3) keeps its point (with +1 bit 1 the radar's locked record:
+missiles). Any other aircraft follows a record: the player when its +$38
+is $FF (a point is overwritten: `$117C60`), else that record — gone, it
+takes its own list entry's place again (`$1181DE`); within a box round
+the player ($180000, $240000 from level 2, $300000 from 3) it switches to
+the player (+$38 = $80). The point is 36 units behind the record (its
+view matrix, `$10D498`); near something (+2 bit 0) 48 behind and beside
+or above by the pilot's bits 0-1.
+
+**Attacks** (`$1180A6`): when the +$39 count is 1 and the record's
+distance is at most $3000: is it ahead of the record it follows, heading
+the same way (dot of the way with the record's forward ≤ −$2C0000, the two
+forwards' dot ≥ $D000000: +4 bit 5, `$11826A`). While bit 5 is set, in
+any role but 6 (8 only in mission 5 on request `$13AAA7`), every frame a
+(timer, role) from `$120374` (16 bytes a case, 4 levels): by the record's
+distance (≤ $300 / ≤ $C00 / ≤ $1E00 / beyond: +$60 each) and, except
+beyond $1E00, the speeds ($C0 apart: +$20, own faster +$20 more) and
+(past $300) the player's lock on it just now (+$10). The roles are the
+banked turns 9 (8°) and 5 (14°) and the knife-edge pull 2.
+
+**Heading for the point** (roles 0, 1, 3, 4, 8: `$120C66`; before it
+`$120B6E` turns roles other than 0/1/8 back to role 1 for 30 frames when
+the height leaves the band speed × 64 .. $800000 − speed × 64, and in
+mission 5 sends a touchable record whose timer ran out along its path,
+role 8): spinning with the nose 15-45° down it waits (role 6); role 8
+upside down and not steep waits 37 frames; roles 0/1 whose timer ran out
+end (`$120A74`: role 6 for 10 frames, or chasing a record by level 75 /
+37 / 18 / 4). The way to the point (the height held between a floor and
+a ceiling that grow with the speed — compared, as the original does, with
+the 32-bit height) shortened below $4800 and scaled to $C0
+(`$119CAE`); its dots with the view matrix's columns 0 (sideways) and 1
+(up) pick the axis (+$64 bit 3); within limits (by class: aircraft
+$30000-$50000, role 8 $C000-$18000) it is on course and the stick stays;
+else up/down: pull or push to a rate from `$12141C` (type $14 `$121448`,
+others `$121406`) by the dot's high word; sideways: a roll rate from
+`$121432` (type $14 and role 8 `$12145E`), halved from speed $1800; banked
+75-285° or pitched past 20° the rudder alone; behaviour 3/4 hold the roll
+near level; the stick rolls toward the rate (`$121202`; with the point
+ahead, rudder and roll together) and the bank limit +$7E grows with how
+far off the point is ($1000-$3000, behind: more; role 8 half).
+
+**The attitude step's rules for others** (`$121C6E`, before the input
+step; the port runs them after the flight step by the roll the frame
+started with, which equals it — `trainercheck`, `objectcheck`): without
+the pilot's bit 4 the stick bits are cleared (rudder and throttle kept);
+roles 6 and 10, or on course by the pilot's bits (vertical: bits 2 or 6,
+then 5; sideways: bits 1 or 5, then 6) in roles 0/1 — which become role 6
+for 30 frames — and 8: the stick rolls the wings toward level (within
+3.5°), state $2000; with pilot bits 1 and 2 +3 bit 4.
+
+Checked (`fa_18_interceptor_assets objectcheck <content> <recording>
+10`: the record stepped from each recorded frame, the player as moved in
+that frame): `work/ref/m3a.jsonl` 314 of 314 frames; `work/ref/
+demo_objs.jsonl` (the demo with records 10 and 14) every frame until the
+player's shots pass the bogey (frame 636: "near", then the hit — weapons
+against objects are not built). `democheck` on `demo_objs.jsonl` flies
+the bogey freely beside the player: equal for 530 frames, until its first
+attack choice, which needs the player's distance to its locked record
+(+$4A, `$1183E2`) and the lock (key T: `$13AAA9`, made in the radar
+routine `$126408` from the drawer's list `$1435A8`) — next. +$20 bit 6 is
+set by the radar (`$1260CC`: on the radar), not built.
+
 The angle routine `$10454A` (heading part used here; the port's
 `direction_of`): signs apart, the three lengths scaled so the largest
 fits ($10000000: / 8, shifts 14 / 0; $2000000: 14 / 0; $800000: 12 / 2;

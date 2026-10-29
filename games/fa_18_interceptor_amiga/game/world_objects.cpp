@@ -1,5 +1,6 @@
 #include "fa_18_interceptor_amiga/game/world_objects.hpp"
 #include "fa_18_interceptor_amiga/game/attitude.hpp"
+#include <algorithm>
 
 namespace interceptor::game {
 namespace {
@@ -50,6 +51,7 @@ ObjectLists::Spawned ObjectLists::spawn(const ObjectChoice& choice, const Flight
     // The stage's entries ($11CFBE: the demo's lists have one).
     const int stage = list_index == 10 ? 0 : choice.stage;
     list += std::uint32_t(program_.s16(list + std::uint32_t(2 * stage)));
+    out.first_entry = list;
     int aircraft = 0;
     for (std::uint32_t at = list; program_.s16(at) >= 0; at += entry::size) {
         // The first entry always; the others up to the mission's level.
@@ -61,10 +63,10 @@ ObjectLists::Spawned ObjectLists::spawn(const ObjectChoice& choice, const Flight
         std::int32_t to_x = 0, to_z = 0;
         if (heads_for & 0x8000) {
             if (!(heads_for & 0x7F00)) continue;
-            o.target = path((heads_for & 0x7F00) >> 7);
-            o.target_record = 0xFF;
-            to_x = world(o.target.cell_x, o.target.fine_x);
-            to_z = world(o.target.cell_z, o.target.fine_z);
+            o.course.target = path((heads_for & 0x7F00) >> 7);
+            o.course.target_record = 0xFF;
+            to_x = world(o.course.target.cell_x, o.course.target.fine_x);
+            to_z = world(o.course.target.cell_z, o.course.target.fine_z);
         } else {
             const int record = heads_for >> 8;
             const WorldObject* other = nullptr;
@@ -72,10 +74,10 @@ ObjectLists::Spawned ObjectLists::spawn(const ObjectChoice& choice, const Flight
                 if (p.record == record && p.active()) other = &p;
             }
             if (!other) continue;
-            o.target = {std::int16_t(other->craft.x >> 22), std::int16_t(other->craft.z >> 22),
+            o.course.target = {std::int16_t(other->craft.x >> 22), std::int16_t(other->craft.z >> 22),
                         std::int16_t((other->craft.x & 0x3FFFFF) >> 8), std::int16_t((other->craft.z & 0x3FFFFF) >> 8),
                         other->craft.y >> 8};
-            o.target_record = std::uint8_t(record | 0x80);
+            o.course.target_record = std::uint8_t(record | 0x80);
             to_x = other->craft.x;
             to_z = other->craft.z;
         }
@@ -84,6 +86,8 @@ ObjectLists::Spawned ObjectLists::spawn(const ObjectChoice& choice, const Flight
         o.craft.body = body_matrix(tables, o.craft.attitude);
         o.craft.view = view_matrix(tables, o.craft.attitude);
     }
+    std::stable_sort(out.objects.begin(), out.objects.end(),
+                     [](const WorldObject& a, const WorldObject& b) { return a.record < b.record; });
     return out;
 }
 
@@ -117,7 +121,7 @@ bool ObjectLists::spawn_entry(std::uint32_t at, int area, std::vector<WorldObjec
     a.player = false;
     a.type = type;
     o.group = std::uint8_t(record);
-    o.tag = std::uint8_t((heads_for & 0x7F00) >> 8);
+    o.course.path = std::uint8_t((heads_for & 0x7F00) >> 8);
     Waypoint place = path(m.u16(at + entry::path));
     if (f & flags::touchable) {
         a.state |= 0x0008;
@@ -150,16 +154,16 @@ bool ObjectLists::spawn_entry(std::uint32_t at, int area, std::vector<WorldObjec
         place.cell_z = std::int16_t(place.cell_z + dz);
     }
     o.area = std::int8_t(area);
-    o.behaviour = 3;
+    o.course.behaviour = 3;
     if ((type & 0xF0) != 0x20) a.state |= 0x1080;
     // Where it heads for: a path's place, or (by record) its own place
     // until the other record's is taken over.
     if (heads_for & 0x8000) {
-        if (heads_for & 0x7F00) o.target = path((heads_for & 0x7F00) >> 7);
-        o.target_record = 0xFF;
+        if (heads_for & 0x7F00) o.course.target = path((heads_for & 0x7F00) >> 7);
+        o.course.target_record = 0xFF;
     } else {
-        o.target = place;
-        o.target_record = std::uint8_t((heads_for >> 8) | 0x80);
+        o.course.target = place;
+        o.course.target_record = std::uint8_t((heads_for >> 8) | 0x80);
     }
     a.x = world(place.cell_x, place.fine_x);
     a.z = world(place.cell_z, place.fine_z);

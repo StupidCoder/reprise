@@ -104,10 +104,14 @@ from drawing, and must still respect the passes' model rule).
 11. **Missions**: the six selectable missions and the advanced mission
     chain, briefings, outcomes, the log's records. Done: the object lists
     (`$11CF06`, game/world_objects.*), the carrier at any place and
-    heading. Left: the objects' path following and speeds (`$120C66`,
-    `$117A16`, `$118468`; recording work/ref/m3a.jsonl), the trigger
-    areas (`$11D17A`), the missions' flows (briefings, radar, target
-    lock, outcomes `$118650`...), the log.
+    heading; the other aircraft's object step (speed, distance, pursuit
+    point, attack choice: game/object_step.*), the autopilot's mission
+    roles and the attitude step's rules for others, checked with
+    `objectcheck` (m3a, demo_objs). Left: the radar's list and the lock
+    (`$1435A8`, `$126408`, `$1183E2`), weapons against objects (near,
+    hits), the objects' touches and crashes, the trigger areas
+    (`$11D17A`), the missions' flows (briefings, outcomes `$118650`...),
+    the log.
 12. **Dusk and night**: palettes 3-9 (the fades).
 13. **Saves**: quick save and load of the module's state.
 

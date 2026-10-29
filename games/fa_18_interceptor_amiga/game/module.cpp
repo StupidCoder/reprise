@@ -11,6 +11,7 @@
 #include "fa_18_interceptor_amiga/game/pilot_record.hpp"
 #include "fa_18_interceptor_amiga/game/replay.hpp"
 #include "fa_18_interceptor_amiga/game/messages.hpp"
+#include "fa_18_interceptor_amiga/game/object_step.hpp"
 #include "fa_18_interceptor_amiga/game/scene.hpp"
 #include "fa_18_interceptor_amiga/game/sound_driver.hpp"
 #include "fa_18_interceptor_amiga/game/sounds.hpp"
@@ -387,16 +388,43 @@ public:
         ObjectChoice choice;
         choice.mode = list_mode();
         choice.variant_random = int(random_() & 0xFFFF);
-        objects_ = lists_.spawn(choice, tables_).objects;
-        for (auto it = objects_.begin(); it != objects_.end();) {
-            if (it->craft.type == 0x20) {
-                carrier_.place(it->craft, tables_);
-                it = objects_.erase(it);
-            } else {
-                ++it;
-            }
+        const auto spawned = lists_.spawn(choice, tables_);
+        objects_ = spawned.objects;
+        list_start_ = spawned.first_entry;
+        for (const auto& o : objects_) {
+            if (o.craft.type == 0x20) carrier_.place(o.craft, tables_);
         }
     }
+
+    // The object step for the lists' records, in record order (`$116C4E`
+    // ...): the others' part (`$11797E`), the autopilot, the flight step.
+    // (Their touches, weapons and crashes are not built yet.)
+    void objects_tick() {
+        Records records{&aircraft_, 0x7FFF, &objects_};
+        StepWorld world;
+        world.mode = std::uint8_t(mission_mode());
+        world.level = level_;
+        world.list = list_start_;
+        for (auto& o : objects_) {
+            auto& a = o.craft;
+            if (!o.active() || (a.type & 0xF0) != 0x10) continue;
+            object_step_.before_flight(o, records, world);
+            PilotWorld pilot_world;
+            pilot_world.mode = world.mode;
+            pilot_world.level = world.level;
+            autopilot_.fly(a, o.pilot, pilot_world, &o.course);
+            FlightControls c;
+            c.recorded = a.controls;
+            const auto roll_before = a.attitude.roll;
+            FlightRules rules;
+            rules.world = &world_;
+            if (a.state & 0x1000) fly(a, c, rules, tables_);
+            Autopilot::level_out(a, o.pilot, roll_before);
+        }
+    }
+
+    // `$13AB96` while flying: the demo flies as mission 3.
+    int mission_mode() const { return mode_ == FlightMode::demo ? 3 : list_mode(); }
 
     // $102DB8 / $1195D4: before a mission's flight, "YOUR VECTOR XXX FOR
     // BOGEY" with the heading from the player to a point 500 units ahead of
@@ -432,7 +460,7 @@ public:
     void add_objects(std::vector<Vehicle>& vehicles, double t) const {
         const double back = smooth_ ? 1 - t : 0;
         for (const auto& o : objects_) {
-            if (!o.active()) continue;
+            if (!o.active() || (o.craft.type & 0xF0) == 0x20) continue; // (the carrier: carrier_vehicle)
             const auto& a = o.craft;
             Vehicle v;
             v.type = o.shape_type;
@@ -719,7 +747,7 @@ private:
         FlightRules rules;
         rules.world = &world_;
         const auto events = fly(aircraft_, c, rules, tables_);
-        Autopilot::level_out(aircraft_, roll_before);
+        Autopilot::level_out(aircraft_, trainer_pilot_, roll_before);
         if (events.engine_sound != 0) sounds_.event(EngineSound(events.engine_sound));
         chase_camera();
         ++ticks_;
@@ -1123,6 +1151,7 @@ private:
         weapons_.move_shots(aircraft_, outside_, std::uint16_t(ticks_), sounds_);
         lead_point();
         if (mode_ == FlightMode::practice) lead_tick();
+        objects_tick();
 
         chase_camera();
         ++ticks_;
@@ -1251,7 +1280,7 @@ private:
         FlightRules rules;
         rules.world = &world_;
         fly(g, c, rules, tables_);
-        Autopilot::level_out(g, roll_before);
+        Autopilot::level_out(g, lead_pilot_, roll_before);
         if (g.state & 0x0400) {
             // ($11A7DA: no touches while it blows up; it stops after this
             // move - seen in `work/ref/prac.jsonl`, frame 271.)
@@ -1896,9 +1925,12 @@ private:
     int fade_ = 15, fade_ticks_ = 0;    // $13AB90: the screen's fade step (15: full)
     std::uint16_t replay_game_ = 0, replay_view_ = 0; // `$13AC86`, `$13AC88`: last frame's key events
     bool replay_ended_ = false;
-    Autopilot autopilot_{assets_.program};
+    Autopilot autopilot_{assets_.program, tables_};
     ObjectLists lists_{assets_.program};
-    std::vector<WorldObject> objects_;  // the object lists' records but the carrier
+    std::vector<WorldObject> objects_;  // the object lists' records (the carrier among them)
+    ObjectStep object_step_{assets_.program, tables_, lists_};
+    std::uint32_t list_start_ = 0;      // `$13AA2A`
+    std::int8_t level_ = 0;             // `$13AB97` (the demo: 0)
     std::mt19937 random_{std::random_device{}()}; // (`$13ADE8`'s draws)
     std::uint8_t trainer_pilot_ = 0;    // the trainer's +$64
     int maneuver_ = 0;                  // $13AA89

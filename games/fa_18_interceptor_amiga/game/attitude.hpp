@@ -43,6 +43,10 @@ Angles rotate(const FlightTables& tables, const Matrix& body, std::int16_t pitch
 std::array<std::int16_t, 3> scaled_vector(const FlightTables& tables, std::int16_t length, std::int16_t x, std::int16_t y, std::int16_t z,
                                           int first_shift = 8);
 
+// `$1108C4`: the length estimate of a vector from its three sizes (the
+// first two the flat pair), by two ratio lookups; at most $7FFF.
+std::int16_t length_estimate(const FlightTables& tables, std::uint16_t a, std::uint16_t b, std::uint16_t c);
+
 // The pitch and heading of the direction (x, y, z) ($10454A, its first
 // part: the arctangents of the larger and smaller of each pair by the
 // table, after a common scaling). Used to point an object at its target.

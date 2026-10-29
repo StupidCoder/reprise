@@ -1,6 +1,6 @@
 #pragma once
 #include "amiga/hunk.hpp"
-#include "fa_18_interceptor_amiga/game/aircraft.hpp"
+#include "fa_18_interceptor_amiga/game/autopilot.hpp"
 #include <cstdint>
 #include <optional>
 #include <vector>
@@ -15,14 +15,6 @@
 // the game runs them through the same object step as the player's.
 namespace interceptor::game {
 
-// A place the paths table holds and an object heads for (+$2C .. +$34):
-// coarse cells x and z (<< 22), offsets (<< 8) and the height (<< 8).
-struct Waypoint {
-    std::int16_t cell_x{}, cell_z{}, fine_x{}, fine_z{};
-    std::int32_t height{};
-    bool none() const { return cell_x < 0; } // (+$2C -1)
-};
-
 // A record other than the player's.
 struct WorldObject {
     Aircraft craft;
@@ -31,11 +23,7 @@ struct WorldObject {
     std::uint8_t scale{};        // +$7D low nibble: its model's scale shift
     std::uint8_t group{};        // +$5E: records of one group never touch
     std::int8_t area{};          // +$5D: the trigger area that spawned it (-1: the list)
-    std::uint8_t tag{};          // +$3A
-    Waypoint target;             // +$2C
-    std::uint8_t target_record{0xFF}; // +$38: $FF a point; $80 | n: record n's place
-    std::uint8_t behaviour{};    // +$7A
-    std::int16_t distance{};      // +$4A
+    Course course;               // +$2C .. +$38, +$3A, +$4A, +$7A
     std::uint8_t pilot{};        // +$64
     std::uint8_t weapons{};      // +$63
     bool active() const { return craft.state & 0x0040; }
@@ -63,6 +51,7 @@ public:
         int variant{};
         std::int16_t offset_x{}, offset_z{};
         int aircraft_limit{}; // `$13AB9A`
+        std::uint32_t first_entry{}; // `$13AA2A`: the stage's first entry
     };
     Spawned spawn(const ObjectChoice& choice, const FlightTables& tables) const;
 

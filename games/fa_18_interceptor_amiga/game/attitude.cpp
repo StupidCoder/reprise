@@ -167,21 +167,25 @@ Angles rotate(const FlightTables& t, const Matrix& m, i16 pitch_rate, i16 yaw_ra
     return {i16(pitch * 8), i16(heading * 8), i16(roll * 8)};
 }
 
-std::array<i16, 3> scaled_vector(const FlightTables& t, i16 length, i16 x, i16 y, i16 z, int first_shift) {
-    if (length == 0) return {0, 0, 0};
-    // The length of (x, y, z) from two ratio lookups ($1108C4).
-    std::uint16_t big = std::uint16_t(std::abs(int(x))), small = std::uint16_t(std::abs(int(y)));
+i16 length_estimate(const FlightTables& t, std::uint16_t big, std::uint16_t small, std::uint16_t up) {
     if (small > big) std::swap(big, small);
     std::uint16_t first = 0;
     if (small != 0 && big != 0) first = std::uint16_t(divide_unsigned(std::uint32_t(small) << 8, big) * 2);
     std::uint32_t flat = std::uint32_t(t.length_factor[first / 2]) * big;
-    std::uint32_t upright = std::uint32_t(std::abs(int(z))) << 14;
+    std::uint32_t upright = std::uint32_t(up) << 14;
     if (upright > flat) std::swap(flat, upright);
     const std::uint16_t longest = std::uint16_t(flat >> 14);
     std::uint16_t second = 0;
     if (longest != 0) second = std::uint16_t((i16(divide_unsigned(upright, longest)) >> 6) * 2);
     std::uint32_t estimate = (std::uint32_t(t.length_factor[second / 2]) * longest) >> 14;
     if (estimate > 0x7FFF) estimate = 0x7FFF;
+    return i16(estimate);
+}
+
+std::array<i16, 3> scaled_vector(const FlightTables& t, i16 length, i16 x, i16 y, i16 z, int first_shift) {
+    if (length == 0) return {0, 0, 0};
+    const std::uint32_t estimate = std::uint16_t(length_estimate(
+        t, std::uint16_t(std::abs(int(x))), std::uint16_t(std::abs(int(y))), std::uint16_t(std::abs(int(z)))));
     if (estimate == 0) return {0, 0, 0};
 
     // Scale by |length| / estimate with as many bits as fit ($119CB8).
