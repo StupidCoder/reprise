@@ -594,9 +594,11 @@ table (`$113470`, indexed by the opcode as a byte offset) beyond `$60`
 point offset; `$24` only with the camera low, `$13AD68` ≥ −$80; `$6C`
 with other clip flags, `$1145C8`), `$34` lines sharing a colour (colour,
 then pairs of point offsets, bit 15 on the last), `$12C` the same lines
-only with the camera above −$C0 of `$13AD68` (`$114A20`). Unknown so far:
-`$5C` (point offset, then colour: a figure built from three points,
-`$11486A`), `$9C` (a long and a word, `$113B58`), `$08` and `$128` in
+only with the camera above −$C0 of `$13AD68` (`$114A20`). Partly known:
+`$5C` (`$11486A`: a point offset and a count; with P0-P3 there, V =
+P0 − P3 + 1.5 (P1 − P3) and W = P2 − P3, then `count` parallelograms
+(Pk, Pk + V, Pk + W + V, Pk + W) from P3 on, in the colour left by the
+op before: rows of building fronts, not rebuilt), `$9C` (a long and a word, `$113B58`), `$08` and `$128` in
 ground lists.
 
 **The airfields' paving** is the runway types' own flat models (runway 1:
