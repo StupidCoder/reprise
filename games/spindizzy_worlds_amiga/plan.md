@@ -54,14 +54,28 @@ rate apart from drawing.
 
 ### Rules
 
-- [ ] Pac aliens, pyramids, boinks: movement, settling on surfaces
-      ($12F62), touching the explorer ($156D8: clue 5, fuel $2062, flash).
+- [x] Boinks (2026-10-29): bouncing, animation, touch (clue 2, $30 fuel,
+      popping); traced without a touch (MisDirection 4, Roller-ama 4).
+- [ ] A boink touch traced; the popping frames drawn (the view still
+      shows the moving list's frame at the pop list's step).
+- [x] Pac aliens rebuilt (walking, turns, the shared toggle, touch, eaten,
+      popping, back at the start); the generator $112CA ($2094) kept in
+      the game state, starfields draw from it at a level's start.
+- [x] The generator overwritten by sprite drawing ($102F6/$101FE), kept;
+      Tri Path 8 equal over 800 ticks.
+- [x] Pyramids: walking, reversing, touch; Pak Attack 2/3 equal (touches
+      in `play_w2_2t`).
+- [ ] A Pac touch and a Pac eaten while the explorer flashes, traced.
 - [ ] Spark generators (Period, Proximity; clue 9).
 - [ ] Turning the level ("r"/"t": rotation, rebuild, objects' rotate
       handlers, compass): the builder's and the objects' turns differ by
       a cell ((32 − x) vs (31 − x)); trace before rebuilding.
 - [ ] The other level-loop keys: pause, the overview map ("m"), slow mode
       ("F"), centre ("c").
+- [ ] The deadly timer's end: after it runs out (Roller-ama 4, tick 641)
+      the original runs no more rules ticks (its frame handler $153EA runs
+      the dying routine $12CE8 on the timer's own record); the port keeps
+      the explorer's 200-tick dying phase. Read $12CE8 with a4 = timer.
 - [ ] Game over: the reserve-fuel offer ($18C14: use reserve / retry /
       abandon the world), the dying kind's frames ($12D14 list, "Game
       over" text $12D68); the timer's "Die if elapse" frame ($153EA).
@@ -105,8 +119,9 @@ rate apart from drawing.
 - The front end's screens are checked by eye against reference screenshots
   and dumps, not pixel by pixel; the attract sprites' timing and the menu's
   flash rate are not compared.
-- Only the Tutorial's object kinds act; in other worlds aliens, pyramids,
-  boinks and sparks stay where they start.
+- Spark generators do not act yet (`playcheck` reports their slots).
+- The creatures' popping and the Pacs' eaten frames are not drawn yet
+  (the view keeps their walking frames).
 - The star generator's running state at a level start is not traced (seed
   0 is used); starfields without their own seed may differ.
 - Sprite colour 24 and the pillars' screen columns (−1 and 303) follow

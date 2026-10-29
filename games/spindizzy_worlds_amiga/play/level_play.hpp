@@ -4,6 +4,7 @@
 #include "spindizzy_worlds_amiga/play/objects.hpp"
 #include "spindizzy_worlds_amiga/play/surfaces.hpp"
 #include "spindizzy_worlds_amiga/view/camera.hpp"
+#include "spindizzy_worlds_amiga/view/starfield.hpp"
 #include "spindizzy_worlds_amiga/world/level_builder.hpp"
 #include <array>
 #include <cstdint>
@@ -56,6 +57,8 @@ struct Progress {
     bool timer_expired{};             // $2492
     std::uint32_t clues_left{0xFFFFFFFF}; // $3610: bit n = clue n not shown yet
     int rotation{};                   // $248B
+    std::uint32_t random{};           // $2094: the generator $112CA (stars, Pacs)
+    std::int16_t turn_side{2};        // $15618: the Pacs' turn toggle, kept in the code from boot
     std::uint16_t arrival_place{};    // $24C0
     bool game_over{};                 // $2490
     Explorer explorer;
@@ -103,6 +106,9 @@ public:
     const Explorer& explorer() const { return progress_.explorer; }
     ExplorerPhase phase() const { return phase_; }
     const LevelObjects& objects() const { return *objects_; }
+    // The starfield made at the level's start ($15AFC; seed 0 draws from
+    // the running generator).
+    const std::vector<view::Star>& stars() const { return stars_; }
     const Progress& progress() const { return progress_; }
     // Changes each time the level was rebuilt (the tile map must follow).
     int build_count() const { return builds_; }
@@ -136,6 +142,7 @@ private:
     bool moved_{};
     bool notice_{};
     view::Camera camera_;
+    std::vector<view::Star> stars_;
     std::optional<ShownClue> clue_;
     int builds_{};
 };

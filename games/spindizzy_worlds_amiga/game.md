@@ -703,7 +703,70 @@ is (object z + extra − explorer z) unsigned ≤ reach.
   p0 & $1F (once a game, or every time with bit 7); not made in the
   editor's test mode ($24BE).
 - **Clue** ($16340): a word for the panel (0 → $361C); no tick.
-- Pac aliens, pyramids, boinks, spark generators: not rebuilt yet.
+- **Boink** ($151C4, tick $15244): a ball bouncing in its column. Create:
+  +$2E = gravity (p0, signed), +$2C = speed (p1 signed × 4), +$30 = its
+  column's grid index, x/y the cell's centre, +$2A = set (word p2 p3),
+  heading +$28 = set + rotation. Each tick: cooldown +$32 − 1; speed +=
+  gravity; z += speed (below 0: z = 0, speed reversed); falling and z ≤
+  $700: a block in the column's level (z + $FF) >> 8 bounces it; rising
+  and z ≤ $500: a block three levels above z >> 8 bounces it (the speed
+  reversed and applied again; a sound when the cooldown has run out,
+  which then restarts at 8). Touch ($1481C): clue 2 ("crushed"), $30
+  fuel, sounds; it turns into a popping animation ($14800: tick $14810
+  deletes it once +$1E goes negative: the pop list's first entry has a
+  tick byte ≥ $80, read when the list wraps). Creatures' animations step
+  before their drawer's screen test ($10092, $147CA, $10124), so they
+  animate off screen too. Rebuilt; traced in MisDirection 4 (600 ticks,
+  three boinks) and Roller-ama 4; a touch not traced yet.
+- **Touch test** ($1481C, all creatures): per set (+$2A & $1C) in the
+  table at $146FC (24 bytes): +$12 half-width r, +$14 z offset, +$16
+  z range: touched when (x − ex + r) and (y − ey + r) are below 2r
+  (unsigned) and (z − ez + offset) below the range.
+- **Random generator** ($112CA): word $2096 × $F1 (mulu), $29 added to
+  the low word only, the long kept at $2094; returns low + high word.
+  Starfields with seed 0 draw from it at a level's start ($15B48); with a
+  seed they use (seed + rotation) twice and restore it. Its state is
+  **overwritten by sprite drawing** (an original bug, rebuilt): sprites
+  are drawn through an occlusion mask built at $2098 (the explorer and
+  16-pixel creatures, $100E0: two columns, stride 4; 32-pixel creatures
+  likewise). The drawing blit ($102F6, $101FE) writes D = frame mask AND
+  buffer with the first word of each row forced to 0, starting one word
+  early when the sprite needs no shift (its corner x on a 16-pixel
+  boundary): with its y on an 8-row band and its top not clipped that
+  word is $2096, the generator's state word, which becomes 0. So each
+  frame the state's low word is cleared when any drawn sprite (on screen:
+  corner − scroll + $10 within 0 … $130, + $20 within 0 … $140 for 32
+  pixels; rows 0 … $A6) has (x & 15) = 0 and (y & 7) = 0. It decides the
+  Pacs' random turns.
+- **Pac alien** ($1544A, tick $15526; rebuilt): start cell kept
+  (+$34/+$35), speed (p0, +$30), turn chance ("Side scan%", p2, +$31),
+  initial pause (p1, +$32/+$33), set (p3); heading +$28; it settles on
+  the block surface below ($12F62, the explorer's surface code) and keeps
+  a step vector (speed turned by the heading, +$2C/+$2E). Moving cell to
+  cell along its heading (offsets $15610: +$100, +8, −$100, −8); while
+  its next position stays within $100 of the target (+$36/+$38) it moves,
+  else at the cell centre ($1556A) it tests, from its own cell, the level's
+  edge ($155EC), headroom over the next cell (z < $5FF: levels +1 and +2
+  empty or $22/$23; < $6FF: +1; higher: none), and the next cell at its
+  level: attribute bit 3 blocks ($135C0), or with the set's bit 7 any
+  other block type than its start cell's ($157F0). Open: it draws a random
+  number and keeps its heading unless the low byte is below its chance
+  (+$31), then it turns back first. A turn ($15644) negates the shared
+  toggle at $15618 (in the code; +2 at boot), tries heading + toggle, then
+  the opposite side, else the reverse of that, snaps to its cell centre
+  and takes a new step vector. On the keep path it does not move that
+  tick. Touch: unless the explorer flashes from a
+  jewel ($24F4 ≠ 0, then it is eaten: $1571E: $24F6 + 1 up to 5, its
+  score frame from $25930, it rises $20 a tick for 32 ticks, then is
+  made again at its start with a pause of $7F), clue 5, fuel $2062,
+  $24F2 + 15; it pops and is made again at its start ($157A4, pause $7F).
+- **Pyramid** ($157F6, tick $15876): speed p0, set p1, heading = set +
+  rotation; it walks like a Pac without turning at random: at a cell
+  centre it reverses (heading ^ 2, snapped to its centre) when the next
+  cell's block at its level has attribute bit 3 or the cell above it is
+  filled; else it goes on (not moving that tick). Touch: clue 5, fuel
+  $2062 + $10, it pops and is gone ($14800).
+- Spark generators: not read yet.
 
 ## Clues and messages
 
@@ -874,7 +937,7 @@ Harness (research only, `harness/`): `run.sh` (FS-UAE, port 6870),
 RSP), `sdw.py` (`go`, `regs`, `mem`, `dump`, `joy BITS [FRAMES]`, `seq
 BITS:FRAMES …`, `world N [LEVEL]` enters a locked world by redirecting
 $117B0, `trace`, `visit ROUTINE`, `playtrace OUT TICKS INPUTS`: A5+0 …
-$3800 at the next level start, then the changed bytes before every rules
+$3800 at the next level start (SDW_LEVEL=n enters level n), then the changed bytes before every rules
 tick $11510, with the joystick byte set per tick), `drawn.py` (dump after a finished draw
 pass: break at $143B6 and run to its return address), `route.sh`,
 `level.sh`, `batch_traces.sh`, `visit_traces.sh`. `patch_joy` rewrites

@@ -60,15 +60,23 @@ void push_out(Explorer& e, std::uint16_t dx, std::uint16_t dy, std::uint16_t siz
 
 } // namespace
 
+std::uint16_t next_random(std::uint32_t& state) {
+    // $112CA: the word × $F1, $29 added to the product's low word only.
+    std::uint32_t product = (state & 0xFFFF) * 0xF1;
+    product = (product & 0xFFFF0000u) | ((product + 0x29) & 0xFFFF);
+    state = product;
+    return std::uint16_t((product & 0xFFFF) + (product >> 16));
+}
+
 bool condition_holds(std::uint16_t condition, const world::Switches& switches, std::uint32_t jewels) {
     world::Switches now = switches;
     now.jewels_left = jewels != 0;
     return now.holds(condition);
 }
 
-LevelObjects::LevelObjects(const world::Level& level, const data::Memory& main, ObjectWorld& w, bool first_visit,
-                           int& jewels_found)
-    : main_(main) {
+LevelObjects::LevelObjects(const world::Level& level, const data::Memory& main, const SurfaceTable& surfaces,
+                           ObjectWorld& w, bool first_visit, int& jewels_found)
+    : main_(main), surfaces_(&surfaces) {
     int jewel_index = 0; // $256A: counts every jewel the level places
     int slot = 2;
     for (std::size_t i = 0; i < level.objects.size(); ++i) {
@@ -150,6 +158,35 @@ LevelObjects::LevelObjects(const world::Level& level, const data::Memory& main, 
             o.word2c = std::uint16_t(parameter(placed, 0) << 8);
             o.count = parameter(placed, 1) + 1;
             break;
+        case ObjectKind::boink: // $151C4
+            o.word32 = 0;
+            o.word2e = std::uint16_t(std::int8_t(parameter(placed, 0)));      // gravity
+            o.word2c = std::uint16_t(std::int8_t(parameter(placed, 1)) * 4);  // speed
+            o.x = std::int16_t(o.x | 0x80);
+            o.y = std::int16_t(o.y | 0x80);
+            o.word26 = parameter_word(placed, 2);                              // the set (+$2A)
+            o.heading = std::int16_t(o.word26 + w.rotation);
+            o.count = 1; // +$1E = $100
+            break;
+        case ObjectKind::pac: // $1544A: the start cell kept; then $15456
+            o.parameters = placed.parameters;
+            o.word34 = std::uint16_t((o.x & 0xFF00) | (std::uint16_t(o.y) >> 8));
+            start_pac(o, w);
+            break;
+        case ObjectKind::pyramid: { // $157F6: speed p0, set p1 (heading = set + rotation)
+            const std::int16_t speed = std::int16_t(parameter(placed, 0));
+            o.word30 = std::uint16_t(speed);
+            o.word26 = parameter(placed, 1);
+            o.heading = std::int16_t((o.word26 + w.rotation) & 3);
+            o.x = std::int16_t(o.x | 0x80);
+            o.y = std::int16_t(o.y | 0x80);
+            o.target_x = o.target_y = std::int16_t(0x8000);
+            const std::int16_t sx[] = {speed, 0, std::int16_t(-speed), 0}, sy[] = {0, speed, 0, std::int16_t(-speed)};
+            o.step_x = sx[o.heading];
+            o.step_y = sy[o.heading];
+            o.count = 1;
+            break;
+        }
         case ObjectKind::clue: // $16340: a clue word for the panel; 0 takes $361C (not set: 0)
             o.word26 = parameter_word(placed, 0);
             break;
@@ -191,6 +228,9 @@ void LevelObjects::tick(ObjectWorld& w, ObjectEvents& events) {
         case ObjectKind::heads: tick_heads(o, w); break;
         case ObjectKind::timer: tick_timer(o, w, events); break;
         case ObjectKind::message: tick_message(o, events); break;
+        case ObjectKind::boink: tick_boink(o, w, events); break;
+        case ObjectKind::pac: tick_pac(o, w, events); break;
+        case ObjectKind::pyramid: tick_pyramid(o, w, events); break;
         default: break;
         }
     }
@@ -363,6 +403,201 @@ void LevelObjects::tick_timer(LevelObject& o, ObjectWorld& w, ObjectEvents& even
     w.running = false;
 }
 
+bool LevelObjects::touches(const LevelObject& o, const Explorer& e) const {
+    // $1481C: the set's half-width r, z offset and range ($146FC + 24 ×
+    // set, words +$12 … +$16).
+    const std::uint32_t set = 0x146FC + std::uint32_t((o.word26 & 0x1C) / 4) * 24;
+    const int r = main_.u16(set + 0x12);
+    if (std::uint16_t(o.x - e.x + r) >= std::uint16_t(2 * r)) return false;
+    if (std::uint16_t(o.y - e.y + r) >= std::uint16_t(2 * r)) return false;
+    return std::uint16_t(o.z - e.z + main_.u16(set + 0x14)) < main_.u16(set + 0x16);
+}
+
+void LevelObjects::tick_boink(LevelObject& o, ObjectWorld& w, ObjectEvents& events) { // $15244
+    if (o.popping) { // $14810: gone once its list has made +$1E negative
+        if (o.expired) o.alive = false;
+        return;
+    }
+    o.word32 = std::uint16_t(o.word32 - 1);
+    std::int16_t speed = std::int16_t(o.word2c + o.word2e);
+    o.word2c = std::uint16_t(speed);
+    o.z = std::int16_t(o.z + speed);
+    if (o.z < 0) {
+        o.word2c = std::uint16_t(-std::int16_t(o.word2c));
+        o.z = 0;
+    }
+    const int cx = o.x >> 8 & 31, cy = o.y >> 8 & 31;
+    auto cell = [&](int level) { return level >= 0 && level < world::level_height ? w.grid.at(cx, cy, level) : 0; };
+    bool bounce = false;
+    if (std::int16_t(o.word2c) < 0) { // falling: a block in the level z reaches
+        if (o.z <= 0x700) bounce = cell((std::uint16_t(o.z) + 0xFF) >> 8 & 0xFF) != 0;
+    } else if (o.z <= 0x500) {        // rising: a block three levels up
+        bounce = cell((std::uint16_t(o.z) >> 8) + 3) != 0;
+    }
+    if (bounce) {
+        speed = std::int16_t(-speed);
+        o.word2c = std::uint16_t(speed);
+        o.z = std::int16_t(o.z + speed);
+        if (std::int16_t(o.word32) < 0) o.word32 = 8; // and a sound ($152B0)
+    }
+    if (!touches(o, w.explorer)) return;
+    events.clue = 2;                // "Getting crushed destroys craft"
+    events.fuel_cost += 0x30;       // $152E2
+    o.popping = true;               // $14800 → $147E8
+    o.count = 1;
+    o.step = 0;
+}
+
+void LevelObjects::start_pac(LevelObject& o, const ObjectWorld& w) {
+    // $15456: speed p0, pause p1, turn chance p2 ("Side scan%"), set p3;
+    // +$2A's high byte = the block of its cell ($154D0); on the cell's
+    // centre, raised by the block's height there ($12F62).
+    const auto p = [&](std::size_t i) { return i < o.parameters.size() ? o.parameters[i] : std::uint8_t(0); };
+    o.word30 = std::uint16_t(p(0) << 8 | p(2)); // speed (high), chance (low)
+    o.pause = p(1);
+    o.word2c = p(3);
+    o.heading = std::int16_t(p(3) + w.rotation);
+    o.count = 1;
+    const int cx = o.x >> 8 & 31, cy = o.y >> 8 & 31, level = o.z >> 8 & 7;
+    const int block = w.grid.at(cx, cy, level);
+    o.word26 = std::uint16_t(block << 8 | p(3));
+    o.x = std::int16_t((o.x & 0xFF00) | 0x80);
+    o.y = std::int16_t((o.y & 0xFF00) | 0x80);
+    o.z = std::int16_t(o.z + (surfaces_ ? surface_height(*surfaces_, block, 0, 0x80, 0x80) : 0));
+    o.target_x = o.target_y = std::int16_t(0x8000);
+    o.heading &= 3;
+    const std::int16_t speed = std::int16_t(p(0));
+    const std::int16_t sx[] = {speed, 0, std::int16_t(-speed), 0}, sy[] = {0, speed, 0, std::int16_t(-speed)}; // $129F2
+    o.step_x = sx[o.heading];
+    o.step_y = sy[o.heading];
+}
+
+void LevelObjects::tick_pac(LevelObject& o, ObjectWorld& w, ObjectEvents& events) { // $15526
+    if (o.popping) { // $15712: back at its start once the pop list ran out ($157A4)
+        if (!o.expired) return;
+        o.popping = false;
+        o.expired = false;
+        o.x = std::int16_t(o.word34 & 0xFF00);
+        o.y = std::int16_t(o.word34 << 8);
+        o.z = std::int16_t(o.z & 0xFF00);
+        start_pac(o, w);
+        o.pause = 0x7F;
+        return;
+    }
+    if (o.eaten) { // $15774: rises for 32 ticks, then back at its start
+        if (--o.eaten > 0) { o.z = std::int16_t(o.z + 0x20); return; }
+        o.z = std::int16_t(o.z - 0x3E0);
+        o.x = std::int16_t(o.word34 & 0xFF00);
+        o.y = std::int16_t(o.word34 << 8);
+        o.z = std::int16_t(o.z & 0xFF00);
+        start_pac(o, w);
+        o.pause = 0x7F;
+        return;
+    }
+    auto touch = [&] { // $156B6
+        if (o.pause) return;
+        if (!touches(o, w.explorer)) return;
+        if (w.explorer.timer_a != 0) { // $1571E: eaten while the explorer flashes from a jewel
+            o.eaten = 0x20;
+            w.explorer.timer_b = std::int16_t(std::min(w.explorer.timer_b + 1, 5));
+            return;
+        }
+        events.clue = 5;
+        events.fuel_cost += w.alien_cost;
+        w.explorer.arrival_ticks = std::int16_t(w.explorer.arrival_ticks + 0xF);
+        o.popping = true; // $147E8
+        o.count = 1;
+        o.step = 0;
+    };
+    if (o.pause) { --o.pause; touch(); return; }
+    const std::int16_t nx = std::int16_t(o.x + o.step_x), ny = std::int16_t(o.y + o.step_y);
+    if (std::uint16_t(o.target_x - nx + 0x100) < 0x200 && std::uint16_t(o.target_y - ny + 0x100) < 0x200) {
+        o.x = nx; o.y = ny; touch(); return;
+    }
+    // $1556A: at a cell centre: which way next.
+    const bool same_type = (o.word26 & 0x80) != 0; // set bit 7: only cells of its start block ($157F0)
+    const int level = std::uint16_t(o.z) >> 8;
+    o.target_x = std::int16_t((nx & 0xFF00) | 0x80);
+    o.target_y = std::int16_t((ny & 0xFF00) | 0x80);
+    const int cx = nx >> 8 & 31, cy = ny >> 8 & 31;
+    auto cell = [&](int x, int y, int z) { return x >= 0 && x < 32 && y >= 0 && y < 32 && z >= 0 && z < 8 ? w.grid.at(x, y, z) : 0; };
+    auto open = [&](int h2) {
+        const int h = h2 >> 1;
+        const int ox = o.x >> 8 & 31, oy = o.y >> 8 & 31; // $155EC: the edge from its own cell
+        if ((h == 0 && ox == 31) || (h == 1 && oy == 31) || (h == 2 && ox == 0) || (h == 3 && oy == 0)) return false;
+        const int dx[] = {1, 0, -1, 0}, dy[] = {0, 1, 0, -1};
+        const int x = cx + dx[h], y = cy + dy[h];
+        auto clear = [&](int t) { return t == 0 || (t & 0xFE) == 0x22; };
+        if (o.z < 0x5FF) { if (!clear(cell(x, y, level + 2)) || !clear(cell(x, y, level + 1))) return false; } // $15630
+        else if (o.z < 0x6FF) { if (!clear(cell(x, y, level + 1))) return false; }                     // $1561E
+        const int t = cell(x, y, level);
+        if (same_type) return t == (o.word26 >> 8);
+        return !(main_.u8(0x30BC0 + std::uint32_t(t)) & 8); // $135C0: attribute bit 3
+    };
+    int h2 = (o.heading & 3) * 2;
+    if (open(h2)) {
+        if ((next_random(*w.random) & 0xFF) >= (o.word30 & 0xFF)) { touch(); return; }
+        h2 ^= 4;
+    }
+    // $15644: a side by the shared toggle, the other side, else back.
+    *w.turn_side = std::int16_t(-*w.turn_side);
+    int d = (h2 + *w.turn_side) & 6;
+    if (!open(d)) {
+        d ^= 4;
+        if (!open(d)) d = (d - *w.turn_side) & 6;
+    }
+    o.heading = std::int16_t(d >> 1);
+    o.x = std::int16_t((o.x & 0xFF00) | 0x80);
+    o.y = std::int16_t((o.y & 0xFF00) | 0x80);
+    o.target_x = o.x;
+    o.target_y = o.y;
+    touch();
+    if (o.popping || o.eaten) return;
+    const std::int16_t speed = std::int16_t(o.word30 >> 8); // $154A2
+    const std::int16_t sx[] = {speed, 0, std::int16_t(-speed), 0}, sy[] = {0, speed, 0, std::int16_t(-speed)};
+    o.step_x = sx[o.heading];
+    o.step_y = sy[o.heading];
+}
+
+void LevelObjects::tick_pyramid(LevelObject& o, ObjectWorld& w, ObjectEvents& events) { // $15876
+    if (o.popping) { // $14810
+        if (o.expired) o.alive = false;
+        return;
+    }
+    auto touch = [&] { // $15910
+        if (!touches(o, w.explorer)) return;
+        events.clue = 5;
+        events.fuel_cost += w.alien_cost + 0x10; // $1593A
+        o.popping = true;
+        o.count = 1;
+        o.step = 0;
+    };
+    const std::int16_t nx = std::int16_t(o.x + o.step_x), ny = std::int16_t(o.y + o.step_y);
+    if (std::uint16_t(o.target_x - nx + 0x100) < 0x200 && std::uint16_t(o.target_y - ny + 0x100) < 0x200) {
+        o.x = nx; o.y = ny; touch(); return;
+    }
+    // $158B4: at a cell centre: back when the next cell (at its level) is
+    // a wall block (attribute bit 3) or the cell above it is filled.
+    o.target_x = std::int16_t((nx & 0xFF00) | 0x80);
+    o.target_y = std::int16_t((ny & 0xFF00) | 0x80);
+    const int h = o.heading & 3, level = std::uint16_t(o.z) >> 8;
+    const int dx[] = {1, 0, -1, 0}, dy[] = {0, 1, 0, -1};
+    const int x = (nx >> 8 & 31) + dx[h], y = (ny >> 8 & 31) + dy[h];
+    auto cell = [&](int z) { return x >= 0 && x < 32 && y >= 0 && y < 32 && z >= 0 && z < 8 ? w.grid.at(x, y, z) : 0; };
+    if (cell(level + 1) == 0 && !(main_.u8(0x30BC0 + std::uint32_t(cell(level))) & 8)) { touch(); return; } // keeps going
+    o.heading = std::int16_t(h ^ 2);
+    o.x = std::int16_t((o.x & 0xFF00) | 0x80);
+    o.y = std::int16_t((o.y & 0xFF00) | 0x80);
+    o.target_x = o.x;
+    o.target_y = o.y;
+    touch();
+    if (o.popping) return;
+    const std::int16_t speed = std::int16_t(o.word30); // $15826
+    const std::int16_t sx[] = {speed, 0, std::int16_t(-speed), 0}, sy[] = {0, speed, 0, std::int16_t(-speed)};
+    o.step_x = sx[o.heading];
+    o.step_y = sy[o.heading];
+}
+
 void LevelObjects::tick_message(LevelObject& o, ObjectEvents& events) { // $16028
     if (--o.count < 0) {
         o.alive = false;
@@ -371,6 +606,21 @@ void LevelObjects::tick_message(LevelObject& o, ObjectEvents& events) { // $1602
     if (o.count != 0) return;
     events.clue = high(o.word2c) & 0x1F;
     events.clue_always = (o.word2c & 0x8000) != 0;
+}
+
+std::vector<view::SpritePlace> LevelObjects::masked_creature_places(const data::Memory& main) const {
+    std::vector<view::SpritePlace> places;
+    for (const auto& o : objects_) {
+        if (!o.alive || o.eaten || (o.kind != ObjectKind::boink && o.kind != ObjectKind::pac && o.kind != ObjectKind::pyramid)) continue;
+        const std::uint32_t set = 0x146FC + std::uint32_t((o.word26 & 0x1C) / 4) * 24;
+        const std::uint32_t pair = 0x146F8 + std::uint32_t(std::int16_t(main.u16(set + (o.popping ? 0x10 : 2))));
+        auto place = view::project({o.x, o.y, o.z});
+        place.x += std::int16_t(main.u16(pair));
+        place.y += std::int16_t(main.u16(pair + 2));
+        place.key = std::int16_t(main.u16(set)) < 0 ? 1 : 0; // 1: the 32-pixel drawer ($10124)
+        places.push_back(place);
+    }
+    return places;
 }
 
 void LevelObjects::frame(const data::Memory& main, bool slow, const view::Camera& camera) {
@@ -395,13 +645,26 @@ void LevelObjects::frame(const data::Memory& main, bool slow, const view::Camera
             list = exit_list;
             rows = 0x0E;
             if (o.word2c == 2) place.y -= 8; // $14AAE's test, meant for jewels
+        } else if (o.kind == ObjectKind::boink || o.kind == ObjectKind::pac || o.kind == ObjectKind::pyramid) {
+            // $1467E: the set's (dx, dy) pair at +2 (moving) or +$10
+            // (popping, $147E2) from $146F8, its list after it.
+            const std::uint32_t set = 0x146FC + std::uint32_t((o.word26 & 0x1C) / 4) * 24;
+            const std::uint32_t pair = 0x146F8 + std::uint32_t(std::int16_t(main.u16(set + (o.popping ? 0x10 : 2))));
+            place = view::project({o.x, o.y, o.z});
+            place.x += std::int16_t(main.u16(pair));
+            place.y += std::int16_t(main.u16(pair + 2));
+            list = pair + 4;
+            const int mode = std::int16_t(main.u16(set));
+            rows = mode < 0 ? 23 : mode > 0 ? 15 : 11; // $10124, $100A0 16 rows, 12 rows
         } else {
             continue;
         }
+        // Creatures step before their drawer's screen test ($10092,
+        // $147CA, $10124); the others only on screen.
+        const bool creature = o.kind == ObjectKind::boink || o.kind == ObjectKind::pac || o.kind == ObjectKind::pyramid;
         const int across = place.x - camera.scroll_x + 0x20;
-        if (across <= 0 || across >= 0x140) continue;
         const int down = place.y - camera.scroll_y;
-        if (down >= 0xA7 || down + rows < 0) continue;
+        if (!creature && (across <= 0 || across >= 0x140 || down >= 0xA7 || down + rows < 0)) continue;
         bool next = false;
         if (!slow) next = (o.count = (o.count - 1) & 0xFF) == 0;
         if (!next) next = (o.count = (o.count - 1) & 0xFF) == 0;
@@ -409,6 +672,7 @@ void LevelObjects::frame(const data::Memory& main, bool slow, const view::Camera
         ++o.step;
         if (std::int16_t(main.u16(list + std::uint32_t(o.step) * 4)) < 0) o.step = 0;
         o.count = main.u16(list + std::uint32_t(o.step) * 4) & 0xFF;
+        if (o.popping && (o.count & 0x80)) o.expired = true; // +$1E negative: the next tick acts
     }
 }
 

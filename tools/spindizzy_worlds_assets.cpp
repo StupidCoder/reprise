@@ -262,6 +262,7 @@ spindizzy::play::Progress progress_from(const Ram& m) {
     p.timer = std::uint16_t(m.u16(0x360E)); p.timer_expired = m.u16(0x2492) != 0;
     p.clues_left = std::uint32_t(m.s32(0x3610));
     p.rotation = m.u8(0x248B); p.arrival_place = std::uint16_t(m.u16(0x24C0));
+    p.random = std::uint32_t(m.s32(0x2094));
     TracedTick t;
     t.state.assign(0x80, 0);
     for (int i = 0; i < 0x68; ++i) t.state[std::size_t(i)] = std::uint8_t(m.u8(0x24B8 + i));
@@ -334,6 +335,7 @@ int play_check(const spindizzy::data::Assets& assets, const std::filesystem::pat
         fields.push_back({"switch", progress.switches.primary << 8 | progress.switches.secondary, m.u16(0x3616)});
         fields.push_back({"binary", progress.switches.binary, m.u8(0x3619)});
         fields.push_back({"timer", progress.timer, m.u16(0x360E)});
+        fields.push_back({"random", long(progress.random), long(std::uint32_t(m.s32(0x2094)))});
         std::vector<bool> used(32);
         for (const auto& o : lp->objects().objects()) {
             if (!o.alive) continue;
@@ -349,11 +351,17 @@ int play_check(const spindizzy::data::Assets& assets, const std::filesystem::pat
                 fields.push_back({n + " +2e", o.word2e, m.u16(r + 0x2E)});
                 fields.push_back({n + " +30", o.word30, m.u16(r + 0x30)});
             }
-            if (o.kind == world::ObjectKind::jewel || (o.kind == world::ObjectKind::exit_point && o.byte20)) {
+            if (o.kind == world::ObjectKind::jewel || o.kind == world::ObjectKind::boink || o.kind == world::ObjectKind::pac || o.kind == world::ObjectKind::pyramid || (o.kind == world::ObjectKind::exit_point && o.byte20)) {
                 fields.push_back({n + " count", o.count, m.u8(r + 0x1E)});
                 fields.push_back({n + " step", o.step, m.u8(r + 0x1F)});
             }
             if (o.kind == world::ObjectKind::exit_point) fields.push_back({n + " shown", o.byte20 != 0, m.u8(r + 0x20) != 0});
+            if (o.kind == world::ObjectKind::pac || o.kind == world::ObjectKind::pyramid) {
+                fields.push_back({n + " heading", o.heading, m.u16(r + 0x28)});
+                fields.push_back({n + " target", long(std::uint32_t(std::uint16_t(o.target_x)) << 16 | std::uint16_t(o.target_y)), long(std::uint32_t(m.s32(r + (o.kind == world::ObjectKind::pyramid ? 0x32 : 0x36))))});
+                fields.push_back({n + " step", long(std::uint32_t(std::uint16_t(o.step_x)) << 16 | std::uint16_t(o.step_y)), long(std::uint32_t(m.s32(r + 0x2C)))});
+                if (o.kind == world::ObjectKind::pac) fields.push_back({n + " pause", o.pause, m.u8(r + 0x33)});
+            }
         }
         for (int s = 2; s < 32; ++s)
             if (!used[std::size_t(s)] && m.s32(0x258C + s * 0x40) != 0) {
@@ -395,11 +403,13 @@ int play_check(const spindizzy::data::Assets& assets, const std::filesystem::pat
 //   level L         ticks without input until level L is reached
 //   rest            ticks without input until the explorer is still
 // Starts at the world's level 1 like a new game's first world.
-int route(const spindizzy::data::Assets& assets, int world, const std::string& script_path, const std::filesystem::path& out) {
+int route(const spindizzy::data::Assets& assets, int world, const std::string& script_path, const std::filesystem::path& out,
+          int first_level = 1) {
     using namespace spindizzy;
     const auto surfaces = play::read_surfaces(assets.main);
     play::Progress progress;
     progress.start_world(assets.main, world, 0);
+    progress.level = first_level; // the harness's SDW_LEVEL
     auto lp = std::make_unique<play::LevelPlay>(assets, surfaces, progress);
     std::ofstream inputs(out);
     long tick = 0;
@@ -739,9 +749,9 @@ int main(int argc, char** argv) {
             }
             return 0;
         }
-        if (command == "route" && argc == 6) {
+        if (command == "route" && (argc == 6 || argc == 7)) {
             const auto assets = load_assets(platform::utf8_path(argv[2]));
-            return route(assets, std::stoi(argv[3]), argv[4], platform::utf8_path(argv[5]));
+            return route(assets, std::stoi(argv[3]), argv[4], platform::utf8_path(argv[5]), argc == 7 ? std::stoi(argv[6]) : 1);
         }
         if (command == "playcheck" && argc == 4) {
             const auto assets = load_assets(platform::utf8_path(argv[2]));

@@ -1,6 +1,7 @@
 #pragma once
 #include "spindizzy_worlds_amiga/data/assets.hpp"
 #include "spindizzy_worlds_amiga/play/explorer.hpp"
+#include "spindizzy_worlds_amiga/play/surfaces.hpp"
 #include "spindizzy_worlds_amiga/view/camera.hpp"
 #include "spindizzy_worlds_amiga/world/level_builder.hpp"
 #include "spindizzy_worlds_amiga/world/object_kind.hpp"
@@ -38,6 +39,9 @@ struct ObjectWorld {
     int level{};                            // $251E
     std::uint16_t level_flags{};            // $24B8
     int rotation{};                         // $248B & 3
+    std::uint32_t* random{};                // $2094: the generator $112CA
+    std::int16_t* turn_side{};              // $15618: the Pacs' shared turn toggle (±2, in the code)
+    int alien_cost{};                       // $2062
     bool running{true};                     // $2498: the level loop goes on
 };
 
@@ -54,6 +58,7 @@ struct ObjectEvents {
     int clue{-1};           // a clue to show once ($15FC0) or a message ($16028)
     bool clue_always{};     // the message's bit 7: shown again
     bool timer_death{};     // the timer elapsed with "Die if elapse" ($15374)
+    int fuel_cost{};        // whole fuel units a creature took ($152E2)
     std::optional<int> timer_travel; // the timer elapsed: this level (0 = the world ends)
 };
 
@@ -69,15 +74,26 @@ struct LevelObject {
     std::uint8_t byte20{}, byte21{};
     int count{};                 // +$1E: animation countdown (high byte) …
     int step{};                  // … and the entry (+$1F)
+    bool popping{};              // a creature touched: its pop animation, then gone ($14800)
+    bool expired{};              // the pop list ran out (+$1E negative)
+    std::int16_t heading{};      // +$28 (creatures)
+    std::int16_t target_x{}, target_y{}; // +$36/+$38: a Pac's cell centre
+    std::int16_t step_x{}, step_y{};     // +$2C/+$2E: a Pac's step
+    int pause{};                 // +$33
+    int eaten{};                 // a Pac eaten: ticks of its rise ($15774), else 0
+    std::vector<std::uint8_t> parameters;
     bool alive{true};
 };
+
+std::uint16_t next_random(std::uint32_t& state); // $112CA
 
 class LevelObjects {
 public:
     // Creates the level's objects ($127CA after the build; jewels the
     // level has lost already are not created, $13910). `first_visit`:
     // the level's jewel long had bit 31 set.
-    LevelObjects(const world::Level&, const data::Memory& main, ObjectWorld&, bool first_visit, int& jewels_found);
+    LevelObjects(const world::Level&, const data::Memory& main, const SurfaceTable&, ObjectWorld&, bool first_visit,
+                 int& jewels_found);
 
     // One rules tick of every object in slot order ($14390).
     void tick(ObjectWorld&, ObjectEvents&);
@@ -87,6 +103,10 @@ public:
     void frame(const data::Memory& main, bool slow, const view::Camera&);
     // The secret passages' cells again after a rebuild ($143DE).
     void reapply(ObjectWorld&) const;
+    // The sprite places of the creatures drawn this frame, for the
+    // generator's overwrite (key 1: the 32-pixel drawer $10124, else the
+    // 16-pixel $100A0).
+    std::vector<view::SpritePlace> masked_creature_places(const data::Memory& main) const;
 
     // Every object in slot order (the explorer's slot is not in this list;
     // deleted objects stay, not alive).
@@ -101,8 +121,14 @@ private:
     void tick_heads(LevelObject&, ObjectWorld&);
     void tick_timer(LevelObject&, ObjectWorld&, ObjectEvents&);
     void tick_message(LevelObject&, ObjectEvents&);
+    void tick_boink(LevelObject&, ObjectWorld&, ObjectEvents&);
+    void tick_pac(LevelObject&, ObjectWorld&, ObjectEvents&);
+    void tick_pyramid(LevelObject&, ObjectWorld&, ObjectEvents&);
+    void start_pac(LevelObject&, const ObjectWorld&);
+    bool touches(const LevelObject&, const Explorer&) const;
 
     const data::Memory& main_;
+    const SurfaceTable* surfaces_{};
     std::vector<LevelObject> objects_;
 };
 

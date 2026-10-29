@@ -84,7 +84,11 @@ LevelPlay::LevelPlay(const data::Assets& assets, const SurfaceTable& surfaces, P
     if (place & 0x8000) place_explorer(place);
     else if (!(place & 0x4000)) place_explorer(header_.first);
     auto w = object_world();
-    objects_.emplace(level_, assets.main, w, first_visit, p.jewels_found);
+    objects_.emplace(level_, assets.main, surfaces_, w, first_visit, p.jewels_found);
+    view::StarRandom running(p.random);
+    for (const auto& object : level_.objects)
+        if (object.kind == int(world::ObjectKind::starfield)) stars_ = view::make_stars(assets.main, object, running);
+    p.random = running.state();
     p.jewels &= ~0x80000000u; // $1236A
     camera_ = view::snap_camera(view::explorer_place({e.x, e.y, e.z}), level_flags_); // $11FB4
     p.reserve_at_start = p.reserve;
@@ -117,6 +121,9 @@ ObjectWorld LevelPlay::object_world() {
     w.level = p.level;
     w.level_flags = level_flags_;
     w.rotation = p.rotation;
+    w.random = &p.random;
+    w.turn_side = &p.turn_side;
+    w.alien_cost = p.costs.alien;
     w.running = running_;
     return w;
 }
@@ -201,6 +208,7 @@ void LevelPlay::tick(std::uint8_t joystick) {
     objects_->tick(w, happened);
     if (phase_ == ExplorerPhase::playing) settle_explorer(e, events);
     if (happened.clue >= 0) show_clue(happened.clue, happened.clue_always);
+    if (happened.fuel_cost) add_whole(p.fuel_change, -happened.fuel_cost);
     if (happened.back_to_respawn) { // $12C3E
         e.x = with_low(e.respawn_x, 0x80);
         e.y = with_low(e.respawn_y, 0x80);
@@ -254,6 +262,23 @@ void LevelPlay::frame(bool slow) {
     if (p.fuel_shown < whole) ++p.fuel_shown;
     else if (p.fuel_shown > whole) --p.fuel_shown;
     objects_->frame(assets_.main, slow, camera_);
+    // $102F6 / $101FE: a sprite drawn through a mask buffer at $2098 (the
+    // explorer and every creature) whose corner is on a 16-pixel boundary
+    // starts its blit one word early; with its y on an 8-row band and its
+    // top not clipped that word is $2096, the generator's state word,
+    // which becomes 0. An original bug, kept: it steers the Pacs' turns.
+    auto clears = [&](const view::SpritePlace& at) {
+        const bool wide = at.key == 1;
+        const int across = at.x - camera_.scroll_x + (wide ? 0x20 : 0x10); // $10138 / $100A8
+        const int down = at.y - camera_.scroll_y;                          // $1072A
+        return across > 0 && across < (wide ? 0x140 : 0x130) && down >= 0 && down < 0xA7 && (at.x & 15) == 0 &&
+               (at.y & 7) == 0;
+    };
+    auto explorer_at = view::explorer_place({e.x, e.y, e.z});
+    explorer_at.key = 0;
+    bool cleared = clears(explorer_at);
+    for (const auto& at : objects_->masked_creature_places(assets_.main)) cleared = cleared || clears(at);
+    if (cleared) p.random &= 0xFFFF0000u;
     // $162FE: a condition met while building changed: build again where
     // the explorer is ($11FF0 with $24C0 = $4000).
     for (std::size_t i = 0; i < level_.conditions.size(); ++i) {

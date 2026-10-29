@@ -48,7 +48,6 @@ private:
     std::unique_ptr<play::LevelPlay> play_;
     std::unique_ptr<view::TileMap> map_;
     int map_build_{};
-    std::vector<view::Star> stars_;
     std::uint32_t explorer_frame_{view::explorer_frames};
     bool space_held_{};
     // A clue on show ($15FC0): 26 frames, then until fire or 126 more.

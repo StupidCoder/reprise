@@ -23,10 +23,6 @@ void PlayScreen::start_level() {
     play_ = std::make_unique<play::LevelPlay>(assets_, surfaces_, progress_);
     map_ = std::make_unique<view::TileMap>(view::TileMap::build(play_->level().grid, assets_.graphics));
     map_build_ = play_->build_count();
-    stars_.clear();
-    view::StarRandom running(0); // used by seed 0 only; its state at a level start is not traced yet
-    for (const auto& object : play_->level().objects)
-        if (object.kind == int(world::ObjectKind::starfield)) stars_ = view::make_stars(assets_.main, object, running);
 }
 
 void PlayScreen::frame(const PlayInput& input, bool slow) {
@@ -75,7 +71,7 @@ void PlayScreen::draw_playfield(view::Screen& screen) const {
     view::Canvas canvas(320, playfield_height);
     const int left = play_->camera().left(), top = play_->camera().top();
     view::draw_playfield(canvas, *map_, assets_.graphics, left, top);
-    view::draw_stars(canvas, stars_);
+    view::draw_stars(canvas, play_->stars());
     const auto& objects = play_->objects().objects();
     auto sprites = view::start_sprites(play_->level(), play_->switches(), assets_.main, [&](std::size_t index) {
         view::ObjectState state;
@@ -86,6 +82,7 @@ void PlayScreen::draw_playfield(view::Screen& screen) const {
             state.step = o.step;
             state.z = o.z;
             state.shown = o.byte20 != 0;
+            if (o.kind == world::ObjectKind::boink || o.kind == world::ObjectKind::pac || o.kind == world::ObjectKind::pyramid) { state.x = o.x; state.y = o.y; state.heading = o.heading & 3; }
             break;
         }
         return state;
