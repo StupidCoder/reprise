@@ -2,6 +2,7 @@
 #include "rock_n_roll_amiga/data/assets.hpp"
 #include "rock_n_roll_amiga/game/level_map.hpp"
 #include <array>
+#include <vector>
 #include <optional>
 #include <cstdint>
 
@@ -142,6 +143,13 @@ struct Ball {
     // Bridges ($DD-$E2): this update ($6FDE6, cleared by $6ACE6) and the
     // next update's steering only moves the camera ($70406).
     bool on_bridge{};
+    // Sound effects asked for this update ($70A9C numbers, in order), and
+    // the delay after which $18 follows ($68AE6, counted down at $68AEA).
+    std::vector<int> sounds;
+    int sound_delay{};
+    bool energy_sound_quiet{};        // $6E254: this drop's sound already played (gate hit, purchase)
+    bool bridge_latch{};              // $6D130: the ride's start sounds played
+    int bridge_end_sound{0x15}, bridge_end_other{0x17}; // $6D132/$6D13A, swapped at each end
     bool bridge_along_y{};            // $6D12E: the last bridge ride's axis (corners turn by it)
     bool carried{};
 

@@ -255,7 +255,7 @@ Assets load_assets(const std::filesystem::path& content) {
     for (const int file : music_files) {
         const auto bytes = read(content, file);
         const bool song = bytes.size() > 4 && bytes[0] == 'T' && bytes[1] == 'F' && bytes[2] == 'M' && bytes[3] == 'X';
-        assets.music.push_back({file, song, bytes.size()});
+        assets.music.push_back({file, song, bytes.size(), bytes});
     }
     return assets;
 }

@@ -27,6 +27,12 @@ constexpr std::uint32_t name_text = 0x68414;      // the name (7, 14), 13 charac
 // with these texts').
 constexpr std::uint32_t magic_map_name = 0x68424, rainbow_name = 0x68434, country_name = 0x68444;
 
+constexpr std::uint32_t jukebox_texts = 0x68206; // "ROCK AND ROLL JUKEBOX" and the titles, (3, 4) on
+constexpr int jukebox_text_count = 11;
+constexpr std::uint32_t jukebox_number_text = 0x6832F; // "TITLE NR.: 1" (3, 15), the digit at $68344
+constexpr std::uint32_t jukebox_number = 0x68344;
+constexpr int jukebox_pass_frames = 2 * 655360 * 50 / 7093790; // two delays ($6B66E) a pass of its loop
+
 constexpr char end_letter = '[', delete_letter = '\'', blank = '(';
 
 std::string name_of(const data::Program& program, std::uint32_t text) {
@@ -119,6 +125,12 @@ void FrontEnd::begin_name(bool code) {
     print_name();
 }
 
+void FrontEnd::draw_jukebox_number() {
+    auto text = read_text(assets_->program, jukebox_number_text);
+    text.text[jukebox_number - jukebox_number_text] = jukebox_title_;
+    print_at(canvas(), world_->bank, records_x, records_y, text);
+}
+
 void FrontEnd::print_name() {
     auto letter = read_text(assets_->program, letter_text);
     letter.text[2] = char(letter_);
@@ -202,9 +214,11 @@ std::optional<GameStart> FrontEnd::name_finished() {
         return std::nullopt;
     }
     if (is(name_of(program, country_name))) {
-        // The jukebox ($68CD4; its songs need the music player, not rebuilt):
-        // afterwards the name is asked again ($719AC).
-        begin_name(false);
+        // The jukebox ($68CD4): all music stops ($709E6) and the panel
+        // below the title scrolls into view; afterwards the name is asked
+        // again ($719AC).
+        jukebox_request_ = 0;
+        state_ = State::jukebox_down;
         return std::nullopt;
     }
     start.magic_map = is(name_of(program, magic_map_name));
@@ -241,6 +255,45 @@ std::optional<GameStart> FrontEnd::tick(const FrontEndInput& in) {
     case State::scroll_up:
         scroll_step(-1);
         if (scroll_ == 0) state_ = State::release_left;
+        break;
+    case State::jukebox_down: // $68CD8: down to the panel, then the titles
+        scroll_step(1);
+        if (scroll_ == scroll_rows) {
+            std::uint32_t at = jukebox_texts;
+            for (int i = 0; i < jukebox_text_count; ++i) {
+                const auto t = read_text(assets_->program, at);
+                print_at(canvas(), world_->bank, records_x, records_y, t);
+                at += std::uint32_t(t.text.size()) + 1;
+            }
+            draw_jukebox_number();
+            jukebox_wait_ = 0;
+            state_ = State::jukebox;
+        }
+        break;
+    case State::jukebox: // $68D88: a pass every two delays
+        if (++jukebox_wait_ < jukebox_pass_frames) break;
+        jukebox_wait_ = 0;
+        if (in.left) jukebox_title_ = jukebox_title_ == '9' ? '0' : char(jukebox_title_ + 1); // held: on and on
+        draw_jukebox_number();
+        if (!in.right) break;
+        if (jukebox_title_ == '0') { // $68E82: exit
+            jukebox_request_ = 0;
+            state_ = State::jukebox_up;
+        } else { // $68DE6: the title's music, until the left button
+            jukebox_request_ = jukebox_title_ - '0';
+            state_ = State::jukebox_play;
+        }
+        break;
+    case State::jukebox_play:
+        if (in.left) { // $68E76: everything stops, back to the loop
+            jukebox_request_ = 0;
+            state_ = State::jukebox;
+            jukebox_wait_ = 0;
+        }
+        break;
+    case State::jukebox_up:
+        scroll_step(-1);
+        if (scroll_ == 0) begin_name(false);
         break;
     case State::name_entry:
     case State::code_entry: {

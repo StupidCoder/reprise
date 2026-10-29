@@ -17,6 +17,7 @@
 #include "rock_n_roll_amiga/data/assets.hpp"
 #include "rock_n_roll_amiga/game/ball.hpp"
 #include "rock_n_roll_amiga/game/module.hpp"
+#include "rock_n_roll_amiga/sound/game_sound.hpp"
 #include "platform/host.hpp"
 #include <cstdio>
 #include <exception>
@@ -41,7 +42,11 @@ struct Poke {
 
 // Rows of a recording; `loop_left` tells whether it ends with the level
 // loop left (the ball lost after the last row's update).
-std::vector<Row> read_recording(const std::string& path, bool& loop_left, std::vector<Poke>* pokes = nullptr) {
+// Sound effect calls the recorder logged, per update ("# sound N in update U").
+using SoundLog = std::map<std::int64_t, std::vector<int>>;
+
+std::vector<Row> read_recording(const std::string& path, bool& loop_left, std::vector<Poke>* pokes = nullptr,
+                                SoundLog* sounds = nullptr) {
     loop_left = false;
     std::ifstream in(path);
     std::string line;
@@ -59,6 +64,13 @@ std::vector<Row> read_recording(const std::string& path, bool& loop_left, std::v
         }
         if (line[0] == '#') { // "# loop left before update n", "# poke …"
             loop_left = loop_left || line.find("loop left") != std::string::npos;
+            if (sounds && line.rfind("# sound ", 0) == 0) {
+                std::istringstream w(line.substr(8));
+                std::string number, in_word, update_word;
+                std::int64_t update = 0;
+                w >> number >> in_word >> update_word >> update;
+                (*sounds)[update].push_back(int(std::stoul(number, nullptr, 16)));
+            }
             if (pokes && line.rfind("# poke ", 0) == 0) {
                 std::istringstream w(line.substr(7));
                 std::string address, value, after, row_word;
@@ -84,7 +96,8 @@ std::vector<Row> read_recording(const std::string& path, bool& loop_left, std::v
                                 name == "shopwait" || name == "carried" || name == "countdown" || name == "ticks" ||
                                 name == "drained" || name == "latch" || name == "frozen" || name == "done" ||
                                 name == "pending" || name == "crumblecount" || name.rfind("ac", 0) == 0 || name == "blkcount" || name == "blkdir" ||
-                                name == "blkvalue" || name == "warpflag"
+                                name == "blkvalue" || name == "warpflag" ||
+                                name == "snddelay" || name == "sndquiet" || name == "bridgelatch"
                             ? std::int64_t(v)
                             : std::int64_t(std::int32_t(std::uint32_t(v)));
         }
@@ -114,6 +127,7 @@ game::Pocket pocket_from(const Row& r) {
         p.repair_sets = int(r.at("repairs"));
         p.bombs = int(r.at("eyes"));
         p.energy = int(r.at("energy2"));
+        p.shown_energy = p.energy; // the panel's bar has caught up at a recording's start (not logged)
     }
     if (r.count("hourglass")) {
         p.rescues = int(r.at("hourglass"));
@@ -308,6 +322,19 @@ int compare(const game::Ball& b, const Row& r, bool all, std::int64_t update) {
     return differing;
 }
 
+// Research: 16-bit stereo WAV.
+void save_wav16(const std::filesystem::path& file, std::span<const float> stereo, int rate) {
+    std::vector<std::uint8_t> wav;
+    const auto put = [&](std::uint32_t v, int n) { for (int k = 0; k < n; ++k) wav.push_back(std::uint8_t(v >> (8 * k))); };
+    const auto bytes = std::uint32_t(stereo.size() * 2);
+    wav.insert(wav.end(), {'R', 'I', 'F', 'F'}); put(36 + bytes, 4);
+    wav.insert(wav.end(), {'W', 'A', 'V', 'E', 'f', 'm', 't', ' '});
+    put(16, 4); put(1, 2); put(2, 2); put(std::uint32_t(rate), 4); put(std::uint32_t(rate) * 4, 4); put(4, 2); put(16, 2);
+    wav.insert(wav.end(), {'d', 'a', 't', 'a'}); put(bytes, 4);
+    for (const float f : stereo) put(std::uint32_t(std::uint16_t(std::int16_t(std::clamp(f, -1.0f, 1.0f) * 32767))), 2);
+    platform::write_file(file, wav);
+}
+
 // The block's slide state, when the recording logs it.
 int compare_block(const game::LevelMap& map, const Row& r, std::int64_t update) {
     if (!r.count("blkcount")) return 0;
@@ -379,7 +406,9 @@ int main(int argc, char** argv) {
             for (std::size_t k = 0; k < recordings.size() && bad_updates == 0; ++k) {
                 bool loop_left = false;
                 std::vector<Poke> pokes;
-                const auto rows = read_recording(recordings[k], loop_left, &pokes);
+                SoundLog sound_log;
+                const auto rows = read_recording(recordings[k], loop_left, &pokes, &sound_log);
+                const bool has_sounds = !sound_log.empty();
                 if (rows.size() < 2) throw std::runtime_error("A recording has fewer than two updates.");
                 if (k == 0) {
                     ball = ball_from(rows.front());
@@ -389,6 +418,14 @@ int main(int argc, char** argv) {
                         for (int i = 0; i < game::TileAnimator::slots; ++i)
                             map.animation.set_slot_counter(i, std::uint16_t(rows.front().at("ac" + std::to_string(i))));
                         map.animation.show_all(map.tiles);
+                    }
+                    if (rows.front().count("snddelay")) { // the sound state as the original had it
+                        const auto& r = rows.front();
+                        ball.sound_delay = int(r.at("snddelay"));
+                        ball.energy_sound_quiet = r.at("sndquiet") & 1;
+                        ball.bridge_latch = r.at("bridgelatch") & 1;
+                        ball.bridge_end_sound = int(r.at("bridgesnd"));
+                        ball.bridge_end_other = int(r.at("bridgesnd2"));
                     }
                     if (rows.front().count("blkcount")) { // the block as the original had it
                         const auto& r = rows.front();
@@ -431,7 +468,22 @@ int main(int argc, char** argv) {
                     const auto joy = std::uint16_t(rows[n].at("joy"));
                     game::update_ball(ball, pocket, map, world, {std::uint8_t(joy & 0xFF), std::uint8_t(joy >> 8)});
                     ++checked;
-                    if (compare(ball, rows[n + 1], all, rows[n].at("update")) +
+                    int sound_differences = 0;
+                    if (has_sounds) { // the sound effects asked for in this update, in order
+                        const auto it = sound_log.find(rows[n].at("update"));
+                        const std::vector<int> want = it == sound_log.end() ? std::vector<int>{} : it->second;
+                        if (want != ball.sounds) {
+                            std::printf("update %lld: sounds native", (long long)rows[n].at("update"));
+                            for (const int x : ball.sounds) std::printf(" %x", x);
+                            std::printf(", original");
+                            for (const int x : want) std::printf(" %x", x);
+                            std::printf("\n");
+                            ++sound_differences;
+                        }
+                    }
+                    ball.sounds.clear();
+                    if (sound_differences +
+                            compare(ball, rows[n + 1], all, rows[n].at("update")) +
                             compare_pocket(pocket, rows[n + 1], rows[n].at("update")) +
                             compare_animation(map.animation, rows[n + 1], rows[n].at("update")) +
                             compare_block(map, rows[n + 1], rows[n].at("update")) > 0) {
@@ -520,6 +572,79 @@ int main(int argc, char** argv) {
             }
             return 0;
         }
+        if (command == "musiccheck" && argc >= 5) {
+            // musiccheck <content> <world 1-7 | title> <dump>: the player
+            // against the original's state per frame (harness/snd_dump.py).
+            const auto assets = data::load_assets(platform::utf8_path(argv[2]));
+            sound::GameSound sound(assets);
+            const std::string where = argv[3];
+            if (where == "title") sound.load_title(false);
+            else sound.load_world(std::stoi(where));
+            sound.start_music(0);
+            std::ifstream in(argv[4]);
+            std::string line;
+            int frames = 0, bad = 0;
+            std::int64_t pending = -1; // a song request the original had at this frame's start
+            while (std::getline(in, line) && bad < 8) {
+                if (pending >= 0 && pending < 0x8000) sound.start_music(int(pending));
+                sound.tick();
+                std::istringstream words(line);
+                std::string w;
+                words >> w;
+                std::map<std::string, std::int64_t> original;
+                while (words >> w) {
+                    const auto eq = w.find('=');
+                    original[w.substr(0, eq)] = std::int64_t(std::stoull(w.substr(eq + 1), nullptr, 16));
+                }
+                pending = original.count("request") ? original["request"] : -1;
+                const auto snapshot = sound.player().snapshot(0x5740E);
+                std::map<std::string, std::int64_t> native(snapshot.begin(), snapshot.end());
+                for (const auto& [name, value] : snapshot) {
+                    const auto it = original.find(name);
+                    if (it == original.end()) continue;
+                    // An idle channel's macro and key are left from its last note
+                    // and read only once a new note sets them.
+                    if (name.size() > 2 && name[0] == 'c' && (name.substr(2) == "macro" || name.substr(2) == "key")) {
+                        const auto state = name.substr(0, 2) + "state";
+                        if (original[state] == 0 && native[state] == 0) continue;
+                    }
+                    const std::int64_t mine = value & 0xFFFFFFFF;
+                    if (it->second != mine) {
+                        std::printf("frame %d: %s native %llx original %llx\n", frames, name.c_str(), (unsigned long long)mine,
+                                    (unsigned long long)it->second);
+                        ++bad;
+                    }
+                }
+                ++frames;
+            }
+            std::printf("%d frames checked, %d differences\n", frames, bad);
+            return bad ? 1 : 0;
+        }
+        if (command == "music" && argc >= 6) {
+            // music <content> <world 1-7 | title> <seconds> <out.wav> [song]:
+            // the game's music as a level or the title starts it, rendered.
+            const auto assets = data::load_assets(platform::utf8_path(argv[2]));
+            sound::GameSound sound(assets);
+            const std::string where = argv[3];
+            if (where == "title") sound.load_title(false);
+            else sound.load_world(std::stoi(where));
+            sound.start_music(argc > 6 ? std::stoi(argv[6]) : 0);
+            constexpr int rate = 48000;
+            const int frames = int(std::stod(argv[4]) * 50);
+            std::vector<float> all;
+            std::vector<float> frame(std::size_t(rate / 50) * 2);
+            for (int n = 0; n < frames; ++n) {
+                sound.tick();
+                std::fill(frame.begin(), frame.end(), 0.0f);
+                sound.render(frame, rate);
+                all.insert(all.end(), frame.begin(), frame.end());
+            }
+            save_wav16(platform::utf8_path(argv[5]), all, rate);
+            float peak = 0;
+            for (const float f : all) peak = std::max(peak, std::abs(f));
+            std::printf("%d frames, peak %.3f\n", frames, double(peak));
+            return 0;
+        }
         if (command == "play" && argc >= 5) {
             // play <content> <updates> <out.png> [a-b:dx,dy[,l|r|f] …] [a-b:key=N …]
             // [@N=shot.png …] [@N:place=cx,cy,vx,vy,sx,sy …]: runs the game
@@ -532,6 +657,7 @@ int main(int argc, char** argv) {
             struct Step { int a, b, dx, dy; bool l, r, f; int key; };
             std::vector<Step> steps;
             std::vector<std::pair<int, std::string>> shots;
+            std::string wav_out; // wav=FILE: the module's audio, 48 kHz stereo
             struct Place { int at; std::uint32_t v[6]; };
             std::vector<Place> places;
             for (int i = 5; i < argc; ++i) {
@@ -539,6 +665,10 @@ int main(int argc, char** argv) {
                 st.key = -1;
                 char buttons[4] = {};
                 char shot[512] = {};
+                if (std::string(argv[i]).rfind("wav=", 0) == 0) {
+                    wav_out = std::string(argv[i]).substr(4);
+                    continue;
+                }
                 Place pl{};
                 if (std::sscanf(argv[i], "@%d:place=%x,%x,%x,%x,%x,%x", &pl.at, &pl.v[0], &pl.v[1], &pl.v[2], &pl.v[3], &pl.v[4],
                                 &pl.v[5]) == 7) {
@@ -561,6 +691,7 @@ int main(int argc, char** argv) {
                 steps.push_back(st);
             }
             app::GameInput input;
+            std::vector<float> audio_all;
             for (int n = 0; n < updates; ++n) {
                 input.mouse_button = input.mouse_right = input.fire = false;
                 input.mouse_dx = input.mouse_dy = 0;
@@ -582,10 +713,25 @@ int main(int argc, char** argv) {
                                                         std::int32_t(pl.v[3]), std::int32_t(pl.v[4]), std::int32_t(pl.v[5])))
                         std::fprintf(stderr, "update %d: no level to place the ball in\n", n);
                 game->tick(input);
+                if (!wav_out.empty()) {
+                    std::vector<float> frame(960 * 2);
+                    game->audio(frame, 48000);
+                    audio_all.insert(audio_all.end(), frame.begin(), frame.end());
+                }
                 for (const auto& [at, file] : shots)
                     if (at == n) platform::save_png(game->picture(), platform::utf8_path(file));
             }
             platform::save_png(game->picture(), platform::utf8_path(argv[4]));
+            if (!wav_out.empty()) {
+                save_wav16(platform::utf8_path(wav_out), audio_all, 48000);
+                // Loudness per second, to see where sound plays.
+                for (std::size_t s0 = 0; s0 < audio_all.size(); s0 += 96000) {
+                    float peak = 0;
+                    for (std::size_t i = s0; i < std::min(audio_all.size(), s0 + 96000); ++i) peak = std::max(peak, std::abs(audio_all[i]));
+                    std::printf("%.2f ", double(peak));
+                }
+                std::printf("\n");
+            }
             return 0;
         }
     } catch (const std::exception& error) {

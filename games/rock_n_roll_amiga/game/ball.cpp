@@ -208,8 +208,17 @@ long first_cell_of(const Ball& b, const LevelMap& map) {
 
 // $6CA26: the ball rolls off into the abyss; its speed is pushed out of
 // the cell it fell from by at least $2000 (the bit is set on the size).
+void play(Ball& b, int sound) { b.sounds.push_back(sound); }
+
 void start_fall(Ball& b, int cell) {
     b.fall_cell = cell;
+    if (b.level_done) { // $6CB40: into the exit
+        b.sound_delay = 0;
+        play(b, 0x18);
+        play(b, 0x06);
+    } else {
+        play(b, 0x01);
+    }
     const auto away = [](Fixed v, bool negative) {
         return negative ? -((-v) | 0x2000) : (v | 0x2000);
     };
@@ -277,6 +286,8 @@ bool pay(Ball& b, Pocket& pocket, std::uint8_t price_cell) {
     const int price = prices[price_cell - 0x34];
     if (std::uint32_t(pocket.money) >= std::uint32_t(price)) {
         pocket.money -= price;
+        play(b, 0x12); // $6E276
+        b.energy_sound_quiet = true;
         return true;
     }
     ++b.shop_wait;
@@ -291,6 +302,8 @@ bool pay(Ball& b, Pocket& pocket, std::uint8_t price_cell) {
     if (from_energy > std::int16_t(pocket.energy)) return false;
     pocket.energy = std::uint16_t(pocket.energy - from_energy);
     pocket.money = 0;
+    play(b, 0x12); // $6E306
+    b.energy_sound_quiet = true;
     return true;
 }
 
@@ -353,9 +366,21 @@ void ride(Ball& b, bool along_x) {
     b.carried = true;
 }
 
+// $6D18C/$6D282, the bridges' ride: the first piece of a ride plays $17
+// and $16 ($6D130 latches it until an end piece).
+void ride_on(Ball& b, bool along_x) {
+    if (!b.bridge_latch) {
+        play(b, 0x17);
+        play(b, 0x16);
+        b.bridge_latch = true;
+    }
+    ride(b, along_x);
+}
+
 // $6CB6C/$6CC26: the camera jumps to a point, one tile to its right (left
 // when moving left); speeds 0.
 void beam(Ball& b, Fixed x, Fixed y) {
+    play(b, 0x09);
     b.camera_x = x + (b.speed_x < 0 ? -tile_size : tile_size);
     b.camera_y = y;
     b.speed_x = b.speed_y = 0;
@@ -388,6 +413,7 @@ void apply_changes(LevelMap& map, const std::vector<LevelMap::CellChange>& chang
 void step_on(Ball& b, Pocket&, LevelMap& map, long index, std::uint8_t next) {
     if (b.pending_value != 0 && b.remembered_cell >= 0 && b.remembered_cell < long(map.cells.size())) {
         map.cells[std::size_t(b.remembered_cell)] = b.pending_value;
+        play(b, 0x10); // $6ED16
         if (b.pending_value == 0x21) {
             map.crumble_count = std::uint16_t(map.crumble_count - 1);
             if (map.crumble_count == 0) {
@@ -414,6 +440,7 @@ void hit_wall(Ball& b, LevelMap& map, long index, int n, std::uint8_t becomes, b
     if (!hard) return;
     speed = 0;
     b.clock.ticks &= std::uint8_t(~3);
+    play(b, 0x08); // $6EC86
     if (index >= 0 && index < long(map.cells.size())) map.cells[std::size_t(index)] = becomes;
 }
 
@@ -501,6 +528,7 @@ void push_block(Ball& b, LevelMap& map, long index) {
         k.direction = up ? 1 : 3;
         step = up ? -long(map.columns) : long(map.columns);
     }
+    play(b, 0x0F); // $6DB00, also when the way is blocked
     k.from = index;
     k.to = index + step;
     const std::uint8_t target = map.cell(k.to);
@@ -540,6 +568,7 @@ void slide_block(Ball& b, LevelMap& map) {
     if (entering == 0xFE) map.tiles.show_abyss(0xC2);
     else map.tiles.set(0xC2, strip + entering);
     k.count += 2;
+    if (k.count == 0x18 && k.value == 0x24) play(b, 0x0E); // $6B42A: a sinking block
     if (k.count < 0x38) return;
     map.set(k.from, 0x24);
     map.set(k.to, k.value);
@@ -566,6 +595,7 @@ void apply_cell(Ball& b, Pocket& pocket, LevelMap& map, long index, std::uint8_t
         if (!b.repair_armed || pocket.repair_sets == 0) return false;
         map.set(index, map.left_behind);
         --pocket.repair_sets;
+        play(b, 0x0E); // $6CA20, $6D54E
         return true;
     };
     if (v == 0x21) { // abyss $6E378 → $6C9C0
@@ -573,6 +603,7 @@ void apply_cell(Ball& b, Pocket& pocket, LevelMap& map, long index, std::uint8_t
     } else if (v >= 0x01 && v <= 0x04) { // keys $6E5B0-$6E670: one more unless 9, then gone
         if (centre && pocket.keys[v - 1] != 9) {
             ++pocket.keys[v - 1];
+            play(b, 0x03);
             map.clear(index);
         }
     } else if (v >= 0xD1 && v <= 0xD8) { // locks $6E882-$6E94E (any of the four cells)
@@ -580,6 +611,8 @@ void apply_cell(Ball& b, Pocket& pocket, LevelMap& map, long index, std::uint8_t
         auto& keys = pocket.keys[std::size_t(key_for[(v - 0xD1) % 4])];
         if (presses_lock(b, v, n) && keys != 0) {
             --keys;
+            play(b, 0x04);
+            b.sound_delay = 50; // $6E8BA
             map.clear(index);
         }
     } else if (v >= 0x05 && v <= 0x08) { // finds $6E9D0-$6EA84, with points
@@ -587,18 +620,21 @@ void apply_cell(Ball& b, Pocket& pocket, LevelMap& map, long index, std::uint8_t
             static constexpr int points[4] = {30, 400, 150, 70};
             ++pocket.finds[v - 5];
             pocket.score += points[v - 5];
+            play(b, 0x03);
             map.clear(index);
         }
     } else if (v >= 0x11 && v <= 0x13) { // coins $6EB7E-$6EBAE
         if (centre) {
             static constexpr int value[3] = {100, 300, 500};
             pocket.money = std::min(pocket.money + value[v - 0x11], 0x26AC);
+            play(b, 0x05); // $6EBF4
             map.clear(index);
         }
     } else if (v == 0x0D || v == 0x0E) { // magic-map piece, two cells wide ($6EADE/$6EB00)
         if (centre) {
             map.clear(index + (v == 0x0D ? 1 : -1)); // the other half first ($6EC1C/$6EC3E)
             pocket.add_map_piece(); // $6EB22
+            play(b, 0x03);
             map.clear(index);
         }
     } else if (v >= 0x09 && v <= 0x0C) { // arrows $6E444 up, $6E582 right, $6E4AE down, $6E518 left
@@ -660,6 +696,7 @@ void apply_cell(Ball& b, Pocket& pocket, LevelMap& map, long index, std::uint8_t
             b.clock.switch_latch = n;
             map.clear(index);
             apply_changes(map, map.switch_lists[std::size_t(v - 0x29)]);
+            play(b, 0x0A); // $6DE42
         }
         if (v >= 0x2D) { // $6DDD8, every time: the crumble count and list from +$1DA/+$1FA
             map.crumble_count = map.crumble_count_switched;
@@ -676,6 +713,7 @@ void apply_cell(Ball& b, Pocket& pocket, LevelMap& map, long index, std::uint8_t
         }
     } else if (v == 0x26) { // $6D810: worn by rolling over, counts toward the secret warp
         if (centre && map.warp_count != 0xFFFF) {
+            play(b, 0x0B); // $6D834
             if (--map.warp_count == 0) {
                 if (map.reward_count == map.reward_count_start) b.secret_warp = true;
                 map.warp_count = 0x1FFF;
@@ -686,6 +724,7 @@ void apply_cell(Ball& b, Pocket& pocket, LevelMap& map, long index, std::uint8_t
         }
     } else if (v == 0x24) { // $6D880: smashed, counts toward the reward
         if (centre && map.reward_count != 0xFFFF) {
+            play(b, 0x0B); // $6D876/$6D8C4
             if (--map.reward_count == 0) {
                 b.reward_due = true;
                 map.reward_count = 0x1FFF;
@@ -696,7 +735,7 @@ void apply_cell(Ball& b, Pocket& pocket, LevelMap& map, long index, std::uint8_t
     } else if (v == 0xDD || v == 0xDE) { // bridges along x / y ($6D18C/$6D282)
         if (centre) {
             b.on_bridge = true;
-            ride(b, v == 0xDD);
+            ride_on(b, v == 0xDD);
         }
     } else if (v == 0xE3) { // $6D326: a bridge crossing, carried on as it goes
         if (centre) {
@@ -722,20 +761,24 @@ void apply_cell(Ball& b, Pocket& pocket, LevelMap& map, long index, std::uint8_t
         const auto fraction = [](Fixed camera, Fixed view) { return std::uint16_t(low_word(camera) + low_word(view)); };
         if (b.bridge_along_y) {
             if (fraction(b.camera_y, b.view_y) != 0x2000) {
-                ride(b, false);
+                ride_on(b, false);
             } else {
                 b.speed_x = from_y[std::size_t(corner)];
-                ride(b, true);
+                ride_on(b, true);
             }
         } else if (fraction(b.camera_x, b.view_x) != 0x2000) {
-            ride(b, true);
+            ride_on(b, true);
         } else {
             b.speed_y = from_x[std::size_t(corner)];
-            ride(b, false);
+            ride_on(b, false);
         }
     } else if (v >= 0xDF && v <= 0xE2) { // bridge ends ($6D142/$6D230): snap across, then ride
+        b.bridge_latch = false; // for any of the four cells, before the centre test
         if (centre) {
             b.on_bridge = true;
+            play(b, b.bridge_end_sound); // an end sound, the two alternating
+            b.bridge_latch = false;
+            std::swap(b.bridge_end_sound, b.bridge_end_other);
             const bool along_x = v <= 0xE0;
             if (along_x) b.camera_y = snap_to_rail(b.camera_y);
             else b.camera_x = snap_to_rail(b.camera_x);
@@ -775,6 +818,9 @@ void apply_cell(Ball& b, Pocket& pocket, LevelMap& map, long index, std::uint8_t
         if ((c == 0 || c == 0x100) && !b.clock.drained) {
             b.clock.drained = true;
             pocket.energy = std::uint16_t(pocket.energy - (0x140 >> (b.protective ? 1 : 0)));
+            b.sound_delay = 0x28; // $6D7A4
+            play(b, 0x0C);
+            b.energy_sound_quiet = true;
         }
     } else if (v == 0xC0) {
         push_block(b, map, index);
@@ -889,6 +935,7 @@ void touch(Ball& b, const LevelMap& map, const data::World& world) {
 void bounce(Ball& b) {
     const int a = b.contact_rows, e = b.contact_columns;
     if (a == 0 && e == 0) return;
+    play(b, 0x00);
     const Fixed vx = b.speed_x, vy = b.speed_y;
     if (a == 0) {
         b.speed_x = (e > 0 ? bounce_speed : -bounce_speed) - vx;
@@ -984,10 +1031,18 @@ Ball Ball::at_start(const LevelMap& map) {
 void follow_energy(Ball& b, Pocket& pocket) {
     const auto energy = std::int16_t(pocket.energy);
     int shown = std::int16_t(pocket.shown_energy);
+    if (energy >= shown) b.energy_sound_quiet = false; // $6F4B4
     while (energy < shown) {
+        if (!b.energy_sound_quiet) { // $6F486: each step, unless a hit or purchase played its own
+            play(b, 0x11);
+            b.sound_delay = 0x1E;
+        }
         if (--shown == 0) {
             b.mode = BallMode::falling;
             b.energy_out = true;
+            play(b, 0x18); // $6F4CE
+            b.sound_delay = 0;
+            play(b, 0x0D);
             break;
         }
     }
@@ -1030,6 +1085,7 @@ void tick_bomb(Ball& b, LevelMap& map) {
     };
     if (b.bomb_timer == 90 || b.bomb_timer == 80 || b.bomb_timer == 60 || b.bomb_timer == 30) {
         each([&](long index, int) { map.set(index, 0xDA); });
+        play(b, 0x0D); // $6BFA4
         map.animation.set_counter(0xDA, 0x800); // $6BFE6: the flames' animation from its burning frames
     }
     if (b.bomb_timer == 0) each([&](long index, int k) { map.set(index, map.after_bomb[std::size_t(k)]); });
@@ -1071,6 +1127,7 @@ void update_ball(Ball& b, Pocket& pocket, LevelMap& map, const data::World& worl
     tick_bomb(b, map);                      // $6BE8A
     magnet_pushes(b, map, world.number);    // $6ACE6
     clamp_speeds(b);                        // $6ABF0
+    if (b.sound_delay != 0 && --b.sound_delay == 0) play(b, 0x18); // $68AEA
     if (b.secret_warp) b.mode = BallMode::warped; // $69F8A sets $6FDEA: the loop ends
 }
 
@@ -1126,6 +1183,7 @@ ItemUse use_items(Ball& b, Pocket& pocket, LevelMap& map, Items& items, bool lef
     case 4:
         return ItemUse::pause; // $6B612
     case 6: // $6BE9A: one bomb at a time, on a bomb spot
+        if (b.bomb_timer == 0) play(b, 0x13); // (before the spot and the stock are looked at)
         if (b.bomb_timer == 0 && b.bomb_spot >= 0 && pocket.bombs != 0) {
             b.bomb_timer = 150;
             b.bomb_cell = b.bomb_spot;

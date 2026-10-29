@@ -282,6 +282,8 @@ add_library(rock_n_roll_amiga
     games/rock_n_roll_amiga/game/records.cpp
     games/rock_n_roll_amiga/game/screen.cpp
     games/rock_n_roll_amiga/game/tile_animation.cpp
+    games/rock_n_roll_amiga/sound/game_sound.cpp
+    games/rock_n_roll_amiga/sound/tfmx.cpp
     games/rock_n_roll_amiga/import/cruncher.cpp
     games/rock_n_roll_amiga/import/disk_import.cpp)
 target_include_directories(rock_n_roll_amiga PUBLIC ${SOURCE_ROOT})

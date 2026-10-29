@@ -42,9 +42,26 @@ public:
     // One frame; the game's start once a name is entered.
     std::optional<GameStart> tick(const FrontEndInput&);
     platform::Image picture() const;
+    // The music runs ($70ABC bit 0) everywhere but in the name entry ($69600)
+    // and the jukebox's own loop (it ticks only while a title plays).
+    bool music_runs() const {
+        return state_ != State::name_entry && state_ != State::code_entry && state_ != State::jukebox;
+    }
+    bool in_name_entry() const { return state_ == State::name_entry || state_ == State::code_entry; }
+    // The jukebox's sound ($68CD4): -1 nothing new, 0 all stopped, 1-9 that
+    // title to load and start. Taken once.
+    int take_jukebox_request() {
+        const int r = jukebox_request_;
+        jukebox_request_ = -1;
+        return r;
+    }
 
 private:
-    enum class State { title, release_left, scroll_down, records, scroll_up, name_entry, code_entry };
+    enum class State {
+        title, release_left, scroll_down, records, scroll_up, name_entry, code_entry,
+        jukebox_down, jukebox, jukebox_play, jukebox_up
+    };
+    void draw_jukebox_number();
 
     void scroll_step(int direction);
     void draw_records();
@@ -79,6 +96,10 @@ private:
     int pass_mouse_x_{};       // counts gathered over the pass
     bool code_{};              // entering a level code (the name RAINBOW ARTS)
     bool grey_{};              // colour 0 $555 (code entry) or $333 (after it)
+    // The jukebox ($68CD4): the title number ($68344), its loop's wait.
+    char jukebox_title_{'1'};
+    int jukebox_wait_{};
+    int jukebox_request_{-1};
     std::uint16_t grey_colour_{};
 };
 

@@ -14,9 +14,10 @@ A game runs from the title to the end:
 - "N BALLS REMAINING", game over with the hall of fame, the continue after
   game over, and the ending.
 
-The ball's rules match the original update for update in 32 recorded runs
-(5,111 updates, in levels 1, 3 and 7; `.analysis/rock_n_roll_amiga/harness/regress.sh`).
-There is no music or sound yet. Steering uses the captured mouse.
+The ball's rules match the original update for update in 36 recorded runs
+(5,911 updates, in levels 1, 3 and 7; `.analysis/rock_n_roll_amiga/harness/regress.sh`).
+Music and sound effects play as in the original. Steering uses the captured
+mouse.
 
 Finished, in order:
 
@@ -46,6 +47,12 @@ Finished, in order:
     hints, the secret warp's and "OUT OF TIME" messages, the pause before
     the prompt and the '?' key. Bridge corners and crossings $E3-$EB
     (corner1–2 in level 1).
+14. Music and sound effects: the TFMX player rebuilt from the program
+    ($37F00-$39128), the sample memory and song sets, music on the title,
+    in the levels and in the jukebox, the effects wired to the rules. The
+    player's state is equal at every frame for 1,500 frames of the title
+    song and of level 1's; the effect calls match in snd1-4 (36 runs,
+    5,911 updates, all equal).
 
 ## Remaining tasks
 
@@ -57,8 +64,6 @@ compared with the original is under "Verification".
 
 ### Front end
 
-- [ ] **Jukebox** (the name COUNTRY, `$68CD4`): needs the music player.
-  Today that name just asks for the name again.
 - [ ] **The wheel's mouse read**: it can be gated by the grip flag `$70404`
   left from the last level (a read every 25th update). Check whether this
   shows in the original; the port always reads.
@@ -70,13 +75,15 @@ compared with the original is under "Verification".
 
 ### Sound
 
-- [ ] TFMX player, rebuilt from the copy in the program at `$37EE0`
-  (entries +$24, +$2C, +$34, +$60). Song data comes from files
-  $32-$3C, samples from $33-$3E, the title songs from file $40.
-  - Open: world 3 uses file $3C for both songs and samples. Does it keep
-    the previous samples?
-- [ ] Sound effects: the calls to `$70A9C` with a number (0 bounce, 3 key,
-  4 lock, 9 teleport, 10 switch, 18 purchase, $17/$18 on the results, …).
+- [ ] **The keys that toggle sound:** '§' toggles bit 1 of `$719A8` and
+  restarts the music (song 2 instead of 0, `$68ACE`); '&' toggles the
+  effects (`$68AAE`, with sounds $17/$18).
+- [ ] **The sounds the original asks for and stops in the same moment:**
+  $18/$17 at the start of the notices' and results' flash (`$6B9F4`),
+  followed at once by stopping all channels. Not played by the port.
+- [ ] **Sounds during level set-up and the start wait** (the energy bar's
+  first step plays $11 at set-up in the original; the port plays it in
+  the first update).
 
 ### Host and enhancements (off by default unless noted)
 
@@ -134,7 +141,10 @@ compared with the original is under "Verification".
 - The results' flashing colour is an estimate of the original's loop
   speed (`records.cpp`, `results_flash_colour`). The original changes it
   many times a frame.
-- No sound or music (title songs, level songs, effects).
+- Effect calls are checked against recordings for bounces, falls, keys,
+  locks and bridges; the others are placed from the code's call sites only
+  (coins, teleports, switches, countdowns, gates, flames, repairs, blocks,
+  crumbling floor, energy, purchases, the bomb).
 - The panel's clock digits did not match the FS-UAE capture. Everything
   else in the panel matched. The likely cause is the lag above (the capture
   was taken mid-second); this has not been checked.

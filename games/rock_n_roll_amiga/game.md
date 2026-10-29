@@ -943,8 +943,20 @@ the drawing.
       arithmetic).
     - A valid code sets the level and `$68454`. A bad one gives level 1.
     - Either way the name becomes RAINBOW ARTS and colour 0 $333.
-  - "COUNTRY": the jukebox (`$68CD4`: nine songs, "TITLE NR.", button 0
-    exits). Afterwards the name is asked again (`$719AC`).
+  - "COUNTRY": the jukebox (`$68CD4`). Afterwards the name is asked again
+    (`$719AC`).
+    - All music stops (`$709E6`), and the panel below the title scrolls into
+      view.
+    - The program prints "ROCK AND ROLL JUKEBOX", the titles 1–9 and
+      "0 EXIT" (`$68206`…, rows 4–14), and "TITLE NR.: n" (row 15, the
+      digit at `$68344`).
+    - **Its loop** (`$68D88`): all music stops, then two delays (about 9
+      frames).
+      - A held left button steps the number (9 → 0).
+      - The right button plays that title: 1–7 load the worlds' music, 8
+        and 9 song sets 8 and 9 with world 8's samples. The title plays,
+        ticking each frame, until the left button; then all stops.
+      - The number 0 exits, scrolling back up.
 
 ## Results and the end of a game
 
@@ -1066,14 +1078,163 @@ the drawing.
   - They are blitted 2 pixels right.
 - **Item picture** (`$6EE76`): 23 px at x 200, lines 42–55.
 
-## Music
+## Music and sound effects
 
-- The songs are TFMX ("TFMX " header) song data files with raw sample
-  banks.
-- The player is at $37EE0, a jump table called with offsets $24, $2C, $34
-  and $60.
-- Sound effects are calls to `$70A9C` with a number.
-- Not read yet.
+### The player (`$37F00`–`$39128`)
+
+- **Where it is:** a relocated hunk file inside the program (HUNK_HEADER at
+  `$37EE0`, code from `$37F00`), with a jump table at `$37F00`.
+- **The entries the game uses:**
+  - +$24 frame;
+  - +$28 stop all (`$38D3A`);
+  - +$2C start a song (`$38D1A`; the song starts at the next frame);
+  - +$34 set up (`$38D98`: song data, sample base);
+  - +$40 stop a channel (`$38AC4`);
+  - +$60 sound effect (`$38CBA`).
+
+  The game always passes the song data at `$5740E` and the sample base
+  `$3912C`.
+- **Variables:** at `$38DE4`; the channels' fields at `$38E2A`. The
+  channels' fields are interleaved: field X of channel c is at `$38E2A` +
+  X + 4c. The tracks' fields at `$38F4A` are interleaved the same way.
+- **Song data** (12,288-byte "TFMX " files):
+  - +$100/+$140/+$180: per song (32), the first and last track step and the
+    speed;
+  - +$1C0: eight mute words (a set one stops the track's notes reaching a
+    channel; reloaded at every step);
+  - +$400/+$600: offsets of the patterns and macros;
+  - +$5FC: the offset of the sound effect table;
+  - +$800: track steps, 16 bytes each.
+- **A track step:** a word per track: pattern << 8 | transpose.
+  - A negative word leaves the track as it is: $80xx continues, $FExx stops
+    channel xx, $FFxx is off.
+  - Or $EFFE and a command: 0 stop, 1 loop to a step, 2 speed, 3 half speed
+    (the sequencer and the channels take alternate frames), 4 fade.
+- **Patterns:** longs. A first byte below $F0 is a note (note, macro,
+  volume << 4 | channel, detune); the track's transpose is added to it.
+  Commands:
+  - $F0 end: the next step, and all tracks are gone through again;
+  - $F1 loop; $F2 continue elsewhere; $F3 wait; $F4 stop;
+  - $F5–$F7 key up, vibrato and envelope (sent to the channel);
+  - $F8 gosub; $F9 return; $FA fade;
+  - $FB–$FD: the next long next frame; $FE stop (and track 8 is free
+    again); $FF nothing.
+- **Notes** (`$389A8`), by the first byte:
+  - below $40: the macro starts (`$600` + macro × 4);
+  - $BF and up: a slide to the note from the current period;
+  - $F5–$F7 as above; anything else is ignored.
+- **Macros:** longs, one command each ($00–$19). Each tick runs them until
+  a wait, a note or a stop.
+  - DMA: $00 off with the effects reset, $01 on, $13 off.
+  - Sample: $02 start (an offset from `$3912C`), $03 length, $11/$12 add to
+    start or length, $18 move the start on (the length shrinks by half the
+    step), $19 the empty sample at the base.
+  - Flow: $04 wait, $05 loop, $06 continue in another macro, $07 stop,
+    $10 loop while the key is down, $14 wait for the key's release, $15
+    gosub, $16 return.
+  - Period: $08 the note plus an offset, detuned; $09 a fixed note; $17 a
+    fixed period.
+  - Effects: $0A reset, $0B portamento, $0C vibrato, $0D volume (the note's
+    level × 3 + n), $0E volume, $0F envelope.
+  - $1A and up are skipped.
+- **Each frame, per channel:** vibrato, portamento, the master fade
+  (stepped in every channel's turn, so four times a frame), the volume
+  register, then the envelope. Then the macro.
+- **The volume register:** the volume times the master volume / 64.
+- **Periods:** the table at `$390A6` holds 64 periods (notes C-1 up). The
+  entries past it are the bytes after the table, so notes 64 and up give
+  strange periods.
+- **Sound effects** (`$38CBA`): 8-byte entries (a note command, a
+  priority at +5, a duration at +6).
+  - An effect plays when its priority is at least the current one, or
+    when the last one's time has run out. Repeating the last effect counts
+    as run out.
+  - The time counts down each frame; after it the priority is 0.
+- **Starting a song** (`$38AE6`):
+  - All channels stop (unless bit 5 of the request), and the first long
+    of the sample base is cleared (an empty sample).
+  - The steps come from the song's entries. With bit 6, the place last
+    saved for that song is used instead (saved on stop).
+  - The master volume becomes $40, and the filter LED goes off.
+- *Checked:* the player's state (track steps, patterns' places and waits,
+  each channel's macro, wait, volume, period, sample, length, effects)
+  against the original at every frame. Title song: 1,500 frames. Level 1
+  (world 6): 1,500 frames. All equal (`harness/snd_dump.py`,
+  `rock_n_roll_replay musiccheck`).
+
+### Memory and files
+
+- **Sample memory:** sample addresses are offsets from `$3912C`, so they
+  reach the program's own bytes there as well as the loaded files.
+  - Sample files load to `$4B976` (world 8's second one to `$53976`), song
+    files to `$5740E` (load table `$78136`).
+  - World 1 loads only its samples (file $3B); its songs are song set 1,
+    copied from file $40 (`$70E40`).
+  - The title copies set 9, or set 8 after a game that left a place in the
+    hall of fame (`$68E9C`). Its samples are world 8's two files: "songs"
+    $3D (crack file 33, the samples of world 5) and samples $3E (file 39,
+    world 4's).
+- **World 3** names file $3C as both its songs and its samples, and the
+  song file loads to `$5740E`. So world 3 plays with whatever samples the
+  previous world left at `$4B976`. The port keeps one sample memory, as
+  the original does.
+
+### When the game drives it
+
+- **The title:** the music is set up and asked for at `$68F96`, and ticked
+  by `$70ABE` while `$70ABC` bit 0 is set: in the title, the scrolls and
+  the records.
+  - Name entry clears the bit (`$69600`) and stops the channels
+    (`$693D8`), so the music halts there.
+- **A level:** the set-up loads the world's music, stops the channels, and
+  asks for song `$719A8` (0).
+  - The start wait does not tick, so the song begins at the loop's first
+    update (`$68940` → `$70AE4`), when the ball starts rolling.
+  - The pause item's loops keep ticking.
+- **Stopping and restarting:**
+  - every way the loop ends (`$6BB34`) stops all;
+  - continuing after a fall (`$6BDCC`) and leaving the overview map
+    (`$6B6F0`) start the song from its beginning;
+  - the overview map stops all (`$6B67E`);
+  - notices and the results stop the channels (`$6AB46`).
+- **Sound effects** (`$70A9C`), when `$68AAC` is on (the '&' key toggles
+  it). By number:
+
+  | Number | When |
+  | --- | --- |
+  | 0 | a bounce |
+  | 1 | a fall starts |
+  | 2 | giving up |
+  | 3 | a key, a find or a map piece |
+  | 4 | a lock opens |
+  | 5 | a coin, a reward |
+  | 6 | into the exit (after $18) |
+  | 8 | a wall breaks |
+  | 9 | a teleport |
+  | $A | a switch |
+  | $B | a countdown cell |
+  | $C | a gate's hit |
+  | $D | flames ignite; empty energy |
+  | $E | a repair; a sinking block |
+  | $F | a block push (even when blocked) |
+  | $10 | crumbling floor |
+  | $11 | each step of the energy bar's fall |
+  | $12 | a purchase |
+  | $13 | the bomb item used |
+  | $15/$17 | bridge ends, alternating |
+  | $17 $16 | a bridge ride starts |
+  | $18 | after a delay (`$68AE6`: 50 after a lock, 40 after a gate's hit, 30 after an energy loss; counted at `$68AEA`); also at notices and the exit |
+
+- **The bridge latch** (`$6D130`): set by the ride's start sounds, and
+  cleared by any end piece among the four cells under the ball (before the
+  centre test). An end piece beside the ball therefore replays the start
+  sounds at every update.
+- **The energy sound** is not played in an update where a gate's hit or a
+  purchase played its own (`$6E254`).
+- *Checked:* the effect calls, update by update, in snd1 (bounces), snd2
+  (keys and locks), snd3 (a bridge ride round two corners) and snd4 (a
+  fall). The recorder logs every `$70A9C` call ("# sound N in update U"),
+  and the replay compares them with the port's.
 
 ## Quirks and bugs of the original
 
@@ -1127,6 +1288,12 @@ The port keeps these, because they are part of how the game plays:
   cells of the first value range with the second range's colour as well
   (see "The overview map").
 - **A block push plays its sound even when the way is blocked.**
+- **The player masks the word at address 0** (`$3893E`: `andi.w #$7F,$0`
+  instead of D0), so the volume with a master volume below $40 is not
+  masked.
+- **Pattern command $F9 (return) restores the first track's place** (it
+  uses A5, the tracks' base, not A0), then goes on in the current track.
+- **The fade is stepped four times a frame**, once in each channel's turn.
 - **Holding '0' as a level ends jumps to the ending** (a leftover test
   key).
 - **The first update after leaving a bridge accelerates like ice.**
@@ -1158,16 +1325,24 @@ The port keeps these, because they are part of how the game plays:
 - **Replay:** `tools/rock_n_roll_replay ball <run>` replays a recording
   natively and compares every logged field. `harness/regress.sh` runs all
   of them.
-  - 32 runs: rail1, ice1, fall2, arrow3, slope1, fall3, finds2, lock2,
+  - 36 runs: rail1, ice1, fall2, arrow3, slope1, fall3, finds2, lock2,
     fall4+cont4, bridge1, beam2, shop3, shop4, clock1, mud1, glass1,
-    switch1, exit1, crumble1, lockcap1, gate1–3, flame1, arc1, corner1–2
-    (level 1), block1–3 (level 7), fan1–2 (level 3, code 030000030030).
-  - 5,111 updates, all equal.
+    switch1, exit1, crumble1, lockcap1, gate1–3, flame1, arc1, corner1–2,
+    snd1–4 (level 1), block1–3 (level 7), fan1–2 (level 3, code
+    030000030030).
+  - 5,911 updates, all equal.
+  - Since snd1, recordings also log the sound delay, the energy-sound flag
+    and the bridge latch and pair, and every effect call.
   - Since gate1, recordings also log the animation cursor and counters
     (`acur`, `ac0`–`ac17`). The replay starts from them, shows every
     slot's current frame (`TileAnimator::show_all`), and compares them
     each update. Older runs start from 0; none of them reaches an
     animated cell.
+- **Music:** `harness/snd_dump.py N OUT [level]` logs the player's state
+  at every frame from a song's start (the title, or level 1 after the
+  start wait). `rock_n_roll_replay musiccheck <content> <title|world>
+  <dump>` runs the native player beside it. `rock_n_roll_replay music`
+  renders a world's music to a WAV file.
 - **Headless runs of the whole game:** `tools/rock_n_roll_replay play`
   takes:
   - mouse steps `a-b:dx,dy[,l|r]`;
@@ -1175,7 +1350,8 @@ The port keeps these, because they are part of how the game plays:
   - pictures `@N=file.png`;
   - a ball placement `@N:place=cx,cy,vx,vy,sx,sy` (hex, as a recording's
     first row);
-  - the fire button (`f` among the buttons), which types a space.
+  - the fire button (`f` among the buttons), which types a space;
+  - `wav=FILE`: the module's audio, with the loudness per second printed.
 - **Front end checks against FS-UAE captures (2026-10-29):**
   - the title;
   - the hall of fame and level 1's time records;

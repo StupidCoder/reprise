@@ -94,12 +94,14 @@ struct Picture {
     amiga::IlbmPicture picture;
 };
 
-// A TFMX music file (song data or samples) as installed; the player is not
-// rebuilt yet.
+// A music file as installed: TFMX song data ("TFMX ") or a sample bank, or
+// file $40 with three song sets the game copies into place ($70E40). The
+// load table ($78136) gives where each goes in memory.
 struct MusicFile {
     int file{};
     bool song_data{}; // starts with "TFMX " (song data); otherwise a sample bank
     std::size_t size{};
+    std::vector<std::uint8_t> bytes;
 };
 
 // The high-score file (game file $30, loaded at $762B8 by $70E0C): one
@@ -145,6 +147,11 @@ struct Assets {
     std::vector<MusicFile> music;
 
     const World& world(int number) const { return worlds.at(std::size_t(number - 1)); }
+    const MusicFile* music_file(int file) const {
+        for (const auto& m : music)
+            if (m.file == file) return &m;
+        return nullptr;
+    }
 };
 
 // Cell values the program draws from the abyss pattern instead of the sheet.

@@ -48,7 +48,7 @@ app::GameEntry entry() {
                     "codes, then every level with the mouse (rolling, railings, ice, arrows, slopes, falls, pickups, locks, "
                     "shops, teleports, bridges, switches, items, the panel), matched to the original update for update; "
                     "the overview map and pushable blocks; results with saved time records, game over with the hall of "
-                    "fame, the ending. Not yet: music and sounds.",
+                    "fame, the ending, the original's music and sound effects (its TFMX player rebuilt).",
     };
 }
 

@@ -8,6 +8,7 @@
 #include "rock_n_roll_amiga/game/overview_map.hpp"
 #include "rock_n_roll_amiga/game/records.hpp"
 #include "rock_n_roll_amiga/game/screen.hpp"
+#include "rock_n_roll_amiga/sound/game_sound.hpp"
 #include <algorithm>
 #include <string>
 
@@ -83,10 +84,16 @@ public:
             if (saved.size() == scores_size) scores_.bytes = std::move(saved);
         }
         front_end_ = std::make_unique<FrontEnd>(assets_, scores_);
-        front_end_->open();
+        sound_ = std::make_unique<sound::GameSound>(assets_);
+        open_front_end(std::nullopt);
     }
 
     double step_seconds() const override { return 1.0 / 50; } // one update per PAL frame (game.md)
+
+    void audio(std::span<float> stereo, int rate) override {
+        std::fill(stereo.begin(), stereo.end(), 0.0f);
+        sound_->render(stereo, rate);
+    }
     double pixel_aspect() const override { return 1.0; }
     bool captures_mouse() const override { return true; } // steered by the mouse counters' movement
 
@@ -115,7 +122,20 @@ public:
             in.left = input.mouse_button; // the space bar types a space here
             in.right = input.mouse_right;
             in.key = key;
-            if (const auto start = front_end_->tick(in)) start_game(*start);
+            const bool was_naming = front_end_->in_name_entry();
+            if (const auto start = front_end_->tick(in)) {
+                start_game(*start);
+                break;
+            }
+            if (!was_naming && front_end_->in_name_entry()) sound_->stop_channels(); // $693D8
+            if (const int r = front_end_->take_jukebox_request(); r >= 0) {
+                sound_->stop_all(); // $709E6
+                if (r > 0) {        // $68DE6-$68E62: the title's music
+                    sound_->load_jukebox(r);
+                    sound_->start_music();
+                }
+            }
+            if (front_end_->music_runs()) sound_->tick();                            // $70ABE
             break;
         }
         case Phase::message:
@@ -126,8 +146,11 @@ public:
             if (wait_for_start(ball_, mouse_)) phase_ = Phase::playing;
             break;
         case Phase::playing:
+            sound_->tick(); // $68940: the loop's first call
             move_counters(input, counts_x, counts_y);
             update_ball(ball_, pocket_, map_, world(), mouse_);
+            for (const int n : ball_.sounds) sound_->effect(n); // $70A9C, where the rules call it
+            ball_.sounds.clear();
             zero_key_ = key == '0' || (zero_key_ && input.c64_keys[35]);
             view_flash_ = false;
             if (ball_.reward_due) { // $6D8CE, called from the cell rule
@@ -144,6 +167,7 @@ public:
                 break;
             }
             if (key == '?') { // $68A36: the '?' key gives up like item 0
+                sound_->effect(0x02);
                 balls_ = 0;
                 ball_.mode = BallMode::lost;
                 ball_lost();
@@ -151,6 +175,7 @@ public:
             }
             switch (use_items(ball_, pocket_, map_, items_, left, right)) {
             case ItemUse::give_up: // $6B5A8: the ball is lost and no balls are left
+                sound_->effect(0x02);
                 balls_ = 0;
                 ball_.mode = BallMode::lost;
                 ball_lost();
@@ -159,7 +184,8 @@ public:
                 phase_ = Phase::paused;
                 pause_stage_ = 0;
                 break;
-            case ItemUse::overview: // $6B67E: the overview map
+            case ItemUse::overview: // $6B67E: the overview map (the music stops, $709E6)
+                sound_->stop_all();
                 overview_ = OverviewView{OverviewColours(assets_.program, pocket_.map_depth), 0, false};
                 overview_texts_ = game::overview_texts(assets_.program, pocket_.map_depth);
                 wait_stage_ = 0;
@@ -171,6 +197,7 @@ public:
             }
             break;
         case Phase::paused:
+            sound_->tick(); // $6B612's loops call $70ABE
             if (pause_stage_ == 0 && !left) pause_stage_ = 1;
             else if (pause_stage_ == 1 && left) pause_stage_ = 2;
             else if (pause_stage_ == 2 && !left) phase_ = Phase::playing;
@@ -178,6 +205,7 @@ public:
         case Phase::prompt:
             if (left_pressed) { // continue from this point ($6BBC4)
                 continue_after_fall(ball_);
+                sound_->start_music(); // $6BDCC
                 // $6BDF8: the energy gains $280 (over $800: $7FF).
                 add_energy();
                 --balls_;
@@ -227,6 +255,7 @@ public:
             } else if (wait_stage_ == 3 && left) {
                 wait_stage_ = 4;
             } else if (wait_stage_ == 4 && !left) {
+                sound_->start_music(); // $6B6F0: the song from its start
                 phase_ = Phase::playing;
             }
             break;
@@ -360,6 +389,11 @@ private:
         ball_ = Ball::at_start(map_);
         ball_.last_mouse = keep;
         screen_ = std::make_unique<Screen>(assets_, world());
+        // $686EA/$686F0 (and $6C69E's loads): the world's music, asked for;
+        // it starts at the loop's first update after the start wait.
+        sound_->stop_channels();
+        sound_->load_world(level.world);
+        sound_->start_music();
         // The panel's record and high score are drawn at set-up only ($6F1A6, $6EDCE).
         shown_record_ = scores_.record(level_index_);
         shown_high_score_ = scores_.high_score();
@@ -411,6 +445,7 @@ private:
     // balls left; otherwise the level starts again, and with no balls left
     // the game is over.
     void ball_lost() {
+        sound_->stop_all(); // $6BB34: every way the loop ends
         if (ball_.mode == BallMode::warped || ball_.level_done) {
             if (from_code_) { // $6BB48: a game started from a code has no spare balls after its level
                 balls_ = 0;
@@ -463,6 +498,7 @@ private:
     // In-view notices (rewards, the warp) and the hints' own screen, both
     // waiting like the results ($69EF6/$69F1A → $6AB46).
     void show_notice(std::vector<ScreenText> texts, AfterNotice then, bool full_screen = false) {
+        sound_->stop_channels(); // $6AB46
         notice_ = std::move(texts);
         after_notice_ = then;
         notice_full_screen_ = full_screen;
@@ -604,7 +640,16 @@ private:
             phase_ = Phase::continue_offer;
             return;
         }
+        open_front_end(place);
+    }
+
+    // $68EA0: the title with its music (song set 8 after a game that left a
+    // place in the hall of fame).
+    void open_front_end(std::optional<int> place) {
         front_end_->open(place);
+        sound_->stop_all();
+        sound_->load_title(place.has_value());
+        sound_->start_music();
         phase_ = Phase::front_end;
     }
 
@@ -702,6 +747,7 @@ private:
     std::filesystem::path scores_path_;
     data::ScoreTable scores_;
     std::unique_ptr<FrontEnd> front_end_;
+    std::unique_ptr<sound::GameSound> sound_;
     std::vector<ScreenText> prompt_;
     std::string player_name_;
     bool from_code_{};
