@@ -314,7 +314,7 @@ public:
                 cockpit_.draw(frame, margin_, readings);
             }
             if (phase_ == Phase::ready || phase_ == Phase::briefing || phase_ == Phase::landed ||
-                phase_ == Phase::lead_lost)
+                phase_ == Phase::lead_lost || phase_ == Phase::mission_text)
                 text_.draw(frame, margin_);
             // The panel is a view port of its own with `pix/inst5`'s colour
             // map, whose colours 16-31 repeat 0-15 (the flight palette's
@@ -404,6 +404,10 @@ public:
         const auto spawned = lists_.spawn(choice, tables_);
         objects_ = spawned.objects;
         list_start_ = spawned.first_entry;
+        aircraft_limit_ = spawned.aircraft_limit;
+        pod_.reset();
+        escort_ = 0;
+        outcome_wait_ = 0;
         for (const auto& o : objects_) {
             if (o.craft.type == 0x20) carrier_.place(o.craft, tables_);
         }
@@ -468,6 +472,7 @@ public:
                 a.timer = 15;
             }
         }
+        aircraft_limit_ += world.turned_hostile; // ($1181CA)
         // ($1169D0, with the drawing:) a crashed record blows up for 15
         // frames; the radar's lock on it goes ($118588: message $4016).
         for (auto& o : objects_) {
@@ -541,6 +546,14 @@ public:
             const auto& a = o.craft;
             Vehicle v;
             v.type = o.shape_type;
+            v.position = {(a.x - a.vx * back) / 256.0, (a.y - a.vy * back) / 256.0, (a.z - a.vz * back) / 256.0};
+            v.body = a.body;
+            vehicles.push_back(v);
+        }
+        if (pod_) { // (mission 6's rescue pod)
+            const auto& a = pod_->craft;
+            Vehicle v;
+            v.type = pod_->shape_type;
             v.position = {(a.x - a.vx * back) / 256.0, (a.y - a.vy * back) / 256.0, (a.z - a.vz * back) / 256.0};
             v.body = a.body;
             vehicles.push_back(v);
@@ -728,24 +741,18 @@ private:
         start_descent();
     }
 
-    // $118650 ... (each frame of a mission's flight): the objective (mission
-    // 3: the radar's confirmation, `$13AB5F` < 0), then the landing
-    // (`$118BA2`: on the ground at a standstill on a runway, or the deck
-    // when it started on the carrier, after having flown - +$21 bit 0,
-    // hypothesis: set at take-off). Each pauses the flight for its texts
-    // (`$1031F4`): the success text and "RETURN TO BASE / CARRIER"; then
-    // "YOUR LOG NOW REFLECTS THIS COMPLETED MISSION" and the Shift-Esc hint,
-    // with the mission completed in the log (`$1034A0`).
+    // $1185BE / $118650 ... (each frame of a mission's flight): the
+    // objective by mission, then (`$118B7E`) the landing: on the ground at
+    // a standstill on a runway, or the deck when it started on the carrier,
+    // after having flown (`$118BA2`; +$21 bit 0, hypothesis: set at
+    // take-off). Success pauses the flight for the success text and "RETURN
+    // TO BASE / CARRIER" (`$1031F4`); the landing then completes the
+    // mission in the log ("YOUR LOG NOW REFLECTS ...", `$1034A0`). A
+    // failure types the mission's texts; some end the flight.
     void mission_tick() {
         if (mode_ != FlightMode::mission) return;
         if (mission_result_ == 0) {
-            const bool done = mission_ == 3 && radar_.confirmation() < 0;
-            if (!done) return;
-            mission_result_ = 1;
-            text_.clear();
-            text_.queue(mission_text(4));
-            text_.queue(mission_ == 3 ? 85 : 86);
-            pause_for_texts();
+            mission_objective();
             return;
         }
         if (mission_result_ == 1) {
@@ -757,6 +764,242 @@ private:
             text_.queue(84);
             text_.queue(menu_hint_text);
             pause_for_texts();
+        }
+    }
+
+    WorldObject* record_of(int record) {
+        for (auto& o : objects_) {
+            if (o.record == record) return &o;
+        }
+        return nullptr;
+    }
+    bool active(int record) {
+        const auto* o = record_of(record);
+        return o && o->active();
+    }
+
+    // `$13AA9E` as the outcome's countdown (the objects stand meanwhile):
+    // true while it runs.
+    bool outcome_wait(int frames) {
+        if (outcome_wait_ == 0) outcome_wait_ = frames;
+        return --outcome_wait_ != 0;
+    }
+
+    // $118650 (3), $11867C (4), $1187BA (5), $118914 (6), $118998 (7),
+    // $118B1C (8 and others).
+    void mission_objective() {
+        switch (mission_) {
+        case 3:
+            if (radar_.confirmation() < 0) mission_succeeded();
+            return;
+        case 4: {
+            // Air Force One (record 4): landed slowly with both bandits
+            // (records 8, 10) gone - or destroyed.
+            const auto* one = record_of(4);
+            if (!one || (one->craft.x >> 22) == 0) return;
+            if (one->active() && (!(one->craft.motion & flag::on_ground) || one->craft.speed > 0x320 || active(8) ||
+                                  active(10)))
+                return;
+            if (outcome_wait(5)) return; // (the camera's turn to it: not built)
+            if (one->active()) mission_succeeded();
+            else mission_failed((one->craft.handling & 0x80) ? -3 : -2);
+            return;
+        }
+        case 5: {
+            // The stolen F-16s (records 4, 6, touchable while stolen): east
+            // of cell $70 they are lost; flown beside long enough (a box by
+            // the level, 200 frames) they go home along their paths; then
+            // the bandits must be down.
+            auto* a = record_of(4);
+            auto* b = record_of(6);
+            if (!(a && a->active())) std::swap(a, b);
+            bool check_done = true;
+            if (a && a->active()) {
+                if (!(a->craft.state & 0x0008)) {
+                    check_done = false;
+                } else {
+                    if ((a->craft.x >> 22) >= 0x70) {
+                        mission_failed(-2);
+                        return;
+                    }
+                    const std::int32_t box = level_ >= 3 ? 0x18000 : level_ >= 2 ? 0x24000 : 0x30000;
+                    const auto& p = aircraft_;
+                    const bool beside = std::abs(p.x - a->craft.x) <= box && std::abs(p.y - a->craft.y) <= box &&
+                                        std::abs(p.z - a->craft.z) <= box;
+                    if (beside) {
+                        if (escort_ >= 0) {
+                            --escort_;
+                        } else {
+                            for (auto* o : {a, b}) {
+                                if (o) o->course.target = lists_.path(2 * o->course.path);
+                            }
+                        }
+                    } else if (escort_ >= 0) {
+                        escort_ = 0xC8;
+                    }
+                    check_done = false;
+                }
+            }
+            if (!check_done && escort_ >= 0) return;
+            if (aircraft_limit_ > destroyed_) return;
+            if (outcome_wait(2)) return;
+            mission_succeeded();
+            return;
+        }
+        case 6: {
+            // The rescue pod, landed and still: within $10000 of the
+            // downed pilot (record 11) or too far.
+            if (!pod_ || !(pod_->craft.state & 0x8000) || pod_->craft.timer > 0) return;
+            const auto* pilot = record_of(11);
+            const bool near = pilot && std::abs(pilot->craft.x - pod_->craft.x) <= 0x10000 &&
+                              std::abs(pilot->craft.z - pod_->craft.z) <= 0x10000;
+            if (near) mission_succeeded();
+            else mission_failed(-2);
+            return;
+        }
+        case 7: {
+            // The cruise missile (record 4): its path ended (autopilot let
+            // go) or gone - shot down (spinning) or exploded.
+            const auto* missile = record_of(4);
+            if (!missile || (missile->craft.x >> 22) == 0) return;
+            if (missile->active() && (missile->craft.state & 0x0080)) return;
+            if (outcome_wait(2)) return;
+            if (missile->craft.handling & 0x02) mission_succeeded();
+            else mission_failed(-2);
+            return;
+        }
+        default:
+            // $118B1C: the list's aircraft all destroyed.
+            if (aircraft_limit_ > destroyed_) return;
+            if (outcome_wait(2)) return;
+            mission_succeeded();
+            return;
+        }
+    }
+
+    void mission_succeeded() {
+        mission_result_ = 1;
+        text_.clear();
+        text_.queue(mission_text(4));
+        text_.queue(mission_ == 3 ? 85 : 86);
+        pause_for_texts();
+    }
+
+    // $1031F4 for `$13AA88` -2 and -3: the mission's texts; -3 (Air Force
+    // One shot down by the player) and some others end the flight (−$10),
+    // the rest go on with "RETURN TO CARRIER" and the Shift-Esc hint.
+    void mission_failed(int result) {
+        mission_result_ = 2;
+        bool ends = false;
+        text_.clear();
+        if (result == -3 && mission_ == 4) {
+            text_.queue(76);
+            ends = true;
+        } else {
+            switch (mission_) {
+            case 4: text_.queue((ticks_ & 1) == 0 ? 37 : 36); break;
+            case 5: text_.queue(44); ends = true; break;
+            case 6: text_.queue(51); break;
+            case 7:
+                text_.queue(57);
+                if ((ticks_ & 1) == 0) {
+                    text_.queue(92);
+                } else {
+                    text_.queue(58);
+                    ends = true;
+                }
+                break;
+            default: text_.queue(66); break;
+            }
+        }
+        if (!ends) {
+            text_.queue(86);
+            text_.queue(menu_hint_text);
+            pause_for_texts();
+            return;
+        }
+        // ($102EFE with `$13AA88` $F0: the texts, then the main menu.)
+        flying_ = false;
+        phase_ = Phase::lead_lost;
+    }
+
+    // $10EE76 (Shift-F in mission 6): the rescue pod drops from a free
+    // missile record (`$116FE8` → `$117616`): a copy of the aircraft, type
+    // $31, shape 11, 3 units below it, pushed down at $3C0 (`$11788C`),
+    // timer −20.
+    void drop_pod() {
+        if (mode_ != FlightMode::mission || mission_ != 6 || pod_) return;
+        WorldObject pod;
+        pod.craft = aircraft_;
+        auto& a = pod.craft;
+        a.player = false;
+        a.type = 0x31;
+        pod.shape_type = 11;
+        pod.record = 1;
+        pod.group = 0;
+        pod.scale = 3;
+        a.state = std::uint16_t(((a.state & ~0x8000) | 0x10C0 | 0x0100 | 0x0002) & 0xFFFF);
+        a.pitch_rate = a.yaw_rate = a.roll_rate = 0;
+        a.sink = 0;
+        if (a.motion & flag::on_ground) a.vy = 0;
+        a.motion &= ~(flag::on_ground | 0x0004);
+        a.ground_drag = 0x14;
+        const auto& v = a.view;
+        a.x += (v[1] * -3) >> 6;
+        a.y += (v[4] * -3) >> 6;
+        a.z += (v[7] * -3) >> 6;
+        const auto push = scaled_vector(tables_, 0x3C0, std::int16_t(-(v[1] >> 2)), std::int16_t(-(v[4] >> 2)),
+                                        std::int16_t(-(v[7] >> 2)));
+        a.vx += push[0];
+        a.vy += push[1];
+        a.vz += push[2];
+        a.timer = -20;
+        pod_ = pod;
+    }
+
+    // $117C82 (class $30, each frame): drag on the drift by the timer, the
+    // fall toward $300 down (−$3C0 a frame from its third frame), the move;
+    // at height 0 it is down (+0 bit 15, hypothesis: the ground's touch,
+    // `$11A8C2`) and drifts, its timer running out over five frames.
+    void pod_tick() {
+        if (!pod_) return;
+        auto& a = pod_->craft;
+        std::int32_t vx = a.vx, vy = a.vy, vz = a.vz;
+        if (a.state & 0x8000) {
+            if (a.timer > 0) a.timer = std::int16_t(a.timer >= 5 ? 4 : a.timer - 1);
+            if (vx < 0xC0) vx += 0xC;
+            vy = 0;
+            vz += vz > 0 ? -1 : 1;
+        } else {
+            int shift = 2;
+            if (a.timer < 0) {
+                ++a.timer;
+                shift = 6;
+            } else {
+                ++a.timer;
+                if (a.timer >= 3) shift = 3;
+            }
+            const std::int32_t drift = std::max(std::abs(vx), std::abs(vz));
+            const std::int32_t limit = std::max(0, 0xF0 - a.timer);
+            if (drift >= limit) {
+                vx -= vx >> shift;
+                vz -= vz >> shift;
+            }
+            if (a.timer >= 3 && vy > 0) vy -= 0x3C0;
+            else if (vy > -0x300) vy -= 0x3C;
+            else vy = (vy - 0x300) >> 1;
+        }
+        a.vx = vx;
+        a.vy = vy;
+        a.vz = vz;
+        a.airspeed = std::int16_t(std::max({std::abs(vx), std::abs(vy), std::abs(vz)}) >> 2);
+        a.x += vx;
+        a.y += vy;
+        a.z += vz;
+        if (a.y <= 0 && !(a.state & 0x8000)) {
+            a.y = 0;
+            a.state |= 0x8000;
+            a.timer = 5;
         }
     }
 
@@ -1328,7 +1571,10 @@ private:
                 if (pressed(key::return_key)) game_key(replay_key::weapon);
                 if (input.fire != fire_was_) game_key(input.fire ? replay_key::fire : replay_key::fire_up);
             }
-            if (pressed(key::f)) game_key(replay_key::flare);
+            if (pressed(key::f)) {
+                if (input.shift) drop_pod(); // ($10EE76; the ejection elsewhere is not built)
+                else game_key(replay_key::flare);
+            }
             if (pressed(key::c)) game_key(replay_key::chaff);
             if (pressed(key::r)) game_key(replay_key::radar_range);
             if (pressed(key::t)) game_key(replay_key::target);
@@ -1422,7 +1668,10 @@ private:
         });
         lead_point();
         if (mode_ == FlightMode::practice) lead_tick();
-        objects_tick();
+        if (outcome_wait_ == 0) {
+            objects_tick();
+            pod_tick();
+        }
         radar_tick();
         if (events.took_off) airborne_ = true;
         mission_tick();
@@ -2219,6 +2468,10 @@ private:
     Radar radar_;
     ShotHits shot_hits_{assets_.program, tables_};
     int destroyed_ = 0;                 // `$13AB9B`: the list's aircraft destroyed
+    int aircraft_limit_ = 0;            // `$13AB9A`
+    int escort_ = 0;                    // `$13AA72`: mission 5's frames beside the stolen aircraft
+    int outcome_wait_ = 0;              // `$13AA9E` as the outcome's countdown
+    std::optional<WorldObject> pod_;    // mission 6's rescue pod (`$13ABB2`)
     std::int16_t player_distance_ = 0;  // the player's +$4A (`$1183E2`)
     bool radar_outside_ = false;
     int radar_look_ = 0;

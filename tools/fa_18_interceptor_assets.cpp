@@ -1419,7 +1419,10 @@ int fly_script(const std::filesystem::path& content, const std::string& prefix, 
         input.ctrl_keys[53] = has('('); // Ctrl+= (nearer, zoom in)
         input.ctrl_keys[43] = has(')'); // Ctrl+- (farther, zoom out)
         input.fire = has('_');
-        input.f1 = has('#'); // F1 (the first mission)
+        input.f1 = has('#'); // F1 (the first mission); with ! (Shift) F2
+        input.f3 = has('%');
+        input.f5 = has('&');
+        input.shift = has('!');
         // The keypad's view keys: @ 0, [ 4, ] 6, { 8, } 2.
         input.fire2 = has('@'); input.left2 = has('['); input.right2 = has(']');
         input.up2 = has('{'); input.down2 = has('}');

@@ -31,6 +31,7 @@ struct StepWorld {
     int locked{-1};           // `$13ACB0`: the radar's locked record (-1: none)
     bool attack_now{};        // `$13AAA7` (cleared by the step)
     std::uint32_t list{};     // `$13AA2A`: the stage's first list entry
+    int turned_hostile{};     // touchable records turned attackers (`$13AB99`, `$13AB9A` + 1 each)
 };
 
 class ObjectStep {

@@ -350,7 +350,10 @@ void ObjectStep::attack(WorldObject& o, const Aircraft& target, std::int16_t tar
     const int level = std::min<int>(world.level, 3);
     a.timer = program_.s16(at + std::uint32_t(4 * level));
     const auto next = std::uint8_t(program_.s16(at + std::uint32_t(4 * level + 2)));
-    if (a.role == 8 && (a.state & 0x0008)) a.state &= ~0x0008; // (and `$13AB99` / `$13AB9A` + 1)
+    if (a.role == 8 && (a.state & 0x0008)) { // ($1181BE)
+        a.state &= ~0x0008;
+        ++world.turned_hostile;
+    }
     a.role = next;
     world.attack_now = false;
 }

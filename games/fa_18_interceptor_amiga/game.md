@@ -1643,21 +1643,58 @@ descent, block 88 (the vector) and "READY ..." as free flight's. The
 aircraft question for mission 3's runway start (`$102C36`, block 75) is
 not built (the port flies the F/A-18).
 
-**Outcome** (`$1185BE` per frame of a mission, `$118650`... by mode):
-mission 3 once confirmed (the radar's `$13AB5F` < 0, "The radar"):
-`$13AA88` = $FF, `$13AB1A` 3, after 4 frames (`$13AB1C`) `$1031C8` /
+**Outcome** (`$1185BE` per frame of a mission, by mode). Success sets
+`$13AA88` $FF, `$13AB1A` 3, and after 4 frames (`$13AB1C`) `$1031C8` /
 `$1031F4` types the success text (index 4) and block 85 ("RETURN TO
-BASE"; 86 "RETURN TO CARRIER" for the others) while the objects stand
-(`$13AA9E`); then the flight goes on (`$102EFE`, `$13AA88` 1). Landed
-(`$118BA2`: +$21 bit 0 — set in the take-off/landing step `$1071AE`,
-**hypothesis**: the aircraft has flown — on the ground, on a runway
-(+4 bit 2) or, started on the carrier, on its deck (+4 & $C0), airspeed
-0): `$13AA88` $FC → blocks 84 ("YOUR LOG NOW REFLECTS THIS COMPLETED
-MISSION") and 83, `$1034A0`: config +6 the mission, +7 its stage,
-completed + 1 (+$38), the level and the mission's stage + 1 (at most 3),
-the record written. Failures (`$13AA88` −2: blocks by mission, 66 by
-default; −3 in mission 4: 76) and missions 4-8's objectives
-(`$11867C`, `$1187BA`, `$118914`, `$118998`) are not built.
+BASE", mission 3) or 86 ("RETURN TO CARRIER") while the objects stand
+(`$13AA9E`); the flight then goes on (`$102EFE`, `$13AA88` 1). Several
+objectives first count `$13AA9E` down (5 or 2 frames), the objects
+standing meanwhile.
+
+- 3, visual confirmation (`$118650`): the radar's `$13AB5F` < 0.
+- 4, emergency defense (`$11867C`): Air Force One (record 4, type $14)
+  on the ground below speed $320 with records 8 and 10 gone — or
+  destroyed: −3 when it bore +$20 bit 7 (touched by something touchable:
+  block 76 "YOU HAVE DESTROYED AIR FORCE ONE", the flight ends), else −2
+  (block 37 or 36 by the frame counter's bit 0). Meanwhile the view turns
+  to it (`$13ABA2` 7, `$10EC3C`) — not built.
+- 5, stolen F-16s (`$1187BA`): records 4 and 6, touchable while stolen;
+  the first in use: east of cell $70 → −2 (block 44, the flight ends);
+  within a box round it (by the level $30000, $24000, $18000) the counter
+  `$13AA72` (set to 200 whenever outside) runs down, then both head for
+  their path entries +$3A (home); then — or with neither in use — the
+  aircraft destroyed (`$13AB9B`) must reach `$13AB9A` (which grows by
+  one for every stolen F-16 that turns attacker, `$1181BE`).
+- 6, rescue (`$118914`): the rescue pod (`$13ABB2`) down (+0 bit 15) and
+  its timer out: within $10000 of record 11 (the downed pilot's raft) in x
+  and z, else −2 (block 51). The pod: Shift-F (`$10EE76`, mission 6 only,
+  none dropped yet, a missile record free) sets the player's +$7C low
+  nibble to $F; the missile pass (`$116FE8` → `$117616`) makes the free
+  record a copy of the aircraft, type $31, shape 11 ($DC / 20), 3 units
+  below (`$117926`), pushed down at $3C0 (`$11788C`), timer −20. Its step
+  (`$117C82`, class $30): drag on the drift (by 1/64 while the timer is
+  below 0, then 1/4, 1/8 from its third frame, while the drift is above
+  $F0 less the timer), the fall toward −$300 (−$3C a frame, −$3C0 once
+  rising after its third frame); down, it drifts ($C a frame up to $C0 in
+  x) and its timer runs out (clamped to 4). The port takes it down at
+  height 0 (**hypothesis**: the original's touch result `$11A8C2`).
+- 7, cruise missile (`$118998`): record 4 (type $15) gone or its
+  autopilot let go (the end of its path, state bit 7): shot down
+  (spinning) → success, else −2 (block 57, then 92 or 58 by the frame
+  counter's bit 0; with 58 the flight ends). The view turns to it — not
+  built.
+- 8 and others (`$118B1C`): `$13AB9B` reaches `$13AB9A`.
+
+After success, landed (`$118BA2`: +$21 bit 0 — set in the
+take-off/landing step `$1071AE`, **hypothesis**: the aircraft has flown —
+on the ground, on a runway (+4 bit 2) or, started on the carrier, on its
+deck (+4 & $C0), airspeed 0): `$13AA88` $FC → blocks 84 ("YOUR LOG NOW
+REFLECTS THIS COMPLETED MISSION") and 83, `$1034A0`: config +6 the
+mission, +7 its stage, completed + 1 (+$38), the level and the mission's
+stage + 1 (at most 3), the record written. A failure that does not end
+the flight adds 86 and 83 and the flight goes on (`$13AA88` 2: no
+landing check). The camera turns and the trigger areas (`$11D17A`, more
+aircraft once the player enters a box) are not built.
 
 ### The missions' objects (`$11CF06`, 2026-10-29)
 
