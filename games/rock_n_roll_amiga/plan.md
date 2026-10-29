@@ -61,6 +61,18 @@ Finished, in order:
     selects the rescue item, sound 2 is the rescue, the flames reset the
     animation cursor, and notices play $18 (and $18/$17 when the wait
     starts) with the rest of the update's sounds after the notice.
+16. The open verification points closed: a wall broken by the protective
+    ball, the $23 teleport, the $26 countdown's warp, a block sliding down,
+    the pause item, the gate hit and the arc drains, the energy-out
+    dissolve, switches and a crumbling cell with their sounds (63 runs,
+    10,059 updates, all equal), and captures of "OUT OF
+    TIME", the dissolve, name entry, the ending and the continue screen.
+    Fixed on the way: energy-out restarts without the prompt and repeats
+    its start every update; level 28's missing rows come from the last
+    larger level file; the keys Esc/F1/F2 ('%', '§', '&'); the set-up's
+    energy step; the mouse read's gate carried into name entry and the
+    start wait; the panel clock kept across a level start; the crumbling
+    floor's sound only when a cell falls in.
 
 ## Remaining tasks
 
@@ -72,26 +84,13 @@ compared with the original is under "Verification".
 
 ### Front end
 
-- [ ] **The wheel's mouse read**: it can be gated by the grip flag `$70404`
-  left from the last level (a read every 25th update). Check whether this
-  shows in the original; the port always reads.
-- [ ] **Not yet compared with captures**:
-  - the continue screen's colours (the port uses the panel's palette,
-    which the registers should hold when the copper list changes);
-  - the ending picture;
-  - name entry.
+None known: the wheel's read gate is carried over from the levels, and
+name entry, the continue screen and the ending match captures.
 
 ### Sound
 
-- [ ] **The keys that toggle sound:** '§' toggles bit 1 of `$719A8` and
-  restarts the music (song 2 instead of 0, `$68ACE`); '&' toggles the
-  effects (`$68AAE`, with sounds $17/$18).
-- [ ] **The sounds the original asks for and stops in the same moment:**
-  $18/$17 at the start of the notices' and results' flash (`$6B9F4`),
-  followed at once by stopping all channels. Not played by the port.
-- [ ] **Sounds during level set-up and the start wait** (the energy bar's
-  first step plays $11 at set-up in the original; the port plays it in
-  the first update).
+None known: the sound keys ('§' on F1, '&' on F3), the flash's $18/$17
+and the set-up's energy step are in.
 
 ### Host and enhancements (off by default unless noted)
 
@@ -106,41 +105,17 @@ compared with the original is under "Verification".
 
 ### Verification
 
-- [x] Captures of the original: the full-energy reward's and the warp's
-  messages, and level 11's hint screen, match the port's texts and layout.
-- [ ] A capture of "OUT OF TIME": time4 checks the rule, but the message
-  (1.4 s) was gone before the harness took its picture.
-
-- [ ] The gate hit (−$140 when a gate's counter is 0 or $100) and the
-  $B9/$AE-group drains are rebuilt from the code. No recording has the
-  ball on such a cell at the right moment yet (arc1 crossed $B9 without a
-  drain).
-- [x] Item uses: repair1 (a repair set and the warp), rescue1, bomb1. The
-  pause item is not recorded.
-- [x] Bridge crossings $E3 and the reversing pieces $E4-$E7 (cross1, rev1).
-- [x] Blocks: a vertical push that is blocked (block5), one that slides up
-  (block6, level 28) and a block sinking into $21 (block4). A downward
-  slide (direction 3) is not recorded.
-- [x] Shops and bought balls: protect1, ice2, speed3 (four purchases up to
-  the limit), xball8 ($47), hint11; a reward from the $24 countdown
-  (reward1).
-- [ ] Still unrecorded outside level 1:
-  - the $23 teleport;
-  - the $26 countdown and its warp in a recording that reaches 0;
-  - a breakable wall actually breaking: in wall1 the protective ball
-    bounces before its centre reaches the wall cell (not yet understood);
-  - the pause item.
-- [ ] The energy-out dissolve (`$6C3CC`), compared with a capture.
-- [ ] Level 28 (file $1B): the map is larger than its file, and the
-  original reads on into whatever memory lies behind the file (game.md,
-  "Level files"). Check what the view shows at the bottom edge, and decide
-  what the port fills in.
+Done: every item listed before is recorded or captured (game.md,
+"Verification" and the *Checked* notes). Left:
+- [ ] The reward's and hint's sounds are matched by hand from the log, as
+  the replay stops at the notice.
 
 ## Known bugs and differences
 
-- The panel's clock shows 0:00 at a level's start. The original shows the
-  previous level's time until the first second ends. Like the original, it
-  then shows the second before.
+- The original reloads a level's files from disk on a restart (a black
+  view for several seconds); the port goes on at once.
+- The original's Esc and F2 keys are Tab and F3 in the port (the host
+  keeps Esc and F2); Del ('?') is the slash key.
 - A level without a reward turns the view's colour 0 white for one
   picture. The original writes the colour register directly, so the white
   shows only from that moment of the frame until the copper list sets it
@@ -150,16 +125,16 @@ compared with the original is under "Verification".
   many times a frame.
 - Effect calls are checked against recordings for bounces, falls, keys,
   locks, bridges, coins, purchases, energy, flames, repairs, the rescue,
-  the bomb and blocks. The reward's and the hint's sounds were read off
-  the original's log and matched by hand (the replay stops at the
-  notice). The others are placed from the code's call sites only
-  (countdowns, teleports, switches, gates, crumbling floor).
+  the bomb, blocks, teleports ($23), countdowns, gates, wall breaks, the
+  dissolve, switches and crumbling floor. The reward's and the hint's
+  sounds were read off the original's log and matched by hand (the replay
+  stops at the notice).
 - Sounds asked for during a notice's wait are cut by the channel stop
   that follows at once. The port makes the same calls in the same order
   but has not compared the player's state across a notice.
-- The panel's clock digits did not match the FS-UAE capture. Everything
-  else in the panel matched. The likely cause is the lag above (the capture
-  was taken mid-second); this has not been checked.
+- The panel's clock digits did not match an early FS-UAE capture. The
+  port now keeps the drawn seconds across a level start like the
+  original; not re-checked against a capture.
 
 The original's own bugs are kept on purpose. They are listed in game.md,
 "Quirks and bugs of the original".

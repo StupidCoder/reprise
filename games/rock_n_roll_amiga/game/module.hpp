@@ -24,5 +24,10 @@ bool place_ball(app::GameModule&, std::int32_t camera_x, std::int32_t camera_y, 
 // Research and tests only: the money in the pocket (the recorder's poke of
 // $719C2). False when the game is not in a level.
 bool set_money(app::GameModule&, int money);
+// Research and tests only: the energy ($6F45A; the panel follows it down).
+bool set_energy(app::GameModule&, int energy);
+// Research and tests only: the level clock's seconds and hundredths (the
+// recorder's pokes of $719CA/$719CE). False when the game is not in a level.
+bool set_clock(app::GameModule&, int seconds, int hundredths);
 
 } // namespace rocknroll::game

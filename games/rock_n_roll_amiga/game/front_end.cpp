@@ -306,8 +306,21 @@ std::optional<GameStart> FrontEnd::tick(const FrontEndInput& in) {
         }
         pass_mouse_x_ += in.mouse_x;
         if (in.key != 0 || ++pass_frame_ == 2) {
-            const bool ended = name_pass(in, in.left);
             pass_frame_ = 0;
+            if (in.key == 0 && !grip_) { // $70746: the read is skipped once (or until the 25th)
+                grip_ = true;
+                if (++reads_skipped_ < 25) {
+                    const int counts = pass_mouse_x_;
+                    pass_mouse_x_ = 0;
+                    const bool ended = name_pass(in, in.left); // (the wheel stands still)
+                    pass_mouse_x_ = counts;                     // the next read sees them
+                    if (ended) return name_finished();
+                    print_name();
+                    break;
+                }
+            }
+            if (in.key == 0) reads_skipped_ = 0;
+            const bool ended = name_pass(in, in.left);
             pass_mouse_x_ = 0;
             if (ended) return name_finished();
             print_name();

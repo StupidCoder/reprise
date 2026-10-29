@@ -135,7 +135,15 @@ the original's own bugs. The remaining work is in [plan.md](plan.md).
   - The game reads on into memory behind the file. After start-up that
     memory is all $21 (abyss); after a larger level was loaded, it holds
     that level's tail.
-  - **Open:** what the view shows at the bottom edge.
+  - Every level file loads to `$737C0`. Only the files of levels 2, 10,
+    11, 14 and 32 are larger (12,288 bytes), so in a game played in order
+    level 28's last rows are bytes of level 14's file, drawn with level
+    28's tiles.
+  - *Checked:* after level 14 (by code), a give-up and level 28 (by code)
+    without a reboot, the memory behind the file equals level 14's file
+    bytes, and the view at the bottom edge matches the port's. After a
+    fresh start it is all $21 (block6's saved map). The port keeps a copy
+    of the load area and fills the missing rows from it.
 
 ### Tiles and the graphics bank
 
@@ -224,6 +232,10 @@ mouse is read; not in the start wait.
     period (`$6C840`), halved with the protective ball.
   - `$6E254` (set by these hits and by purchases) only keeps `$6F466`
     from also playing the energy-loss sound $11.
+  - *Checked:* arc2 (level 1, parked on $B9: three −$40 drains, 299
+    updates), drain1 (level 3, parked on $B6: two −$C0 drains) and gate4
+    (level 1, the $A5 gate closing on the ball in update 142: −$140 with
+    sound $C).
 - **Unreferenced:** `$6E35C` (sink into mud via `$6C378` while the $D9
   counter < $7D0) is never called.
 
@@ -331,8 +343,14 @@ The mouse is read every update, unless a gate skips the read:
 
 1. If `$70406` ≠ 0: clear it, move the camera by the velocity, done
    (bridges use this).
-2. **Grip** `$70404`: when it is clear (some surfaces clear it), the read is
-   skipped except every 25th update (counter `$7040A`).
+2. **Grip** `$70404`: when it is clear (a bounce and some surfaces clear
+   it), the read is skipped once, and grip is set again at once (`$70746`);
+   the counter `$7040A` (reset by every read) lets the read through at 25.
+   A skipped read loses no movement: the next one measures from `$719E6`.
+   - The flag and the counter are never reset. The name entry's wheel
+     reads through this routine too (`$696A8`), and so does the start wait
+     (`$688B4`), so a level that ended with the grip clear skips the next
+     of those reads. The port carries both across.
 3. JOY0DAT is compared with the previous value `$719E6`. While the ball
    falls (`$6C3C6`) or after the time runs out (`$70408`), the read is taken
    as "no movement".
@@ -421,6 +439,15 @@ friction +400 a frame) and rec3.
   `$6C486` is cleared when a rescue ends, not when one starts.
 - **Energy out** (`$6C3CC`): the fall, with masks from `$34BD0` (the ball
   dissolves).
+  - While the panel shows 0, `$6F466` starts it again every update
+    (`$6F4C4`: the state, sound $18, the delay 0, sound $D), not only on
+    the step that reached 0.
+  - The ball is lost without the fall's pause and prompt (`$6BB94` only
+    stops for the fall's own state): the level restarts with one ball
+    less and the "N BALLS REMAINING" text.
+  - *Checked:* dissolve1 (level 1, energy poked to 0), 64 updates equal
+    with $18 and $D in each; the captured pieces match the port's (on the
+    start pad, whose tile shows through).
 
 ### Contact test and bounce
 
@@ -469,8 +496,8 @@ friction +400 a frame) and rec3.
 | $3B exit | `$6E992` | Level done (`$6FDEC`), the time copied (`$719D6`/`$719D2`), then a fall: the ball drops into the exit |
 | shops | `$6E1CA` | See "Shops" |
 | $29–$2E switches | `$6DD4C`… | See "Switches" |
-| $38–$3A crumbling floor | `$6DE4A`… | `$6EC90` := $39/$3A/$21; the cell under the centre becomes the next stage when the ball leaves it (`$6EC92`/`$6EC94`) |
-| $9C–$9F, $DB, $DC walls | `$6DBDC`… | Breakable with the protective ball (`$719EA`) when tick bit 0 is set and the ball moves faster than $1000 into the wall (direction by the cell's place). That speed := 0 and `$6EC64` replaces the wall (with $9D, $DB, $15, $21, …) |
+| $38–$3A crumbling floor | `$6DE4A`… | `$6EC90` := $39/$3A/$21; the cell under the centre becomes the next stage when the ball leaves it (`$6EC92`/`$6EC94`). Only a cell that becomes $21 counts the countdown down and plays sound $10 (`$6ECC6`). *Checked:* crumble2 (level 1, rolled back and forth until a cell falls in), 219 updates |
+| $9C–$9F, $DB, $DC walls | `$6DBDC`… | Breakable with the protective ball (`$719EA`) when tick bit 0 is set and the ball moves faster than $1000 into the wall (direction by the cell's place). That speed := 0 and `$6EC64` replaces the wall (with $9D, $DB, $15, $21, …). *Checked:* wall2 (level 3: the protective ball bought, then the $9F wall at (20,4) breaks in update 138; 219 updates) |
 | $D9 mud | | Energy −$80, both speeds halved (ASR) |
 | $DA flames | `$6D6E2` | Energy −$C0 while its animation counter `$7164C` ≥ $600 |
 | $B9/$BC arcs | `$6D640` | Energy −$40 while `$71934` ≤ $100 |
@@ -583,7 +610,7 @@ the drawing.
   - The speeds become 0, the view is unchanged, and sound 9 plays. The
     sound number returned in D0 also ends the search.
 - **$23** (`$6CB6C`): the same jump to +$3C0/+$3C4, with the view centred
-  ($90000, $30000).
+  ($90000, $30000). *Checked:* tele3 (level 3, (10,36)), 59 updates.
 - Both set `$6F8B8` (a flash).
 
 ### Countdowns and warps
@@ -594,6 +621,8 @@ the drawing.
   - if `$6D87E` still equals +$1C8, the secret warp (`$69F8A`) happens and
     the count := $1FFF, with the cell kept;
   - otherwise the cell := $25.
+  - *Checked:* warp2 (level 2, the count poked to 1, the ball rolled along
+    the room's $26 border): the secret warp in update 11, 12 updates.
 - **$24** (`$6D880`): the count − 1. At 0, the reward `$6D8CE` (a per-level
   routine, table `$78008`) and the count := $1FFF. The cell := $25 always,
   and sound $B follows.
@@ -730,7 +759,11 @@ the drawing.
   the ball is lost.
   - "OUT OF TIME" (1, 5) is shown in the cleared view for 15 delays
     (`$6ABB2`, about 1.4 s), and the music stops.
-  - Then comes a restart, with no prompt.
+  - Then comes a restart, with no prompt. The original reloads the
+    level's files from disk first: a black view with the clock at 0:00 for
+    several seconds (the loader at `$Axxx`), then "N BALLS REMAINING". The
+    port goes on at once.
+  - *Checked against a capture:* the text, its colour and place.
   - *Checked:* time4 (level 4, limit 150 s, the seconds poked to 148): the
     seconds reach the limit in update 95 with the ball still, and the ball
     is lost in the same update.
@@ -749,13 +782,27 @@ the drawing.
 
   | Item | Picture | Use |
   | --- | --- | --- |
-  | 0 | Exit | Give up (`$6B5A8`); the '?' key does the same at the end of any update (`$68A36`; the port maps it to the slash key) |
+  | 0 | Exit | Give up (`$6B5A8`); the '?' key (Del) does the same at the end of any update (`$68A36`; the port maps it to the slash key) |
   | 2 | Eye | The overview map (`$6B67E`) |
   | 4 | zz | Pause until the button is let go, pressed and let go again (`$6B612`) |
   | 6 | Bomb | `$6BE9A` |
   | 8 | Pickaxe | Arms a repair set (`$6C9BE`) |
   | 10 | Parachute | Rescue: while 0 < fall count ≤ 40, with an hourglass (`$719B2`), the state goes to `$6C488` |
 
+- **Keys during play** (`$68A50`, before the items; a key acts once, when
+  `$70BD8` changes). The keyboard table `$70C9E` gives:
+  - Esc → '%': the loop ends as if the ball were lost (`$6BB2A`): in the
+    fall's state the pause and prompt, otherwise a restart with one ball
+    less. Port: Tab.
+  - Del → '?': give up (`$68A36`, after the items). Port: the slash key.
+  - F1 → '§' ($A7): bit 1 of the song number `$719A8` flips and the song
+    starts again (`$70A74`). Port: F1.
+  - F2 → '&': sounds $17 and $18, then the effects on or off (`$68AAC`).
+    Port: F3 (the host keeps F2).
+  - Space → '(': steps the item choice like the right button (`$6B4F8`).
+  - Digits do nothing here; '0' held as a level ends leads to the ending.
+- *Checked:* pause1 (level 1: the eye stepped to the pause item, used,
+  and the wait answered), 59 updates.
 - **Bomb** (`$6BE9A`): works on the spot `$6BE86` (from a $10 cell under the
   centre); the spot is cleared when no button is held.
   - The timer `$6BE78` = 150, and $0F is written into the cell.
@@ -860,7 +907,8 @@ the drawing.
 - *Checked* in level 21 (code 210099300012): block4, a block sinking into
   $21 (149 updates), and block5, a vertical push that is blocked (119
   updates). In level 28 (code 280099910082): block6, a block pushed up
-  into $24 and sliding (direction 1, 79 updates, end map equal).
+  into $24 and sliding (direction 1, 79 updates, end map equal), and
+  block7, one pushed down (direction 3, 69 updates).
 
 ## After a lost ball (`$6BB86`)
 
@@ -878,8 +926,9 @@ the drawing.
     - The loop resumes with the map and pocket as they were, with no start
       wait.
   - **Right: restart.**
-- **Any other loss** (no balls left, out of time, energy out): `$6D940`
-  refills the energy (shown $800, actual $7FF), then restart.
+- **Any other loss** (no balls left, out of time, energy out, the '%' key):
+  `$6D940` refills the energy (shown $800, actual $7FF), then restart
+  (`$6BC7C`). There is no prompt.
 - **Every way:** balls − 1, and the text becomes "N BALLS REMAINING" /
   "LAST BALL".
 - **At −1: game over.** "GAME OVER", then the high scores (`$6993A`). The
@@ -937,7 +986,8 @@ the drawing.
     4) with rows 11–15 blanked.
   - **After a finished game,** "CONGRATULATIONS PLACE nn" (nn = "01"…"10")
     or "SORRY, NO ENTRY" is printed once over the header.
-- **Name entry** (`$693D8` → `$695F0`):
+- **Name entry** (`$693D8` → `$695F0`), *checked against a capture* (the
+  box, the typed letters and the wheel's letter):
   - File $31's first 60 rows (12,000 bytes, the name box) are copied over
     rows 124–183 of the title, covering its button texts.
   - The name (13 characters at `$68416`) is printed at column 7, row 14,
@@ -1021,7 +1071,8 @@ the drawing.
   - No "BALLS REMAINING" message is shown, since `$68140` is still set.
 - **The ending** (`$6C7F2`): file $41 ("YOU MADE IT") is shown through the
   title's copper list until the left button is pressed. Then the game
-  ends as if out of balls.
+  ends as if out of balls. *Checked against a capture* (reached with '0'
+  held at level 1's exit): the picture and its colours match.
 - **"N BALLS REMAINING"** (`$6882C`, at the next set-up after a lost ball,
   when `$68140` was cleared): shown for 8 × `$6B66E`.
   - `$6B66E` is a delay loop of 65,536 passes, about 92 ms or 4.6 frames.
@@ -1037,6 +1088,8 @@ the drawing.
   - It waits for the left button, then sets up the same level, with "3
     BALLS REMAINING".
   - Despite the texts, only the left button is read.
+  - *Checked against a capture* (a $47 continue bought in level 8, then
+    '?'): the texts and their two greys match.
 
 ## The screen
 
@@ -1216,7 +1269,10 @@ the drawing.
   - Name entry clears the bit (`$69600`) and stops the channels
     (`$693D8`), so the music halts there.
 - **A level:** the set-up loads the world's music, stops the channels, and
-  asks for song `$719A8` (0).
+  asks for song `$719A8` (0, or 2 after the '§' key; the title and the
+  jukebox set it to 0).
+  - Before that, while the panel is drawn, `$6F466` runs once (`$68790`):
+    a refilled bar steps from $800 to $7FF with sound $11 and its delay.
   - The start wait does not tick, so the song begins at the loop's first
     update (`$68940` → `$70AE4`), when the ball starts rolling.
   - The pause item's loops keep ticking.
@@ -1246,7 +1302,7 @@ the drawing.
   | $D | flames ignite; empty energy |
   | $E | a repair; a sinking block |
   | $F | a block push (even when blocked) |
-  | $10 | crumbling floor |
+  | $10 | a crumbling cell falls in |
   | $11 | each step of the energy bar's fall |
   | $12 | a purchase |
   | $13 | the bomb item used |
@@ -1290,9 +1346,17 @@ The port keeps these, because they are part of how the game plays:
     cap's railing outline is dotted. Any other push frees it.
   - *Checked:* runs/lockcap1.txt, 79 updates equal.
 - **Breakable walls use an unsigned speed compare.**
+- **A wall breaks only from inside its cell's half.** The rule acts on the
+  centre cell, which moves to the right column only when the ball is more
+  than 0.625 of a cell past its left one. Coming from the left, the ball
+  bounces at about 0.57–0.67 into the cell before the wall, so it breaks
+  only when its approach happens to reach past 0.625 (wall2). A poke of
+  `$719EA` alone does not make the ball protective: the next update
+  clears it, the bought ball's time being 0 (so wall1 never had it).
 - **The clock is drawn at each second's end before the seconds count on**,
   so it shows the second before. At a level's start it still shows the
-  previous level's time.
+  previous level's time (the set-up does not draw it); the port keeps the
+  drawn seconds the same way.
 - **Level 28's map is larger than its file** (see "Level files").
 - **Layer-1 cells under the ball are not drawn yet when the contact test
   runs**, so pickups never count as railings.
@@ -1357,9 +1421,14 @@ The port keeps these, because they are part of how the game plays:
     the replay accepts it when the native update asked for one.
   - The recorder removes an earlier attempt's `.endmap`: a run that stops
     early writes none.
-  - Once, a long run of sound $11 (959 steps of the energy bar in one
-    update) logged 962 calls: the stub seems to report a breakpoint again
-    now and then. Short runs log exactly (the same drop of $C0, twice).
+  - An interrupt taken at the sound breakpoint makes the stub report the
+    same call twice (seen in long runs of $11). The recorder drops a report
+    whose registers equal the one before; real repeated calls differ (the
+    energy loop counts D1 down).
+  - 'p' with 'l' in a step uses the pause item: the recorder answers its
+    wait (release, press, release) and logs "# pause answered". Once a
+    whole update slipped through during that, so check the hundredths
+    around it.
   - Newer recordings also save the original's map (`<run>.txt.map`). Since
     block1 they also save the map at the last row (`<run>.txt.endmap`),
     which the replay compares at the end.
@@ -1370,20 +1439,23 @@ The port keeps these, because they are part of how the game plays:
   natively and compares every logged field. `harness/regress.sh` runs all
   of them, with Reprise's build of the tool (the harness folder is reached
   through a symlink; an old build lies beside the real folder).
-  - `rock_n_roll_replay probe <content> <level> COL ROW N [a-b:dx,dy …]`
-    runs the native rules from the same placement and prints the ball and
-    the block per update: a cheap way to plan a recording.
+  - `rock_n_roll_replay probe <content> <level> COL ROW N [a-b:dx,dy …]
+    [money=HEX] [from=RUN]` runs the native rules from the same placement
+    (or from a recording's first row, its map and mouse) and prints the
+    ball, the block, the sounds and the pocket per update: a cheap way to
+    plan a recording. The original's state at a run's start repeats
+    exactly for the same steps, so a plan made from=RUN holds.
   - Level files are named by their number in hex (`rnr_content/1b` is
     level 28); the level table `$7855E` maps levels to files.
-  - 52 runs: rail1, ice1, fall2, arrow3, slope1, fall3, finds2, lock2,
+  - 63 runs: rail1, ice1, fall2, arrow3, slope1, fall3, finds2, lock2,
     fall4+cont4, bridge1, beam2, shop3, shop4, clock1, mud1, glass1,
-    switch1, exit1, crumble1, lockcap1, gate1–3, flame1, arc1, corner1–2,
-    snd1–4, repair1, rescue1 (level 1), block1–3 (level 7), fan1–2,
-    protect1, wall1, cross1, rev1, speed3 (level 3, code 030000030030),
-    bomb1, ice2 (level 2), time4 (level 4), xball8 (level 8), hint11
-    (level 11), block4–5 (level 21), reward1 (level 25), block6 (level
-    28).
-  - 8,382 updates, all equal.
+    switch1–2, exit1, crumble1–2, lockcap1, gate1–4, flame1, arc1–2,
+    corner1–2, snd1–4, repair1, rescue1, pause1, dissolve1 (level 1),
+    block1–3 (level 7), fan1–2, protect1, wall1–2, cross1, rev1, speed3,
+    tele3, drain1 (level 3, code 030000030030), bomb1, ice2, warp2 (level
+    2), time4 (level 4), xball8 (level 8), hint11 (level 11), block4–5
+    (level 21), reward1 (level 25), block6–7 (level 28).
+  - 10,059 updates, all equal.
   - Since snd1, recordings also log the sound delay, the energy-sound flag
     and the bridge latch and pair, and every effect call.
   - Since gate1, recordings also log the animation cursor and counters
@@ -1402,7 +1474,8 @@ The port keeps these, because they are part of how the game plays:
   - held keys `a-b:key=N` (a `GameInput::c64_keys` index);
   - pictures `@N=file.png`;
   - a ball placement `@N:place=cx,cy,vx,vy,sx,sy` (hex, as a recording's
-    first row) and the money `@N:money=HEX`;
+    first row), the money `@N:money=HEX`, the energy `@N:energy=HEX` and
+    the clock `@N:clock=SECONDS,HUNDREDTHS` (hex);
   - the fire button (`f` among the buttons), which types a space;
   - `wav=FILE`: the module's audio, with the loudness per second printed.
 - **Front end checks against FS-UAE captures (2026-10-29):**

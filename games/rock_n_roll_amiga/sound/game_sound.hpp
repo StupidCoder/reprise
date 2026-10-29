@@ -34,6 +34,7 @@ public:
     void stop_channels() { for (int c = 0; c < 4; ++c) player_.stop_channel(c, paula_); } // $70A32
     void stop_all() { player_.stop(paula_); }  // $709E6
     void effect(int number) { if (effects_on_) player_.effect(number); } // $70A9C
+    void toggle_effects() { effects_on_ = !effects_on_; } // $68AC2
     void tick() { player_.frame(paula_, memory_); } // $70AE4 (+$24)
     void render(std::span<float> stereo, int rate) { paula_.render(stereo, rate); }
     const Tfmx& player() const { return player_; } // research

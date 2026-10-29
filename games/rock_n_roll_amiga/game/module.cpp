@@ -86,6 +86,13 @@ public:
         }
         front_end_ = std::make_unique<FrontEnd>(assets_, scores_);
         sound_ = std::make_unique<sound::GameSound>(assets_);
+        // The level load area as the program's image leaves it at start-up,
+        // as large as the largest file or map.
+        std::size_t area = 0;
+        for (const auto& level : assets_.levels)
+            area = std::max({area, data::level_cells_at + level.stored_cells + level.padding.size(), data::level_cells_at + level.cells.size()});
+        const auto image = assets_.program.bytes(data::level_load_address, std::uint32_t(area));
+        load_area_.assign(image.begin(), image.end());
         open_front_end(std::nullopt);
     }
 
@@ -132,8 +139,9 @@ public:
             if (const int r = front_end_->take_jukebox_request(); r >= 0) {
                 sound_->stop_all(); // $709E6
                 if (r > 0) {        // $68DE6-$68E62: the title's music
+                    song_ = 0;
                     sound_->load_jukebox(r);
-                    sound_->start_music();
+                    sound_->start_music(song_);
                 }
             }
             if (front_end_->music_runs()) sound_->tick();                            // $70ABE
@@ -150,6 +158,10 @@ public:
             sound_->tick(); // $68940: the loop's first call
             move_counters(input, counts_x, counts_y);
             update_ball(ball_, pocket_, map_, world(), mouse_);
+            if (ball_.clock.seconds != clock_seen_) { // a second ended: $6F270 drew the digits
+                clock_seen_ = ball_.clock.seconds;
+                panel_seconds_ = std::max(clock_seen_ - 1, 0);
+            }
             zero_key_ = key == '0' || (zero_key_ && input.c64_keys[35]);
             view_flash_ = false;
             if (ball_.reward_due || ball_.hint_bought) {
@@ -173,6 +185,26 @@ public:
             if (ball_.mode == BallMode::lost || ball_.mode == BallMode::warped) {
                 ball_lost();
                 break;
+            }
+            // $68A50, before the items: the keyboard handler's other keys.
+            if (key == '%') { // $68A78 → $6BB2A: the loop ends as if the ball were lost
+                if (ball_.mode == BallMode::falling && !ball_.energy_out) { // the fall's state: its pause and prompt
+                    ball_.mode = BallMode::lost;
+                    ball_lost();
+                } else { // otherwise a restart with one ball less ($6BC7C)
+                    sound_->stop_all(); // $6BB34
+                    restart();
+                }
+                break;
+            }
+            if (key == '\xA7') { // $68ACE: the song's bit 1 (song 0 or 2), started again
+                song_ ^= 2;
+                sound_->start_music(song_);
+            }
+            if (key == '&') { // $68AAE: two sounds, then the effects on or off
+                sound_->effect(0x17);
+                sound_->effect(0x18);
+                sound_->toggle_effects();
             }
             if (key == '?') { // $68A36: the '?' key gives up like item 0
                 balls_ = 0;
@@ -211,7 +243,7 @@ public:
         case Phase::prompt:
             if (left_pressed) { // continue from this point ($6BBC4)
                 continue_after_fall(ball_);
-                sound_->start_music(); // $6BDCC
+                sound_->start_music(song_); // $6BDCC
                 // $6BDF8: the energy gains $280 (over $800: $7FF).
                 add_energy();
                 --balls_;
@@ -265,7 +297,7 @@ public:
             } else if (wait_stage_ == 3 && left) {
                 wait_stage_ = 4;
             } else if (wait_stage_ == 4 && !left) {
-                sound_->start_music(); // $6B6F0: the song from its start
+                sound_->start_music(song_); // $6B6F0: the song from its start
                 phase_ = Phase::playing;
             }
             break;
@@ -330,6 +362,17 @@ public:
         pocket_.money = money;
         return true;
     }
+    bool set_energy(int energy) {
+        if (phase_ != Phase::waiting && phase_ != Phase::playing) return false;
+        pocket_.energy = std::uint16_t(energy);
+        return true;
+    }
+    bool set_clock(int seconds, int hundredths) {
+        if (phase_ != Phase::waiting && phase_ != Phase::playing) return false;
+        ball_.clock.seconds = seconds;
+        ball_.clock.hundredths = hundredths;
+        return true;
+    }
 
 private:
     enum class Phase {
@@ -351,11 +394,13 @@ private:
 
     // The panel's numbers. The clock's digits are drawn when a second ends
     // ($6C888 → $6F270), before the seconds count on, so they show the
-    // second before (the tenths digit follows every update, $6F178).
+    // second before; the level set-up does not draw them, so a new level
+    // shows the last level's seconds until its first second ends (the
+    // tenths digit follows every update, $6F178).
     PanelNumbers panel_numbers() const {
         PanelNumbers n;
         n.level = level_index_ + 1;
-        n.seconds = std::max(ball_.clock.seconds - 1, 0);
+        n.seconds = panel_seconds_;
         n.hundredths = ball_.clock.hundredths;
         n.record = shown_record_;
         n.high_score = shown_high_score_;
@@ -381,6 +426,8 @@ private:
     // gave (or the first; the bonus level's index counts as the first,
     // $686C8).
     void start_game(const GameStart& start) {
+        ball_.grip = front_end_->read_grip(); // (carried into the first level's start wait)
+        ball_.updates_without_read = front_end_->reads_skipped();
         player_name_ = start.name;
         from_code_ = start.from_code;
         pocket_ = Pocket{};
@@ -398,17 +445,38 @@ private:
         // resets them); the tile table is rebuilt ($70954).
         auto animation = map_.animation.ready() ? std::move(map_.animation) : TileAnimator(assets_.program);
         map_ = LevelMap::from(level);
+        // The file is loaded over whatever the last level files left at
+        // $737C0. A map larger than its file (level 28) reads on into that:
+        // after level 14 (a 12,288-byte file) its bottom rows are level 14's
+        // file bytes, from a fresh start the program's image (abyss).
+        std::copy(level.header.begin(), level.header.end(), load_area_.begin());
+        std::copy(level.cells.begin(), level.cells.begin() + std::ptrdiff_t(level.stored_cells),
+                  load_area_.begin() + std::ptrdiff_t(data::level_cells_at));
+        std::copy(level.padding.begin(), level.padding.end(),
+                  load_area_.begin() + std::ptrdiff_t(data::level_cells_at + level.stored_cells));
+        for (std::size_t i = level.stored_cells; i < map_.cells.size(); ++i)
+            map_.cells[i] = load_area_[data::level_cells_at + i];
         map_.animation = std::move(animation);
         map_.animation.set_world(level.world); // $6C0E0
         const MouseCounters keep = ball_.last_mouse;
+        const bool grip = ball_.grip; // $70404/$7040A are never reset: the start wait's first read may be skipped
+        const int skipped = ball_.updates_without_read;
         ball_ = Ball::at_start(map_);
         ball_.last_mouse = keep;
+        ball_.grip = grip;
+        ball_.updates_without_read = skipped;
+        clock_seen_ = ball_.clock.seconds; // (the panel keeps panel_seconds_)
         screen_ = std::make_unique<Screen>(assets_, world());
         // $686EA/$686F0 (and $6C69E's loads): the world's music, asked for;
         // it starts at the loop's first update after the start wait.
+        // $68790: the panel's energy follows the energy (a refilled bar
+        // steps once from $800 to $7FF, with sound $11 and its delay).
+        settle_energy(ball_, pocket_);
+        for (const int n : ball_.sounds) sound_->effect(n);
+        ball_.sounds.clear();
         sound_->stop_channels();
         sound_->load_world(level.world);
-        sound_->start_music();
+        sound_->start_music(song_);
         // The panel's record and high score are drawn at set-up only ($6F1A6, $6EDCE).
         shown_record_ = scores_.record(level_index_);
         shown_high_score_ = scores_.high_score();
@@ -499,7 +567,7 @@ private:
             phase_ = Phase::fall_pause;
             return;
         }
-        decide_after_fall();
+        restart(); // $6BC7C: any other state (an empty energy bar): no prompt
     }
 
     void decide_after_fall() {
@@ -677,9 +745,11 @@ private:
     // place in the hall of fame).
     void open_front_end(std::optional<int> place) {
         front_end_->open(place);
+        front_end_->set_read_gate(ball_.grip, ball_.updates_without_read);
         sound_->stop_all();
         sound_->load_title(place.has_value());
-        sound_->start_music();
+        song_ = 0; // $68EAA
+        sound_->start_music(song_);
         phase_ = Phase::front_end;
     }
 
@@ -765,6 +835,15 @@ private:
             const auto i = std::size_t(k.key);
             if (input.c64_keys[i] && !keys_held_[i]) key = k.character;
         }
+        // The original's Esc ('%'), F1 ('§') and F2 ('&'): Tab, F1 and F3
+        // here (Esc and F2 belong to the host). The digit keys also count as
+        // F1/F3 on the host, so those are left out.
+        const bool f1 = input.f1 && !input.c64_keys[56], f3 = input.f3 && !input.c64_keys[8];
+        if (f1 && !f1_held_) key = '\xA7';
+        if (f3 && !f3_held_) key = '&';
+        f1_held_ = f1;
+        f3_held_ = f3;
+        if (input.c64_keys[63] && !keys_held_[63]) key = '%';
         // The space bar (also the fire button) types a space.
         const bool space = input.fire && !input.c64_keys[12];
         if (space && !space_held_) key = '(';
@@ -797,6 +876,9 @@ private:
     std::vector<ScreenText> notice_;
     AfterNotice after_notice_{};
     std::vector<int> sounds_after_notice_; // the rest of the update that showed the notice
+    std::vector<std::uint8_t> load_area_;  // $737C0 on: the level files as loaded one over another
+    int song_{};                           // $719A8: the song $70A74 starts (bit 1 flipped by '§')
+    int panel_seconds_{}, clock_seen_{};   // the seconds $6F270 last drew, and the clock then
     bool notice_full_screen_{};
     int warp_target_{};
     bool view_flash_{};
@@ -815,6 +897,7 @@ private:
     bool left_held_{}, right_held_{};
     std::array<bool, 64> keys_held_{};
     bool space_held_{};
+    bool f1_held_{}, f3_held_{};
 };
 
 } // namespace
@@ -832,6 +915,16 @@ bool place_ball(app::GameModule& game, std::int32_t camera_x, std::int32_t camer
 bool set_money(app::GameModule& game, int money) {
     auto* module = dynamic_cast<Module*>(&game);
     return module && module->set_money(money);
+}
+
+bool set_energy(app::GameModule& game, int energy) {
+    auto* module = dynamic_cast<Module*>(&game);
+    return module && module->set_energy(energy);
+}
+
+bool set_clock(app::GameModule& game, int seconds, int hundredths) {
+    auto* module = dynamic_cast<Module*>(&game);
+    return module && module->set_clock(seconds, hundredths);
 }
 
 } // namespace rocknroll::game

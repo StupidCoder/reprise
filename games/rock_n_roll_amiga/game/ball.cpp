@@ -414,8 +414,7 @@ void apply_changes(LevelMap& map, const std::vector<LevelMap::CellChange>& chang
 void step_on(Ball& b, Pocket&, LevelMap& map, long index, std::uint8_t next) {
     if (b.pending_value != 0 && b.remembered_cell >= 0 && b.remembered_cell < long(map.cells.size())) {
         map.cells[std::size_t(b.remembered_cell)] = b.pending_value;
-        play(b, 0x10); // $6ED16
-        if (b.pending_value == 0x21) {
+        if (b.pending_value == 0x21) { // only a cell that falls in counts and sounds ($6ECC6)
             map.crumble_count = std::uint16_t(map.crumble_count - 1);
             if (map.crumble_count == 0) {
                 const auto& list = map.crumble_switched ? map.crumble_list_switched : map.crumble_list;
@@ -423,6 +422,7 @@ void step_on(Ball& b, Pocket&, LevelMap& map, long index, std::uint8_t next) {
                 map.crumble_count = 0xFFFF;
                 if (list.empty()) b.reward_due = true, b.notice_sound_at = b.sounds.size(); // $6D8CE when the list is empty
             }
+            play(b, 0x10); // $6ED16
         }
     }
     b.remembered_cell = index;
@@ -1029,24 +1029,33 @@ Ball Ball::at_start(const LevelMap& map) {
 // $6F466, each update after $6B166: the panel's energy follows the energy
 // down (one sound per step); at 0 the ball dissolves ($6C3CC, the falling
 // state with other pictures) and is lost like a fall. The words compare
-// signed, so a drain below 0 empties it too.
+// signed, so a drain below 0 empties it too. While the panel shows 0 the
+// dissolve is started again every update ($6F4C4), with its two sounds.
 void follow_energy(Ball& b, Pocket& pocket) {
     const auto energy = std::int16_t(pocket.energy);
     int shown = std::int16_t(pocket.shown_energy);
-    if (energy >= shown) b.energy_sound_quiet = false; // $6F4B4
-    while (energy < shown) {
+    bool empty = false;
+    while (true) {
+        if (energy >= shown) { // $6F4B4
+            b.energy_sound_quiet = false;
+            empty = shown == 0;
+            break;
+        }
         if (!b.energy_sound_quiet) { // $6F486: each step, unless a hit or purchase played its own
             play(b, 0x11);
             b.sound_delay = 0x1E;
         }
         if (--shown == 0) {
-            b.mode = BallMode::falling;
-            b.energy_out = true;
-            play(b, 0x18); // $6F4CE
-            b.sound_delay = 0;
-            play(b, 0x0D);
+            empty = true;
             break;
         }
+    }
+    if (empty) {
+        b.mode = BallMode::falling;
+        b.energy_out = true;
+        play(b, 0x18); // $6F4CE
+        b.sound_delay = 0;
+        play(b, 0x0D);
     }
     pocket.shown_energy = shown;
 }
@@ -1147,6 +1156,8 @@ bool wait_for_start(Ball& b, MouseCounters mouse) {
     keep_in_view(b, s);
     return true;
 }
+
+void settle_energy(Ball& b, Pocket& pocket) { follow_energy(b, pocket); }
 
 void continue_after_fall(Ball& b) {
     b.camera_x = b.continue_camera_x;

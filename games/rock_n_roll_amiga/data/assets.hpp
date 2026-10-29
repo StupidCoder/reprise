@@ -74,6 +74,11 @@ struct World {
 // except $14 and $21, which the program re-points every frame into the
 // scrolling abyss pattern ($6C972). Values from $F1 up are placed at run time
 // (none are stored in the files).
+// Where every level file is loaded ($737C0, load table $78136) and where its
+// cells start in it.
+inline constexpr std::uint32_t level_load_address = 0x737C0;
+inline constexpr std::size_t level_cells_at = 0x3E8;
+
 struct Level {
     int number{};       // 1-33, the order of the program's level table
     std::string name;   // from the program's name list ($6AEFC)
@@ -83,8 +88,10 @@ struct Level {
     std::vector<std::uint8_t> header; // the first $3E8 bytes as stored
     std::vector<std::uint8_t> cells;  // rows x columns
     // Cells the file holds; the rest (level 28 only) are what the game finds
-    // behind the file in memory, here the program's start-up image.
+    // behind the file in memory, here the program's start-up image (the game
+    // module replaces them with what earlier levels left there).
     std::size_t stored_cells{};
+    std::vector<std::uint8_t> padding; // the file's bytes after its cells
 
     std::uint8_t at(int column, int row) const { return cells[std::size_t(row) * std::size_t(columns) + std::size_t(column)]; }
 };

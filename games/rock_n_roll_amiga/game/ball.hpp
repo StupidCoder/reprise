@@ -198,6 +198,9 @@ bool wait_for_start(Ball&, MouseCounters mouse);
 // back to the continue point and rolls again from rest; the map and the
 // pocket stay as they are.
 void continue_after_fall(Ball&);
+// $6F466 as the level set-up calls it ($68790, while the panel is drawn):
+// the panel's energy follows the energy, with its sounds.
+void settle_energy(Ball&, Pocket&);
 
 // The panel's items ($6B4F4, 0-10 in steps of 2): 0 give up, 2 the eye
 // (the overview map), 4 pause, 6 a bomb, 8 a repair set, 10 a rescue. The

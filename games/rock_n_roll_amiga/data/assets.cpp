@@ -19,8 +19,6 @@ constexpr std::uint32_t level_name_size = 16;
 // Level file layout ($73B88 = file +$3C8 rows, $73B8A columns, cells $73BA8).
 constexpr std::size_t level_rows_at = 0x3C8;
 constexpr std::size_t level_columns_at = 0x3CA;
-constexpr std::size_t level_cells_at = 0x3E8;
-constexpr std::uint32_t level_load_address = 0x737C0; // load table $78136
 
 // The graphics bank: world file rows 0-336, program graphics rows 344-615
 // ($29CC0-$37140; rows 616-621 hold bytes that do not look like pictures and
@@ -114,6 +112,7 @@ Level load_level(const std::filesystem::path& content, const Program& program, i
     level.stored_cells = std::min(cells, bytes.size() - level_cells_at);
     level.cells.assign(bytes.begin() + std::ptrdiff_t(level_cells_at),
                        bytes.begin() + std::ptrdiff_t(level_cells_at + level.stored_cells));
+    level.padding.assign(bytes.begin() + std::ptrdiff_t(level_cells_at + level.stored_cells), bytes.end());
     // A map can be larger than its file (level 28: 60 x 100 cells in 6,144
     // bytes). The game reads on into whatever lies behind the file in memory:
     // at start-up the program's own image there (all abyss), later the tail of

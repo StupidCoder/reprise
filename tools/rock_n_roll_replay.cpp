@@ -399,6 +399,55 @@ int compare_animation(const game::TileAnimator& a, const Row& r, std::int64_t up
     return differing;
 }
 
+// The state at a recording's first row: the ball, the pocket and, where
+// the recording logs them, the animations, the items, the sound state and
+// the block.
+void start_from(const Row& first, game::Ball& ball, game::Pocket& pocket, game::LevelMap& map, game::Items& items) {
+        ball = ball_from(first);
+        ball.clock.limit = map.time_limit; // (rows do not log it)
+        pocket = pocket_from(first);
+        if (first.count("acur")) { // the animations as the original had them
+            map.animation.set_cursor(int(first.at("acur")));
+            for (int i = 0; i < game::TileAnimator::slots; ++i)
+                map.animation.set_slot_counter(i, std::uint16_t(first.at("ac" + std::to_string(i))));
+            map.animation.show_all(map.tiles);
+        }
+        if (first.count("item")) { // the items as the original had them
+            const auto& r = first;
+            items.selected = int(r.at("item"));
+            items.right_latch = r.at("itemlatch") & 1;
+            ball.repair_armed = r.at("repairarm") & 1;
+            ball.bomb_timer = int(r.at("bombtime"));
+            ball.bomb_spot = r.at("bombspot") ? long(r.at("bombspot")) - 0x73BA8 : -1;
+            ball.bomb_cell = r.at("bombcell") ? long(r.at("bombcell")) - 0x73BA8 : -1;
+            pocket.map_depth = int(r.at("mapdepth"));
+            pocket.shown_energy = int(r.at("shownenergy"));
+        }
+        if (first.count("snddelay")) { // the sound state as the original had it
+            const auto& r = first;
+            ball.sound_delay = int(r.at("snddelay"));
+            ball.energy_sound_quiet = r.at("sndquiet") & 1;
+            ball.bridge_latch = r.at("bridgelatch") & 1;
+            ball.bridge_end_sound = int(r.at("bridgesnd"));
+            ball.bridge_end_other = int(r.at("bridgesnd2"));
+        }
+        if (first.count("blkcount")) { // the block as the original had it
+            const auto& r = first;
+            map.warp_count = std::uint16_t(r.at("warpcount")); // earlier runs may have counted it down
+            map.reward_count = std::uint16_t(r.at("rewardcount"));
+            auto& k = map.block;
+            k.count = int(r.at("blkcount"));
+            k.direction = int(r.at("blkdir"));
+            k.last_vx = game::Fixed(r.at("blkvx"));
+            k.last_vy = game::Fixed(r.at("blkvy"));
+            k.from = long(r.at("blkfrom")) - 0x73BA8;
+            k.to = long(r.at("blkto")) - 0x73BA8;
+            k.value = std::uint8_t(r.at("blkvalue"));
+            k.sinking = r.at("blksink") == 0x80;
+            k.counts_for_warp = r.at("warpflag") & 1;
+        }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -436,49 +485,7 @@ int main(int argc, char** argv) {
                 const bool has_sounds = !sound_log.empty();
                 if (rows.size() < 2) throw std::runtime_error("A recording has fewer than two updates.");
                 if (k == 0) {
-                    ball = ball_from(rows.front());
-                    ball.clock.limit = map.time_limit; // (rows do not log it)
-                    pocket = pocket_from(rows.front());
-                    if (rows.front().count("acur")) { // the animations as the original had them
-                        map.animation.set_cursor(int(rows.front().at("acur")));
-                        for (int i = 0; i < game::TileAnimator::slots; ++i)
-                            map.animation.set_slot_counter(i, std::uint16_t(rows.front().at("ac" + std::to_string(i))));
-                        map.animation.show_all(map.tiles);
-                    }
-                    if (rows.front().count("item")) { // the items as the original had them
-                        const auto& r = rows.front();
-                        items.selected = int(r.at("item"));
-                        items.right_latch = r.at("itemlatch") & 1;
-                        ball.repair_armed = r.at("repairarm") & 1;
-                        ball.bomb_timer = int(r.at("bombtime"));
-                        ball.bomb_spot = r.at("bombspot") ? long(r.at("bombspot")) - 0x73BA8 : -1;
-                        ball.bomb_cell = r.at("bombcell") ? long(r.at("bombcell")) - 0x73BA8 : -1;
-                        pocket.map_depth = int(r.at("mapdepth"));
-                        pocket.shown_energy = int(r.at("shownenergy"));
-                    }
-                    if (rows.front().count("snddelay")) { // the sound state as the original had it
-                        const auto& r = rows.front();
-                        ball.sound_delay = int(r.at("snddelay"));
-                        ball.energy_sound_quiet = r.at("sndquiet") & 1;
-                        ball.bridge_latch = r.at("bridgelatch") & 1;
-                        ball.bridge_end_sound = int(r.at("bridgesnd"));
-                        ball.bridge_end_other = int(r.at("bridgesnd2"));
-                    }
-                    if (rows.front().count("blkcount")) { // the block as the original had it
-                        const auto& r = rows.front();
-                        map.warp_count = std::uint16_t(r.at("warpcount")); // earlier runs may have counted it down
-                        map.reward_count = std::uint16_t(r.at("rewardcount"));
-                        auto& k = map.block;
-                        k.count = int(r.at("blkcount"));
-                        k.direction = int(r.at("blkdir"));
-                        k.last_vx = game::Fixed(r.at("blkvx"));
-                        k.last_vy = game::Fixed(r.at("blkvy"));
-                        k.from = long(r.at("blkfrom")) - 0x73BA8;
-                        k.to = long(r.at("blkto")) - 0x73BA8;
-                        k.value = std::uint8_t(r.at("blkvalue"));
-                        k.sinking = r.at("blksink") == 0x80;
-                        k.counts_for_warp = r.at("warpflag") & 1;
-                    }
+                    start_from(rows.front(), ball, pocket, map, items);
                 } else {
                     // A later recording starts at the loop top right after the
                     // prompt was answered with "continue": the native ball goes
@@ -505,6 +512,7 @@ int main(int argc, char** argv) {
                         else if (poke.address == 0x719B2) pocket.rescues = int(poke.value);     // rescues (hourglasses)
                         else if (poke.address == 0x719EA) ball.protective = poke.value != 0;    // the protective flag only
                         else if (poke.address == 0x6D87E) map.reward_count = std::uint16_t(poke.value); // the reward countdown
+                        else if (poke.address == 0x6D80E) map.warp_count = std::uint16_t(poke.value);   // the warp countdown
                         else if (poke.address == 0x6F45A) pocket.energy = int(poke.value);       // the energy
                         else if (poke.address == 0x719CA) ball.clock.seconds = int(poke.value & 0xFFFF); // the clock's seconds
                         else throw std::runtime_error("The recording pokes an address the replay does not know.");
@@ -602,15 +610,31 @@ int main(int argc, char** argv) {
             ball.view_x = game::Fixed(column + 2 - cx) << 16;
             ball.view_y = game::Fixed(row - cy) << 16;
             game::Pocket pocket;
+            game::MouseCounters mouse{};
+            ball.last_mouse = mouse;
             const int updates = std::stoi(argv[6]);
             struct Step { int a, b, dx, dy; };
             std::vector<Step> steps;
             for (int i = 7; i < argc; ++i) {
                 Step st{};
+                const std::string arg = argv[i];
                 if (std::sscanf(argv[i], "%d-%d:%d,%d", &st.a, &st.b, &st.dx, &st.dy) == 4) steps.push_back(st);
+                else if (unsigned m = 0; std::sscanf(argv[i], "money=%x", &m) == 1) pocket.money = int(m);
+                else if (arg.rfind("from=", 0) == 0) {
+                    // from=RUN: the state at that recording's first row
+                    // (col and row are then ignored), its map and mouse.
+                    bool left = false;
+                    const auto rows = read_recording(arg.substr(5), left);
+                    game::Items items;
+                    start_from(rows.front(), ball, pocket, map, items);
+                    if (const auto saved = std::filesystem::path(arg.substr(5)).concat(".map"); std::filesystem::exists(saved)) {
+                        const auto cells = platform::read_file(saved);
+                        if (cells.size() == map.cells.size()) map.cells = cells;
+                    }
+                    const auto joy = std::uint16_t(rows.front().at("prevjoy"));
+                    mouse = {std::uint8_t(joy & 0xFF), std::uint8_t(joy >> 8)};
+                }
             }
-            game::MouseCounters mouse{};
-            ball.last_mouse = mouse;
             for (int n = 0; n < updates; ++n) {
                 for (const auto& st : steps) {
                     if (n < st.a || n > st.b) continue;
@@ -626,6 +650,13 @@ int main(int argc, char** argv) {
                             unsigned(ball.speed_x) & 0xFFFFFF, unsigned(ball.speed_y) & 0xFFFFFF,
                             ball.contact_rows, ball.contact_columns, ball.centre_cell, int(ball.mode),
                             map.block.direction, map.block.count);
+                if (!ball.sounds.empty()) {
+                    std::printf("    sounds");
+                    for (const int x : ball.sounds) std::printf(" %x", x);
+                    std::printf("  money %x energy %x protective %d ticks %x\n", unsigned(pocket.money), unsigned(pocket.energy),
+                                int(ball.protective), unsigned(ball.clock.ticks));
+                    ball.sounds.clear();
+                }
             }
             return 0;
         }
@@ -709,7 +740,9 @@ int main(int argc, char** argv) {
             // (GameInput::c64_keys index N) per update, saving pictures after
             // update N and placing the ball before update N (hex 16.16 values,
             // as a recording's first row: camera, view, speed)
-            // [@N:money=HEX …] (the pocket's money before update N).
+            // [@N:money=HEX …] (the pocket's money before update N)
+            // [@N:clock=SECONDS,HUNDREDTHS …] (hex, the level clock)
+            // [@N:energy=HEX …].
             auto game = game::start(platform::utf8_path(argv[2]));
             const int updates = std::stoi(argv[3]);
             struct Step { int a, b, dx, dy; bool l, r, f; int key; };
@@ -718,7 +751,9 @@ int main(int argc, char** argv) {
             std::string wav_out; // wav=FILE: the module's audio, 48 kHz stereo
             struct Place { int at; std::uint32_t v[6]; };
             std::vector<Place> places;
-            std::vector<std::pair<int, int>> money;
+            std::vector<std::pair<int, int>> money, energy;
+            struct ClockSet { int at; unsigned seconds, hundredths; };
+            std::vector<ClockSet> clocks;
             for (int i = 5; i < argc; ++i) {
                 Step st{};
                 st.key = -1;
@@ -732,6 +767,14 @@ int main(int argc, char** argv) {
                 if (std::sscanf(argv[i], "@%d:place=%x,%x,%x,%x,%x,%x", &pl.at, &pl.v[0], &pl.v[1], &pl.v[2], &pl.v[3], &pl.v[4],
                                 &pl.v[5]) == 7) {
                     places.push_back(pl);
+                    continue;
+                }
+                if (ClockSet c{}; std::sscanf(argv[i], "@%d:clock=%x,%x", &c.at, &c.seconds, &c.hundredths) == 3) {
+                    clocks.push_back(c);
+                    continue;
+                }
+                if (unsigned e = 0; std::sscanf(argv[i], "@%d:energy=%x", &st.a, &e) == 2) {
+                    energy.emplace_back(st.a, int(e));
                     continue;
                 }
                 if (unsigned m = 0; std::sscanf(argv[i], "@%d:money=%x", &st.a, &m) == 2) {
@@ -775,6 +818,11 @@ int main(int argc, char** argv) {
                     if (pl.at == n && !game::place_ball(*game, std::int32_t(pl.v[0]), std::int32_t(pl.v[1]), std::int32_t(pl.v[2]),
                                                         std::int32_t(pl.v[3]), std::int32_t(pl.v[4]), std::int32_t(pl.v[5])))
                         std::fprintf(stderr, "update %d: no level to place the ball in\n", n);
+                for (const auto& c : clocks)
+                    if (c.at == n && !game::set_clock(*game, int(c.seconds), int(c.hundredths)))
+                        std::fprintf(stderr, "update %d: no level for the clock\n", n);
+                for (const auto& [at, e] : energy)
+                    if (at == n && !game::set_energy(*game, e)) std::fprintf(stderr, "update %d: no level for the energy\n", n);
                 for (const auto& [at, m] : money)
                     if (at == n && !game::set_money(*game, m)) std::fprintf(stderr, "update %d: no level for the money\n", n);
                 game->tick(input);

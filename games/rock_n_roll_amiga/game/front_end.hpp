@@ -50,6 +50,13 @@ public:
     bool in_name_entry() const { return state_ == State::name_entry || state_ == State::code_entry; }
     // The jukebox's sound ($68CD4): -1 nothing new, 0 all stopped, 1-9 that
     // title to load and start. Taken once.
+    // The mouse read's gate ($70404/$7040A), shared with the levels: the
+    // wheel reads through the ball's routine ($696A8 → $7040C), so a level
+    // that ended with the grip clear skips the first read, and the counts
+    // wait for the next one.
+    void set_read_gate(bool grip, int skipped) { grip_ = grip, reads_skipped_ = skipped; }
+    bool read_grip() const { return grip_; }
+    int reads_skipped() const { return reads_skipped_; }
     int take_jukebox_request() {
         const int r = jukebox_request_;
         jukebox_request_ = -1;
@@ -93,7 +100,9 @@ private:
     std::uint8_t letter_{'A'}; // $6840C
     bool waiting_release_{};   // the left button accepted, waiting for its release ($697BC)
     int pass_frame_{};         // the loop waits two frames a pass
-    int pass_mouse_x_{};       // counts gathered over the pass
+    int pass_mouse_x_{};       // counts gathered since the last read
+    bool grip_{true};          // $70404
+    int reads_skipped_{};      // $7040A
     bool code_{};              // entering a level code (the name RAINBOW ARTS)
     bool grey_{};              // colour 0 $555 (code entry) or $333 (after it)
     // The jukebox ($68CD4): the title number ($68344), its loop's wait.
