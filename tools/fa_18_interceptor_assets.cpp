@@ -694,8 +694,16 @@ int main(int argc, char** argv) {
             platform::save_png(font_sheet(assets), out / "fonts.png");
             platform::save_png(palette_sheet(assets), out / "palettes.png");
             for (const auto& shape : read_vehicle_shapes(assets.program)) {
-                std::printf("shape %-45s model $%06X levels %d faces %3zu lines %3zu\n", shape_title(shape).c_str(),
-                            shape.model, shape.detail_levels, shape.faces.size(), shape.lines.size());
+                double span = 0, length = 0, height = 0;
+                for (const auto& f : shape.faces)
+                    for (const auto& c : f.corners) {
+                        span = std::max(span, std::abs(c.x));
+                        height = std::max(height, std::abs(c.y));
+                        length = std::max(length, std::abs(c.z));
+                    }
+                std::printf("shape %-45s model $%06X levels %d faces %3zu lines %3zu scale %g extent x %.0f y %.0f z %.0f\n",
+                            shape_title(shape).c_str(), shape.model, shape.detail_levels, shape.faces.size(),
+                            shape.lines.size(), shape.scale, span, height, length);
                 for (const auto& problem : shape.problems) std::printf("    stopped: %s\n", problem.c_str());
             }
             for (int type = 0; type < 160; ++type) {

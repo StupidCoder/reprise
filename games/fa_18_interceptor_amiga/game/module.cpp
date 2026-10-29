@@ -172,7 +172,9 @@ public:
                 // The outside view ($13AA75): the scene down to row 167
                 // ($13AC74) with the aircraft in it, and its numbers below.
                 Vehicle self;
-                self.type = aircraft_type_ & 0x0F;
+                // The shape types: 4 the F/A-18, 3 the light single-fin
+                // jet for the F-16 (hypothesis, from the shapes' looks).
+                self.type = aircraft_type_ == 0x10 ? 3 : 4;
                 const auto mix = [t](double a, double b) { return a + (b - a) * t; };
                 self.position = {mix(before_.x, aircraft_.x) / 256.0, mix(before_.y, aircraft_.y) / 256.0,
                                  mix(before_.z, aircraft_.z) / 256.0};
@@ -456,7 +458,13 @@ private:
             return pressed;
         };
         if (edge(input.fire2, pad_was_[0])) {
+            // $10E3B8 / $1041E8: the outside view starts in front of the
+            // aircraft ($13ABA2 = 4) at the nearest distance ($13AA75 = -1).
             outside_ = !outside_;
+            if (outside_) {
+                position_ = 4;
+                distance_ = -1;
+            }
             chase_set_ = false;
         }
         const bool left = edge(input.left2, pad_was_[1]), right = edge(input.right2, pad_was_[2]);
@@ -468,8 +476,9 @@ private:
         if (right) position_ = position_ >= 8 ? 7 : (position_ + 7) % 8;
         if (up) position_ = 8;
         if (down) position_ = 0;
-        if (nearer) distance_ = std::max(1, distance_ - 1); // $10E544
-        if (farther) distance_ = std::min(4, distance_ + 1); // $10E5E4
+        // $10E5AE / $10E634: the distances -1, 1, 2, 3, 4.
+        if (nearer) distance_ = distance_ <= 1 ? -1 : distance_ - 1;
+        if (farther) distance_ = distance_ < 0 ? 1 : std::min(4, distance_ + 1);
     }
 
     // $11D8F2 / $11DD2C: the outside camera's place: the offset of its
@@ -482,7 +491,7 @@ private:
         const auto& m = assets_.program;
         const std::uint32_t at = 0x11D770 + std::uint32_t(6 * position_);
         double off[3] = {double(m.s16(at)), double(m.s16(at + 2)), double(m.s16(at + 4))};
-        const double scale = distance_ <= 1 ? 1.5 : double(1 << (distance_ - 1));
+        const double scale = distance_ < 0 ? 1 : distance_ == 1 ? 1.5 : double(1 << (distance_ - 1));
         for (auto& o : off) o *= 4 * scale;
         Matrix turn = aircraft_.view;
         if (position_ != 0 && position_ != 4) turn = view_matrix(tables_, {0, aircraft_.attitude.heading, 0});
@@ -572,7 +581,7 @@ private:
     // The outside view ($13AA75 distance 1-4, 0 the cockpit; $13ABA2 the
     // camera's position around the aircraft) and its chasing camera.
     bool outside_ = false;
-    int distance_ = 1, position_ = 0;
+    int distance_ = -1, position_ = 4;
     std::array<double, 3> chase_{}, chase_was_{};
     bool chase_set_ = false;
     std::array<bool, 7> pad_was_{};

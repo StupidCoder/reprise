@@ -357,9 +357,17 @@ private:
             a = face_colour(a + 6, {at_offset(m_.u16(a)), at_offset(m_.u16(a + 2)), at_offset(m_.u16(a + 4))});
             return true;
         case 0x10: {                                              // the ground shadow ($11392E)
+            // A height (world units: no shadow above it), then polygons:
+            // n, a facing flag, n point offsets, and the next one's word
+            // (negative: the end).
+            shape_.shadow_height = m_.u16(a);
             a += 2;
             for (int guard = 0; guard < 64; ++guard) {
-                a += 4 + 2 * m_.u16(a);
+                const int n = m_.u16(a);
+                std::vector<ShapePoint> corners;
+                for (int i = 0; i < n; ++i) corners.push_back(at_offset(m_.u16(a + 4 + std::uint32_t(2 * i))));
+                if (corners.size() >= 3) shape_.shadows.push_back(std::move(corners));
+                a += 4 + 2 * n;
                 const auto next = m_.s16(a); a += 2;
                 if (next < 0) break;
             }

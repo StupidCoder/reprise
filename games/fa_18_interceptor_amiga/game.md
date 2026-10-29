@@ -852,24 +852,44 @@ ground and water contacts of the flight step (rebuilt). The damage
 routine (`$11A8xx`-`$11AA6A`) adds 1 to the flight log's crashes (config
 +$46) on a crash.
 
-### Outside views (2026-10-29, partly)
+### Outside views (2026-10-29)
 
-`$13AA75` is the outside camera's distance (0: the cockpit view, 1-4;
-keys `$10E544` / `$10E5E4` step it), `$13ABA2` its position around the
-aircraft (keypad keys, `$10E4D4`…, 0 behind, 1-7 round the aircraft, 8
-above, 9 below), `$13AA97` the cockpit's look direction (0-11). The
-chase (`$11D8F2`): offsets per position from `$11D734` ($11D770 for the
-F/A-18, $11D7AC for type $14; words x, y, z), scaled 1.5 times at
-distance 1 and doubled per step after it, turned by the aircraft's view
-matrix ($10D486) for positions 0 and 4 and by a level matrix
-(`$13AEFE`, $10D460) for the others, kept 7 units above the ground or
-deck; the camera's states (`$13AAA6`, jump table `$11D710`) fly it in
-from afar, then it moves half the way to its target each frame. Below
-the view (row $A7 = 167, `$13AC74`): "HDG nnn" ($126AB2: heading
-(+$68 >> 3) / 10), "nnn KTS", "nnnnn FT" on row 184 (measured on
-`work/ref/cap/001.png`). The camera's own orientation and the vehicle
-shapes' scale and detail distances are not traced (the port's are
-guesses, see plan.md).
+Keypad Enter (raw $43, `$10E3B8`) asks for the switch (`$13ABB6` bit 1);
+`$1041E8` then turns the outside camera on with `$13AA75` = `$13AB23`
+(−1 after the key) and `$13AC76` = $32, or off again. Entering it puts
+the camera in front of the aircraft (`$13ABA2` = 4). `$13AA75` is the
+distance: −1, 1, 2, 3, 4 (keys `[` / `]`, raw $1A / $1B, `$10E5AE` /
+`$10E634` step it, skipping 0); `$13ABA2` the position (keypad keys,
+`$10E4D4`…: 0 behind, 1-7 round the aircraft, 8 above, 9 below);
+`$13AA97` the cockpit's look direction (0-11) when not outside.
+
+The chase (`$11D8F2`): the position's offset from `$11D734` (`$11D770`
+for the F/A-18, `$11D7AC` for type $14; words x, y, z, 4 world units
+each), as it is at distance −1, 1.5 times at 1, then 2, 4, 8 times;
+turned by the aircraft's view matrix (`$10D486`) for positions 0 and 4,
+by a level matrix (`$13AEFE`, `$10D460`) for the others; at least 7
+units above the ground or deck. The camera's states (`$13AAA6`, table
+`$11D710`) fly it in from afar; then it moves half the way to its target
+each frame. It looks at the aircraft, level: checked on the running
+original (`harness/camstate.py`): position 4 at distance −1 on runway 1
+put the camera (0, 12, −72) from the aircraft turned by its heading, and
+the view matrix was the level look-at's (rows ×$A8, $FC, $80).
+
+The aircraft is drawn with its vehicle shape: type 4 for the F/A-18
+(the object's +$62 = $11 is not the shape index; the F-16's is taken to
+be type 3, **hypothesis**), at the scenery's scale (half-span 25
+units), with its ground shadow (op `$10`, `$11392E`: a height limit,
+then polygons of the shape's points laid flat in colour 0). Port
+against `work/ref/out1.png` (front view on runway 1): the same picture but 3
+rows higher — the original's screen carried a leftover shake offset
+(`$13ABC8` = 3; the shakes, `$119AFE`, run only in the cockpit view).
+
+Below the view (row $A7 = 167, `$13AC74`) colour 3 with "HDG nnn" (three
+digits with zeros, $126AB2: heading (+$68 >> 3) / 10), "nnn KTS", "nnnnn
+FT" on row 184. Not rebuilt: the fly-in states (also the start map's
+descent), the tower view (`$13AA9D`, its height `$13AF32` from $1000000
+to $8000000 by the same keys), the look directions in the cockpit, the
+outside views' sound rules.
 
 ### The view in the cockpit
 

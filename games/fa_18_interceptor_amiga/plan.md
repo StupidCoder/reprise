@@ -52,16 +52,16 @@ from drawing, and must still respect the passes' model rule).
    contact were rebuilt with the flight. Object collisions and collision
    proximity come with task 7. Open: what landing on water does
    (ditching: a crash here, not traced).
-6. **Other views** — partly done 2026-10-29: the outside camera (keypad
-   0 toggles; keypad 4 / 6 step round the aircraft, 8 above, 2 behind;
-   Ctrl with = / - the distance) at the original's offsets with its
-   chase, the aircraft drawn in the scene, the HDG / KTS / FT line below.
-   Left: the camera's orientation and fly-in states (`$11DC90`…, the
-   map's descent to the aircraft too), the vehicle shapes' scale and
-   detail distances (a guessed ×16 scale; the F/A-18 looks wrong from
-   most positions), the tower view (`$13AA9D`, height `$13AF32` from
-   $1000000 to $8000000), the outside views' sound rules, the look
-   directions in the cockpit.
+6. **Other views** — done 2026-10-29 for the outside camera: keypad 0
+   (the original's keypad Enter) toggles it, starting in front of the
+   aircraft; keypad 4 / 6 step round the aircraft, 8 above, 2 behind;
+   Ctrl with = / - the distance (the original's `[` / `]`); the
+   original's offsets, chase and level look-at (checked against the
+   running original), the F/A-18's shape and ground shadow, the HDG /
+   KTS / FT line. Left: the camera's fly-in states (and the start map's
+   descent to the aircraft), the tower view (`$13AA9D`), the cockpit
+   look directions (`$13AA97`), the outside views' sound rules, which
+   shape the F-16 uses.
 7. **Moving objects**: the carrier (free-flight places 4-5, the deck,
    catapult and its thump, arrestor hook), other aircraft, missiles,
    parachutes; their object records and flight paths.
@@ -116,10 +116,6 @@ from drawing, and must still respect the passes' model rule).
 - The view's window of object cells is a square, not the original's
   octant lists; the fine water grid's window below height $9000 (by
   heading) draws all cells.
-- The outside view's aircraft is drawn at a guessed scale (×16) and
-  with a guessed orientation: it looks wrong from most positions; the
-  camera looks at the aircraft level, the original's orientation is not
-  traced.
 - No look directions in the cockpit, no tower view; F/A-18 only; no
   other objects.
 - The map cuts straight to the cockpit (the original flies the outside

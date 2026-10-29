@@ -223,14 +223,18 @@ void Cockpit::draw(IndexedImage& image, int left, const CockpitReadings& r) cons
 void Cockpit::draw_outside(IndexedImage& image, int left, const CockpitReadings& r) const {
     constexpr int row = 184, grey = 13;
     for (int y = 0xA8; y < image.height; ++y)
-        for (int x = 0; x < image.width; ++x) image.put(x, y, 0);
+        for (int x = 0; x < image.width; ++x) image.put(x, y, 3); // ($111, as on the original's screen)
     const auto right_aligned = [&](int value, const std::vector<int>& cells) {
         const auto t = std::to_string(std::max(0, value));
         for (std::size_t i = 0; i < t.size() && i < cells.size(); ++i)
             text(image, left + cells[cells.size() - 1 - i], row, std::string(1, t[t.size() - 1 - i]), grey);
     };
     text(image, left + 84, row, "HDG", grey);
-    right_aligned(r.heading80 / 80, {100, 104, 108});
+    {
+        const int h = r.heading80 / 80; // three digits with zeros ("HDG 028")
+        const char t[4] = {char('0' + h / 100 % 10), char('0' + h / 10 % 10), char('0' + h % 10), 0};
+        text(image, left + 100, row, t, grey);
+    }
     right_aligned(r.knots, {147, 151, 155, 159});
     text(image, left + 168, row, "KTS", grey);
     right_aligned(r.feet, {199, 203, 209, 215, 219, 223});

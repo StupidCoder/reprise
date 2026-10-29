@@ -247,16 +247,24 @@ void Scene::draw(IndexedImage& image, int centre, int bottom, const Camera& came
         }
         if (!chosen) continue;
         const auto& b = v.body;
-        // (Hypothesis: a vehicle's points are 16 times the scenery's scale;
-        // with the scenery's the F/A-18 would be a twentieth of the size the
-        // original's outside views show.)
-        const double scale = chosen->scale * 16;
+        const double scale = chosen->scale;
         const auto place = [&](const data::ShapePoint& p) {
             const double x = p.x * scale, y = p.y * scale, z = p.z * scale;
             return Point{v.position[0] + (b[0] * x + b[3] * y + b[6] * z) / 16384.0,
                          v.position[1] + (b[1] * x + b[4] * y + b[7] * z) / 16384.0,
                          v.position[2] + (b[2] * x + b[5] * y + b[8] * z) / 16384.0};
         };
+        if (v.position[1] <= chosen->shadow_height) {
+            for (const auto& shadow : chosen->shadows) {
+                corners.clear();
+                for (const auto& c : shadow) {
+                    auto p = place(c);
+                    p[1] = 0;
+                    corners.push_back(p);
+                }
+                r.polygon(corners, 0, false);
+            }
+        }
         for (const auto& face : chosen->faces) {
             corners.clear();
             for (const auto& c : face.corners) corners.push_back(place(c));

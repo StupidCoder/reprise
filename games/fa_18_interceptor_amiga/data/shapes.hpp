@@ -62,6 +62,10 @@ struct Shape {
     std::vector<ShapeFace> faces;
     std::vector<ShapeLine> lines;
     std::vector<ShapeDot> dots;          // single pixels ($04)
+    // The ground shadow ($10, $11392E): polygons of the shape's points laid
+    // flat on the ground in colour 0 while the object is below the height.
+    std::vector<std::vector<ShapePoint>> shadows;
+    double shadow_height{};
     std::vector<std::string> problems; // opcodes the decoder stopped at
 };
 
