@@ -84,7 +84,8 @@ int Weapons::count() const {
     }
 }
 
-void Weapons::move_missiles(const Aircraft& player, const FlightRules& rules, Sounds& sounds) {
+void Weapons::move_missiles(const Aircraft& player, const FlightRules& rules, Sounds& sounds, const Aircraft* locked,
+                            int locked_record, const Autopilot* autopilot) {
     if (flare_time_ > 0) --flare_time_;
     if (chaff_time_ > 0) --chaff_time_;
     for (auto& slot : missiles_) {
@@ -101,7 +102,7 @@ void Weapons::move_missiles(const Aircraft& player, const FlightRules& rules, So
             sounds.restart_after(8);
             slot = launched(player, stores_.selected, --left);
         }
-        if (!fly_missile(*slot, rules, tables_)) slot.reset();
+        if (!fly_missile(*slot, rules, tables_, locked, locked_record, autopilot)) slot.reset();
     }
 }
 
@@ -128,37 +129,64 @@ Missile Weapons::launched(const Aircraft& player, Weapon weapon, int left) const
     b.motion &= ~(flag::on_ground | 0x0004);
     b.state |= flag::moves;
     b.pitch_rate = b.yaw_rate = b.roll_rate = 0;
+    b.bank_side = b.bank_side_was = b.bank_turn = 0;
     b.sink = 0;
+    b.state |= 0x11C2;
+    b.ground_drag = 0x14; // +$26: it steers once this has counted down to 9
     return m;
 }
 
-bool Weapons::fly_missile(Missile& m, const FlightRules& rules, const FlightTables& tables) {
-    // $117E4A: the missile's own step. With no target its speed rises to
-    // $4200 (+$1E0 and the no-target glide's +$240), and over its last 50
-    // frames it falls to $3000 by $240 a frame.
+bool Weapons::fly_missile(Missile& m, const FlightRules& rules, const FlightTables& tables, const Aircraft* locked,
+                          int locked_record, const Autopilot* autopilot) {
+    // $117E4A: the missile's own step. Until its last 50 frames its speed
+    // rises by $1E0 to $4200 and it heads for the radar's locked record
+    // (`$117F06`; with none it glides toward height 0, a further $240 toward
+    // $4200, `$117E8E`); over its last 50 frames it falls to $3000 by $240
+    // toward height 0, and from 12 on it is fading.
     if (--m.life <= 0) return false;
     auto& b = m.body;
+    const auto toward = [&](int aim) {
+        b.speed = i16(b.speed > aim ? std::max(b.speed - 0x240, aim) : std::min(b.speed + 0x240, aim));
+    };
     if (!m.fading && m.life >= 50) {
         b.speed = i16(std::min(b.speed + 0x1E0, 0x4200));
-        b.speed = i16(std::min(b.speed + 0x240, 0x4200));
+        b.state &= ~0x0001;
+        if (locked && locked_record > 0) {
+            m.course.target = {i16(locked->x >> 22), i16(locked->z >> 22), i16((locked->x & 0x3FFFFF) >> 8),
+                               i16((locked->z & 0x3FFFFF) >> 8), locked->y >> 8};
+            m.course.target_record = std::uint8_t(locked_record | 0x80);
+        } else {
+            m.course.target.height = 0;
+            toward(0x4200);
+        }
     } else {
         if (m.life < 12) m.fading = true;
-        if (b.speed > 0x3000) b.speed = i16(std::max(b.speed - 0x240, 0x3000));
-        else b.speed = i16(std::min(b.speed + 0x240, 0x3000));
+        m.course.target.height = 0;
+        toward(0x3000);
     }
     b.airspeed = b.speed;
-    // $11A352: the object step flies it on (from its second frame).
+    // $11A352: the object step flies it on (from its second frame): its
+    // autopilot, its turn, the velocity step.
+    FlightRules coasting = rules;
+    coasting.world = nullptr;
+    if (autopilot) {
+        b.timer = i16(m.life);
+        autopilot->fly(b, m.pilot, PilotWorld{}, &m.course);
+    }
     if (m.fresh) {
         m.fresh = false;
         return true;
     }
-    FlightRules coasting = rules;
-    coasting.world = nullptr;
+    if (autopilot) {
+        const int divisor = (b.handling & 0x20) ? 10 : b.ground_drag > 0 ? std::min<int>(b.ground_drag, 15) : 0;
+        turn_object(b, Autopilot::object_turn(b, m.pilot, divisor), coasting, tables);
+    }
     coast(b, coasting, tables);
     return true;
 }
 
-void Weapons::move_shots(const Aircraft& player, bool outside, std::uint16_t frame, Sounds& sounds) {
+void Weapons::move_shots(const Aircraft& player, bool outside, std::uint16_t frame, Sounds& sounds,
+                         const std::function<bool(Shot&)>& hits) {
     burst_hold_ = std::int8_t(burst_hold_ - 1);
     bool spawned = false; // (one a frame)
     int busy = 0;
@@ -186,8 +214,15 @@ void Weapons::move_shots(const Aircraft& player, bool outside, std::uint16_t fra
             }
         }
         if (!slot) continue;
-        if (slot->life < 1) slot.reset();
-        else fly_shot(*slot);
+        if (slot->life < 1) {
+            slot.reset();
+        } else if (!slot->hit && hits && hits(*slot)) {
+            // ($1075A6: it sparks there for two frames.)
+            slot->hit = true;
+            slot->life = 2;
+        } else {
+            fly_shot(*slot);
+        }
     }
     if (busy == 0) {
         burst_hold_ = 0;
@@ -282,6 +317,9 @@ Shot Weapons::fired(Shot::Kind kind, const Aircraft& player, std::uint16_t frame
     const auto d = scaled_vector(tables_, i16(length), i16((aim[0] - (start[0] >> 6)) >> 8),
                                  i16((aim[1] - (start[1] >> 6)) >> 8), i16((aim[2] - (start[2] >> 6)) >> 8), 3);
     // ($107C24: the frame's move is eight sub-steps for the hit tests.)
+    s.ex = d[0];
+    s.ey = d[1];
+    s.ez = d[2];
     s.vx = i32(d[0]) << 3;
     s.vy = i32(d[1]) << 3;
     s.vz = i32(d[2]) << 3;

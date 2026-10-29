@@ -1,6 +1,7 @@
 #pragma once
 #include "amiga/hunk.hpp"
 #include "fa_18_interceptor_amiga/game/aircraft.hpp"
+#include <array>
 #include <cstdint>
 
 // The object autopilot (`$120B6E`, game.md "The maneuvers"): a virtual
@@ -62,6 +63,10 @@ public:
     // pilot's bits) roll the wings level, by the roll the frame started
     // with; the next frame flies by it.
     static void level_out(Aircraft& a, std::uint8_t pilot, std::int16_t roll_before);
+    // `$121C6E` / `$121E12` for others than aircraft: the rates their
+    // attitude step eases toward (`turn_object`); `divisor` the turn words'
+    // (+$26 up to 15, 10 with +$20 bit 5, 5 against the player).
+    static std::array<std::int16_t, 3> object_turn(Aircraft& a, std::uint8_t pilot, int divisor);
 
 private:
     // The rate tables (`$121406`, `$12141C`, `$121432`, `$121448`).

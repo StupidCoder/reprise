@@ -111,6 +111,10 @@ FlightEvents fly(Aircraft& aircraft, const FlightControls& controls, const Fligh
 // One tick of an object that flies without controls (a missile): the
 // velocity and height step ($106B0E) and the position, as `fly` does them.
 void coast(Aircraft& aircraft, const FlightRules& rules, const FlightTables& tables);
+// The attitude step of a record other than an aircraft ($121E74): its rates
+// eased toward `rates` (pitch, yaw, roll), then the rotation as `fly`'s.
+void turn_object(Aircraft& aircraft, std::array<std::int16_t, 3> rates, const FlightRules& rules,
+                 const FlightTables& tables);
 
 // A place of free flight's start table ($137CF6, 16 bytes each: coarse
 // cell x and z, slot, offsets x and z (x 1024), fine offsets x and z (x 16),

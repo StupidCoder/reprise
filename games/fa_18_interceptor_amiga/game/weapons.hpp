@@ -1,7 +1,9 @@
 #pragma once
 #include "amiga/hunk.hpp"
 #include "fa_18_interceptor_amiga/game/aircraft.hpp"
+#include "fa_18_interceptor_amiga/game/autopilot.hpp"
 #include <array>
+#include <functional>
 #include <cstdint>
 #include <optional>
 #include <vector>
@@ -52,6 +54,7 @@ struct Shot {
     int life{};                    // frames left (+$28)
     bool moved{};                  // +$24: the first frame stands still
     bool hit{};                    // +$26 bit 1: sparks where it hit
+    std::int32_t ex{}, ey{}, ez{}; // an eighth of the first move (+$18 .. +$20), for the hit tests
 };
 
 // A missile in flight: an object record of its own (records 1-3).
@@ -61,6 +64,8 @@ struct Missile {
     int life{};      // +$4C
     bool fading{};   // +0 bit 10: its last 12 frames
     bool fresh{};    // +0 bit 8: launched this frame (the object step skips its move)
+    std::uint8_t pilot{}; // +$64
+    Course course;   // where it heads for (the locked record's place)
 };
 
 class Weapons {
@@ -81,9 +86,15 @@ public:
 
     // The object step's missile slots ($116C9E-$116D5C), after the
     // player's flight.
-    void move_missiles(const Aircraft& player, const FlightRules& rules, Sounds& sounds);
+    // `locked`: the radar's locked record (`$13ACB0`) the missiles home on.
+    void move_missiles(const Aircraft& player, const FlightRules& rules, Sounds& sounds, const Aircraft* locked = nullptr,
+                       int locked_record = -1, const Autopilot* autopilot = nullptr);
+    std::array<std::optional<Missile>, 3>& missiles() { return missiles_; }
     // $1072DC: the projectile slots, after the flight.
-    void move_shots(const Aircraft& player, bool outside, std::uint16_t frame, Sounds& sounds);
+    // `hits`: the records' test ($11AE96's object part) before a round's
+    // move; true when it hit one.
+    void move_shots(const Aircraft& player, bool outside, std::uint16_t frame, Sounds& sounds,
+                    const std::function<bool(Shot&)>& hits = {});
 
     const Stores& stores() const { return stores_; }
     const std::array<std::optional<Shot>, 10>& shots() const { return shots_; }
@@ -100,7 +111,8 @@ public:
     // missile's frame (false: it is gone); a projectile leaving `player` on
     // frame `frame`; a projectile's frame.
     Missile launched(const Aircraft& player, Weapon weapon, int left) const;
-    static bool fly_missile(Missile& m, const FlightRules& rules, const FlightTables& tables);
+    static bool fly_missile(Missile& m, const FlightRules& rules, const FlightTables& tables, const Aircraft* locked,
+                            int locked_record, const Autopilot* autopilot);
     Shot fired(Shot::Kind kind, const Aircraft& player, std::uint16_t frame) const;
     static void fly_shot(Shot& s);
 

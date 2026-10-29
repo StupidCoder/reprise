@@ -1521,6 +1521,77 @@ two records' view matrices' third columns (x and z). The port turns the
 carrier's points from its own record (`Carrier::place`), so a carrier
 at any heading works.
 
+### Weapons against objects (2026-10-29)
+
+**Missiles home** (`$117EC2` → `$117EF8` / `$117F06`): a launched missile
+copies the player's touchable bit (+1 bit 3) and has +1 bit 1, so until
+its last 50 frames each frame its point is the radar's locked record's
+place (+$38 = record | $80); with no lock it glides toward height 0 and
+$4200 (`$117E8E`). Its autopilot steers it like any record (role 0,
+`$120C66`): it counts +$26 down from 20 and steers from 9 on (others than
+aircraft: the rate tables `$121406`, the rudder bits and the turn words
++$50 pitch, +$52 yaw, +$54 roll). Its attitude step (`$121C6E` / `$121E12`
+for others than aircraft): on course by the pilot's bits it rolls level
+at ∓$3C0 and turns no other way; else its turn words over +$26 (at most
+15; 10 with +$20 bit 5, 5 against the player when `$13ABA5`), each rate
+eased halfway twice (`$121E74`), then the rotation and the velocity step.
+The autopilot runs on the launch frame too; only the move waits. Checked:
+`weaponcheck` on `work/ref/demo_w.jsonl` (the demo with `--objs --recs
+10,14`): the missile in all 37 frames from launch to impact, including
+its touch.
+
+**Touches** (`$11B6A2`): a record looks only at the records after its own
+(`$11B6E4`); after its move a missile touches the bogey ("near" one frame,
+then the hit: the target crashed, spinning, role 1). The mover that hit
+goes at once (`$11A996` → `$11AA70`: state bit 6 cleared, `$13AB48` $C) —
+missiles and aircraft alike. `$11C0BA`: +$20 bit 7 on both when the other
+is touchable; the log counts Sidewinder (+$44) and AMRAAM (+$40) hits of
+the player's group on something not touchable, and missile hits on the
+player (+$48). The others' "near" bit (+3 bit 0) lasts one frame (where
+it is cleared was not found; the port clears it before the player's
+step, **hypothesis** that fits the recording).
+
+**Crash, explosion, fall** (`$1169D0` with the drawing; `$11A398` at the
+start of a record's flight step): a crashed record ($200) explodes for
+15 frames ($400, timer 15); if it was the locked record the lock goes
+(`$118588`: message $4016). When the timer runs out the explosion ends:
+an aircraft neither touchable nor on the ground counts as destroyed
+(`$13AB9B`, which the default outcome `$118B1C` compares with
+`$13AB9A`); on the ground or out of control (+0 bit 15) the record goes
+(state bits 6, 14, 13 cleared, timer 20); else it falls on, spinning: in
+role 6, speed toward $1200, its stick pitching it down. A spinning
+aircraft that reaches the ground stops and explodes (`$11AA80`). The
+spin's own nose drop of the stall model is the player's only
+(`$121FAC`); others pass through the stall-speed test. Checked:
+`democheck` on `demo_objs.jsonl` with the player's weapons from the
+recording's keys: player, bogey and radar equal in all 2,018 frames —
+the lock, the launch, the homing, the hit, the lock dropped, the
+explosion, the fall, the crash on the ground and the record's end (the
+stopped record's vertical velocity is the original's last one; the
+port's ground step zeroes it, without effect).
+
+**Rounds** (`$11AE96`'s object part, before the round's move): the
+drawer's list of the frame (`$1449B2`, $18 bytes an entry, walked back
+from `$13ACB6`), at most six records drawn in the round's cell, not its
+owner (+$2E), active; a box round the record ($140, `$13AC96`; $800 for
+models marked $10 at +7, the ships); inside it the round goes on in
+eighths of its first move (+$18) and at each is tested (`$11B29A`):
+ships by their hull (`$11B4A8`), others by their hit model (`$11B572`:
++$7B, the drawn model's byte +1 — high nibble taken off the scale
+nibble, low the entry of `$12DC64`, bit 7 none — a list of faces, three
+point offsets into the turned points each: bit 14 the normal as the cross
+product of the two edges over 16, else as the difference of the second
+and third point; inside when every face's dot with the round's way from
+the first point is at least 0). A hit stops the round there (sparks,
+life 2, `$1075A6`), adds a cannon hit to the log (+$3C) and one to the
+record's damage (+$3C low nibble); the third crashes it (an aircraft
+spins, role 1). The port: the records in record order stand for the
+drawer's list (**hypothesis**: the original's are those drawn this frame,
+nearest last), the nearest detail level's model for +$7B, and the ships'
+hull test as their box (**hypothesis**). Not checked against a recording
+(no rounds hitting a record recorded); `fa_18_interceptor_assets
+hitprobe` shows the bogey's hit volume (about 48 units long, its body).
+
 ### The missions' flow (2026-10-29)
 
 **Choosing** (`$10EACC`): menu keys 1-5 and 8 always; 7 and F1-F6 only

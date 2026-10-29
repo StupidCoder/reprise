@@ -128,6 +128,39 @@ void set_turn(Aircraft& a, int which, int rate) {
 
 } // namespace
 
+// $121C6E for a record other than an aircraft (a missile): on course by
+// the pilot's bits (as `level_out`'s) it rolls back toward level at $3C0 a
+// tick and turns no other way ($121D24); else it turns by its turn words
+// (+$50 pitch, +$52 yaw, +$54 roll, `$121E12`) over `divisor` (0: whole).
+std::array<std::int16_t, 3> Autopilot::object_turn(Aircraft& a, std::uint8_t pilot, int divisor) {
+    bool on_course = false;
+    if (!(a.motion & as_player) && !(pilot & steering)) {
+        a.controls &= 0xC3;
+    } else if (a.role == 6 || a.role == 10) {
+        a.state |= 0x2000; // (the levelling's control bits do not move it)
+    } else if (!(a.motion & as_player)) {
+        if (pilot & 0x08) {
+            if (!(pilot & 0x04)) a.state &= ~0x2000;
+            on_course = ((pilot & 0x04) || (pilot & 0x40)) && (pilot & 0x20);
+        } else {
+            if (!(pilot & 0x02)) a.state &= ~0x2000;
+            on_course = ((pilot & 0x02) || (pilot & 0x20)) && (pilot & 0x40);
+        }
+    }
+    if (on_course) {
+        const int roll = roll_of(a);
+        std::int16_t r = 0;
+        if (roll <= 0x3840) r = roll > 0x118 ? std::int16_t(-0x3C0) : std::int16_t(0);
+        else r = roll < 0x6F68 ? std::int16_t(0x3C0) : std::int16_t(0);
+        return {0, 0, r};
+    }
+    std::array<std::int16_t, 3> r{a.bank_side, a.bank_side_was, a.bank_turn};
+    if (divisor > 0) {
+        for (auto& v : r) v = std::int16_t(v / divisor);
+    }
+    return r;
+}
+
 Autopilot::Autopilot(const amiga::LoadedImage& program, const FlightTables& tables) : program_(program), tables_(tables) {}
 
 bool Autopilot::steer_to(Aircraft& a, std::uint8_t& pilot, Course& course, const FlightTables& tables) const {

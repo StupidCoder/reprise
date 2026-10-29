@@ -14,13 +14,15 @@ bool within(const Aircraft& a, i32 dx, i32 dy, i32 dz, const std::array<i32, 3>&
 
 } // namespace
 
-int touch_bodies(std::vector<Body>& bodies, std::size_t self, const std::array<i32, 3>& before, bool& near) {
+int touch_bodies(std::vector<Body>& bodies, std::size_t self, const std::array<i32, 3>& before, bool& near,
+                 TouchCount* count) {
     near = false;
     auto& me = *bodies[self].aircraft;
     const std::uint8_t my_class = me.type & 0xF0;
     if (my_class == 0x20) return 0; // (ships move without touching)
-    for (std::size_t k = 0; k < bodies.size(); ++k) {
-        if (k == self) continue;
+    // ($11B6E4: only the records after its own; the bodies are in record
+    // order.)
+    for (std::size_t k = self + 1; k < bodies.size(); ++k) {
         auto& body = bodies[k];
         auto& o = *body.aircraft;
         // Active, not crashed or exploding, of another group, and one of
@@ -61,8 +63,18 @@ int touch_bodies(std::vector<Body>& bodies, std::size_t self, const std::array<i
                 o.role = 1;
             }
         }
-        // $11C0BA: both marked when the mover is marked for touching.
-        if (me.state & 0x0008) {
+        // $11C0BA: the log's hits - the player's missiles on something not
+        // touchable (Sidewinders +$44, AMRAAMs +$40), a missile on the
+        // player (+$48) - and both marked (+$20 bit 7) when the other is
+        // touchable.
+        if (count) {
+            if ((me.state & 0x0008) && bodies[self].group == 0 && !(o.state & 0x0008)) {
+                if (me.type == 0) ++count->sidewinder_hits;
+                else if (me.type == 1) ++count->amraam_hits;
+            }
+            if (me.player && o_class == 0 && !(o.state & 0x0008)) ++count->missile_hits_taken;
+        }
+        if (o.state & 0x0008) {
             o.handling |= 0x80;
             me.handling |= 0x80;
         } else {

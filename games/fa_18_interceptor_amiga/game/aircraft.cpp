@@ -512,6 +512,8 @@ i16 ease(i16 angle, i16 step_limit) {
     return angle < 0 ? i16(0) : angle;
 }
 
+void rotate_step(Aircraft& a, i16 pitch_rate, i16 yaw_rate, i16 roll_rate, const FlightRules& rules, const FlightTables& t);
+
 // One tick of attitude: rates, bank turn, rotation, stall ($121BE0, player).
 void turn(Aircraft& a, const FlightRules& rules, const FlightTables& t) {
     respond(a, rules, t);
@@ -523,6 +525,11 @@ void turn(Aircraft& a, const FlightRules& rules, const FlightTables& t) {
         pitch_rate = i16(pitch_rate + extra[0]);
         yaw_rate = i16(yaw_rate + extra[1]);
     }
+    rotate_step(a, pitch_rate, yaw_rate, roll_rate, rules, t);
+}
+
+// The rotation and what follows it in the attitude step ($1226B8 on).
+void rotate_step(Aircraft& a, i16 pitch_rate, i16 yaw_rate, i16 roll_rate, const FlightRules& rules, const FlightTables& t) {
     Angles next = rotate(t, a.body, pitch_rate, yaw_rate, roll_rate);
     const Angles was = a.attitude;
 
@@ -546,7 +553,7 @@ void turn(Aircraft& a, const FlightRules& rules, const FlightTables& t) {
         bool falling = false;
         bool check_vertical = true;
         if (rules.stall_model) {
-            if (a.handling & 2) {
+            if (a.player && (a.handling & 2)) { // ($121FAC: the player's spin only)
                 falling = true;
             } else if (!(a.motion & flag::on_ground) && (a.type & 0xF0) == 0x10) {
                 // The stall speed rises with the climb angle and the bank.
@@ -775,6 +782,15 @@ FlightEvents fly(Aircraft& a, const FlightControls& controls, const FlightRules&
     }
     move_gear(a);
     return events;
+}
+
+void turn_object(Aircraft& a, std::array<std::int16_t, 3> rates, const FlightRules& rules, const FlightTables& t) {
+    // $121E74: each rate halfway to the new one, twice over.
+    const auto toward = [](i16 old, i16 r) { return i16(i16(r + i16(i16(old + r) >> 1)) >> 1); };
+    a.pitch_rate = toward(a.pitch_rate, rates[0]);
+    a.yaw_rate = toward(a.yaw_rate, rates[1]);
+    a.roll_rate = toward(a.roll_rate, rates[2]);
+    rotate_step(a, a.pitch_rate, a.yaw_rate, a.roll_rate, rules, t);
 }
 
 void coast(Aircraft& a, const FlightRules& rules, const FlightTables& t) {

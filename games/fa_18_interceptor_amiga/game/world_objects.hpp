@@ -26,6 +26,7 @@ struct WorldObject {
     Course course;               // +$2C .. +$38, +$3A, +$4A, +$7A
     std::uint8_t pilot{};        // +$64
     std::uint8_t weapons{};      // +$63
+    std::uint8_t damage{};       // +$3C: rounds taken (low nibble)
     bool active() const { return craft.state & 0x0040; }
 };
 

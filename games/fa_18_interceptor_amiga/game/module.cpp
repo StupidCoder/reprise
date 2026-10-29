@@ -14,6 +14,7 @@
 #include "fa_18_interceptor_amiga/game/messages.hpp"
 #include "fa_18_interceptor_amiga/game/object_step.hpp"
 #include "fa_18_interceptor_amiga/game/scene.hpp"
+#include "fa_18_interceptor_amiga/game/shot_hits.hpp"
 #include "fa_18_interceptor_amiga/game/sound_driver.hpp"
 #include "fa_18_interceptor_amiga/game/sounds.hpp"
 #include "fa_18_interceptor_amiga/game/text_screen.hpp"
@@ -418,10 +419,27 @@ public:
         world.mode = std::uint8_t(mission_mode());
         world.level = level_;
         world.list = list_start_;
-        for (auto& o : objects_) {
+        for (std::size_t i = 0; i < objects_.size(); ++i) {
+            auto& o = objects_[i];
             auto& a = o.craft;
             if (!o.active() || (a.type & 0xF0) != 0x10) continue;
             object_step_.before_flight(o, records, world);
+            // $11A398: the explosion's end: an aircraft not touchable in the
+            // air counts as destroyed (`$13AB9B`); on the ground or out of
+            // control the record goes (its timer 20), else it falls on.
+            if (a.state & 0x0400) {
+                if (a.timer <= 0) {
+                    a.state &= ~0x0400;
+                    if (!(a.state & 0x0008) && !(a.motion & flag::on_ground)) ++destroyed_;
+                    if ((a.motion & flag::on_ground) || (a.state & 0x8000)) {
+                        a.state &= ~(0x0040 | 0x4000 | 0x2000);
+                        a.timer = 0x14;
+                        continue;
+                    }
+                }
+                a.state &= ~0x2000;
+            }
+            if (!(a.state & 0x1000) && !(a.state & 0x0100)) continue;
             PilotWorld pilot_world;
             pilot_world.mode = world.mode;
             pilot_world.level = world.level;
@@ -431,8 +449,36 @@ public:
             const auto roll_before = a.attitude.roll;
             FlightRules rules;
             rules.world = &world_;
+            const std::array<std::int32_t, 3> before{a.x, a.y, a.z};
             if (a.state & 0x1000) fly(a, c, rules, tables_);
             Autopilot::level_out(a, o.pilot, roll_before);
+            if (a.state & 0x0400) continue; // (no touches while it blows up)
+            // $11A7EA: its touch after the move; hitting something it goes
+            // ($11AA70). Spinning onto the ground it stops and blows up
+            // ($11AA80).
+            auto list = bodies();
+            const auto self = std::find_if(list.begin(), list.end(), [&](const Body& b) { return b.aircraft == &a; });
+            bool near = false;
+            if (touch_bodies(list, std::size_t(self - list.begin()), before, near) == touch::object) {
+                a.state &= ~0x0040;
+                continue;
+            }
+            if ((a.handling & 0x02) && (a.motion & flag::on_ground) && !(a.state & 0x0004)) {
+                a.state = std::uint16_t((a.state & ~0x1000) | 0x0400);
+                a.timer = 15;
+            }
+        }
+        // ($1169D0, with the drawing:) a crashed record blows up for 15
+        // frames; the radar's lock on it goes ($118588: message $4016).
+        for (auto& o : objects_) {
+            auto& a = o.craft;
+            if (!o.active() || !(a.state & 0x0200)) continue;
+            a.state = std::uint16_t((a.state & ~0x0200) | 0x0400);
+            a.timer = 15;
+            if (radar_.locked() == o.record) {
+                messages_.post(0x4016);
+                radar_.unlock();
+            }
         }
     }
 
@@ -944,6 +990,7 @@ private:
     // $10D51E: the aircraft at the chosen start; the engine sound starts.
     void restart() {
         radar_.reset();
+        destroyed_ = 0;
         player_distance_ = 0;
         spawn_objects();
         if (place_ == carrier_place) {
@@ -1293,6 +1340,10 @@ private:
         FlightRules rules;
         rules.world = &world_;
         if (mode_ == FlightMode::practice) reposition_step();
+        // The others' "near" bit (+3 bit 0) lasts the frame of the touch
+        // that set it (where the original clears it is not found;
+        // hypothesis from the demo's recording: before the player's step).
+        for (auto& o : objects_) o.craft.motion &= ~0x0001;
         // $1183E2: the distance to the locked record, before the move.
         {
             const Aircraft* locked = nullptr;
@@ -1339,8 +1390,36 @@ private:
         }
         // The object step's missile records, then (with the drawing) the
         // projectiles and the gun's lead point.
-        weapons_.move_missiles(aircraft_, rules, sounds_);
-        weapons_.move_shots(aircraft_, outside_, std::uint16_t(ticks_), sounds_);
+        {
+            // The missiles home on the radar's lock; each touches after its
+            // move ($11B6A2) and goes when it hits ($11AA70).
+            const Aircraft* locked = nullptr;
+            for (const auto& o : objects_) {
+                if (radar_.locked() > 0 && o.record == radar_.locked()) locked = &o.craft;
+            }
+            std::array<std::optional<std::array<std::int32_t, 3>>, 3> from;
+            auto& slots = weapons_.missiles();
+            for (std::size_t k = 0; k < slots.size(); ++k) {
+                if (slots[k] && !slots[k]->fresh) from[k] = std::array<std::int32_t, 3>{slots[k]->body.x, slots[k]->body.y, slots[k]->body.z};
+            }
+            weapons_.move_missiles(aircraft_, rules, sounds_, locked, radar_.locked(), &autopilot_);
+            for (std::size_t k = 0; k < slots.size(); ++k) {
+                if (!slots[k] || !from[k]) continue;
+                auto list = bodies();
+                const auto self = std::find_if(list.begin(), list.end(), [&](const Body& b) { return b.aircraft == &slots[k]->body; });
+                bool near = false;
+                TouchCount count;
+                if (touch_bodies(list, std::size_t(self - list.begin()), *from[k], near, &count) == touch::object) slots[k].reset();
+                pilot_.sidewinder_hits = std::uint16_t(pilot_.sidewinder_hits + count.sidewinder_hits);
+                pilot_.amraam_hits = std::uint16_t(pilot_.amraam_hits + count.amraam_hits);
+            }
+        }
+        weapons_.move_shots(aircraft_, outside_, std::uint16_t(ticks_), sounds_, [&](Shot& shot) {
+            int hits = 0;
+            const bool hit = shot_hits_.test(shot, objects_, hits);
+            pilot_.cannon_hits = std::uint16_t(pilot_.cannon_hits + hits);
+            return hit;
+        });
         lead_point();
         if (mode_ == FlightMode::practice) lead_tick();
         objects_tick();
@@ -1356,7 +1435,11 @@ private:
     // practice's lead (record 4, group 4).
     std::vector<Body> bodies() {
         std::vector<Body> b{{&aircraft_, 0, true}};
+        for (auto& m : weapons_.missiles()) {
+            if (m) b.push_back({&m->body, 0, true}); // (records 1-3, the player's group)
+        }
         if (mode_ == FlightMode::practice) b.push_back({&leader_, 4, lead_active_});
+        for (auto& o : objects_) b.push_back({&o.craft, o.group, o.active()});
         return b;
     }
 
@@ -1369,7 +1452,10 @@ private:
         auto list = bodies();
         if (list.size() > 1 && !(aircraft_.state & 0x0400)) {
             bool near = false;
-            if (touch_bodies(list, 0, before, near) == touch::object) {
+            TouchCount count;
+            const bool touched = touch_bodies(list, 0, before, near, &count) == touch::object;
+            pilot_.missile_hits = std::uint16_t(pilot_.missile_hits + count.missile_hits_taken);
+            if (touched) {
                 aircraft_.state |= 0x8000;
                 if (aircraft_.airspeed > 0x3C0) {
                     if ((ticks_ & 1) == 0) {
@@ -1484,7 +1570,8 @@ private:
         }
         auto list = bodies();
         bool near = false;
-        if (touch_bodies(list, 1, before, near) == touch::object) {
+        const auto self = std::find_if(list.begin(), list.end(), [&](const Body& b) { return b.aircraft == &leader_; });
+        if (touch_bodies(list, std::size_t(self - list.begin()), before, near) == touch::object) {
             // $11A9DE / $11AA04: it spins, and is taken off ($11AA70).
             g.handling |= 0x02;
             g.motion |= 0x1000;
@@ -2130,6 +2217,8 @@ private:
     std::uint32_t list_start_ = 0;      // `$13AA2A`
     std::int8_t level_ = 0;             // `$13AB97` (the demo: 0)
     Radar radar_;
+    ShotHits shot_hits_{assets_.program};
+    int destroyed_ = 0;                 // `$13AB9B`: the list's aircraft destroyed
     std::int16_t player_distance_ = 0;  // the player's +$4A (`$1183E2`)
     bool radar_outside_ = false;
     int radar_look_ = 0;

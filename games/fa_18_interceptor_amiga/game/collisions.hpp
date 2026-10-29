@@ -16,6 +16,7 @@ namespace interceptor::game {
 
 // A record taking part: its aircraft data and its group (+$5E: records of
 // one group - an aircraft and its missiles - never touch).
+// (The list is in record order: a record touches only those after it.)
 struct Body {
     Aircraft* aircraft{};
     std::uint8_t group{};
@@ -26,11 +27,16 @@ namespace touch {
 constexpr int object = 0x40;
 }
 
+// The flight log's counts a touch adds to (`$11C0BA`).
+struct TouchCount {
+    int sidewinder_hits{}, amraam_hits{}, missile_hits_taken{};
+};
+
 // `$11B6A2`: the record `self`, which was at `before` (32-bit position)
 // before this frame's move. Returns `touch::object` when it hit another
 // record, else 0; `near` tells whether any record was within the larger
 // box (`$13AB8F`).
 int touch_bodies(std::vector<Body>& bodies, std::size_t self, const std::array<std::int32_t, 3>& before,
-                 bool& near);
+                 bool& near, TouchCount* count = nullptr);
 
 } // namespace interceptor::game
