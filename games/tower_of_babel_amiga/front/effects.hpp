@@ -61,7 +61,14 @@ public:
         int pitch{}, volume{};  // +$0E, +$10 (64ths)
         int pitch_segment{}, volume_segment{}; // +$16, +$18 (24, 12, 0)
         int pitch_step{}, pitch_wait{}, volume_step{}, volume_wait{}; // +$1A-$20
+
+        template <class A> void persist(A& ar) {
+            ar(record, priority, pitch_repeats, volume_repeats, pitch, volume, pitch_segment, volume_segment,
+               pitch_step, pitch_wait, volume_step, volume_wait);
+        }
     };
+    // Quick saves: the channels and Paula's state (the main data stays bound).
+    template <class A> void persist(A& ar) { ar(channels_, paula_, paused_, volume_offset_, background_toggle_); }
     std::array<Channel, 4>& channels() { return channels_; }
 
 private:

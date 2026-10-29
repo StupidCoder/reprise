@@ -37,6 +37,7 @@
 #include "tower_of_babel_amiga/view/sky.hpp"
 #include "tower_of_babel_amiga/view/tower_view.hpp"
 #include "tower_of_babel_amiga/import/disk_import.hpp"
+#include "state/archive.hpp"
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -517,8 +518,9 @@ int fx_check(const babel::data::Assets& assets, const std::filesystem::path& fil
 
 // Research: runs the front end headless from a script of lines:
 //   frames N | move X Y | click X Y [HOLD] | hold X Y N | key C (ret, bs, esc, space or a character) | shot FILE
+//   | save FILE (a quick save of the front end and the effects) | load FILE (into a fresh front end)
 int drive(const babel::data::Assets& assets, const std::filesystem::path& script, const std::filesystem::path& out) {
-    babel::front::FrontEnd fe(assets, out / "saves");
+    auto front = std::make_unique<babel::front::FrontEnd>(assets, out / "saves");
     babel::front::FrontEnd::Input in;
     in.pointer = true;
     // The effects as the module plays them, written to effects.wav (22050 Hz, left channel).
@@ -527,7 +529,7 @@ int drive(const babel::data::Assets& assets, const std::filesystem::path& script
     double phase = 0;
     const auto sound = [&] {
         using Kind = babel::front::FrontEnd::SoundEvent::Kind;
-        for (const auto& e : fe.take_sounds()) {
+        for (const auto& e : front->take_sounds()) {
             if (e.kind == Kind::stop) fx.stop();
             else if (e.kind == Kind::pause) fx.pause();
             else if (e.kind == Kind::resume) fx.resume();
@@ -550,7 +552,7 @@ int drive(const babel::data::Assets& assets, const std::filesystem::path& script
     long frame = 0;
     const auto step = [&](int n) {
         for (int i = 0; i < n; ++i, ++frame) {
-            fe.vblank(in);
+            front->vblank(in);
             sound();
             in.key = 0;
         }
@@ -573,15 +575,35 @@ int drive(const babel::data::Assets& assets, const std::filesystem::path& script
             in.key = k == "ret" ? 13 : k == "bs" ? 8 : k == "esc" ? 27 : k == "space" ? ' ' : k[0];
             step(1);
         } else if (what == "margin") {
-            int m = 0; words >> m; fe.set_margin(m);
+            int m = 0; words >> m; front->set_margin(m);
         } else if (what == "pshot") { // the shown picture: widescreen margin as set, smooth at FRACTION (or not: -1)
             std::string name; double f = -1; words >> name >> f;
-            platform::save_png(fe.picture(fe.margin(), f >= 0, std::max(f, 0.0)), out / name);
+            platform::save_png(front->picture(front->margin(), f >= 0, std::max(f, 0.0)), out / name);
             std::printf("frame %ld: %s\n", frame, name.c_str());
+            std::fflush(stdout);
+        } else if (what == "save" || what == "load") {
+            std::string name; words >> name;
+            if (what == "save") {
+                state::Writer ar;
+                front->write_state(ar);
+                ar(fx, phase);
+                std::ofstream(out / name, std::ios::binary).write(reinterpret_cast<const char*>(ar.bytes.data()), std::streamsize(ar.bytes.size()));
+            } else {
+                std::ifstream f(out / name, std::ios::binary);
+                const std::vector<std::uint8_t> bytes(std::istreambuf_iterator<char>(f), {});
+                auto fresh = std::make_unique<babel::front::FrontEnd>(assets, out / "saves");
+                fresh->set_margin(front->margin());
+                state::Reader ar(bytes);
+                fresh->read_state(ar);
+                ar(fx, phase);
+                ar.finish();
+                front = std::move(fresh);
+            }
+            std::printf("frame %ld: %s %s\n", frame, what.c_str(), name.c_str());
             std::fflush(stdout);
         } else if (what == "shot") {
             std::string name; words >> name;
-            platform::save_png(fe.screen().image(), out / name);
+            platform::save_png(front->screen().image(), out / name);
             std::printf("frame %ld: %s\n", frame, name.c_str());
             std::fflush(stdout);
         }

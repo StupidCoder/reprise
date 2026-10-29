@@ -224,6 +224,12 @@ void FrontEnd::designer_edit(bool left) {
 // --- the designer's loop ---------------------------------------------------
 
 Flow FrontEnd::designer() {
+    if (!std::exchange(resume_designer_, false)) mark(Mark::designer); // (a load comes back in here)
+    struct Back {
+        bool& in;
+        ~Back() { in = false; }
+    } back{in_designer_};
+    in_designer_ = true;
     fast_fades_ = true;
     screen_.clear();
     screen_.copper = CopperMode::split;

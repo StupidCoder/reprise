@@ -25,6 +25,7 @@ void Screen::invert_blink_pens() {
     for (int n = 23; n <= 24; ++n)
         for (auto& row : pens_[std::size_t(n)].rows)
             for (auto& c : row) c = std::uint8_t(15 - c);
+    blink_inverted_ = !blink_inverted_;
 }
 
 void Screen::clear() {

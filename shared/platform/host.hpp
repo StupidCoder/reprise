@@ -129,6 +129,7 @@ struct Controls {
     // while captured, set_mouse_captured), for games steered by movement.
     float mouse_dx{}, mouse_dy{};
     bool command_held{}, option_held{}, control_held{}; // (GameInput::command, option, control)
+    bool shift_held{}; // either Shift key (GameInput::shift)
 };
 
 class Host final : public GpuSurface {

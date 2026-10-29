@@ -40,6 +40,11 @@ struct SkyState {
     bool flash{};                     // $FC8: the palette flashes this frame
     bool meteor_visible{};
     bool thunder{}, crack{};          // sounds to start ($30F2, $3096)
+
+    template <class A> void persist(A& ar) {
+        ar(moon_frame, lightning_wait, thunder_wait, lightning_heading, meteor_wait, meteor_heading, meteor_x, meteor_y,
+           meteor_frame, random, bolt_column, bolt_image, flash, meteor_visible, thunder, crack);
+    }
 };
 
 class SkyEffects {

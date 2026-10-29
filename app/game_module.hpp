@@ -45,6 +45,8 @@ struct GameInput {
     // Command, Option/Alt or Control held on its own (no key with it
     // needed): for mouse games, more buttons on a one-button trackpad.
     bool command{}, option{}, control{};
+    // A Shift key held, for games that type text (capital letters).
+    bool shift{};
     // Every press, move and release over the game since the previous tick, in order (in the
     // units of picture(), or of gpu_frame_size() for a GPU-drawn game). Games drawn with the
     // pointer (paths) use these instead of the once-per-frame pointer above.

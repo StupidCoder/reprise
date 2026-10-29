@@ -67,6 +67,10 @@ public:
     // The lockouts at the start of a tower (cleared by the unpacker).
     void reset(const TowerState& t) { *this = Panel{}; selected_ = t.active; }
 
+    template <class A> void persist(A& ar) {
+        ar(select_wait_, turn_wait_, move_wait_, program_wait_, selected_, pick_, pause_, fire_failed_);
+    }
+
 private:
     void select(TowerState&, int slot);
     void command(TowerState&, const Rules&, const Settings&, int k);

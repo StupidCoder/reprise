@@ -32,6 +32,10 @@ struct Settings {
     int view_distance{};          // $111A: 0-3 (table $9F7C)
     bool sights{};                // $111C >= 0
     int panel_style{};            // $11D4: 0-2, the panel set and its colours
+
+    template <class A> void persist(A& ar) {
+        ar(backwards_allowed, link_cameras, info, timer, view_side, view_height, view_distance, sights, panel_style);
+    }
 };
 
 class Play {
@@ -41,6 +45,17 @@ public:
     // $969A: the game screen (title bar with the tower's name, the view's
     // frame, the panel), drawn before the first frame and after a pause.
     void draw_screen();
+
+    // Quick saves: the running tower, the panel, the sky and what the view
+    // keeps between frames (not a demonstration's camera). Reading puts the
+    // blinking pens in the phase the frames had left them in.
+    template <class A> void persist(A& ar) {
+        ar(state_, panel_, sky_, sky_drawn_, noise_, ready_, before_, before_active_, before_heading_, sounds_,
+           running_, even_frame_, picked_, view_offset_, view_height_, view_distance_, noise_x_, noise_y_,
+           noise_step_, volume_offset_, strip_);
+        if constexpr (A::reading)
+            if (!even_frame_) invert_blink_pens();
+    }
 
     enum class Outcome { playing, paused, ended };
     // The mouse for one game frame, in the screen's pixels; `left` is held
@@ -102,6 +117,7 @@ private:
     std::array<int, 3> position_at(int slot, double alpha) const;
     view::Camera camera_at(double alpha) const;
     void render(view::Canvas&, int margin, double alpha, view::SkyState&, view::Pick*) const;
+    void invert_blink_pens(); // pens 23-24 of the objects (the screen's own are inverted by the caller)
     void draw_noise();       // $D804: no picture (spider gone, cameras forbidden)
     void draw_panel();       // $AB5A / $AC44: every button in its state
     void apply_view_settings(); // $9F84

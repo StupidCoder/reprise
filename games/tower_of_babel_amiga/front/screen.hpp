@@ -40,6 +40,7 @@ public:
     // The game changes some pens while it runs (the blink of pens 23-24).
     void set_pen(int n, const view::Pen& p) { pens_[std::size_t(n)] = p; }
     void invert_blink_pens(); // $AB44
+    bool blink_inverted() const { return blink_inverted_; } // an odd number of inversions so far
 
     void clear(); // $119BE: everything colour 0
     void fill(int x0, int y0, int x1, int y1, int pen); // $11532 (inclusive)
@@ -77,6 +78,8 @@ public:
     struct Cursor {
         int x{}, y{};
         int paper{}, ink{15}; // $4BE, $4BF
+
+        template <class A> void persist(A& ar) { ar(x, y, paper, ink); }
     };
     Cursor cursor;
     void text(std::string_view);
@@ -103,6 +106,18 @@ public:
     void set_palette(const data::Memory& program, std::uint32_t address, int count = 48);
 
     platform::Image image() const { return image_of(canvas_, 0); }
+
+    // Quick saves: the picture, its colours and copper mode, the text
+    // cursor, the windows' saved boxes and the blink's phase.
+    template <class A> void persist(A& ar) {
+        ar(canvas_.pixels, palette, copper, sky_type, flash, marker, mouse_style, cursor, saved_);
+        bool inverted = blink_inverted_;
+        ar(inverted);
+        if constexpr (A::reading) {
+            if (canvas_.pixels.size() != std::size_t(width * height)) A::fail();
+            if (inverted != blink_inverted_) invert_blink_pens();
+        }
+    }
     // The same from a wider canvas (widescreen: the picture `margin` columns
     // in from its left edge).
     platform::Image image_of(const view::Canvas&, int margin) const;
@@ -111,10 +126,13 @@ private:
     struct SavedBox {
         int x0, y0, x1, y1;
         std::vector<std::uint8_t> pixels;
+
+        template <class A> void persist(A& ar) { ar(x0, y0, x1, y1, pixels); }
     };
     const data::Assets& assets_;
     view::Canvas canvas_{width, height};
     std::array<view::Pen, 80> pens_{};
+    bool blink_inverted_{};
     data::Memory font_;
     std::vector<SavedBox> saved_;
     void put(int x, int y, std::uint8_t c) {

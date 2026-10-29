@@ -32,9 +32,30 @@ public:
     // Prepare Disk: every file of the game's kinds goes (false if one cannot be removed).
     bool erase() const;
 
+    // Quick saves: every answer the disk gave, in order, since `record`
+    // started afresh; `replay` gives those answers again (and touches no
+    // file) until they run out, so that a game played again from its
+    // journal sees the disk as it was.
+    using Answers = std::vector<std::vector<std::uint8_t>>;
+    void record() { answers_.clear(); replay_ = false; }
+    const Answers& answers() const { return answers_; }
+    void replay(Answers a) {
+        answers_ = std::move(a);
+        replay_ = true;
+        next_ = 0;
+    }
+    bool replay_done() const { return !replay_ || next_ == answers_.size(); }
+    void end_replay() { replay_ = false; }
+
 private:
     std::filesystem::path file(FileKind, const std::string& name) const;
+    std::vector<std::uint8_t> answer(std::vector<std::uint8_t> now) const; // recorded, or the replayed one
+    std::vector<std::string> list(FileKind) const;
+    std::optional<std::vector<std::uint8_t>> load(FileKind, const std::string& name) const;
     std::filesystem::path folder_;
+    mutable Answers answers_;
+    bool replay_{};
+    mutable std::size_t next_{};
 };
 
 } // namespace babel::front

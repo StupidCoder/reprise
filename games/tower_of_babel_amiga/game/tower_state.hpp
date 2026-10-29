@@ -38,6 +38,10 @@ struct TowerObject {
     CellIndex target{};    // +$16: the cell it is moving into (0 = none)
     int slot{};            // +$18
     int counter_1a{}, counter_1c{}, counter_1e{};
+
+    template <class A> void persist(A& ar) {
+        ar(type, shape, x, y, z, heading, state, progress, flags, cell, target, slot, counter_1a, counter_1c, counter_1e);
+    }
 };
 
 // A spider's program and command state ($156A + 16 n).
@@ -47,6 +51,8 @@ struct Program {
     int mode{-1};      // +$04: 1 running, 2 running all, 3 writing, -1 idle
     int position{};    // +$06: the next command (writing: the cursor)
     std::array<std::uint8_t, 8> commands{}; // 1 forward, 2 back, 3 left, 4 right, 5 fire, 0 end
+
+    template <class A> void persist(A& ar) { ar(command, word2, mode, position, commands); }
 };
 
 // What the panel shows lit ($1558-$1568); the rules set these.
@@ -55,6 +61,8 @@ struct PanelLights {
     int turn{-1};     // $155C
     int program{-1};  // $1560
     int program_record{-1}; // $1564 (the program shown in the strip: its owner's slot)
+
+    template <class A> void persist(A& ar) { ar(move, turn, program, program_record); }
 };
 
 class TowerState {
@@ -108,6 +116,13 @@ public:
     void check_complete();           // $BBE2: everything collected and destroyed: won
     void spider_lost();              // $BC16: a spider went: the tower may be lost
     void remove_floor(CellIndex);    // $C924: Lizards and Wipers take floor away
+
+    // Quick saves: every field, by name in this order.
+    template <class A> void persist(A& ar) {
+        ar(objects, programs, panel, active, lift_moves, turn_flags, backwards_allowed, clock, klondikes, destroyed,
+           klondikes_needed, destroy_needed, end_countdown, end_reason, blink, frame, started, time_left, footsteps,
+           mine_holes, bomb_speed, sounds, forcer_frames, forcer_direction, forcer_cells, cells_, objects_at_);
+    }
 
 private:
     std::array<std::uint8_t, 500> cells_{}; // floors -1..3

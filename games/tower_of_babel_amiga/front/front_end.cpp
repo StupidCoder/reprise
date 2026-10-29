@@ -71,6 +71,7 @@ FrontEnd::FrontEnd(const data::Assets& assets, std::filesystem::path saves)
     }
     custom_towers_ = assets.groups.at(15).towers;
     runner_.start(run());
+    mark(Mark::start);
 }
 
 view::Canvas FrontEnd::wide_picture(int margin, double alpha) const {
@@ -139,9 +140,17 @@ platform::Image FrontEnd::picture(int margin, bool smooth, double fraction) cons
 }
 
 void FrontEnd::vblank(const Input& raw) {
-    previous_ = in_;
     Input input = raw;
     input.x -= margin_; // the game's own picture is in the middle
+    // The journal: this blank's input (a mark during it starts it afresh).
+    const auto word = input.packed();
+    if (!journal_.empty() && journal_.back().first == word) ++journal_.back().second;
+    else journal_.push_back({word, 1});
+    step(input);
+}
+
+void FrontEnd::step(const Input& input) {
+    previous_ = in_;
     in_ = input;
     if (in_.left && !previous_.left) {
         clicked_ = true;
@@ -241,6 +250,15 @@ Flow FrontEnd::run() {
     for (;;) {
         co_await name_entry();
         co_await main_menu(); // returns for Restart Game
+    }
+}
+
+Flow FrontEnd::resumed() {
+    // As run() goes on from the main menu.
+    co_await main_menu();
+    for (;;) {
+        co_await name_entry();
+        co_await main_menu();
     }
 }
 
@@ -710,8 +728,20 @@ Flow FrontEnd::confirm(std::uint32_t title_text, bool& yes) {
 }
 
 Flow FrontEnd::main_menu() {
-    update_scores(); // $8D28
-    for (;;) {
+    // After a quick load (read_state) straight back to where it was taken
+    // up: the tower (in its game type's loop, then back here as from Play
+    // Game), the designer, or this menu's loop.
+    const bool resuming = resume_menu_ || resume_designer_ || resume_tower_;
+    if (!resuming) update_scores(); // $8D28
+    if (resume_tower_) {
+        if (playing_type_ == 0) co_await standard_game();
+        else if (playing_type_ == 1) co_await custom_game();
+        else co_await tutorial_game();
+    } else if (resume_designer_) {
+        co_await designer();
+    }
+    for (bool marked = std::exchange(resume_menu_, false);;) {
+        if (!std::exchange(marked, false)) mark(Mark::menu);
         co_await fade_out();
         screen_.clear();
         screen_.title_bar();
@@ -982,10 +1012,12 @@ Flow FrontEnd::information(const data::Tower& tower, int letter, bool& play) {
 }
 
 Flow FrontEnd::standard_game() {
-    selected_ = -1;
+    if (!resume_tower_) selected_ = -1;
     for (;;) {
         int choice = -1;
-        co_await choose_tower(0, choice);
+        const auto resume = std::exchange(resume_tower_, std::nullopt);
+        if (resume) choice = *resume;
+        else co_await choose_tower(0, choice);
         if (choice < 0) co_return;
         if (choice >= 9) {
             group_ += choice == 10 ? 1 : -1;
@@ -993,8 +1025,8 @@ Flow FrontEnd::standard_game() {
             continue;
         }
         const auto& tower = tower_in(0, choice);
-        bool go = false;
-        co_await information(tower, choice, go);
+        bool go = resume.has_value();
+        if (!go) co_await information(tower, choice, go);
         if (!go) continue;
         int reason = 0;
         co_await play_tower(tower, 0, reason);
@@ -1026,14 +1058,16 @@ Flow FrontEnd::standard_game() {
 }
 
 Flow FrontEnd::tutorial_game() {
-    selected_ = -1;
+    if (!resume_tower_) selected_ = -1;
     for (;;) {
         int choice = -1;
-        co_await choose_tower(2, choice);
+        const auto resume = std::exchange(resume_tower_, std::nullopt);
+        if (resume) choice = *resume;
+        else co_await choose_tower(2, choice);
         if (choice < 0) co_return;
         const auto& tower = tower_in(2, choice);
-        bool go = false;
-        co_await information(tower, choice, go);
+        bool go = resume.has_value();
+        if (!go) co_await information(tower, choice, go);
         if (!go) continue;
         int reason = 0;
         co_await play_tower(tower, 2, reason);
@@ -1043,45 +1077,52 @@ Flow FrontEnd::tutorial_game() {
 }
 
 Flow FrontEnd::custom_game() {
-    co_await fade_out();
-    screen_.clear();
-    screen_.title_bar();
-    menu_boxes(0x1E);
-    screen_.text_at(custom_text);
-    header();
-    co_await fade_in_program(menu_palette);
+    const bool resuming = resume_tower_.has_value(); // straight into the group's tower
+    if (!resuming) {
+        co_await fade_out();
+        screen_.clear();
+        screen_.title_bar();
+        menu_boxes(0x1E);
+        screen_.text_at(custom_text);
+        header();
+        co_await fade_in_program(menu_palette);
+    }
     for (;;) {
-        int choice = 0;
-        co_await select(custom_areas, choice);
-        if (choice == 3) co_return;
-        if (choice == 2) { // $9144: a group from the data disk becomes the custom group
-            bool loaded = false;
-            co_await requester(FileKind::group, group_title, [&](const std::string& n, bool) {
-                const auto file = disk_.read(FileKind::group, n);
-                if (!file) return 6;
-                if (file->size() < 9 * data::tower_record_size) return 0xB;
-                for (std::size_t i = 0; i < 9; ++i)
-                    custom_towers_[i] = data::decode_tower(std::span<const std::uint8_t>(*file).subspan(i * data::tower_record_size, data::tower_record_size));
+        if (!resuming) {
+            int choice = 0;
+            co_await select(custom_areas, choice);
+            if (choice == 3) co_return;
+            if (choice == 2) { // $9144: a group from the data disk becomes the custom group
+                bool loaded = false;
+                co_await requester(FileKind::group, group_title, [&](const std::string& n, bool) {
+                    const auto file = disk_.read(FileKind::group, n);
+                    if (!file) return 6;
+                    if (file->size() < 9 * data::tower_record_size) return 0xB;
+                    for (std::size_t i = 0; i < 9; ++i)
+                        custom_towers_[i] = data::decode_tower(std::span<const std::uint8_t>(*file).subspan(i * data::tower_record_size, data::tower_record_size));
+                    custom_progress_.fill(0);
+                    loaded = true;
+                    return 0;
+                });
+                if (!loaded) continue;
+            }
+            if (choice == 1) { // the designer's nine towers ($9046)
+                if (designer_group_.empty()) custom_towers_ = assets_.groups.at(15).towers;
+                else
+                    for (std::size_t i = 0; i < 9; ++i) custom_towers_[i] = data::decode_tower(designer_group_[i]);
                 custom_progress_.fill(0);
-                loaded = true;
-                return 0;
-            });
-            if (!loaded) continue;
+            }
+            selected_ = -1;
         }
-        if (choice == 1) { // the designer's nine towers ($9046)
-            if (designer_group_.empty()) custom_towers_ = assets_.groups.at(15).towers;
-            else
-                for (std::size_t i = 0; i < 9; ++i) custom_towers_[i] = data::decode_tower(designer_group_[i]);
-            custom_progress_.fill(0);
-        }
-        selected_ = -1;
         for (;;) {
             int t = -1;
-            co_await choose_tower(1, t);
+            const auto resume = std::exchange(resume_tower_, std::nullopt);
+            if (resume) t = *resume;
+            else co_await choose_tower(1, t);
             if (t < 0) co_return;
             const auto& tower = tower_in(1, t);
-            bool go = false;
-            co_await information(tower, t, go);
+            bool go = resume.has_value();
+            if (!go) co_await information(tower, t, go);
             if (!go) continue;
             int reason = 0;
             co_await play_tower(tower, 1, reason);
@@ -1093,25 +1134,38 @@ Flow FrontEnd::custom_game() {
 
 Flow FrontEnd::play_tower(const data::Tower& tower, int game_type, int& reason, bool frozen) {
     for (;;) {
+        // After a quick load: the tower as it was at a game frame's start.
+        const bool restored = !resume_play_.empty();
         // $969A: the game screen, faded in from black.
-        co_await fade_out();
+        if (!restored) co_await fade_out();
         Play play(assets_, screen_, tower, settings_, game_type);
         active_play_ = &play;
         struct Forget {
             Play*& play;
             ~Forget() { play = nullptr; }
         } forget{active_play_};
-        play_paused_ = false;
-        last_tower_ = tower;
-        if (frozen) play.freeze_enemies();
-        sound(SoundEvent::Kind::stop); // the unpacker ($135C6)
-        play.draw_screen();
-        co_await fade(play.target_palette());
-        clicked_ = false;
+        playing_type_ = game_type;
+        if (restored) {
+            state::Reader r(resume_play_);
+            play.persist(r);
+            r.finish();
+            resume_play_.clear();
+        } else {
+            play_paused_ = false;
+            last_tower_ = tower;
+            if (frozen) play.freeze_enemies();
+            sound(SoundEvent::Kind::stop); // the unpacker ($135C6)
+            play.draw_screen();
+            co_await fade(play.target_palette());
+            clicked_ = false;
+            sound(SoundEvent::Kind::resume); // the play loop's start ($9976)
+        }
         int leave = 0;
-        sound(SoundEvent::Kind::resume); // the play loop's start ($9976)
-        for (;;) {
-            co_await game_frame_wait();
+        for (bool marked = restored;;) {
+            if (!std::exchange(marked, false)) {
+                co_await game_frame_wait();
+                if (!in_designer_) mark(Mark::tower_frame); // (the designer's test goes back to the designer)
+            }
             Play::Pointer p{in_.pointer ? in_.x : -1, in_.pointer ? in_.y : -1, in_.left || clicked_};
             if (clicked_ && !in_.left) {
                 p.x = clicked_x_;
@@ -1474,6 +1528,109 @@ Flow FrontEnd::demo_sequence() {
         co_await fade_out();
         index = next < 12 ? 17 : next > 17 ? 12 : next;
     }
+}
+
+// --- quick saves -----------------------------------------------------------
+
+std::uint64_t FrontEnd::Input::packed() const {
+    return std::uint64_t(std::uint16_t(x)) | std::uint64_t(std::uint16_t(y)) << 16 | std::uint64_t(std::uint8_t(key)) << 32 |
+           std::uint64_t(pointer) << 40 | std::uint64_t(left) << 41 | std::uint64_t(right) << 42;
+}
+
+FrontEnd::Input FrontEnd::Input::unpacked(std::uint64_t w) {
+    Input in;
+    in.x = std::int16_t(w & 0xFFFF);
+    in.y = std::int16_t(w >> 16 & 0xFFFF);
+    in.key = int(w >> 32 & 0xFF);
+    in.pointer = (w >> 40 & 1) != 0;
+    in.left = (w >> 41 & 1) != 0;
+    in.right = (w >> 42 & 1) != 0;
+    return in;
+}
+
+template <class A> void FrontEnd::persist(A& ar) {
+    // The player, the progress and the tables.
+    ar(name_, score_, group_, all_done_, standard_progress_, custom_progress_, tutorial_progress_, selected_,
+       completed_count_, interludes_, survivors_, shown_bonus_, settings_, screen_x_, screen_y_, scores_,
+       file_name_.text, custom_towers_, last_tower_);
+    // The designer.
+    ar(design_, time_text_, designer_group_, undo_, undo_ready_, floor_, slot_, palette_, hover_x_, hover_y_,
+       depth_cue_, enemy_movement_, auto_repeat_, confirm_replace_, bright_, painting_, colour_, whole_tower_,
+       mouse_scaling_, mouse_style_, previous_colours_);
+    // The machine: the screen, the colours faded to, the timer, the
+    // inputs as the last blank left them, the random number.
+    ar(screen_, current_, fast_fades_, ticks_, random_, piece_frames_, clicked_, clicked_x_, clicked_y_);
+    std::uint64_t in = in_.packed(), previous = previous_.packed();
+    ar(in, previous);
+    if constexpr (A::reading) {
+        in_ = Input::unpacked(in);
+        previous_ = Input::unpacked(previous);
+        const auto check = [](bool ok) {
+            if (!ok) A::fail();
+        };
+        check(group_ >= 0 && group_ < 13 && !scores_.empty() && custom_towers_.size() == 9 &&
+              (designer_group_.empty() || designer_group_.size() == 9) && settings_.panel_style >= 0 &&
+              settings_.panel_style < 3 && settings_.view_distance >= 0 && settings_.view_distance < 4);
+    }
+}
+
+void FrontEnd::mark(Mark m) {
+    // Called where the flow can be taken up again (see resumed()): its
+    // state now, and the journal starts afresh.
+    state::Writer ar;
+    persist(ar);
+    if (m == Mark::tower_frame) {
+        state::Writer play;
+        active_play_->persist(play);
+        ar(playing_type_, play.bytes);
+    }
+    mark_ = m;
+    checkpoint_ = std::move(ar.bytes);
+    journal_.clear();
+    disk_.record();
+}
+
+void FrontEnd::write_state(state::Writer& ar) {
+    auto answers = disk_.answers();
+    ar(mark_, checkpoint_, journal_, answers);
+}
+
+void FrontEnd::read_state(state::Reader& ar) {
+    DataDisk::Answers answers;
+    ar(mark_, checkpoint_, journal_, answers);
+    disk_.replay(answers);
+    state::Reader r(checkpoint_);
+    persist(r);
+    if (mark_ == Mark::tower_frame) {
+        r(playing_type_, resume_play_);
+        if (playing_type_ < 0 || playing_type_ > 2 || selected_ < 0 || selected_ > 8) state::Reader::fail();
+        resume_tower_ = selected_;
+    }
+    r.finish();
+    // The flow taken up where the mark was made: the rest of that blank, then the blanks since.
+    resume_menu_ = mark_ == Mark::menu;
+    resume_designer_ = mark_ == Mark::designer;
+    const auto journal = std::exchange(journal_, {});
+    const auto mark = mark_;
+    const auto checkpoint = checkpoint_;
+    if (mark_ == Mark::start) {
+        runner_.start(run());
+    } else {
+        runner_.start(resumed());
+        runner_.resume();
+    }
+    for (const auto& [word, count] : journal)
+        for (int i = 0; i < count; ++i) {
+            const auto input = Input::unpacked(word);
+            if (!journal_.empty() && journal_.back().first == word) ++journal_.back().second;
+            else journal_.push_back({word, 1});
+            step(input);
+        }
+    // It must have gone the same way.
+    if (mark_ != mark || checkpoint_ != checkpoint || journal_ != journal || !disk_.replay_done()) state::Reader::fail();
+    disk_.end_replay();
+    sounds_.clear();
+    piece_.reset();
 }
 
 } // namespace babel::front

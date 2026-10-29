@@ -36,6 +36,12 @@ void Play::apply_view_settings() {
     state_.backwards_allowed = settings_.backwards_allowed;
 }
 
+void Play::invert_blink_pens() {
+    for (int n = 23; n <= 24; ++n)
+        for (auto& row : pens_.object[std::size_t(n)].rows)
+            for (auto& c : row) c = std::uint8_t(15 - c);
+}
+
 void Play::draw_screen() {
     screen_.clear();
     screen_.copper = CopperMode::game;
@@ -130,9 +136,7 @@ Play::Outcome Play::frame(const Pointer& pointer) {
 void Play::one_frame(const Pointer& pointer, bool ready) {
     // $AB44: pens 23 and 24 change every frame (blinking objects).
     screen_.invert_blink_pens();
-    for (int n = 23; n <= 24; ++n)
-        for (auto& row : pens_.object[std::size_t(n)].rows)
-            for (auto& c : row) c = std::uint8_t(15 - c);
+    invert_blink_pens();
 
     game::Panel::Input input;
     if (pointer.left) {
@@ -182,9 +186,7 @@ void Play::demo_frame() {
     ++state_.frame;
     if (--state_.blink < 0) state_.blink = 6;
     screen_.invert_blink_pens();
-    for (int n = 23; n <= 24; ++n)
-        for (auto& row : pens_.object[std::size_t(n)].rows)
-            for (auto& c : row) c = std::uint8_t(15 - c);
+    invert_blink_pens();
     panel_.clear_command_waits();
     remember();
     auto& spider = state_.objects[std::size_t(state_.active)];

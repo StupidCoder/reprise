@@ -56,6 +56,8 @@ struct TitleScreen {
 struct TowerObject {
     int kind{};          // 4-39 (the designer's names: object_kind_name)
     int x{}, z{}, floor{};
+
+    template <class A> void persist(A& ar) { ar(kind, x, z, floor); }
 };
 
 struct Tower {
@@ -75,6 +77,10 @@ struct Tower {
 
     bool spider_available(int spider) const { return !flags[std::size_t(spider)]; }
     bool has_time_limit() const { return !flags[5]; }
+
+    template <class A> void persist(A& ar) {
+        ar(name, author, password, cells, objects, colours, flags, klondikes, objects_to_destroy, time_limit, settings);
+    }
 };
 
 constexpr std::size_t tower_record_size = 0x120;

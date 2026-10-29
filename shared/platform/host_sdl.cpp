@@ -395,6 +395,7 @@ Controls Host::poll() {
     input.command_held = (held & SDL_KMOD_GUI) != 0;
     input.option_held = (held & SDL_KMOD_ALT) != 0;
     input.control_held = (held & SDL_KMOD_CTRL) != 0;
+    input.shift_held = (held & SDL_KMOD_SHIFT) != 0;
     float rx = 0, ry = 0;
     if (i.ui_shown && SDL_GetMouseFocus() == i.window && SDL_RenderCoordinatesFromWindow(i.renderer, mx, my, &rx, &ry))
         input.ui_pointer = std::array<int, 2>{int(std::floor(rx)), int(std::floor(ry))};

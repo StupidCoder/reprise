@@ -15,7 +15,8 @@ Playable in the shell from the title:
 - saved positions, the high score table and loading a custom group, on a folder that stands for the data disk;
 - the tower designer with all its menus, pages, checks and the test of a tower;
 - the title music, the jingle and every sound effect (envelopes, the lifts' hum, the towers' background sounds);
-- widescreen (up to 21:9) and smooth motion, as options.
+- widescreen (up to 21:9) and smooth motion, as options;
+- capital letters with Shift, and the shell's quick save and load anywhere, going on exactly (game.md, "Quick saves").
 
 Checked against the original, frame by frame or pixel by pixel:
 
@@ -31,10 +32,9 @@ Checked against the original, frame by frame or pixel by pixel:
 The original is complete, and both planned enhancements are in. What is left are limits of the host:
 
 - **Keys:** Escape (the Setup page's reset of the screen position, the editors' clear) is Reprise's own menu key, and the host reports A and D as left and right, so the editors' cursor keys (codes 1-4) aren't offered.
-- **Capital letters in names:** the shell reports keys without Shift, so names are lower case.
-- **Quick save** (`write_state`) is not offered: the front end's state lives in its coroutines. Saved positions cover the original's own saving.
 - **Mouse Scaling and Mouse Style** are kept without effect, as the host draws the pointer. Mouse Style still colours the designer's cursor.
 - **Widescreen:** clicks in the view's widened sides select nothing.
+- **Quick saves:** run tests/persistence.cpp's `--record` / `--restore` with the whole shell once it links again (on 2026-10-29 another game's work in progress broke the link; the same checks passed run against this module alone).
 
 ## Not yet covered by a check
 
@@ -60,6 +60,8 @@ These run in native code but have not been compared with the original yet:
   - the effects' sound itself: only the channel state was compared; the shared Paula model renders it.
 
 ## Known bugs
+
+- **Quick saves:** a load replays the time since the last mark, so after a long stretch without one it takes longer: a demonstration left running (about a second for ten minutes) or a designer session that opens its own test plays (they are replayed with their 3D frames).
 
 - **Widescreen:** the stars beyond the original's columns repeat its field (the original has no stars there to show).
 

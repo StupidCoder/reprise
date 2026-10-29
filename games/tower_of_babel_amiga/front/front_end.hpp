@@ -5,6 +5,7 @@
 #include "tower_of_babel_amiga/front/flow.hpp"
 #include "tower_of_babel_amiga/front/play.hpp"
 #include "tower_of_babel_amiga/front/screen.hpp"
+#include "state/archive.hpp"
 #include <array>
 #include <memory>
 #include <functional>
@@ -32,6 +33,10 @@ public:
         int x{}, y{};           // in the screen's pixels
         bool left{}, right{};   // buttons held
         int key{};              // a key typed this frame (the original's codes: ASCII, 8 delete, 13 return, 27 escape), 0 none
+
+        // One word for the journal of a quick save.
+        std::uint64_t packed() const;
+        static Input unpacked(std::uint64_t);
     };
     void vblank(const Input&);
 
@@ -59,9 +64,20 @@ public:
     };
     std::vector<SoundEvent> take_sounds() { return std::exchange(sounds_, {}); }
 
+    // Quick saves, anywhere: the state at the last point the flow can be
+    // taken up again from (the start, the main menu drawn, the designer
+    // opened, each game frame of a tower) and the vertical blanks' inputs
+    // since. A load takes the state up at that point and plays the inputs
+    // again, so the game goes on exactly as it would have. (What the data
+    // disk held is read again as it is now.) The sounds the replay makes
+    // are dropped: the module keeps the effects' own state.
+    void write_state(state::Writer&);
+    void read_state(state::Reader&); // on a fresh front end, before its first frame
+
 private:
     // --- waiting
     auto next_frame() { return runner_.next_frame(); }
+    void step(const Input&); // one vertical blank, `x` in the game's own picture
     Flow wait_frames(int n);
     Flow wait_release();        // $11318: until no button is held
     Flow select(std::uint32_t menu, int& choice); // $112EA
@@ -72,6 +88,7 @@ private:
 
     // --- screens
     Flow run();
+    Flow resumed();             // after a quick load: back to the main menu, the designer or the tower
     Flow title();               // $7EF6
     Flow credits();             // $15A2E
     Flow name_entry();          // $8BD6
@@ -210,6 +227,8 @@ private:
     struct Score {
         std::string name;
         long score{};
+
+        template <class A> void persist(A& ar) { ar(name, score); }
     };
     std::vector<Score> scores_;    // $122E: ten, sorted (room for 21 while merging)
     LineEditor file_name_{0xAC, 0x6E, 8, 0xFE, 0xAC, 0x6C, 0xFF, 0x77, {}, 0}; // $F7E
@@ -233,6 +252,21 @@ private:
     int mouse_scaling_{1}, mouse_style_{}; // $11D0, $11D2 (no effect with the host's pointer)
     std::array<data::Colour, 18> previous_colours_{}; // $2616
     std::unique_ptr<Play> interlude_;
+    // Quick saves: the points the flow is taken up from, the last one's
+    // state and the inputs since.
+    enum class Mark { start, menu, designer, tower_frame };
+    void mark(Mark);
+    template <class A> void persist(A&);  // everything but a tower being played
+    Mark mark_{Mark::start};
+    std::vector<std::uint8_t> checkpoint_;
+    std::vector<std::pair<std::uint64_t, int>> journal_; // (input, vertical blanks)
+    bool in_designer_{};
+    int playing_type_{};                // the game type of the tower being played
+    // On a load, what the flow goes back into (the main menu's loop, the
+    // designer or a game's tower with its state).
+    bool resume_menu_{}, resume_designer_{};
+    std::optional<int> resume_tower_;
+    std::vector<std::uint8_t> resume_play_;
     long shown_bonus_[3]{}; // $1222-$1226 while counting
     int survivors_{};      // spiders left at the end of the last tower
 };

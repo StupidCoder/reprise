@@ -234,7 +234,8 @@ class SavedGame final : public GameModule {
 bool persistent_saves(std::string_view game) {
     return game == "fort_apocalypse_c64" || game == "bruce_lee_c64" || game == "wizball_c64" ||
            game == "marble_madness_amiga" || game == "mindwalker_amiga" || game == "wings_of_fury_amiga" ||
-           game == "cannon_fodder_amiga" || game == "spy_mouse_ios";
+           game == "cannon_fodder_amiga" || game == "spy_mouse_ios" ||
+           game == "tower_of_babel_amiga";
 }
 std::unique_ptr<GameModule> with_quick_save(const GameEntry &entry, const fs::path &content) {
     if (persistent_saves(entry.id))

@@ -1,5 +1,6 @@
 #include "tower_of_babel_amiga/front/module.hpp"
 #include "amiga/paula_voices.hpp"
+#include "state/archive.hpp"
 #include "tower_of_babel_amiga/data/assets.hpp"
 #include "tower_of_babel_amiga/front/effects.hpp"
 #include "tower_of_babel_amiga/front/front_end.hpp"
@@ -84,6 +85,7 @@ public:
             if (down && !keys_[std::size_t(i)] && in.key == 0) in.key = typed_key(i);
             keys_[std::size_t(i)] = down;
         }
+        if (input.shift && in.key != 0) in.key = shifted(in.key);
         if (input.space && !space_) in.key = ' ';
         space_ = input.space;
         front_->vblank(in);
@@ -95,6 +97,7 @@ public:
             playing_ = true;
         } else if (playing_ && !front_->piece_playing()) {
             voices_.set_volume(0, 0);
+            voices_.set_samples(0, {}); // (silent either way; a quick save need not carry it)
             playing_ = false;
         }
         using Kind = FrontEnd::SoundEvent::Kind;
@@ -112,7 +115,36 @@ public:
         }
     }
 
+    // $80E2: with Shift, the key's place in the unshifted table ($69C(a6))
+    // read from the shifted one, $70 further on (capital letters).
+    int shifted(int key) const {
+        constexpr std::uint32_t keymap = 0x806 + 0x69C;
+        for (std::uint32_t i = 0; i < 0x70; ++i)
+            if (assets_.program.u8(keymap + i) == key) return assets_.program.u8(keymap + 0x70 + i);
+        return key;
+    }
+
     platform::Image picture() const override { return front_->picture(front_->margin(), smooth_, fraction_); }
+
+    // Quick saves: the front end (see FrontEnd::write_state), the sound
+    // effects and the sampled piece as they sound, the keys held.
+    std::vector<std::uint8_t> write_state() override {
+        state::Writer ar;
+        std::string tag = "tower of babel 1";
+        ar(tag);
+        front_->write_state(ar);
+        ar(effects_, tick_phase_, voices_, playing_, keys_, space_);
+        return std::move(ar.bytes);
+    }
+    void read_state(std::span<const std::uint8_t> bytes) override {
+        state::Reader ar(bytes);
+        std::string tag;
+        ar(tag);
+        if (tag != "tower of babel 1") state::Reader::fail();
+        front_->read_state(ar);
+        ar(effects_, tick_phase_, voices_, playing_, keys_, space_);
+        ar.finish();
+    }
 
     void audio(std::span<float> stereo, int sample_rate) override {
         std::fill(stereo.begin(), stereo.end(), 0.0f);

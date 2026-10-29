@@ -325,6 +325,7 @@ int run(const Options& options) {
                 input.command = controls.command_held;
                 input.option = controls.option_held;
                 input.control = controls.control_held;
+                input.shift = controls.shift_held;
                 // Pointer events in the picture's units, given to the next tick that runs.
                 for (auto e : controls.pointer_events) {
                     if (!shown.gpu) {

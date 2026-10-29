@@ -55,6 +55,12 @@ struct TowerDesign {
     // The record it came from: the bits the format leaves unused are kept.
     std::array<std::uint8_t, data::tower_record_size> base{};
 
+    template <class A> void persist(A& ar) {
+        ar(name, author, password, time_limit, flags, bomb_speed, klondikes, destroy, stars, pattern, sky_type,
+           moon_heading, moon_type, moon_x, moon_y, moon_rotation, cells, objects, colours, background, no_footsteps,
+           no_effects, base);
+    }
+
     static TowerDesign from_record(std::span<const std::uint8_t> record);
     // False with too many objects (more than 20; $12E4A's error 9).
     bool to_record(std::array<std::uint8_t, data::tower_record_size>& record) const;
