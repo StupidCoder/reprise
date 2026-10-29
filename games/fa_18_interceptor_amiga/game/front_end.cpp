@@ -117,7 +117,13 @@ void FrontEnd::choose(const FrontKeys& keys) {
     const int d = keys.digit;
     int line = 0;
     switch (d) {
-    case 1: line = 101; break;              // demo ($7F)
+    case 1:                                 // demo ($7F): only with its recording
+        if (assets_.demo_controls.empty()) {
+            sounds_.menu_key();
+            return;
+        }
+        line = 101;
+        break;
     case 2: line = 102; break;              // free flight (1)
     case 3: line = 103; break;              // training demo (2)
     case 4: line = 104; break;              // training practice ($7D)
@@ -136,7 +142,9 @@ void FrontEnd::choose(const FrontKeys& keys) {
     }
     if (d != 7) sounds_.menu_key();
     choice_ = d;
-    unbuilt_ = d != 2;
+    // (The demo, 1, flies mission 3 from its moving carrier with a bogey:
+    // it waits for the missions' objects, task 11; its replay is built.)
+    unbuilt_ = d != 2 && d != 5;
     // $101E04: only the chosen line again, the tune fading out.
     text_.clear();
     text_.set_line_spacing(12);
@@ -242,6 +250,10 @@ std::optional<FlightStart> FrontEnd::tick(const FrontKeys& keys) {
             sounds_.stop_tune();
             if (unbuilt_) {
                 to_menu();
+            } else if (choice_ == 5) {
+                // $102252: the qualification, from the carrier's catapult.
+                sounds_.ambience(8);
+                return FlightStart{3, 0x11, FlightMode::qualification};
             } else {
                 sounds_.ambience(8);
                 to_start_map();

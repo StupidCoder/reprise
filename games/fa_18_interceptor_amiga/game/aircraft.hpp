@@ -4,6 +4,7 @@
 #include "fa_18_interceptor_amiga/game/attitude.hpp"
 #include <array>
 #include <cstdint>
+#include <optional>
 
 // The player's aircraft and its flight model (game.md "The flight step"):
 // one call of `fly` is one tick of the original (15 a second). Units are
@@ -18,6 +19,9 @@ struct FlightControls {
     bool left{}, right{};        // stick left / right (roll)
     bool rudder_left{}, rudder_right{};
     bool throttle_up{}, throttle_down{}; // keys - and = (held)
+    // A recorded control byte instead of the above (the demo, `$10DFEE`):
+    // taken as it is, the throttle settings left alone.
+    std::optional<std::uint8_t> recorded;
 };
 
 // Flag words of the original's object record (named where known).

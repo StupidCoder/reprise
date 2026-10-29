@@ -7,6 +7,7 @@
 #include "fa_18_interceptor_amiga/game/cockpit.hpp"
 #include "fa_18_interceptor_amiga/game/front_end.hpp"
 #include "fa_18_interceptor_amiga/game/pilot_record.hpp"
+#include "fa_18_interceptor_amiga/game/replay.hpp"
 #include "fa_18_interceptor_amiga/game/messages.hpp"
 #include "fa_18_interceptor_amiga/game/scene.hpp"
 #include "fa_18_interceptor_amiga/game/sound_driver.hpp"
@@ -32,13 +33,17 @@ constexpr int end_text_fa18 = 99;     // "HEY ROOKIE, F/A-18'S DON'T GROW ON TRE
 constexpr int end_text_f16 = 98;      // the same for the F-16 ($103A06)
 constexpr int ready_text = 89;        // "READY FOR TAKEOFF"
 constexpr int launch_text = 90;       // "READY TO LAUNCH" (on the carrier, $102E10)
+constexpr int qualification_text = 73; // the qualification's briefing ($101CDA)
+constexpr int landed_text = 74;       // "LANDING SUCCESSFUL ... YOU ARE NOW QUALIFIED" ($1032D6)
+constexpr int menu_hint_text = 83;    // "(SHIFT ESC) TO RETURN TO MAIN MENU"
+constexpr int bogey_text = 88;        // "YOUR VECTOR XXX FOR BOGEY" (mission 3, the demo's)
 constexpr int carrier_place = 3;      // place 4 ($137CF6's $800E: record 14)
 constexpr int menu_palette = 0;
 
 // Keys of the C64-style matrix the host gives (GameInput::c64_keys).
 namespace key {
 constexpr int backspace = 0, return_key = 1, g = 26, b = 28, z = 12, minus = 43, period = 44, comma = 47,
-              equals = 53, tab = 63, v = 31, c = 20, f = 21;
+              equals = 53, tab = 63, v = 31, c = 20, f = 21, r = 17, t = 22, j = 34;
 constexpr int digits[10] = {35, 56, 59, 8, 11, 16, 19, 24, 27, 32}; // 0 .. 9
 // The characters of the matrix's keys, for the call sign (0: none).
 constexpr char characters[64] = {
@@ -72,7 +77,9 @@ public:
     // Text screens run a frame per vertical blank; the map and the flight
     // at the original's frame cap ($119876).
     double step_seconds() const override {
-        const bool blanks = in_front_ ? front_.fast() : phase_ == Phase::ready && !ready_done_;
+        const bool blanks =
+            in_front_ ? front_.fast() : (phase_ == Phase::ready && !ready_done_) || phase_ == Phase::fade_in || phase_ == Phase::fade_out ||
+            ((phase_ == Phase::briefing || phase_ == Phase::landed) && !text_.done());
         return blanks ? 1.0 / 50 : 1.0 / ticks_per_second;
     }
     double pixel_aspect() const override { return 1.0; }
@@ -109,8 +116,14 @@ public:
             return;
         }
         if (pressed(key::tab) && phase_ != Phase::end_wait && phase_ != Phase::end_text) {
-            // Esc: free flight's start map again.
             remember_keys(input);
+            if (mode_ == FlightMode::demo || mode_ == FlightMode::qualification) {
+                // ($101A96: Esc starts the selection again - for the
+                // qualification "RE-POSITION ON CATAPULT".)
+                begin(FlightStart{carrier_place, 0x11, mode_});
+                return;
+            }
+            // Esc: free flight's start map again.
             leave_flight();
             sounds_.ambience(8);
             front_.to_start_map();
@@ -134,7 +147,14 @@ public:
         run_procedure();
         messages_.clock();
         if (phase_ == Phase::end_wait || phase_ == Phase::end_text || phase_ == Phase::ready ||
-            phase_ == Phase::descent || phase_ == Phase::to_ready) {
+            phase_ == Phase::descent || phase_ == Phase::to_ready || phase_ == Phase::fade_in ||
+            phase_ == Phase::fade_out || phase_ == Phase::briefing || phase_ == Phase::landed) {
+            if (phase_ == Phase::briefing) {
+                // ($101D06: any key ends the briefing; `$13AA93`.)
+                bool any = input.fire && !fire_was_;
+                for (int i = 0; i < 64; ++i) any = any || pressed(i);
+                if (any) briefing_key_ = true;
+            }
             remember_keys(input);
             sounds_.update(aircraft_);
             return;
@@ -166,7 +186,15 @@ public:
                 return image;
             }
         }
+        data::Palette fading = palette_;
         const data::Palette* palette = &palette_;
+        if (fade_ < 15) {
+            // The fade's step ($1093F2): colours 0-15 from the table of
+            // darker copies before `$11A04C`.
+            const std::uint32_t at = 0x11A04C - std::uint32_t((15 - fade_) * 32);
+            for (std::uint32_t k = 0; k < 16; ++k) fading[k] = assets_.program.u16(at + 2 * k);
+            palette = &fading;
+        }
         if (phase_ == Phase::end_wait || phase_ == Phase::end_text) {
             // The cleared screen, then the end text in the menu palette.
             palette = &assets_.palettes.at(menu_palette);
@@ -202,7 +230,7 @@ public:
             // `$13AC76` x 16 pixels (table `$10E828`); from 50 on there is
             // none, the view reaches row $A7 or $B3 and the aircraft itself
             // shows (its tail and wings).
-            static constexpr int look_shift[12] = {0, -7, -14, -21, -50, 50, 50, 50, 50, 21, 14, 7};
+            static constexpr int look_shift[14] = {0, -7, -14, -21, -50, 50, 50, 50, 50, 21, 14, 7, 50, 50};
             const int shift = look_shift[look_];
             const bool cockpit = std::abs(shift) < 21;
             const int view_rows = cockpit ? Cockpit::view_bottom : (look_ >= 5 && look_ <= 7 ? 0xB3 : 0xA7);
@@ -258,7 +286,7 @@ public:
             } else {
                 cockpit_.draw(frame, margin_, readings);
             }
-            if (phase_ == Phase::ready) text_.draw(frame, margin_);
+            if (phase_ == Phase::ready || phase_ == Phase::briefing || phase_ == Phase::landed) text_.draw(frame, margin_);
             // The panel is a view port of its own with `pix/inst5`'s colour
             // map, whose colours 16-31 repeat 0-15 (the flight palette's
             // 16-31 are their darker copies).
@@ -370,6 +398,10 @@ public:
 
 private:
     enum class Phase {
+        fade_in,      // $101B54 / $101B9C: the demo's screen fades in (`$13AB90`)
+        fade_out,     // $101A96: the demo's end, the screen fading out before it starts again
+        briefing,     // $101CC0 / $101D06: the qualification's text, until typed or a key
+        landed,       // $1031F4 / $103AA8: the qualifying landing's texts, then a new launch
         descent,      // $102D58 with the outside camera's flight down (`$13AB9E` = 6)
         to_ready,     // $102D58: five frames in the cockpit
         ready,        // $102E4E / $102EDA: "READY FOR TAKEOFF", then a beep
@@ -391,6 +423,16 @@ private:
     // chosen place, held until "READY FOR TAKEOFF" is typed.
     void begin(const FlightStart& start) {
         in_front_ = false;
+        mode_ = start.mode;
+        if (mode_ == FlightMode::demo) {
+            begin_demo();
+            return;
+        }
+        if (mode_ == FlightMode::qualification) {
+            begin_qualification();
+            return;
+        }
+        fade_ = 15;
         place_ = start.place;
         aircraft_type_ = start.aircraft;
         aircraft_left_ = aircraft_given;
@@ -411,6 +453,52 @@ private:
         chase_set_ = true;
         cam_angles_ = cam_angles_was_ = {0x1C20, 0}; // straight down, as the map ($10D2B2)
         phase_ = Phase::descent;
+    }
+
+    // The demo ($10215E, $101BF4): mission 3's start on the carrier's
+    // catapult with three aircraft, the screen fading in, the bogey's
+    // vector and "READY TO LAUNCH" typed, then the recording flies it.
+    void begin_demo() {
+        place_ = carrier_place;
+        aircraft_type_ = 0x11;
+        aircraft_left_ = 3; // ($1020BC)
+        text_.clear();
+        text_.queue(bogey_text);
+        text_.queue(launch_text);
+        sounds_.set_active(true);
+        restart();
+        flying_ = false;
+        ready_done_ = false;
+        outside_ = above_ = false;
+        look_ = 0;
+        zoom_ = 0x80;
+        fade_ = 0;
+        fade_ticks_ = 0;
+        replay_.start();
+        replay_game_ = replay_view_ = 0;
+        replay_ended_ = false;
+        phase_ = Phase::fade_in;
+    }
+
+    // The qualification ($102252): on the carrier's catapult with three
+    // aircraft, the screen fading in, the briefing (the first time: it
+    // follows the security check, once a session), "READY TO LAUNCH".
+    void begin_qualification() {
+        place_ = carrier_place;
+        aircraft_type_ = 0x11;
+        aircraft_left_ = 3; // ($1020BC)
+        text_.clear();
+        sounds_.set_active(true);
+        restart();
+        flying_ = false;
+        ready_done_ = false;
+        outside_ = above_ = false;
+        look_ = 0;
+        zoom_ = 0x80;
+        fade_ = 0;
+        fade_ticks_ = 0;
+        briefing_key_ = false;
+        phase_ = Phase::fade_in;
     }
 
     // Free flight ends (Esc, Shift-Esc, the end text): every sound stops.
@@ -454,6 +542,47 @@ private:
     // The screen procedure of this frame.
     void run_procedure() {
         switch (phase_) {
+        case Phase::fade_in:
+            // The interrupt's fade: a step every third blank up to 15
+            // (`$1093F2`), then the frames before the text ($101BD0).
+            if (++fade_ticks_ % 3 == 0 && fade_ < 15) ++fade_;
+            if (fade_ == 15) {
+                if (mode_ == FlightMode::qualification && !briefed_) {
+                    briefed_ = true;
+                    text_.clear();
+                    text_.queue(qualification_text);
+                    phase_ = Phase::briefing;
+                    break;
+                }
+                if (mode_ == FlightMode::qualification) text_.queue(launch_text);
+                countdown_ = 5;
+                phase_ = Phase::to_ready;
+            }
+            break;
+        case Phase::briefing:
+            if (!text_.done() && text_.tick()) sounds_.click();
+            if (text_.done() || briefing_key_) {
+                text_.clear();
+                text_.queue(launch_text);
+                countdown_ = 5;
+                phase_ = Phase::to_ready;
+            }
+            break;
+        case Phase::landed:
+            // The texts typed over the stopped view, a moment, then the
+            // selection again ($103B24, $101A96).
+            if (!text_.done()) {
+                if (text_.tick()) sounds_.click();
+                if (text_.done()) countdown_ = 5;
+            } else if (countdown_ < 0) {
+                begin_qualification();
+            }
+            break;
+        case Phase::fade_out:
+            // ($1093F2: a step down every second blank.)
+            if (++fade_ticks_ % 2 == 0 && fade_ > 0) --fade_;
+            if (fade_ == 0) begin_demo();
+            break;
         case Phase::descent:
             descend();
             chase_was_ = chase_;
@@ -488,6 +617,15 @@ private:
             }
             break;
         case Phase::flying:
+            if (replay_ended_) {
+                // $10EF08 / $101854: the recording's end pauses the flight
+                // and starts the selection again.
+                replay_ended_ = false;
+                flying_ = false;
+                fade_ticks_ = 0;
+                phase_ = Phase::fade_out;
+                break;
+            }
             if (aircraft_.state & flag::crashed) {
                 // $102EFE: the crash. The flight stops, every sound stops
                 // but the explosion's noise, and at the frame's end the
@@ -544,54 +682,59 @@ private:
     void fly_tick(const app::GameInput& input) {
         const auto pressed = [&](int k) { return input.c64_keys[std::size_t(k)] && !keys_was_[std::size_t(k)]; };
         FlightControls c;
-        c.nose_down = input.up;
-        c.nose_up = input.down;
-        c.left = input.left;
-        c.right = input.right;
-        c.rudder_left = input.c64_keys[key::comma];
-        c.rudder_right = input.c64_keys[key::period];
-        c.throttle_up = input.c64_keys[key::equals];
-        c.throttle_down = input.c64_keys[key::minus];
-        // F1 - F10 of the original set the throttle in tenths (F10: full
-        // power, then the afterburner); here the digit keys 1 - 0.
-        for (int d = 0; d < 10; ++d) {
-            if (pressed(key::digits[d])) {
-                const int setting = (d == 0 ? 10 : d) * 12;
-                aircraft_.throttle_target = std::int8_t(setting > 119 ? setting + 1 : setting);
+        if (mode_ == FlightMode::demo) {
+            // The demo's recording ($10DFEE): last frame's key events go to
+            // the handlers as this frame starts ($101544), then this
+            // frame's control byte flies the aircraft.
+            for (int k = 0; k < replay_key::game_count; ++k)
+                if (replay_game_ & (1u << k)) game_key(replay_key::Game(k));
+            for (int k = 0; k < replay_key::view_count; ++k)
+                if (replay_view_ & (1u << k)) view_key(replay_key::View(k));
+            const auto f = replay_.next();
+            c.recorded = f.control;
+            replay_game_ = f.game;
+            replay_view_ = f.view;
+            replay_ended_ = f.ended;
+            remember_keys(input);
+        } else {
+            c.nose_down = input.up;
+            c.nose_up = input.down;
+            c.left = input.left;
+            c.right = input.right;
+            c.rudder_left = input.c64_keys[key::comma];
+            c.rudder_right = input.c64_keys[key::period];
+            c.throttle_up = input.c64_keys[key::equals];
+            c.throttle_down = input.c64_keys[key::minus];
+            // F1 - F10 of the original set the throttle in tenths (F10: full
+            // power, then the afterburner); here the digit keys 1 - 0.
+            for (int d = 0; d < 10; ++d) {
+                if (pressed(key::digits[d])) {
+                    const int setting = (d == 0 ? 10 : d) * 12;
+                    aircraft_.throttle_target = std::int8_t(setting > 119 ? setting + 1 : setting);
+                }
             }
-        }
-        // Key releases stop the throttle keys' steps ($10E356).
-        if ((keys_was_[key::equals] && !input.c64_keys[key::equals]) ||
-            (keys_was_[key::minus] && !input.c64_keys[key::minus])) {
-            aircraft_.controls &= ~3;
-            aircraft_.throttle_target = 0;
-        }
-        if (pressed(key::g)) {
-            // $10E966: the gear handle, refused on the ground.
-            if (aircraft_.motion & flag::on_ground) {
-                sounds_.refuse();
-            } else {
-                aircraft_.gear ^= 0x80;
-                sounds_.gear_moved();
+            // Key releases stop the throttle keys' steps ($10E356).
+            if ((keys_was_[key::equals] && !input.c64_keys[key::equals]) ||
+                (keys_was_[key::minus] && !input.c64_keys[key::minus])) {
+                aircraft_.controls &= ~3;
+                aircraft_.throttle_target = 0;
             }
+            if (pressed(key::g)) game_key(replay_key::gear);
+            view_keys(input);
+            if (pressed(key::backspace)) game_key(replay_key::speed_brake); // the original's \ or Backspace
+            if (pressed(key::b)) game_key(replay_key::hook);                // the original's A
+            // The weapons: Return the next one ($10E90E), space fires
+            // ($10F0AA, its release $10F100), F a flare, C chaff; R the
+            // radar's range, T the next target, J the ECM.
+            if (pressed(key::return_key)) game_key(replay_key::weapon);
+            if (input.fire != fire_was_) game_key(input.fire ? replay_key::fire : replay_key::fire_up);
+            if (pressed(key::f)) game_key(replay_key::flare);
+            if (pressed(key::c)) game_key(replay_key::chaff);
+            if (pressed(key::r)) game_key(replay_key::radar_range);
+            if (pressed(key::t)) game_key(replay_key::target);
+            if (pressed(key::j)) game_key(replay_key::ecm);
+            remember_keys(input);
         }
-        view_keys(input);
-        if (pressed(key::backspace)) aircraft_.state ^= flag::speed_brake;   // the original's \\ or Backspace
-        if (pressed(key::b) && aircraft_type_ == 0x11) {
-            // $10E36A (the original's A, the F/A-18 only): the arresting hook
-            // (+2 bit 15; with the wires' bit 14 the full brake), its message
-            // for a while. (Hook up's message: hypothesis.)
-            sounds_.refuse();
-            aircraft_.motion ^= 0x8000;
-            messages_.post((aircraft_.motion & 0x8000) ? 0x4023 : 0x4022);
-        }
-        // The weapons: Return the next one ($10E90E), space fires
-        // ($10F0AA, its release $10F100), F a flare, C chaff.
-        if (pressed(key::return_key)) weapons_.select(sounds_);
-        if (input.fire != fire_was_) weapons_.trigger(input.fire);
-        if (pressed(key::f)) weapons_.flare(messages_);
-        if (pressed(key::c)) weapons_.chaff(messages_);
-        remember_keys(input);
 
         ground_warnings(aircraft_, messages_, sounds_);
         // $11B6A2 (before this frame's move): the carrier's deck, wires and hull.
@@ -615,6 +758,19 @@ private:
         // (Touching down on water: the original's handling is not traced;
         // here it ends like a crash.)
         if (events.in_water) aircraft_.state |= flag::crashed;
+        // $118AA8 (the qualification): standing on the deck held by a wire
+        // with the hook down qualifies the pilot ($1032C2: config +0 set
+        // and written).
+        if (mode_ == FlightMode::qualification && (aircraft_.motion & 0xC080) == 0xC080 && aircraft_.airspeed == 0 &&
+            !(aircraft_.state & flag::crashed)) {
+            pilot_.qualified = true;
+            write_pilot(content_, pilot_);
+            flying_ = false;
+            text_.clear();
+            text_.queue(landed_text);
+            text_.queue(menu_hint_text);
+            phase_ = Phase::landed;
+        }
         // The object step's missile records, then (with the drawing) the
         // projectiles and the gun's lead point.
         weapons_.move_missiles(aircraft_, rules, sounds_);
@@ -623,6 +779,115 @@ private:
 
         chase_camera();
         ++ticks_;
+    }
+
+    // The game's key handlers ($10DAC8), from the keys or the demo's
+    // recording.
+    void game_key(replay_key::Game k) {
+        switch (k) {
+        case replay_key::gear:
+            // $10E966: the gear handle, refused on the ground.
+            if (aircraft_.motion & flag::on_ground) {
+                sounds_.refuse();
+            } else {
+                aircraft_.gear ^= 0x80;
+                sounds_.gear_moved();
+            }
+            break;
+        case replay_key::hook:
+            // $10E36A (the F/A-18 only): the arresting hook (+2 bit 15; with
+            // the wires' bit 14 the full brake), its message for a while.
+            // (Hook up's message: hypothesis.)
+            if (aircraft_type_ != 0x11) break;
+            sounds_.refuse();
+            aircraft_.motion ^= 0x8000;
+            messages_.post((aircraft_.motion & 0x8000) ? 0x4023 : 0x4022);
+            break;
+        case replay_key::fire: weapons_.trigger(true); break;
+        case replay_key::fire_up: weapons_.trigger(false); break;
+        case replay_key::weapon: weapons_.select(sounds_); break;
+        case replay_key::speed_brake: aircraft_.state ^= flag::speed_brake; break;
+        case replay_key::flare: weapons_.flare(messages_); break;
+        case replay_key::chaff: weapons_.chaff(messages_); break;
+        case replay_key::radar_range:
+            // $10DF1C: 40, 10, 2 miles round (+$63's low nibble D, B, 9).
+            sounds_.refuse();
+            radar_range_ = radar_range_ == 0x9 ? 0xD : radar_range_ == 0xB ? 0x9 : 0xB;
+            break;
+        case replay_key::target: sounds_.refuse(); break; // $10DEF8 (no targets in free flight)
+        case replay_key::ecm:                             // $10EF46
+            sounds_.refuse();
+            ecm_ = !ecm_;
+            break;
+        default: break; // Shift-E (the ejection): not built
+        }
+    }
+
+    // The view keys' handlers by their entry points ($10E3C0-$10E720), as
+    // the demo's recording presses them: outside, keypad 8 9 6 3 2 1 4 7 5
+    // and . set the camera's positions 0-9; in the cockpit they set the
+    // look direction (8 and 9 ahead, 6 and 4 a step round, 2 back, 7 up,
+    // 1 down).
+    void view_key(replay_key::View k) {
+        using namespace replay_key;
+        static constexpr int positions[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+        int position = -1, look = -1;
+        switch (k) {
+        case above:
+            above_ = !above_;
+            outside_ = true;
+            chase_set_ = false;
+            return;
+        case outside: {
+            outside_ = !outside_;
+            above_ = false;
+            look_ = 0;
+            if (outside_) {
+                position_ = 4;
+                distance_ = -1;
+            }
+            chase_set_ = false;
+            sounds_.set_view(outside_, position_, distance_);
+            return;
+        }
+        case pad_8: position = positions[0]; look = 0; break;
+        case pad_9: position = positions[1]; look = 0; break;
+        case pad_6: position = positions[2]; look = look_ + 1 > 11 ? 0 : look_ + 1; break;
+        case pad_3: position = positions[3]; break;
+        case pad_2: position = positions[4]; look = 6; break;
+        case pad_1: position = positions[5]; look = 13; break;
+        case pad_4: {
+            position = positions[6];
+            const int l = look_ - 1;
+            look = l < 0 ? 11 : (l == 0 || l >= 11) ? 0 : l;
+            break;
+        }
+        case pad_7: position = positions[7]; look = 12; break;
+        case pad_5: position = 8; break;
+        case pad_point: position = 9; break;
+        case nearer:
+        case farther:
+            if (!outside_) return;
+            if (above_) {
+                above_height_ = k == nearer ? std::max(above_height_ - 0x2000000 / 256.0, 0x1000000 / 256.0)
+                                            : std::min(above_height_ + 0x2000000 / 256.0, 0x8000000 / 256.0);
+                return;
+            }
+            if (k == nearer) distance_ = distance_ <= 1 ? -1 : distance_ - 1;
+            else distance_ = distance_ < 0 ? 1 : std::min(4, distance_ + 1);
+            sounds_.set_view(outside_, position_, distance_);
+            sounds_.event(EngineSound::update);
+            return;
+        default: return; // the tower view (Shift-Enter) and keypad releases
+        }
+        if (outside_ || k == pad_3 || k == pad_5 || k == pad_point) {
+            if (position >= 0) position_ = position;
+            sounds_.set_view(outside_, position_, distance_);
+            sounds_.event(EngineSound::update);
+            aim_now_ = true;
+        } else if (look >= 0) {
+            look_ = look;
+        }
     }
 
     // The view keys ($10E4D4-$10E720; here the numeric keypad's 0 for the
@@ -1016,7 +1281,20 @@ private:
         // aircraft's own up axis by the heading of `$12249A` (80 a degree,
         // clockwise: 1 is 28.2 degrees right of the nose ... 11 as far left).
         static constexpr int look_heading[12] = {0, 2256, 4800, 7200, 9600, 12000, 14400, 16800, 19200, 21600, 24000, 26544};
-        if (look > 0) {
+        if (look >= 12) {
+            // 12 up, 13 down ($1223B6 / $122396): the view pitched by 90
+            // degrees from the aircraft's, 83 while it flies within 7 degrees
+            // of level.
+            const int pitch = now.attitude.pitch & 0xFFFF;
+            const bool level = pitch < 0x230 || pitch >= 0x6E50;
+            const int turn = look == 12 ? (level ? 0x5690 : 0x5460) : (level ? 0x19F0 : 0x1C20);
+            const double a = turn / 80.0 * 3.14159265358979 / 180, cs = std::cos(a), sn = std::sin(a);
+            for (std::size_t k = 0; k < 3; ++k) {
+                const double up = body[3 + k], ahead = body[6 + k];
+                body[6 + k] = cs * ahead - sn * up;
+                body[3 + k] = cs * up + sn * ahead;
+            }
+        } else if (look > 0) {
             const double a = look_heading[look] / 80.0 * 3.14159265358979 / 180, cs = std::cos(a), sn = std::sin(a);
             for (std::size_t k = 0; k < 3; ++k) {
                 const double left = body[k], ahead = body[6 + k];
@@ -1042,6 +1320,15 @@ private:
     Sounds sounds_;
     Carrier carrier_;
     Weapons weapons_{assets_.program, tables_};
+    FlightMode mode_ = FlightMode::free_flight;
+    Replay replay_{assets_.demo_controls, assets_.demo_keys};
+    int fade_ = 15, fade_ticks_ = 0;    // $13AB90: the screen's fade step (15: full)
+    std::uint16_t replay_game_ = 0, replay_view_ = 0; // `$13AC86`, `$13AC88`: last frame's key events
+    bool replay_ended_ = false;
+    bool briefed_ = false;              // the qualification's briefing shown this session
+    bool briefing_key_ = false;         // a key during the briefing
+    int radar_range_ = 0xD;             // +$63 low nibble: 9, B, D (2, 10, 40 miles; key R)
+    bool ecm_ = false;                  // $13ABA5 (key J)
     // The gun's lead point ($1288CE): the newest two ($13AA06, $13AA12) and
     // where the circle shows ($13AC2E: worked out a frame before it shows).
     std::array<std::array<std::int32_t, 3>, 2> lead_{};

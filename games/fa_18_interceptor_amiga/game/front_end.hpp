@@ -31,10 +31,16 @@ struct FrontKeys {
     bool shift_2 = false;
 };
 
-// Free flight as the player chose it.
+// What the menu started ($13AB96): free flight (1), the demo ($7F, menu
+// item 1), the maneuvers' demo (2), their practice ($7D), the
+// qualification (9).
+enum class FlightMode { free_flight, demo, maneuvers, practice, qualification };
+
+// A flight as the player chose it.
 struct FlightStart {
-    int place = 0;         // 0-2: the runways ($13AB38)
+    int place = 0;         // 0-2: the runways, 3 the carrier ($13AB38)
     int aircraft = 0x11;   // $11 the F/A-18, $10 the F-16 ($13AB39)
+    FlightMode mode = FlightMode::free_flight;
 };
 
 class FrontEnd {

@@ -138,8 +138,8 @@ Assets load_assets(const std::filesystem::path& content) {
         assets.messages.push_back(text);
     }
     assets.config = platform::read_file(content / "config");
-    assets.log = platform::read_file(content / "text/textply");
-    assets.log_control = platform::read_file(content / "text/textctl");
+    assets.demo_controls = platform::read_file(content / "text/textply");
+    assets.demo_keys = platform::read_file(content / "text/textctl");
     return assets;
 }
 

@@ -40,6 +40,8 @@
 #include "fa_18_interceptor_amiga/data/shapes.hpp"
 #include "fa_18_interceptor_amiga/data/world.hpp"
 #include "fa_18_interceptor_amiga/game/aircraft.hpp"
+#include "fa_18_interceptor_amiga/game/replay.hpp"
+#include "fa_18_interceptor_amiga/game/carrier.hpp"
 #include "fa_18_interceptor_amiga/game/cockpit.hpp"
 #include "fa_18_interceptor_amiga/game/messages.hpp"
 #include "fa_18_interceptor_amiga/game/module.hpp"
@@ -706,6 +708,73 @@ int weapon_check(const std::filesystem::path& content, const std::filesystem::pa
     return matched == compared ? 0 : 1;
 }
 
+// --- democheck -----------------------------------------------------------------
+
+// Research: flies the demo's recording (text/textply, text/textctl) from the
+// carrier's catapult through the flight model, the carrier's deck and the
+// key events that change the aircraft (gear, hook, speed brake), and
+// compares each frame's aircraft with a recording of the original's demo
+// (`flightcap.py` from the menu's item 1: the flight's frames 1, 2, ...).
+int demo_check(const std::filesystem::path& content, const std::filesystem::path& capture) {
+    using namespace interceptor;
+    const auto assets = data::load_assets(content);
+    const auto tables = game::read_flight_tables(assets.program);
+    const game::Carrier carrier(assets.program);
+    std::ifstream in(capture);
+    std::vector<Frame> frames;
+    for (std::string line; std::getline(in, line);) {
+        if (line.empty()) continue;
+        Frame f;
+        f.number = std::stoi(line.substr(line.find("\"frame\": ") + 9));
+        f.object = hex_field(line, "obj");
+        f.globals = hex_field(line, "glob");
+        // (Only the flight's frames: `$13ABBC` bit 6.)
+        if (!(Record{f.globals}.u8(0x13ABBD - 0x13A9E0) & 0x40)) continue;
+        if (!frames.empty() && f.number != frames.back().number + 1) break;
+        frames.push_back(std::move(f));
+    }
+    if (frames.empty()) throw std::runtime_error("no flight frames");
+    game::Replay replay(assets.demo_controls, assets.demo_keys);
+    replay.start();
+    auto a = carrier.start_on_deck(assets.program, tables);
+    game::FlightRules rules;
+    std::uint16_t pending = 0;
+    int matched = 0, compared = 0;
+    // The first recorded frame is the state after the flight's first frame.
+    for (std::size_t k = 0; k < frames.size(); ++k) {
+        if (pending & (1u << game::replay_key::gear)) {
+            if (!(a.motion & game::flag::on_ground)) a.gear ^= 0x80;
+        }
+        if (pending & (1u << game::replay_key::hook)) a.motion ^= 0x8000;
+        if (pending & (1u << game::replay_key::speed_brake)) a.state ^= game::flag::speed_brake;
+        const auto f = replay.next();
+        pending = f.game;
+        game::FlightControls c;
+        c.recorded = f.control;
+        if (carrier.touch(a, assets.program)) a.state |= game::flag::crashed;
+        rules.world = nullptr;
+        game::fly(a, c, rules, tables);
+        const auto want = aircraft_from(frames[k]);
+        std::string diff;
+        const auto check = [&](const char* name, long got, long expected) {
+            if (got != expected) diff += std::string(" ") + name + " " + std::to_string(got) + "/" + std::to_string(expected);
+        };
+        check("x", a.x, want.x); check("y", a.y, want.y); check("z", a.z, want.z);
+        check("speed", a.speed, want.speed); check("pitch", a.attitude.pitch, want.attitude.pitch);
+        check("heading", a.attitude.heading, want.attitude.heading); check("roll", a.attitude.roll, want.attitude.roll);
+        check("throttle", a.throttle, want.throttle); check("gear", a.gear, want.gear);
+        ++compared;
+        if (diff.empty()) {
+            ++matched;
+        } else {
+            std::printf("frame %d:%s\n", frames[k].number, diff.c_str());
+            if (compared - matched > 20) break;
+        }
+    }
+    std::printf("%d of %d frames match\n", matched, compared);
+    return matched == compared ? 0 : 1;
+}
+
 // --- hudcheck ------------------------------------------------------------------
 
 // Research: draws the cockpit for given readings and compares the head-up
@@ -892,6 +961,9 @@ int main(int argc, char** argv) {
         }
         if (command == "fly" && argc >= 5) {
             return fly_script(platform::utf8_path(argv[2]), argv[3], argc - 4, argv + 4);
+        }
+        if (command == "democheck" && argc == 4) {
+            return demo_check(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]));
         }
         if (command == "hudcheck" && (argc == 9 || argc == 13)) {
             // (feet knots heading80 g f16 [weapon count pipper_x pipper_y])

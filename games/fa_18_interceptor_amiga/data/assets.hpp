@@ -81,7 +81,9 @@ struct Assets {
     std::vector<TextBlock> texts;
     std::vector<std::string> messages;      // the 54 cockpit message lines ($1321C8)
     std::vector<std::uint8_t> config;
-    std::vector<std::uint8_t> log, log_control; // text/textply, text/textctl
+    // The demo's recording (menu item 1): a control byte a frame
+    // (text/textply) and two words of key events a frame (text/textctl).
+    std::vector<std::uint8_t> demo_controls, demo_keys;
 };
 
 Assets load_assets(const std::filesystem::path& content);

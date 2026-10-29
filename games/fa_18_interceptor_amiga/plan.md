@@ -91,8 +91,15 @@ from drawing, and must still respect the passes' model rule).
    sound checked against a recording of the original (f16a, all frames),
    the head-up display pixel for pixel (`hudcheck`). The F/A-18's HUD
    positions were corrected at the same time (from the original's tables).
-10. **Demo, training and qualification**: menu items 1, 3, 4 and 5
-    (carrier landing), the maneuver prompts.
+10. **Demo, training and qualification** — partly done 2026-10-29:
+    qualification (5) is built (briefing, catapult, the qualifying
+    landing, the pilot record, the re-launch). The demo (1) has its
+    replay, key events, fades and up/down looks built and checked against
+    the original's data, but waits for mission 3's world (its sailing
+    carrier and the bogey: task 11) - menu item 1 still returns to the
+    menu. Left: the maneuvers' demo (3) and practice (4): the trainer in
+    record 4 flying the control-byte scripts of `$11756A` (seven
+    maneuvers, prompts `$117522`), briefings 9 and 10.
 11. **Missions**: the six selectable missions and the advanced mission
     chain, briefings, outcomes, the log's records.
 12. **Dusk and night**: palettes 3-9 (the fades).

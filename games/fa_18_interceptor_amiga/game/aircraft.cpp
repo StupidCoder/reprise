@@ -22,6 +22,10 @@ bool gear_down(const Aircraft& a) { return (a.gear & 0x70) == 0; }
 
 // The control byte and the throttle target ($10DFD2, first half).
 void read_controls(Aircraft& a, const FlightControls& c) {
+    if (c.recorded) {
+        a.controls = *c.recorded;
+        return;
+    }
     std::uint8_t bits = a.controls & 3;
     if (c.throttle_up) {
         bits = throttle_more;

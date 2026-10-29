@@ -225,9 +225,9 @@ pilot "R" with one launch):
 | +$36-$48 | words | the flight log's numbers (above) |
 
 `text/textply` (3,676 bytes) and `text/textctl` (14,704 = 4 × 3,676)
-are not the log: they are read into the demo's recording buffer
-(`$108668` → `$14508C`, `$145098`): one byte and one long per recorded
-frame (**hypothesis**: the demo flight, menu item 1).
+are not the log: they are the demo's recording (menu item 1, "The demo"
+below), read into `$14508C` and `$145098` (`$108668`; a missing file is
+created: the game can record, `$13AB3B` 1).
 
 ### Input
 
@@ -1206,6 +1206,70 @@ the centre. With a target (`$13ACB0`) it follows the target instead
 (not in free flight). The port's projection now truncates the quotients
 before taking them from the centre, as `$123894` does (the circle sits
 on row 74 as the original's).
+
+### The demo (menu item 1, 2026-10-29)
+
+The menu's 1 ($7F, only with the recording loaded) starts mission 3's
+world from the carrier's catapult (`$10215E`, `$101BF4`: place 4, three
+aircraft, the object list for $7F, entry 10 of `$11DFB2`; then
+`$13AB96` = 3, so the flight runs as mission 3) and plays the recording
+back (`$13AB3B` = 3). Seen on the original (`work/ref/demo.jsonl`, the
+menu's 1 to the second start): the screen fades in (`$13AB90` 0 → 15, a
+step every third blank, `$1093F2`: colours 0-15 from the table of darker
+copies before `$11A04C`), seven frames, blocks 88 ("YOUR VECTOR XXX FOR
+BOGEY", the vector filled in) and 90 ("READY TO LAUNCH") typed, then the
+flight with the recording from its first byte.
+
+The recording (`$10DFEE`, the player's input step): each frame one
+control byte from `textply` (the record's +$65: stick, rudder, throttle
+bits; the F-key throttle settings are not used) and one record of two
+words from `textctl`, one record ahead of the control bytes. The words are
+key events played into the key handlers at the next frame's start
+(`$101544` → `$10D97C`), bit by bit in the order the original tests them
+(the high byte's bits 0-7 first): the first word gear `$10E966`, hook
+`$10E36A`, fire `$10DF70` / its release `$10DF80`, weapon `$10E8CE`,
+Shift-E `$10DE7A`, radar range `$10DF1C` (R: 40, 10, 2 miles), target
+`$10DEF8` (T), speed brake `$10E330`, flare, chaff, ECM `$10EF46` (J);
+the second word the view keys (`$10ECE0` M, `$10E3C0` keypad Enter,
+`$10E416` Shift-Enter, `$10E544` nearer, keypad 8 9 6 3 2 1 4 7 5 .
+`$10E64C` `$10E4D4` `$10E6B4` `$10E4EE` `$10E668` `$10E700` `$10E684`
+`$10E6DE` `$10E50A` `$10E516`, keypad releases `$10E8BA`, farther
+`$10E5E4`). Outside, the keypad keys set the camera's positions 0-9; in
+the cockpit 8 and 9 look ahead, 6 / 4 step the look round, 2 back, 7 up
+(look 12), 1 down (13: `$122396`, the view pitched 90° — 83° within 7°
+of level — no cockpit, the view to row $A7). While recording, the
+handlers set the same bits (`$13AC8A`, `$13AC8C`) and the input step
+writes them out. Three $FF control bytes end it (2,046 frames): the
+flight stops (`$10EF08`, `$13AB1A` 1), the screen fades out (a step every
+second blank) and the demo starts again.
+
+The port has the replay (`game/replay.*`), the key events, the fades and
+looks 12/13; `fa_18_interceptor_assets democheck` flies the recording
+from the catapult against `demo.jsonl`. It does not match yet: the
+demo's carrier is not free flight's — path $40 from cells (68, 68)
+towards (70, 65), so it sails (the object step for moving objects), and
+the list has mission 3's other objects (the bogey; type 6 entries).
+Menu item 1 therefore waits for the missions' objects (task 11).
+
+### Qualification (menu item 5, 2026-10-29)
+
+Mode 9 (`$102252`): the carrier's catapult (free flight's object list,
+the carrier at rest), three aircraft, the screen fading in, then (only
+after the security check, i.e. once a session: later starts skip both)
+block 73, the briefing, typed over the view until done or a key
+(`$101CC0`, `$101D06`), then "READY TO LAUNCH" and the flight. Each
+frame (`$118AA8`, while the flight runs) the player's aircraft standing
+(+$6E 0) on the deck with the hook down and a wire caught (+2 & $C080 =
+$C080) qualifies: `$13AA88` = $FF, the flight stops, and the end
+procedure (`$1031F4`, `$1032C2`) sets config +0 (qualified), writes
+`config` (`$10858A`), types blocks 74 ("LANDING SUCCESSFUL ... PREPARE TO
+BE RE-LAUNCHED") and 83 ("(SHIFT ESC) TO RETURN TO MAIN MENU") over the
+stopped view (about 3 s, `$103AA8`), waits a moment (`$103B24`) and starts
+the selection again (`$101A96`: fade-in, "READY TO LAUNCH"). Esc
+re-positions on the catapult the same way; Shift-Esc returns to the menu.
+Seen on the original by pokes (the motion bits on the deck); the
+briefing's screen itself was not captured (the port types it over the
+view like the other texts: hypothesis).
 
 ### The F-16 (2026-10-29)
 
