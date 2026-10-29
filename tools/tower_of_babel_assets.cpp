@@ -517,7 +517,7 @@ int fx_check(const babel::data::Assets& assets, const std::filesystem::path& fil
 // Research: runs the front end headless from a script of lines:
 //   frames N | move X Y | click X Y [HOLD] | hold X Y N | key C (ret, bs, esc, space or a character) | shot FILE
 int drive(const babel::data::Assets& assets, const std::filesystem::path& script, const std::filesystem::path& out) {
-    babel::front::FrontEnd fe(assets);
+    babel::front::FrontEnd fe(assets, out / "saves");
     babel::front::FrontEnd::Input in;
     in.pointer = true;
     // The effects as the module plays them, written to effects.wav (22050 Hz, left channel).

@@ -259,6 +259,23 @@ Polled once a game frame. It sees no clicks, only the left button held at that m
   - **Exit ($A060):** Abandon Tower (reason 5) or Restart Tower (6: one more try counted, the tower unpacked again), each after Yes/No.
   - Back in the tower, the title line shows the name again and the Pause light goes off.
 
+### The data disk, saved positions and high scores
+
+- **The data disk:** positions, score tables and tower groups live on a disk of the game's own format.
+  - **Directory:** 5 blocks at block 0: a signature ("Tower Of Babel Copyright (C) Pete Cooke 1989/90", $12DE2, $3E bytes), a checksum, then from +$5C 200 entries of 12 bytes: kind (2 group, 8 position, $20 score table; bit 7 deleted), an 8-character name, block count, first block.
+  - **Errors** ($80 + n): "Not a Babel Format Disk", "File Not Found", "Disk Full", …
+  - **The port:** a folder beside the installed content (`saves/<kind>.<name>`), always ready, with no disk errors.
+- **The requester ($126C0):** a window (64, 24)-(255, 194). The caller's title text and $56C0(a6) give "n File(s). Room for m", "Page p of q", Page ↑ / ↓, the action button and Change Disk.
+  - The list shows the files of the kind, sorted by their 8 bytes, ten a page.
+  - The name field is record $F7E: at (172, 110), 8 characters, '.' and space refused. It keeps its text between uses.
+  - The click areas $3DA8(a6): outside cancels, the action button or Return acts, a listed name is copied into the field, Change Disk reads the directory again.
+  - An error shows "Disk Error (n)" and its message ($12CFE). Saving over a file asks "File Exists / Replace File?" ($12D6C).
+- **Save/Load a Position ($A6B6):** a menu of Load Game, Save Game and Main Menu. A position is $110E–$11D3: the options, the screen position, the name, the score, the group, "all solved" and every tower's progress byte. The port writes these as text lines (`tower of babel position 1`). After a load, the main menu shows the new name and score.
+- **High scores ($A81E):** ten entries at $122E(a6), each a 30-byte name and a long score. The program starts with "Microprose 1" 100 down to "Microprose 10" 10. They are shown in a bevelled box, the score at x 268.
+  - **$AA8C,** at the main menu and after each standard tower: the player's entry (same name) takes the current score; otherwise a score above the last entry replaces it; then a bubble sort ($AA24).
+  - **Upgrade High Score Table** merges the table with a file: for a name in both, the higher score; new names are added (room for 21); sorted; the best ten are written back. The port writes them as "score name" lines.
+- **Load a Group (custom game, $9144):** nine tower records ($A20 bytes) from a group file become the custom group, with its progress cleared. The port's group file is the nine 288-byte records.
+
 ### After a tower
 
 - **Solved (standard game, $92EC):**
@@ -798,7 +815,7 @@ Both are kept in the re-implementation.
 | `game/` | `tower_map` (cells with shape flags, lit columns $CCA8, colour pattern $CD90); `tower_state` (the running tower in the rules' bordered layout: object map, objects, programs, panel lights, forcers, objective, freeze counter); `rules` (programs, moves, firing); `behaviour.cpp` (each type's update); `animation` (the frame choice as a pure function of state and frame counter) |
 | `game/panel` | the panel's rules ($ADFC): choosing, direct commands, cameras, program editing, lockouts |
 | `view/` | `polygon` (the clipper, the filler, see-through and outlined fills); `tower_view` (camera, projection, traversal, faces, objects, particles, the pointer's pick); `sky` (incl. the 48-colour game palette and its copper view); `overlay` |
-| `front/` | `screen` (the 320 × 200 picture, pens, rectangles, lines, bevelled boxes, windows, pictures, the font and layout codes, menus' click areas, the copper modes); `play` (the game screen and the play loop, demonstrations); `front_end` (every screen from the title to the end screens, as coroutines that wait for vertical blanks, `flow.hpp`); `effects` (the sound channels, their envelopes and the per-frame logic, on the shared Paula model); `module` (the shell's game module: mouse, keys, picture, the sampled pieces and effects, the effects' timer ticks between rendered stretches) |
+| `front/` | `data_disk` (the data disk as a folder of files); `screen` (the 320 × 200 picture, pens, rectangles, lines, bevelled boxes, windows, pictures, the font and layout codes, menus' click areas, the copper modes); `play` (the game screen and the play loop, demonstrations); `front_end` (every screen from the title to the end screens, as coroutines that wait for vertical blanks, `flow.hpp`); `effects` (the sound channels, their envelopes and the per-frame logic, on the shared Paula model); `module` (the shell's game module: mouse, keys, picture, the sampled pieces and effects, the effects' timer ticks between rendered stretches) |
 
 **Assets tool:** `tower_of_babel_assets import | export | viewcheck | animcheck | framecheck | logiccheck | objectcheck | panelcheck | fxcheck | drive`. `drive` runs the front end headless from a script (frames, move, click, key, shot) and writes the effects it played to effects.wav.
 
@@ -808,7 +825,7 @@ Both are kept in the re-implementation.
 - **Cell numbering:** native cell index = original index + 100. The native grid includes the ground row as floor −1. The cameras' +$14 / +$16 are kept as raw offsets.
 - **Frames:** the module ticks at the PAL frame rate (50 Hz); a game frame runs whenever 14 timer ticks (709379 / 7160 Hz) have built up, the rest carried over. The front end's waits (fades, menus, the name editor) are in vertical blanks as in the original.
 - **Clicks:** a press between two game frames counts as held at the next poll, at the place it was made. The original only sees the button when it polls (a quick click can be missed).
-- **Left out:** the crack, the copy protection, the disk loads and disk checks, the screen-position settings. The credits also end on a click (the original: Space only).
+- **Left out:** the crack, the copy protection, the disk loads and disk checks, the screen-position settings (kept in saved positions), the data disk's own format and its errors. The credits also end on a click (the original: Space only).
 
 ### How it was checked
 
@@ -843,6 +860,7 @@ by frame:
   - the lift's hum and clunk (both with their second parts).
 
   The hum is silenced inside $15342 just before the clunk starts, with no call to record; the check applies that step as `Effects::frame` does.
+- **Saved positions and high scores (harness/fe/saves.txt):** the Save/Load menu and the High Scores table pixel-identical with the reference. The requester as the original's, apart from the counts the reference cannot show without a data disk. A position saved, listed, picked and loaded; a table written by Upgrade.
 - **The timer (harness/fe/timecheck.cpp):** "The Lift Is Guarded" counts 160 BCD seconds down in 1,120 frames and ends with reason 2.
 - **Played through:** tower A solved by the program Fire Fire Fire for the Grabber (the score screen as the original's); Restart and Abandon from the Exit page.
 

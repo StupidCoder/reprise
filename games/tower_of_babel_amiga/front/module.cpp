@@ -33,7 +33,7 @@ int typed_key(int index) {
 class Module final : public app::GameModule {
 public:
     explicit Module(const std::filesystem::path& content)
-        : assets_(data::load_assets(content)), front_(std::make_unique<FrontEnd>(assets_)), effects_(assets_) {}
+        : assets_(data::load_assets(content)), front_(std::make_unique<FrontEnd>(assets_, content / "saves")), effects_(assets_) {}
 
     double step_seconds() const override { return 1.0 / 50; } // a PAL frame; game frames are 14 CIA ticks
     double pixel_aspect() const override { return 1.0; }

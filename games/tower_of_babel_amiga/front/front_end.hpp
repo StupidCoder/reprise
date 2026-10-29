@@ -1,10 +1,12 @@
 #pragma once
 #include "tower_of_babel_amiga/data/assets.hpp"
+#include "tower_of_babel_amiga/front/data_disk.hpp"
 #include "tower_of_babel_amiga/front/flow.hpp"
 #include "tower_of_babel_amiga/front/play.hpp"
 #include "tower_of_babel_amiga/front/screen.hpp"
 #include <array>
 #include <memory>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -20,7 +22,8 @@ namespace babel::front {
 
 class FrontEnd {
 public:
-    explicit FrontEnd(const data::Assets&);
+    // `saves`: the folder that stands for the player's data disk.
+    FrontEnd(const data::Assets&, std::filesystem::path saves);
 
     // What the player does during one vertical blank (PAL, 50 a second).
     struct Input {
@@ -62,7 +65,32 @@ private:
     Flow title();               // $7EF6
     Flow credits();             // $15A2E
     Flow name_entry();          // $8BD6
-    Flow edit_name();           // $12096
+    // A line editor ($12096): its record (place, most characters, rightmost
+    // x, click box) and text; `filter` rejects keys (the requester's '.' and space).
+    struct LineEditor {
+        int x{}, y{}, most{}, right{};
+        int box_x0{}, box_y0{}, box_x1{}, box_y1{};
+        std::string text;
+        int cursor{};
+    };
+    void draw_editor(const LineEditor&);
+    bool edit_key(LineEditor&, int key, int end_x); // false: Return
+    void edit_click(LineEditor&, int x);
+    Flow edit_name();           // $12096 on the name record $E46
+
+    // The data disk ($126C0): a window listing the files of one kind ten to
+    // a page, a name to type or pick, the action and Change Disk.
+    // `action(name, replace)` returns 0, an error ($80 + n is its message),
+    // or -1 to have the requester ask before replacing the file.
+    Flow requester(FileKind, std::uint32_t title, std::function<int(const std::string&, bool)> action);
+    Flow disk_error(int code);  // $12CFE
+    Flow replace_file(bool& yes); // $12D6C
+    Flow save_load();           // $A6B6
+    Flow high_scores();         // $A81E
+    void update_scores();       // $AA8C: the player's score into the table
+    void sort_scores();         // $AA24
+    std::vector<std::uint8_t> position() const; // what Save Game keeps ($110E-$11D3)
+    bool load_position(const std::vector<std::uint8_t>&);
     Flow main_menu();           // $8D84
     Flow play_game();           // $8EAE
     Flow standard_game();       // $91B4
@@ -93,6 +121,7 @@ private:
     int completed_mask(int game_type, int& count) const; // $8E6C
 
     const data::Assets& assets_;
+    DataDisk disk_;
     Screen screen_;
     FlowRunner runner_;
     Input in_{}, previous_{};
@@ -118,6 +147,14 @@ private:
     int completed_count_{}; // $11DC
     int interludes_{};     // $FD6
     Settings settings_;
+    int screen_x_{1}, screen_y_{}; // $11CC, $11CE: kept for saved positions
+    struct Score {
+        std::string name;
+        long score{};
+    };
+    std::vector<Score> scores_;    // $122E: ten, sorted (room for 21 while merging)
+    LineEditor file_name_{0xAC, 0x6E, 8, 0xFE, 0xAC, 0x6C, 0xFF, 0x77, {}, 0}; // $F7E
+    std::vector<data::Tower> custom_towers_; // the custom group ($60952)
     std::unique_ptr<Play> interlude_;
     long shown_bonus_[3]{}; // $1222-$1226 while counting
     int survivors_{};      // spiders left at the end of the last tower

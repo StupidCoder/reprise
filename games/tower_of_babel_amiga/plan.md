@@ -12,6 +12,7 @@ Playable in the shell from the title:
 - every tower with the panel, programs, cameras and every object;
 - the pause menus (Setup, View, Info, Exit with Abandon and Restart);
 - the score screen and the end screens with their demonstrations, and the demo sequence;
+- saved positions, the high score table and loading a custom group, on a folder that stands for the data disk;
 - the title music, the jingle and every sound effect (envelopes, the lifts' hum, the towers' background sounds).
 
 Checked against the original, frame by frame or pixel by pixel:
@@ -24,16 +25,14 @@ Checked against the original, frame by frame or pixel by pixel:
 
 ## Remaining tasks
 
-### 1. The rest of the front end (next)
+### 1. The rest of the front end
 
-- **High scores, view and update ($A81E):** the table, the entry of a new score, where they are kept. Map them to Reprise storage. The menu item does nothing yet.
-- **Save and load a position ($A6B6):** find the format, then the shell's saves. The menu item does nothing yet. Quick save (`write_state`) is not offered yet either.
-- **Custom game:** "Load a Group" from a disk does nothing yet.
 - **Locked towers and their passwords ($D9E):** find where the password is asked. The chooser opens towers by neighbours only.
 - **Keys in the menus:** Escape in Setup (resets the screen position), the editor's cursor keys (codes 1–4).
-- **Capital letters in the name:** the shell reports keys without Shift, so names are lower case.
+- **Capital letters in names:** the shell reports keys without Shift, so names are lower case.
+- **Quick save** (`write_state`) is not offered; saved positions cover the original's own saving.
 
-### 2. Tower designer ($E386)
+### 2. Tower designer ($E386) (next)
 
 - Editing cells, objects and colours, the designer's object list ($6F10), the name, author, password and task fields; its menus (the numbered texts $3A–$56: colour names, checks such as "No Grabber").
 - Saving custom towers: the original's format and where it writes them; map them to Reprise storage. "Use Designer Contents" then uses them.
@@ -51,6 +50,7 @@ These run in native code but have not been compared with the original yet:
 - **Objects and animation:** a Proximity Mine leaving a hole (tower flag 8, $E2A ≥ 0); a time bomb speed ($E2E) other than tower A's; both Forcers' animation frames, the Watcher's idle frames and the spiders' reversed-ride frame ($1218); the convertor in either direction.
 - **The sky:** sky type 3 (no line list), the sights overlay, and towers with their own lightning or meteors (only checked by poking tower A's flags).
 - **The panel:** a click in the view selecting a spider (the pick); the noise view ($D804, a spider gone or cameras forbidden).
+- **The data disk:** the requester with files in it, the error box and the Replace question, compared with the original's (the reference has no data disk).
 - **Screens not compared:** the Info and Exit pages, the Yes/No requester, the lost-tower screens, the final "all towers solved" screen and the demo sequence. They were drawn from the same code paths, but never side by side with the original's; the View page only up to the reference's crash (game.md, "Copy protection").
 - **The timer:** its warning sounds and the time-out compared with the original.
 - **Sounds:**

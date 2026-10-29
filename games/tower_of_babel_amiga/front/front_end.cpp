@@ -1,6 +1,7 @@
 #include "tower_of_babel_amiga/front/front_end.hpp"
 #include <algorithm>
 #include <random>
+#include <sstream>
 
 namespace babel::front {
 namespace {
@@ -29,6 +30,12 @@ constexpr std::uint32_t info_floor = var(0x5230), task_text = var(0x5253), exit_
 constexpr std::uint32_t abandon_title = var(0x5297), restart_tower_title = var(0x52AA);
 constexpr std::uint32_t not_named = var(0x52BD), anonymous = var(0x52C7), default_names = var(0x52D1);
 constexpr std::uint32_t ok_text = var(0x532B), sure_text = var(0x6409);
+constexpr std::uint32_t save_load_text = var(0x4F4E), high_score_text = var(0x4F99);
+constexpr std::uint32_t load_title = var(0x5618), save_title = var(0x564A), update_title = var(0x567C), group_title = var(0x54DA);
+constexpr std::uint32_t requester_text = var(0x56C0), disk_error_text = var(0x5751), replace_text = var(0x5721);
+constexpr std::uint32_t score_table = var(0x122E);
+constexpr std::uint32_t save_load_areas = var(0x3842), high_score_areas = var(0x3862), requester_areas = var(0x3DA8);
+constexpr std::uint32_t error_areas = var(0x453C), replace_areas = var(0x3E4A);
 
 // Menus' click areas.
 constexpr std::uint32_t main_menu_areas = var(0x3878), game_type_areas = var(0x38C2), chooser_areas = var(0x38EC);
@@ -54,8 +61,15 @@ constexpr int message_end = 0x66;                // + the end reason: why the to
 
 } // namespace
 
-FrontEnd::FrontEnd(const data::Assets& assets) : assets_(assets), screen_(assets) {
+FrontEnd::FrontEnd(const data::Assets& assets, std::filesystem::path saves)
+    : assets_(assets), disk_(std::move(saves)), screen_(assets) {
     random_ = std::uint16_t(std::random_device{}()); // the original seeds $890 from the CIA clock
+    // $122E: the table the program starts with (30-byte names, long scores).
+    for (int i = 0; i < 10; ++i) {
+        const std::uint32_t at = score_table + std::uint32_t(i) * 0x22;
+        scores_.push_back({assets.program.text(at, 0x1E), long(assets.program.u32(at + 0x1E))});
+    }
+    custom_towers_ = assets.groups.at(15).towers;
     runner_.start(run());
 }
 
@@ -232,58 +246,361 @@ Flow FrontEnd::name_entry() {
     score_ = 0;
 }
 
-Flow FrontEnd::edit_name() {
-    // $12096: a line of up to 28 characters at (82, 110) that stops short of
-    // x 260; the cursor ("|" in pen 3) before the character it stands at.
-    constexpr int x0 = 0x52, y0 = 0x6E, most = 0x1C, right = 0x104;
-    std::string text;
-    int cursor = 0;
-    for (;;) {
-        screen_.fill(x0, y0, right, y0 + 7, 0);
-        screen_.cursor.x = x0;
-        screen_.cursor.y = y0;
-        screen_.cursor.paper = 0;
-        screen_.cursor.ink = 15;
-        for (int i = 0;; ++i) {
-            if (i == cursor) {
-                const auto keep = screen_.cursor;
-                screen_.cursor.paper = 0;
-                screen_.cursor.ink = 3;
-                screen_.glyph(0x7C);
-                screen_.cursor.paper = keep.paper;
-                screen_.cursor.ink = keep.ink;
-            }
-            if (i >= int(text.size())) break;
-            screen_.glyph(std::uint8_t(text[std::size_t(i)]));
+void FrontEnd::draw_editor(const LineEditor& e) {
+    // $12304: the line cleared, the text with the cursor ("|" in pen 3)
+    // before the character it stands at, then a blank.
+    screen_.fill(e.x, e.y, e.right, e.y + 7, 0);
+    screen_.cursor.x = e.x;
+    screen_.cursor.y = e.y;
+    screen_.cursor.paper = 0;
+    screen_.cursor.ink = 15;
+    for (int i = 0;; ++i) {
+        if (i == e.cursor) {
+            screen_.cursor.ink = 3;
+            screen_.glyph(0x7C);
+            screen_.cursor.ink = 15;
         }
-        screen_.glyph(0x80);
+        if (i >= int(e.text.size())) break;
+        screen_.glyph(std::uint8_t(e.text[std::size_t(i)]));
+    }
+    screen_.glyph(0x80);
+}
+
+bool FrontEnd::edit_key(LineEditor& e, int key, int end_x) {
+    if (key == 13) return false;
+    if (key == 8) {
+        if (e.cursor > 0) e.text.erase(std::size_t(--e.cursor), 1);
+    } else if (key == 0x7F) {
+        if (e.cursor < int(e.text.size())) e.text.erase(std::size_t(e.cursor), 1);
+    } else if (key == 27) {
+        e.text.clear();
+        e.cursor = 0;
+    } else if (key >= 0x20 && key < 0x7F && end_x < e.right && int(e.text.size()) < e.most) {
+        e.text.insert(std::size_t(e.cursor++), 1, char(key));
+    }
+    return true;
+}
+
+void FrontEnd::edit_click(LineEditor& e, int x) {
+    // $120F2: the cursor goes to the first character whose start is past the pointer.
+    int left = e.x, i = 0;
+    while (i < int(e.text.size()) && left < x) left += screen_.text_width(e.text.substr(std::size_t(i++), 1));
+    e.cursor = i;
+}
+
+Flow FrontEnd::edit_name() {
+    // The name record ($E46): 28 characters at (82, 110) short of x 260; a
+    // click in the box (54, 76)-(265, 128) moves the cursor, outside it ends.
+    LineEditor e{0x52, 0x6E, 0x1C, 0x104, 0x36, 0x4C, 0x109, 0x80, {}, 0};
+    for (;;) {
+        draw_editor(e);
         const int end_x = screen_.cursor.x;
         co_await next_frame();
-        const int key = in_.key;
-        if (key == 13) break;
-        if (key == 8) {
-            if (cursor > 0) text.erase(std::size_t(--cursor), 1);
-        } else if (key == 0x7F) {
-            if (cursor < int(text.size())) text.erase(std::size_t(cursor), 1);
-        } else if (key == 27) {
-            text.clear();
-            cursor = 0;
-        } else if (key >= 0x20 && key < 0x7F && end_x < right && int(text.size()) < most) {
-            text.insert(std::size_t(cursor++), 1, char(key));
-        }
+        if (!edit_key(e, in_.key, end_x)) break;
         if (in_.left && !previous_.left) {
-            // A click in the box puts the cursor there; outside it ends the editing.
-            if (in_.x >= 0x36 && in_.x < 0x109 && in_.y >= 0x4C && in_.y < 0x80) {
-                int x = x0, i = 0;
-                while (i < int(text.size()) && x < in_.x) x += screen_.text_width(text.substr(std::size_t(i++), 1));
-                cursor = i;
-            } else {
-                break;
-            }
+            if (in_.x >= e.box_x0 && in_.x < e.box_x1 && in_.y >= e.box_y0 && in_.y < e.box_y1) edit_click(e, in_.x);
+            else break;
         }
     }
-    name_ = text;
+    name_ = e.text;
     co_await wait_release();
+}
+
+Flow FrontEnd::disk_error(int code) {
+    screen_.open_window(0x1C, 0x88, 0x124, 0xB8, 0);
+    screen_.text_at(disk_error_text);
+    screen_.number(code, 2);
+    screen_.glyph(')');
+    screen_.cursor.ink = 9;
+    const auto message = screen_.message_text(0x80 + (code & 15));
+    screen_.centre(message);
+    screen_.cursor.y = 0xA2;
+    screen_.text(message);
+    screen_.cursor.ink = 15;
+    co_await wait_frames(50); // $12654 twice: 50 timer ticks each
+    int choice = 0;
+    co_await select(error_areas, choice);
+    screen_.close_window();
+}
+
+Flow FrontEnd::replace_file(bool& yes) {
+    co_await wait_release();
+    screen_.open_window(0x4C, 0x48, 0xF3, 0x7D, 0);
+    screen_.text_at(replace_text);
+    screen_.frame(0x8F, 0x6B, 0xB1, 0x78, 13);
+    int choice = 0;
+    co_await select(replace_areas, choice);
+    screen_.close_window();
+    co_await wait_release();
+    yes = choice == 1;
+}
+
+Flow FrontEnd::requester(FileKind kind, std::uint32_t title, std::function<int(const std::string&, bool)> action) {
+    screen_.open_window(0x40, 0x18, 0xFF, 0xC2, 0);
+    screen_.frame(0x45, 0x47, 0x93, 0xC0, 13);
+    screen_.frame(0x9D, 0x47, 0xC9, 0x54, 13);
+    screen_.frame(0x9D, 0xB3, 0xC9, 0xC0, 13);
+    screen_.frame(0x9D, 0x83, 0xF1, 0x90, 13);
+    screen_.frame(0x9D, 0x9B, 0xF1, 0xA8, 13);
+    screen_.text_at(title);
+    screen_.text_at(requester_text);
+    int page = 0, error = 0;
+    std::vector<std::string> names;
+    const auto draw_page = [&] {
+        // $1297A: the page number, then up to ten names.
+        screen_.cursor.x = 0x97;
+        screen_.cursor.y = 0x38;
+        screen_.cursor.ink = 9;
+        screen_.number(page + 1, 2);
+        screen_.cursor.ink = 15;
+        screen_.fill(0x48, 0x4A, 0x90, 0xBE, 0);
+        for (int i = 0; i < 10 && page * 10 + i < int(names.size()); ++i) {
+            screen_.cursor.x = 0x48;
+            screen_.cursor.y = 0x4A + 12 * i;
+            screen_.text(names[std::size_t(page * 10 + i)].substr(0, 8));
+        }
+    };
+    const auto read_directory = [&] {
+        // $12A10 / $12AFA: the files of this kind, the room left, the pages.
+        names = disk_.names(kind);
+        page = 0;
+        screen_.cursor.ink = 9;
+        screen_.cursor.x = 0x55;
+        screen_.cursor.y = 0x2C;
+        screen_.number(long(names.size()), 3);
+        screen_.cursor.x = 0xDB;
+        screen_.number(DataDisk::entries - disk_.files(), 3);
+        screen_.cursor.x = 0xBC;
+        screen_.cursor.y = 0x38;
+        screen_.number((std::max<int>(int(names.size()), 1) - 1) / 10 + 1, 2);
+        screen_.cursor.ink = 15;
+        draw_page();
+    };
+    read_directory();
+    auto& e = file_name_;
+    e.cursor = int(e.text.size());
+    Menu menu(assets_.program, requester_areas);
+    co_await wait_release();
+    bool ok = false;
+    for (;;) {
+        draw_editor(e);
+        const int end_x = screen_.cursor.x;
+        co_await next_frame();
+        const int x = in_.pointer ? in_.x : 0x1F40, y = in_.pointer ? in_.y : 0x8000;
+        menu.hover(screen_, x, y);
+        const int key = in_.key;
+        if (key != 0 && key != '.' && key != ' ') {
+            if (!edit_key(e, key, end_x)) {
+                ok = true;
+                break;
+            }
+            continue;
+        }
+        const int choice = menu.at(x, y);
+        if (!in_.left || choice < 0) continue;
+        if (choice == 5) {
+            edit_click(e, in_.x);
+            continue;
+        }
+        if (choice < 2) {
+            ok = choice == 1;
+            break;
+        }
+        if (choice == 2 && page > 0) {
+            --page;
+            draw_page();
+        } else if (choice == 3 && (page + 1) * 10 < int(names.size())) {
+            ++page;
+            draw_page();
+        } else if (choice == 4) {
+            read_directory();
+        } else if (choice >= 6 && page * 10 + choice - 6 < int(names.size())) {
+            e.text = names[std::size_t(page * 10 + choice - 6)];
+            e.cursor = int(e.text.size());
+        }
+        co_await wait_release();
+    }
+    menu.unhover(screen_);
+    if (ok && !e.text.empty()) error = action(e.text, false);
+    if (error == -1) { // the file exists: replace it?
+        bool yes = false;
+        co_await replace_file(yes);
+        error = yes ? action(e.text, true) : 0;
+    }
+    if (error > 0) co_await disk_error(error);
+    screen_.close_window();
+    co_await wait_release();
+}
+
+// --- saved positions and high scores ----------------------------------------
+
+std::vector<std::uint8_t> FrontEnd::position() const {
+    // The player's settings, name, score, group and every tower's progress,
+    // as text lines.
+    std::string t = "tower of babel position 1\n";
+    const auto line = [&](const char* key, long v) { t += std::string(key) + " " + std::to_string(v) + "\n"; };
+    line("backwards", settings_.backwards_allowed);
+    line("link", settings_.link_cameras);
+    line("info", settings_.info);
+    line("timer", settings_.timer);
+    line("view_side", settings_.view_side);
+    line("view_height", settings_.view_height);
+    line("view_distance", settings_.view_distance);
+    line("sights", settings_.sights);
+    line("panel", settings_.panel_style);
+    line("screen_x", screen_x_);
+    line("screen_y", screen_y_);
+    t += "name " + name_ + "\n";
+    line("score", score_);
+    line("group", group_);
+    line("all_done", all_done_);
+    const auto bytes = [&](const char* key, const auto& a) {
+        t += key;
+        for (const auto b : a) t += " " + std::to_string(int(b));
+        t += "\n";
+    };
+    bytes("standard", standard_progress_);
+    bytes("custom", custom_progress_);
+    bytes("tutorial", tutorial_progress_);
+    return {t.begin(), t.end()};
+}
+
+bool FrontEnd::load_position(const std::vector<std::uint8_t>& file) {
+    std::istringstream in(std::string(file.begin(), file.end()));
+    std::string line;
+    if (!std::getline(in, line) || line != "tower of babel position 1") return false;
+    Settings s = settings_;
+    while (std::getline(in, line)) {
+        std::istringstream w(line);
+        std::string key;
+        w >> key;
+        long v = 0;
+        if (key == "name") {
+            name_ = line.size() > 5 ? line.substr(5) : "";
+            continue;
+        }
+        if (key == "standard" || key == "custom" || key == "tutorial") {
+            auto* a = key == "standard" ? standard_progress_.data() : key == "custom" ? custom_progress_.data() : tutorial_progress_.data();
+            const std::size_t n = key == "standard" ? standard_progress_.size() : 9;
+            for (std::size_t i = 0; i < n && (w >> v); ++i) a[i] = std::uint8_t(v);
+            continue;
+        }
+        w >> v;
+        if (key == "backwards") s.backwards_allowed = v != 0;
+        else if (key == "link") s.link_cameras = v != 0;
+        else if (key == "info") s.info = int(v);
+        else if (key == "timer") s.timer = int(v);
+        else if (key == "view_side") s.view_side = int(v);
+        else if (key == "view_height") s.view_height = int(v);
+        else if (key == "view_distance") s.view_distance = int(v);
+        else if (key == "sights") s.sights = v != 0;
+        else if (key == "panel") s.panel_style = int(v);
+        else if (key == "screen_x") screen_x_ = int(v);
+        else if (key == "screen_y") screen_y_ = int(v);
+        else if (key == "score") score_ = v;
+        else if (key == "group") group_ = int(v);
+        else if (key == "all_done") all_done_ = v != 0;
+    }
+    settings_ = s;
+    return true;
+}
+
+void FrontEnd::sort_scores() {
+    // $AA24: neighbours swapped while one is higher, until none is.
+    for (bool swapped = true; swapped;) {
+        swapped = false;
+        for (std::size_t i = 0; i + 1 < scores_.size(); ++i)
+            if (scores_[i].score < scores_[i + 1].score) {
+                std::swap(scores_[i], scores_[i + 1]);
+                swapped = true;
+            }
+    }
+}
+
+void FrontEnd::update_scores() {
+    // $AA8C: the player's entry takes the score; a new player replaces the
+    // last entry when the score is above it.
+    auto it = std::find_if(scores_.begin(), scores_.end(), [&](const Score& e) { return e.name == name_; });
+    if (it != scores_.end()) it->score = score_;
+    else if (score_ > scores_.back().score) scores_.back() = {name_, score_};
+    sort_scores();
+}
+
+Flow FrontEnd::save_load() {
+    co_await fade_out();
+    screen_.clear();
+    screen_.title_bar();
+    menu_boxes(0x1C);
+    screen_.text_at(save_load_text);
+    co_await fade_in_program(menu_palette);
+    for (;;) {
+        co_await wait_release();
+        int choice = 0;
+        co_await select(save_load_areas, choice);
+        if (choice == 2) co_return;
+        bool loaded = false;
+        if (choice == 0) {
+            co_await requester(FileKind::position, load_title, [&](const std::string& n, bool) {
+                const auto file = disk_.read(FileKind::position, n);
+                if (!file) return 6;               // File Not Found
+                if (!load_position(*file)) return 0xB; // Invalid File
+                loaded = true;
+                return 0;
+            });
+        } else {
+            co_await requester(FileKind::position, save_title, [&](const std::string& n, bool replace) {
+                if (!replace && disk_.exists(FileKind::position, n)) return -1;
+                return disk_.write(FileKind::position, n, position()) ? 0 : 8; // Unable To Write to Disk
+            });
+        }
+        if (loaded) co_return; // back to the main menu with the loaded name and score
+    }
+}
+
+Flow FrontEnd::high_scores() {
+    co_await fade_out();
+    screen_.clear();
+    screen_.title_bar();
+    menu_boxes(0x60);
+    screen_.text_at(high_score_text);
+    for (;;) {
+        screen_.bevel_box(0, 0x16, 0x13F, 0x91, 13);
+        screen_.cursor.paper = 13;
+        screen_.cursor.ink = 15;
+        for (std::size_t i = 0; i < 10 && i < scores_.size(); ++i) {
+            screen_.cursor.y = 0x1A + 12 * int(i);
+            screen_.cursor.x = 0x10C;
+            screen_.number(scores_[i].score, 6);
+            screen_.cursor.x = 4;
+            screen_.text(scores_[i].name);
+        }
+        screen_.cursor.paper = 0;
+        screen_.cursor.ink = 15;
+        co_await fade_in_program(menu_palette);
+        int choice = 0;
+        co_await select(high_score_areas, choice);
+        if (choice == 0) co_return;
+        // $A8D4: merged with the table in the file (the higher score for a
+        // name, new names added), the best ten kept and written back.
+        co_await requester(FileKind::scores, update_title, [&](const std::string& n, bool) {
+            if (const auto file = disk_.read(FileKind::scores, n)) {
+                std::istringstream in(std::string(file->begin(), file->end()));
+                long v = 0;
+                std::string name;
+                while (in >> v && std::getline(in, name)) {
+                    if (!name.empty() && name[0] == ' ') name.erase(0, 1);
+                    auto it = std::find_if(scores_.begin(), scores_.end(), [&](const Score& e) { return e.name == name; });
+                    if (it == scores_.end()) scores_.push_back({name, v});
+                    else if (v >= it->score) it->score = v;
+                }
+                sort_scores();
+                scores_.resize(10);
+            }
+            std::string t;
+            for (const auto& e : scores_) t += std::to_string(e.score) + " " + e.name + "\n";
+            return disk_.write(FileKind::scores, n, {t.begin(), t.end()}) ? 0 : 8;
+        });
+    }
 }
 
 void FrontEnd::header() {
@@ -318,6 +635,7 @@ Flow FrontEnd::confirm(std::uint32_t title_text, bool& yes) {
 }
 
 Flow FrontEnd::main_menu() {
+    update_scores(); // $8D28
     for (;;) {
         co_await fade_out();
         screen_.clear();
@@ -335,6 +653,14 @@ Flow FrontEnd::main_menu() {
                 co_await play_game();
                 redraw = true;
                 break;
+            case 1:
+                co_await save_load();
+                redraw = true;
+                break;
+            case 2:
+                co_await high_scores();
+                redraw = true;
+                break;
             case 4:
                 co_await demo_sequence();
                 redraw = true;
@@ -345,7 +671,7 @@ Flow FrontEnd::main_menu() {
                 if (yes) co_return;
                 break;
             }
-            default: // Save/Load a Position, High Scores, Tower Designer: not rebuilt yet
+            default: // the Tower Designer: not rebuilt yet
                 co_await wait_release();
                 break;
             }
@@ -375,7 +701,7 @@ Flow FrontEnd::play_game() {
 const data::Tower& FrontEnd::tower_in(int game_type, int index) const {
     // Groups in the assets: 0 tutorial, 1-13 standard, 14 demonstrations, 15 custom.
     if (game_type == 0) return assets_.groups.at(std::size_t(1 + group_)).towers.at(std::size_t(index));
-    if (game_type == 1) return assets_.groups.at(15).towers.at(std::size_t(index));
+    if (game_type == 1) return custom_towers_.at(std::size_t(index));
     return assets_.groups.at(0).towers.at(std::size_t(index));
 }
 
@@ -599,6 +925,7 @@ Flow FrontEnd::standard_game() {
         } else {
             co_await end_screen(0, reason);
         }
+        update_scores(); // $94C6
         screen_.copper = CopperMode::plain;
         if (std::all_of(standard_progress_.begin(), standard_progress_.end(), [](std::uint8_t b) { return b == 0xFF; })) {
             // $95A0: every tower solved.
@@ -649,11 +976,24 @@ Flow FrontEnd::custom_game() {
         int choice = 0;
         co_await select(custom_areas, choice);
         if (choice == 3) co_return;
-        if (choice == 2) { // Load a Group: from a disk (not rebuilt yet)
-            co_await wait_release();
-            continue;
+        if (choice == 2) { // $9144: a group from the data disk becomes the custom group
+            bool loaded = false;
+            co_await requester(FileKind::group, group_title, [&](const std::string& n, bool) {
+                const auto file = disk_.read(FileKind::group, n);
+                if (!file) return 6;
+                if (file->size() < 9 * data::tower_record_size) return 0xB;
+                for (std::size_t i = 0; i < 9; ++i)
+                    custom_towers_[i] = data::decode_tower(std::span<const std::uint8_t>(*file).subspan(i * data::tower_record_size, data::tower_record_size));
+                custom_progress_.fill(0);
+                loaded = true;
+                return 0;
+            });
+            if (!loaded) continue;
         }
-        if (choice == 1) custom_progress_.fill(0); // the designer's contents: the empty default group
+        if (choice == 1) { // the designer's contents (the empty default group until it is rebuilt)
+            custom_towers_ = assets_.groups.at(15).towers;
+            custom_progress_.fill(0);
+        }
         selected_ = -1;
         for (;;) {
             int t = -1;
