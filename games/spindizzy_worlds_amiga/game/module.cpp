@@ -8,6 +8,7 @@
 #include "spindizzy_worlds_amiga/sound/music.hpp"
 #include "spindizzy_worlds_amiga/view/panel.hpp"
 #include "spindizzy_worlds_amiga/view/screen.hpp"
+#include "state/archive.hpp"
 #include <array>
 #include <memory>
 #include <span>
@@ -23,6 +24,7 @@ constexpr std::uint32_t next_menu = 0x18CDC, next_menu_box = 0x18CD2;   // $18CB
 constexpr std::uint32_t reserve_menu = 0x18C2E; // $18C84: "Use reserve fuel", "Retry this world", "Abandon this world"
 constexpr std::uint32_t retry_menu = 0x18C4A;   // $18C22: the last two
 constexpr int main_menu_timeout = 0x64 << 3;                             // $18A90: d7 × 8 passes
+constexpr std::uint32_t save_magic = 0x535A5753, save_version = 2; // "SWZS"
 constexpr std::uint32_t easy_worlds = 0x9F800000, hard_worlds = 0x007FFFFF; // $11E10: $24AE per cluster
 
 // The game's screens in the original's main loop ($18950).
@@ -40,35 +42,78 @@ public:
 
     double step_seconds() const override { return 1.0 / 50; } // PAL frames
 
-    // Saves keep what the original's sd_game.dat keeps: the game between
-    // worlds (the cluster, the worlds done and their records, the clues
-    // shown, slow mode); a load goes back to the world map. The state
-    // holds the game now and the menu's saved slot.
+    // A quick save is the whole state as it is now: the screen on show and
+    // its own state, the level as it stands (grid, tile map, objects,
+    // explorer, camera, stars, timers), the world's progress, both sound
+    // players and their channels. Version 1 (the game between worlds only)
+    // still loads, onto the world map.
     std::vector<std::uint8_t> write_state() override {
-        std::vector<std::uint8_t> out{'S', 'D', 'W', 1};
-        auto put = [&](std::int32_t v) { for (int i = 3; i >= 0; --i) out.push_back(std::uint8_t(v >> (8 * i))); };
-        auto game = [&](const Saved& g) {
-            put(g.cluster); put(std::int32_t(g.worlds_left)); put(g.worlds_done); put(std::int32_t(g.clues_left));
-            put(g.fuel); put(g.reserve); put(std::int32_t(g.records.size()));
-            for (const auto& r : g.records) { put(r.world); put(r.fuel); put(r.reserve); put(r.found); put(r.taken); }
-        };
-        game(current());
-        put(saved_ ? 1 : 0);
-        if (saved_) game(*saved_);
-        put(slow_ ? 1 : 0);
-        return out;
+        state::Writer ar;
+        std::uint32_t magic = save_magic, version = save_version;
+        ar(magic, version);
+        persist(ar);
+        return std::move(ar.bytes);
     }
     void read_state(std::span<const std::uint8_t> in) override {
-        std::size_t at = 0;
+        if (in.size() >= 4 && in[0] == 'S' && in[1] == 'D' && in[2] == 'W' && in[3] == 1) {
+            read_between_worlds(in);
+            return;
+        }
+        state::Reader ar(in);
+        std::uint32_t magic{}, version{};
+        ar(magic, version);
+        if (magic != save_magic || version != save_version)
+            throw std::runtime_error("Spindizzy Worlds: not a save of this version.");
+        persist(ar);
+        ar.finish();
+    }
+
+    template <class A> void persist(A& ar) {
+        ar(stage_, cluster_, worlds_left_, worlds_done_, slow_, keys_held_, space_held_, stick_, offers_reserve_, records_, statistics_, saved_,
+           sound_wait_, effects_volume_, statistics_then_next_, world_start_fuel_, world_start_reserve_, turn_,
+           progress_, effects_, music_, paula_, music_paula_);
+        // The screens, made first where they hold the assets, then read.
+        part(ar, attract_, [&] { attract_.emplace(assets_); });
+        part(ar, menu_, [&] { menu_.emplace(assets_, view::Screen{}, main_menu, 0, 0); });
+        part(ar, clusters_, [&] { clusters_.emplace(assets_, turn_); });
+        part(ar, map_, [&] { map_.emplace(assets_, true, 0, turn_); });
+        part(ar, ending_, [&] { ending_.emplace(assets_, view::Screen{}, true); });
+        bool playing = play_ != nullptr;
+        ar(playing);
+        if constexpr (A::reading) {
+            play_.reset();
+            if (playing) play_ = std::make_unique<PlayScreen>(assets_, surfaces_, progress_, play::LevelPlay::Restore{});
+        }
+        if (playing) play_->persist(ar);
+        if constexpr (A::reading) {
+            const bool shown = (stage_ == Stage::attract && attract_) || ((stage_ == Stage::menu || stage_ == Stage::next_menu || stage_ == Stage::game_over) && menu_) ||
+                               (stage_ == Stage::clusters && clusters_) || ((stage_ == Stage::map || stage_ == Stage::break_up) && map_) ||
+                               ((stage_ == Stage::play || stage_ == Stage::game_over) && play_) || (stage_ == Stage::ending && ending_) ||
+                               stage_ == Stage::statistics;
+            if (!shown || int(stage_) < 0 || stage_ > Stage::ending) state::Reader::fail();
+        }
+    }
+    template <class A, class T, class Make> static void part(A& ar, std::optional<T>& screen, Make make) {
+        bool has = screen.has_value();
+        ar(has);
+        if constexpr (A::reading) {
+            screen.reset();
+            if (has) make();
+        }
+        if (has) screen->persist(ar);
+    }
+
+    // Version 1: what the original's sd_game.dat keeps (the cluster, the
+    // worlds done and their records, the clues shown, slow mode) and the
+    // menu's slot; it goes to the world map.
+    void read_between_worlds(std::span<const std::uint8_t> in) {
+        std::size_t at = 4;
         auto get = [&]() -> std::int32_t {
             if (at + 4 > in.size()) throw std::runtime_error("Spindizzy Worlds: the save is cut short.");
             std::int32_t v = 0;
             for (int i = 0; i < 4; ++i) v = std::int32_t(std::uint32_t(v) << 8 | in[at++]);
             return v;
         };
-        if (in.size() < 4 || in[0] != 'S' || in[1] != 'D' || in[2] != 'W' || in[3] != 1)
-            throw std::runtime_error("Spindizzy Worlds: not a save of this version.");
-        at = 4;
         auto game = [&]() {
             Saved g;
             g.cluster = get(); g.worlds_left = std::uint32_t(get()); g.worlds_done = get(); g.clues_left = std::uint32_t(get());
@@ -118,12 +163,22 @@ public:
         if (input.left) joystick |= play::stick::left;
         if (input.right) joystick |= play::stick::right;
         if (input.fire) joystick |= play::stick::fire;
+        stick_.read(joystick); // the CIA-B interrupt's reader ($104C0)
+        // Keys pressed this frame ($107A8 keeps the last until it is read).
+        std::array<bool, 64> fresh{};
+        bool key_pressed = input.space && !space_held_;
+        for (std::size_t k = 0; k < 64; ++k) {
+            fresh[k] = input.c64_keys[k] && !keys_held_[k];
+            key_pressed = key_pressed || fresh[k];
+        }
+        keys_held_ = input.c64_keys;
+        space_held_ = input.space;
         switch (stage_) {
         case Stage::attract:
             if (attract_->frame(joystick)) open_menu();
             break;
         case Stage::menu: {
-            const int item = menu_->frame(joystick);
+            const int item = menu_->frame(stick_);
             slow_ = menu_->slow_mode;
             if (item == -1) { // timed out: the attract again
                 open_attract();
@@ -143,8 +198,19 @@ public:
             } else if (item == 2 && saved_) { // Load saved game ($16D28): then the statistics ($18AD0)
                 restore(*saved_);
                 open_statistics(false);
+            } else if (item == 5) { // Wind back world ($18B10): the last world done undone, then the map
+                if (worlds_done_ > 0) {
+                    --worlds_done_;
+                    if (!records_.empty()) records_.pop_back();
+                }
+                // $16D44: the worlds left again from the records kept.
+                if (cluster_ != 0) {
+                    worlds_left_ = cluster_ == 1 ? easy_worlds : hard_worlds;
+                    for (const auto& r : records_) worlds_left_ &= ~(1u << (r.world & 31));
+                }
+                enter_map();
             }
-            break; // Load, Save, Check performance, Wind back world, Create Data disk: not rebuilt
+            break; // Create Data disk ($10AB0): the shell's saves stand in for it
         }
         case Stage::clusters:
             if (const int chosen = clusters_->frame(joystick)) {
@@ -181,7 +247,7 @@ public:
             // M (36) the overview map; [ has no key in the matrix the host
             // gives: '@' (46), where a C64 matrix would put it.
             constexpr int key_r = 17, key_t = 22, key_f = 21, key_c = 20, key_p = 41, key_m = 36, key_bracket = 46;
-            auto pressed = [&](int k) { return input.c64_keys[std::size_t(k)] && !keys_held_[std::size_t(k)]; };
+            auto pressed = [&](int k) { return fresh[std::size_t(k)]; };
             if (pressed(key_r)) in.turn = 1;
             if (pressed(key_t)) in.turn = -1;
             if (pressed(key_f)) slow_ = !slow_; // $11440
@@ -189,8 +255,8 @@ public:
             in.pause = pressed(key_p);
             in.hold = pressed(key_bracket);
             in.overview = pressed(key_m);
-            keys_held_ = input.c64_keys;
-            play_->frame(in, slow_);
+            in.key = key_pressed;
+            play_->frame(in, slow_, stick_);
             for (const auto& sound : progress_.sounds) { // the request block $36D2
                 auto& volume = effects_volume_[std::size_t(sound.channel & 3)];
                 if (sound.volume >= 0) volume = sound.volume;
@@ -211,6 +277,7 @@ public:
                 view::Screen behind;
                 play_->draw(behind);
                 menu_.emplace(assets_, behind, offers_reserve_ ? reserve_menu : retry_menu, 0, 0);
+                stick_.byte = 0; // $17E5A
                 stage_ = Stage::game_over;
             }
             break;
@@ -237,7 +304,7 @@ public:
             break;
         }
         case Stage::ending: {
-            const bool over = ending_->frame(joystick);
+            const bool over = ending_->frame(key_pressed || stick_.take_fire());
             take_sounds(ending_->sounds);
             if (!over) break;
             // $17D5E: the worlds done and the cluster forgotten (the clues
@@ -249,31 +316,31 @@ public:
             open_attract();
             break;
         }
-        case Stage::statistics: { // $109CC: until fire
-            const bool fire = joystick & play::stick::fire;
-            if (fire && !fire_held_) {
+        case Stage::statistics: { // $109CC: until a key or the stick's fire
+            if (key_pressed || stick_.take_fire()) {
                 if (statistics_then_next_) {
                     menu_.emplace(assets_, statistics_, next_menu, next_menu_box, 0);
+                    stick_.byte = 0;
                     stage_ = Stage::next_menu;
                 } else {
                     open_menu();
                 }
             }
-            fire_held_ = fire;
             break;
         }
         case Stage::next_menu: {
-            const int item = menu_->frame(joystick);
+            const int item = menu_->frame(stick_);
             if (item == 1) { // "Save game" ($16CBE), then the menu again
                 saved_ = current();
                 menu_.emplace(assets_, statistics_, next_menu, next_menu_box, 0);
+                stick_.byte = 0;
             } else if (item == 0) {
                 enter_map();
             }
             break;
         }
         case Stage::game_over: {
-            int item = menu_->frame(joystick);
+            int item = menu_->frame(stick_);
             if (item < 0) break;
             if (!offers_reserve_) ++item; // the same meanings as the long menu's
             if (item == 0) { // use the reserve ($18A28)
@@ -334,6 +401,7 @@ private:
         view::Screen behind;
         attract_->draw(behind);
         menu_.emplace(assets_, behind, main_menu, main_menu_box, main_menu_timeout);
+        stick_.byte = 0; // $17E5A
         menu_->slow_mode = slow_;
         stage_ = Stage::menu;
     }
@@ -344,6 +412,7 @@ private:
         std::uint32_t clues_left{0xFFFFFFFF};
         std::int32_t fuel{0x80 << 16}, reserve{};
         std::vector<WorldRecord> records;
+        template <class A> void persist(A& ar) { ar(cluster, worlds_left, worlds_done, clues_left, fuel, reserve, records); }
     };
     Saved current() const {
         // Between worlds: the fuel and reserve the next world starts with.
@@ -368,7 +437,6 @@ private:
         view::set_level_palette(statistics_, assets_.graphics); // $11066: palette 0
         draw_statistics(statistics_, assets_, records_);
         statistics_then_next_ = then_next;
-        fire_held_ = true; // the fire that got here must be let go
         stage_ = Stage::statistics;
     }
     // $116F0: the map's tune from its start ($1170A), then the cluster
@@ -403,6 +471,8 @@ private:
     int worlds_done_{};             // $36B0 / 2
     bool slow_{true};               // $24A6: the menu's "Slow Mode? Yes"
     std::array<bool, 64> keys_held_{};
+    bool space_held_{};
+    play::StickByte stick_; // $10A63 / $10A64
     bool offers_reserve_{};
     std::vector<WorldRecord> records_; // $36B6 …
     view::Screen statistics_;
@@ -412,7 +482,7 @@ private:
     amiga::PaulaChannels paula_, music_paula_;
     double sound_wait_{};
     std::array<int, 4> effects_volume_{0x40, 0x40, 0x40, 0x40};
-    bool statistics_then_next_{}, fire_held_{};
+    bool statistics_then_next_{};
     std::int32_t world_start_fuel_{}, world_start_reserve_{}; // what $16D44 restores for a retry
 };
 

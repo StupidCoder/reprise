@@ -21,6 +21,10 @@ struct Screen : Canvas {
     // Copies a canvas into the screen with its top-left corner at (x, y).
     void paste(const Canvas&, int x, int y);
     platform::Image image() const;
+    template <class A> void persist(A& ar) {
+        Canvas::persist(ar);
+        ar(palette);
+    }
 };
 
 } // namespace spindizzy::view

@@ -37,6 +37,11 @@ public:
     }
     int tempo_countdown() const { return tempo_countdown_; }
     int master_volume() const { return volume_; }
+    // The player's state (the file's tables and samples are not part of it).
+    template <class A> void persist(A& ar) {
+        ar(voices_, playing_, fade_period, tune_, volume_, fade_countdown_, tempo_countdown_, tempo_index_,
+           instrument_change_, tempo_);
+    }
 
 private:
     struct Voice {          // per channel: the state block at $439A0 (+ n) and $4390E (+ 16n …)
@@ -74,6 +79,12 @@ private:
         int env_position{}, env_countdown{}, env_repeats{};
         int vibrato_step{};  // +$5C + 2n
         int period{};        // +$64 + 2n
+        template <class A> void persist(A& ar) {
+            ar(off, sequence, position, row, repeats, pattern, in_block, block_count, block_start, countdown, sample, note, held,
+               instrument, slide, vibrato_down, delay, vibrato_init, vibrato_back, vibrato_count, vibrato_depth, note_byte,
+               flags, phase, tick, first_position, start, repeat, length, repeat_length, volume, envelope, env_position,
+               env_countdown, env_repeats, vibrato_step, period);
+        }
     };
 
     std::uint8_t byte(std::uint32_t address) const { return file_[address - 0x432A8]; }

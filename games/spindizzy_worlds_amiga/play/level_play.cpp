@@ -1,4 +1,5 @@
 #include "spindizzy_worlds_amiga/play/level_play.hpp"
+#include <algorithm>
 #include "spindizzy_worlds_amiga/view/sprites.hpp"
 
 namespace spindizzy::play {
@@ -98,6 +99,11 @@ LevelPlay::LevelPlay(const data::Assets& assets, const SurfaceTable& surfaces, P
     notice_ = (level_flags_ & 0x1000) != 0; // $11FE4: kind −9
 }
 
+LevelPlay::LevelPlay(const data::Assets& assets, const SurfaceTable& surfaces, Progress& progress, Restore)
+    : assets_(assets), surfaces_(surfaces), progress_(progress) {
+    objects_.emplace(assets.main, surfaces_);
+}
+
 // $12724: a place word (cells: x bits 8-12, y 3-7, z 0-2) turned with the
 // level, the cell's centre; bit 13 puts z on the level itself, bit 14 keeps
 // the explorer's speed.
@@ -125,6 +131,7 @@ ObjectWorld LevelPlay::object_world() {
     w.rotation = p.rotation;
     w.random = &p.random;
     w.turn_side = &p.turn_side;
+    w.palette = &palette_;
     w.alien_cost = p.costs.alien;
     w.running = running_;
     return w;
@@ -206,6 +213,8 @@ void LevelPlay::tick(std::uint8_t joystick) {
             phase_ = ExplorerPhase::out_of_fuel;
             phase_ticks_ = dying_time;
             stepper_ = {}; // $12CC6: +$1E = $100
+            stick_clear_ = true;
+            reserve_used_ = false; // $12CD6
         } else {
             Ground ground{level_.grid, surfaces_, level_flags_, p.switches};
             move_explorer(e, joystick, ground, events);
@@ -215,6 +224,12 @@ void LevelPlay::tick(std::uint8_t joystick) {
     auto w = object_world();
     ObjectEvents happened;
     objects_->tick(w, happened);
+    if (timer_explorer_ticks_ >= 0 && running_) { // the timer's slot as the dying kind ($12CE8)
+        if (--timer_explorer_ticks_ < 0 || (timer_explorer_ticks_ < 0xA0 && (joystick & stick::fire))) {
+            p.game_over = true;
+            running_ = false;
+        }
+    }
     if (phase_ == ExplorerPhase::playing) settle_explorer(e, events);
     if (happened.clue >= 0) show_clue(happened.clue, happened.clue_always);
     if (happened.fuel_cost) add_whole(p.fuel_change, -happened.fuel_cost);
@@ -291,6 +306,8 @@ void LevelPlay::revive() {
     p.game_over = false;
     p.timer_expired = false;
     timer_dying_ = false;
+    timer_explorer_ticks_ = -1;
+    reserve_used_ = true; // $18A36
     auto& e = p.explorer; // $12B2E
     e.timer_a = e.timer_b = 0;
     e.arrival_ticks = arrival_flash;
@@ -339,10 +356,18 @@ void LevelPlay::frame(bool slow) {
     // $1635E every 16 frames: the first object with a condition word within
     // $380 of the explorer whose word is not the one shown shows it; none:
     // the boxes are cleared (so a clue blinks while the explorer is near).
+    // "First" in drawing order: the list $358C as $1440E sorted it this
+    // frame, by +$18 and then the slot.
     p.clue_counter = (p.clue_counter - 1) & 15;
     if (p.clue_counter == 0) {
+        std::vector<const LevelObject*> order;
+        for (const auto& o : objects_->objects()) order.push_back(&o);
+        std::stable_sort(order.begin(), order.end(), [](const LevelObject* a, const LevelObject* b) {
+            return a->sort != b->sort ? a->sort < b->sort : a->slot < b->slot;
+        });
         std::uint16_t found = 0;
-        for (const auto& o : objects_->objects()) {
+        for (const auto* object : order) {
+            const auto& o = *object;
             using K = world::ObjectKind;
             if (!o.alive || !o.word26) continue;
             if (o.kind != K::lift && o.kind != K::exit_point && o.kind != K::heads && o.kind != K::spark_generator &&
@@ -374,6 +399,17 @@ void LevelPlay::frame_handlers(const view::Camera& camera, bool slow) {
     // negative (with "Relative", bit 15, at once) the game is over, below
     // $A0 fire ends it. ($12CE8 with $24FC set, the reserve used, would
     // instead remake the timer's record as the explorer: not rebuilt.)
+    if (timer_dying_ && running_ && reserve_used_) {
+        // $12B58 → $12B2E: the record becomes the explorer and runs its tick
+        // ($12B7C) at once, which sees $2492 and makes it the dying kind
+        // ($12CB0: +$2C = $C8, the stick byte cleared, $24FC cleared) and
+        // counts once ($12CE8). The real explorer dies on its next tick;
+        // this one, a pass ahead, ends the game first. No "TIME OUT".
+        timer_dying_ = false;
+        reserve_used_ = false;
+        stick_clear_ = true;
+        timer_explorer_ticks_ = 0xC8 - 1;
+    }
     if (timer_dying_ && running_) {
         timer_word_ = std::uint16_t(timer_word_ - 1);
         if (std::int16_t(timer_word_) < 0 || (timer_word_ < 0xA0 && (joystick_ & stick::fire))) {

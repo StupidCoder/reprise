@@ -42,6 +42,7 @@ struct ObjectWorld {
     std::uint32_t* random{};                // $2094: the generator $112CA
     std::int16_t* turn_side{};              // $15618: the Pacs' shared turn toggle (±2, in the code)
     int alien_cost{};                       // $2062
+    int* palette{};                         // $207E: the level palette shown (0-3)
     bool running{true};                     // $2498: the level loop goes on
 };
 
@@ -62,7 +63,10 @@ struct ObjectEvents {
     int fuel_cost{};        // whole fuel units a creature took ($152E2)
     // Sound requests for the effects player ($36D2 + channel; volume −1:
     // the volume word is not written).
-    struct Sound { int channel, effect, volume; }; // effect −1: the volume only
+    struct Sound { // effect −1: the volume only
+        int channel{}, effect{}, volume{};
+        template <class A> void persist(A& ar) { ar(channel, effect, volume); }
+    };
     std::vector<Sound> sounds;
     // The loudest object heard by distance this tick ($111EC): channel 2.
     int heard_effect{-1}, heard_volume{-1};
@@ -89,8 +93,17 @@ struct LevelObject {
     std::int16_t step_x{}, step_y{};     // +$2C/+$2E: a Pac's step
     int pause{};                 // +$33
     int eaten{};                 // a Pac eaten: ticks of its rise ($15774), else 0
+    int eaten_picture{};         // its score picture: $25930 + n × $50 ($1574C)
+    bool eaten_drawn{};          // its frame drew it (not on the first frame, $157DC)
     std::vector<std::uint8_t> parameters;
     bool alive{true};
+    // +$18: the sort value its drawer set last ($14E22 …; $7FFF from the
+    // create, $144F2, while never drawn), which orders the slots ($1440E).
+    std::uint16_t sort{0x7FFF};
+    template <class A> void persist(A& ar) {
+        ar(kind, source, slot, x, y, z, speed, word26, word2c, word2e, word30, word32, word34, byte20, byte21, count, step,
+           popping, expired, heading, target_x, target_y, step_x, step_y, pause, eaten, eaten_picture, eaten_drawn, parameters, alive, sort);
+    }
 };
 
 std::uint16_t next_random(std::uint32_t& state); // $112CA
@@ -102,6 +115,9 @@ public:
     // the level's jewel long had bit 31 set.
     LevelObjects(const world::Level&, const data::Memory& main, const SurfaceTable&, ObjectWorld&, bool first_visit,
                  int& jewels_found);
+    // No objects yet: a saved state's are read into it (persist).
+    LevelObjects(const data::Memory& main, const SurfaceTable& surfaces) : main_(main), surfaces_(&surfaces) {}
+    template <class A> void persist(A& ar) { ar(objects_); }
 
     // One rules tick of every object in slot order ($14390).
     void tick(ObjectWorld&, ObjectEvents&);
@@ -137,6 +153,9 @@ private:
     void tick_pyramid(LevelObject&, ObjectWorld&, ObjectEvents&);
     void tick_spark(LevelObject&, ObjectWorld&, ObjectEvents&);
     void start_pac(LevelObject&, const ObjectWorld&);
+    static std::uint16_t sort_of(const LevelObject&);
+    // +$18 of the kinds that never move: made, and after a turn.
+    static void project_still(LevelObject&);
     bool touches(const LevelObject&, const Explorer&) const;
     // $1117E / $111A0: how loud an object is from the explorer (0 silent).
     static int loudness(const LevelObject&, const Explorer&, bool flat);

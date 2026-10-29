@@ -6,6 +6,7 @@
 #include "spindizzy_worlds_amiga/view/screen.hpp"
 #include "spindizzy_worlds_amiga/view/starfield.hpp"
 #include "spindizzy_worlds_amiga/view/tile_map.hpp"
+#include <functional>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -25,6 +26,7 @@ struct PlayInput {
     bool pause{};        // p ($11332: the palette dimmed until fire)
     bool hold{};         // [ ($1133C: the same without dimming)
     bool overview{};     // m ($1135A: the overview map until fire)
+    bool key{};          // any key pressed this frame (kept in $107A8 until read)
 };
 
 class PlayScreen {
@@ -32,10 +34,19 @@ public:
     enum class Outcome { playing, world_done, game_over };
 
     PlayScreen(const data::Assets&, const play::SurfaceTable&, play::Progress&);
+    // For a saved state: the level is read in by persist.
+    PlayScreen(const data::Assets&, const play::SurfaceTable&, play::Progress&, play::LevelPlay::Restore);
+
+    template <class A> void persist(A& ar) {
+        play_->persist(ar);
+        map_->persist(ar);
+        ar(map_build_, explorer_frame_, space_held_, clue_, notice_, paused_, dimmed_, overview_, held_, message_frames_, key_waiting_,
+           clue_frames_, outcome_);
+    }
 
     // One frame: the rules ticks (one in slow mode, two otherwise) and the
     // rest of the level loop.
-    void frame(const PlayInput&, bool slow);
+    void frame(const PlayInput&, bool slow, play::StickByte&);
     Outcome outcome() const { return outcome_; }
 
     // The whole screen (320 × 200): playfield, pillars, panel, a clue.
@@ -52,6 +63,10 @@ private:
     void open_overview(bool slow);
     void draw_view(view::Canvas&, const view::Camera&) const;
     void draw_playfield(view::Screen&) const;
+    void draw_live(view::Screen&) const;
+    void print_clue(view::Screen&) const;
+    // A wait's picture: the one on screen with its text printed over it.
+    void hold_picture(const std::function<void(view::Screen&)>& print);
 
     const data::Assets& assets_;
     const play::SurfaceTable& surfaces_;
@@ -67,8 +82,10 @@ private:
     bool paused_{};   // p or [: until fire ($109CC)
     bool dimmed_{};   // p dims the palette ($11074)
     std::optional<view::Screen> overview_; // m: until fire
+    std::optional<view::Screen> held_;          // the picture while a text waits
+    mutable std::optional<view::Screen> shown_; // the last picture drawn (not state)
     int message_frames_{-1}; // "Reserve fuel collected": frames left ($109E2)
-    bool fire_held_{};
+    bool key_waiting_{}; // a key in $107A8 not read yet
     int clue_frames_{};
     Outcome outcome_{Outcome::playing};
 };

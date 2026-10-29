@@ -154,6 +154,10 @@ LevelObjects::LevelObjects(const world::Level& level, const data::Memory& main, 
             if (!(parameter(placed, 1) & 0x80)) w.timer = std::uint16_t(seconds << 8 | 0xF0); // not "Relative"
             break;
         }
+        case ObjectKind::palette: // $1110E: a condition, then the palettes when it holds and when not
+            o.word26 = parameter_word(placed, 0);
+            o.word2c = parameter_word(placed, 2);
+            break;
         case ObjectKind::message: // $16002 (the editor's test mode $24BE deletes them)
             o.word2c = std::uint16_t(parameter(placed, 0) << 8);
             o.count = parameter(placed, 1) + 1;
@@ -203,6 +207,23 @@ LevelObjects::LevelObjects(const world::Level& level, const data::Memory& main, 
         if (o.alive) ++slot;
     }
     reapply(w);
+    // The kinds that never move project themselves once when made ($14A68,
+    // $14A96; exits unless invisible); lifts and heads do it every tick,
+    // creatures every frame; the rest keep $7FFF.
+    for (auto& o : objects_)
+        if (o.alive) project_still(o);
+}
+
+void LevelObjects::project_still(LevelObject& o) {
+    switch (o.kind) {
+    case ObjectKind::jewel: case ObjectKind::push_button: case ObjectKind::binary_switch: case ObjectKind::spark_generator:
+        o.sort = sort_of(o);
+        break;
+    case ObjectKind::exit_point: // not an invisible one (flags bit 7)
+        if (!(o.word2c & 0x8000)) o.sort = sort_of(o);
+        break;
+    default: break;
+    }
 }
 
 void LevelObjects::reapply(ObjectWorld& w) const {
@@ -266,6 +287,7 @@ void LevelObjects::rotate(int turns, ObjectWorld& w) {
         }
         default: break;
         }
+        if (o.alive) project_still(o); // their rotate handlers project them again
     }
     reapply(w); // secret passages at their new cells ($15430)
 }
@@ -282,6 +304,11 @@ void LevelObjects::tick(ObjectWorld& w, ObjectEvents& events) {
         case ObjectKind::heads: tick_heads(o, w, events); break;
         case ObjectKind::timer: tick_timer(o, w, events); break;
         case ObjectKind::message: tick_message(o, events); break;
+        case ObjectKind::palette: { // $11124: +$1A while the condition holds, else (or none) +$1B
+            const int chosen = o.word26 && condition_holds(o.word26, w.switches, w.jewels) ? o.word2c >> 8 : o.word2c & 0xFF;
+            if (w.palette) *w.palette = chosen & 3; // $11142: loaded when it changes ($11096, n & 3)
+            break;
+        }
         case ObjectKind::boink: tick_boink(o, w, events); break;
         case ObjectKind::pac: tick_pac(o, w, events); break;
         case ObjectKind::pyramid: tick_pyramid(o, w, events); break;
@@ -338,6 +365,7 @@ void LevelObjects::tick_lift(LevelObject& o, ObjectWorld& w, ObjectEvents& event
             o.word2e ^= 0x8000;
         }
     }
+    o.sort = sort_of(o); // $14E22
     // $14E26: the explorer on the platform or against its sides.
     auto& e = w.explorer;
     const std::uint16_t dx = std::uint16_t(e.x - o.x), dy = std::uint16_t(e.y - o.y);
@@ -440,6 +468,7 @@ void LevelObjects::tick_heads(LevelObject& o, ObjectWorld& w, ObjectEvents& even
     }
     if (moved) hear(o, events, 0x0A, loudness(o, w.explorer, true)); // $15A12
     o.z = std::int16_t(o.word30 + 0x300 + ((o.word2c & 0x8000) ? o.word2e : -o.word2e));
+    o.sort = sort_of(o); // $15A48
     // $15A4C: a solid block three levels tall below its top.
     auto& e = w.explorer;
     const std::uint16_t dx = std::uint16_t(e.x - o.x + 0x5A), dy = std::uint16_t(e.y - o.y + 0x5A);
@@ -586,7 +615,11 @@ void LevelObjects::tick_pac(LevelObject& o, ObjectWorld& w, ObjectEvents& events
         return;
     }
     if (o.eaten) { // $15774: rises for 32 ticks, then back at its start
-        if (--o.eaten > 0) { o.z = std::int16_t(o.z + 0x20); return; }
+        if (--o.eaten > 0) {
+            o.z = std::int16_t(o.z + 0x20);
+            o.sort = std::uint16_t(view::sort_value({o.x, o.y, o.z}) + 0xC); // $15792
+            return;
+        }
         o.z = std::int16_t(o.z - 0x3E0);
         o.x = std::int16_t(o.word34 & 0xFF00);
         o.y = std::int16_t(o.word34 << 8);
@@ -601,6 +634,8 @@ void LevelObjects::tick_pac(LevelObject& o, ObjectWorld& w, ObjectEvents& events
         if (w.explorer.timer_a != 0) { // $1571E: eaten while the explorer flashes from a jewel
             o.eaten = 0x20;
             w.explorer.timer_b = std::int16_t(std::min(w.explorer.timer_b + 1, 5));
+            o.eaten_picture = w.explorer.timer_b - 1; // $1574C: the score, 1 … 5
+            o.byte20 = 0xFF;                          // $15734: not drawn on the first frame
             events.sounds.push_back({1, 0x1D, 0x40}); // $1575E
             return;
         }
@@ -727,7 +762,16 @@ void LevelObjects::tick_message(LevelObject& o, ObjectEvents& events) { // $1602
 std::vector<view::SpritePlace> LevelObjects::masked_creature_places(const data::Memory& main) const {
     std::vector<view::SpritePlace> places;
     for (const auto& o : objects_) {
-        if (!o.alive || o.eaten || (o.kind != ObjectKind::boink && o.kind != ObjectKind::pac && o.kind != ObjectKind::pyramid)) continue;
+        if (!o.alive || (o.kind != ObjectKind::boink && o.kind != ObjectKind::pac && o.kind != ObjectKind::pyramid)) continue;
+        if (o.eaten) { // $100A2 with its score picture at +$12: 8 pixels left, 16 up
+            if (!o.eaten_drawn) continue;
+            auto place = view::project({o.x, o.y, o.z});
+            place.x -= 8;
+            place.y -= 0x10;
+            place.key = 0;
+            places.push_back(place);
+            continue;
+        }
         const std::uint32_t set = 0x146FC + std::uint32_t((o.word26 & 0x1C) / 4) * 24;
         const std::uint32_t pair = 0x146F8 + std::uint32_t(std::int16_t(main.u16(set + (o.popping ? 0x10 : 2))));
         auto place = view::project({o.x, o.y, o.z});
@@ -739,6 +783,15 @@ std::vector<view::SpritePlace> LevelObjects::masked_creature_places(const data::
     return places;
 }
 
+// +$18, the slot's sort value from its projection ($128CE): the
+// creatures' with their offsets ($156BE +$10, $15918 +$C).
+std::uint16_t LevelObjects::sort_of(const LevelObject& o) {
+    const int value = view::sort_value({o.x, o.y, o.z});
+    if (o.kind == ObjectKind::pac) return std::uint16_t(value + 0x10);
+    if (o.kind == ObjectKind::pyramid) return std::uint16_t(value + 0xC);
+    return std::uint16_t(value);
+}
+
 void LevelObjects::frame(const data::Memory& main, bool slow, const view::Camera& camera) {
     // $10058 for the animated kinds: jewels ($14BCA, their per-type list)
     // and exits shown ($15128, list $15140). The count is a byte; without
@@ -748,6 +801,13 @@ void LevelObjects::frame(const data::Memory& main, bool slow, const view::Camera
     constexpr std::uint32_t jewel_lists = 0x14C44, jewel_rows = 0x14C24, exit_list = 0x15140;
     for (auto& o : objects_) {
         if (!o.alive) continue;
+        if (o.kind == ObjectKind::pac && o.eaten) { // $157DC: no steps, no +$18
+            o.eaten_drawn = !(o.byte20 & 0x80);
+            o.byte20 &= 0x7F;
+            continue;
+        }
+        // The creatures' drawers set +$18 every frame ($152CE, $156C2, $1591C).
+        if (o.kind == ObjectKind::boink || o.kind == ObjectKind::pac || o.kind == ObjectKind::pyramid) o.sort = sort_of(o);
         std::uint32_t list = 0;
         auto place = view::project({o.x, o.y, o.z});
         place.x -= 16;

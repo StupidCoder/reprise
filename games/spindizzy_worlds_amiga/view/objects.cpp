@@ -216,6 +216,16 @@ std::vector<ObjectSprite> start_sprites(const world::Level& level, const world::
             // Pac aliens also settle on the block's surface ($12F62; flat
             // blocks add nothing, slopes are not rebuilt yet).
             const int heading = now.heading >= 0 ? now.heading : set; // the set byte + level rotation (0)
+            if (kind == world::ObjectKind::pac && now.eaten_picture >= 0) {
+                // $157DC: 16 × 8 at $25930 + n × $50, its corner 8 left and 16
+                // up from the projection ($15782), sorted + $C.
+                const WorldPosition at_now{now.x, now.y, where.z};
+                const auto p = project(at_now);
+                SpritePlace place{p.x - 8, p.y - 0x10, p.key};
+                sprites.push_back({object.kind, data::read_sprite_frame(main, 0x25930 + std::uint32_t(now.eaten_picture) * 0x50, 1, 8),
+                                   place, sort_value(at_now) + 0xC});
+                break;
+            }
             const int offset = kind == world::ObjectKind::pac ? 0x10 : kind == world::ObjectKind::pyramid ? 0xC : 0;
             sprites.push_back(creature(main, object.kind, set, heading, centre, now.step, offset, now.popping)); // $156BE, $15918, $152CE
             break;

@@ -64,6 +64,18 @@ rate apart from drawing.
    "Game  Over"; "Reserve fuel collected"; the overview map (m) and the
    plain pause ([). 13 runs equal tick for tick, both tunes over 1,500
    ticks.
+8. **Quick saves and the small differences** (2026-10-29): a quick save is
+   the whole state (`state::Archive`, field by field: the screen and its
+   own state, the level as it stands with its tile map, objects, explorer,
+   camera, stars and timers, both sound players and their channels;
+   about 330 KB in a level), never a replay. `drivefile`'s `check` loads
+   it into a second module and runs both: equal in state, picture and
+   sound in every stage tried. Then the stick byte $10A63 (changes only,
+   fire taken by the waits, cleared by the menus and the dying kind), keys
+   ending the waits, texts held over the picture on screen, +$18 and the
+   clue search in drawing order (equal in all 13 records), the eaten
+   Pac's score picture, palette objects (kind 16), the deadly timer after
+   "Use reserve fuel", "Wind back world".
 
 ## Remaining tasks
 
@@ -79,7 +91,8 @@ rate apart from drawing.
       Tri Path 8 equal over 800 ticks.
 - [x] Pyramids: walking, reversing, touch; Pak Attack 2/3 equal (touches
       in `play_w2_2t`).
-- [ ] A Pac touch and a Pac eaten while the explorer flashes, traced.
+- [ ] A Pac touch and a Pac eaten while the explorer flashes, traced (the
+      eaten score picture is drawn now, from $157DC; not seen yet).
 - [x] Spark generators (on/off by condition, touch: clue 9, $20 fuel a
       tick); Spindizzy! 1/2 equal, a touch to game over in `play_w22_1s`.
 - [x] Turning the level (r/t; the builder's offset table $125A8 makes
@@ -99,7 +112,11 @@ rate apart from drawing.
 - [x] "Reserve fuel collected" with the per cent added ($15186); seen at
       the end of the Tutorial (its level 15 is a bonus level).
 - [ ] The space-bar brake traced.
-- [ ] Palette objects (kind 16, unused by the levels) and $207E fades.
+- [x] Palette objects (kind 16, $11124): the level palette ($207E) by a
+      condition; there are no fades. No level uses one, so not seen.
+- [x] The deadly timer after "Use reserve fuel" ($12B58): the timer's
+      record becomes a dying explorer a pass ahead of the real one (not
+      traced).
 
 ### Front end
 
@@ -118,14 +135,19 @@ rate apart from drawing.
       load shows the statistics, then the menu ($18AD0); "Save game"
       after a world shows its menu again ($18CC6); the shell's load goes
       to the world map.
-- [ ] Wind back world ($36B0 − 2) and Create Data disk (decide whether to
-      keep them).
+- [x] Wind back world ($18B10: the last world done undone, $16D44, the
+      map). Create Data disk ($10AB0) is left out: the shell's saves do
+      its work.
 - [x] The panel's clue boxes ($1635E/$163BE), equal in every record.
 - [x] The timer's seconds on screen ($153C4) and the locked-world message
       ($1180A).
-- [ ] Menu input: the original takes the joystick byte each pass; the
-      port acts on presses. Its pass rate (not frame-locked) is guessed
-      as one a frame.
+- [x] Menu input: each pass takes the stick byte and clears it ($18086),
+      so a stick change acts once (fire first); the menus clear it when
+      they open ($17E5A). Only the timeout depends on the pass rate (not
+      frame-locked), guessed as one a frame.
+- [ ] The menus' keys (cursor up/down, Return, digits for number items,
+      $180B0) and the map's and Easy/Hard choice's reading of the stick
+      byte (they still take the joystick as held).
 
 ### Sound
 
@@ -144,6 +166,13 @@ rate apart from drawing.
 - [ ] Tunes 1 and 3 compared with the original (`sdw.py musictrace`), and
       the sample output with a recording of the original's audio.
 
+### Saves
+
+- [x] Quick save and load of the whole state (schema 2); version 1 saves
+      (between worlds) still load onto the map.
+- [ ] Save size on handhelds: pictures held by the front-end screens
+      (64,000 bytes each) could be rebuilt instead of stored.
+
 ### Enhancements (optional, off by default)
 
 - [ ] Widescreen: camera targets for wider views (the original's $88/$50
@@ -156,11 +185,6 @@ rate apart from drawing.
 - The front end's screens are checked by eye against reference screenshots
   and dumps, not pixel by pixel; the attract sprites' timing and the menu's
   flash rate are not compared.
-- The Pacs' eaten frames ($157DC: $25930 + ($24F6 − 1) × $50) are not
-  drawn yet (the view keeps their walking frames).
-- The clue search takes the objects in slot order; the original walks
-  them in drawing order ($358C), which differs only with two conditional
-  objects near the explorer at once.
 - The random generator starts at 0 at boot (the attract and menus draw
   no numbers in the code read); not checked against the original after
   a long front-end session.
@@ -170,23 +194,24 @@ rate apart from drawing.
   top without its lift, the clue boxes; of the Tutorial, levels 6, 7 and
   14 played through (their buttons, lifts, gates) and level 5's
   switches (only played natively).
-- The bonus notice, clue texts and "Reserve fuel collected" are drawn over
-  the live picture; the original prints them once into the shown buffer
-  (the same picture while the game waits).
+- The texts held over the picture on screen use the last picture the
+  shell asked for; a host that skips drawing a frame would hold an older
+  one (the original's shown buffer is always the last frame).
 - The Hard ending's eighth picture ($16B62 with d0 = 10, SELECT.SWP +
   $5140) lies past the file: the original blits whatever the level left
   in that RAM; the port leaves it out.
 - The breaking planet's picture under its first four frames is drawn at
   the size of its own depth; $16AC8 uses d6 as the drawing loop leaves
   it (not traced).
-- A deadly timer running out after "Use reserve fuel" ($24FC set): $12CE8
-  would remake the timer's record as the explorer ($12B58); not rebuilt.
-- The reserve message's wait ends on fire only; the original's $109E2
-  also ends on any key.
+- The timer's record remade as the dying explorer is counted after all
+  objects' ticks, not in its own slot's turn (only the game-over tick
+  could move).
 - The [ key: the shell's key matrix has no [ (the module listens on '@',
   matrix 46, which the host does not map yet; a shared change).
-- The fire tests of the dying countdown and waits read the held button;
-  the original reads the latched press ($10A63 bit 7).
+- The stick byte is read once a tick; the original's reader runs in the
+  CIA-B interrupt at 49.92 Hz, a little slower than the frames.
+- The locked-world message on the map still ends on a fresh fire press,
+  not through the stick byte.
 
 ## Open research items
 

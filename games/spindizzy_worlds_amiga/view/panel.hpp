@@ -33,6 +33,6 @@ void draw_pillars(Screen&, const data::Memory& main, int fuel_shown);
 
 // Sprite colours 16-31 as a level sets them ($189CA): palette 0 again,
 // colour 24 black.
-void set_level_palette(Screen&, const data::Graphics&);
+void set_level_palette(Screen&, const data::Graphics&, int palette = 0);
 
 } // namespace spindizzy::view

@@ -1,5 +1,6 @@
 #pragma once
 #include "spindizzy_worlds_amiga/data/assets.hpp"
+#include "spindizzy_worlds_amiga/play/explorer.hpp"
 #include "spindizzy_worlds_amiga/view/front.hpp"
 #include "spindizzy_worlds_amiga/view/screen.hpp"
 #include <cstdint>
@@ -20,6 +21,7 @@ public:
     // True when the player pressed something.
     bool frame(std::uint8_t joystick);
     void draw(view::Screen&) const;
+    template <class A> void persist(A& ar) { ar(page_, frames_, picture_, sprites_); }
 
 private:
     void start_page();
@@ -37,10 +39,14 @@ private:
 class Menu {
 public:
     Menu(const data::Assets&, const view::Screen& behind, std::uint32_t items, std::uint32_t header, int timeout);
-    // −2 still choosing, −1 timed out, else the item taken.
-    int frame(std::uint8_t joystick);
+    // −2 still choosing, −1 timed out, else the item taken. Takes the
+    // stick byte each pass ($18086: read, then cleared), so a stick change
+    // acts once: fire first, then up, down, left or right; the module
+    // clears the byte when a menu opens ($17E5A).
+    int frame(play::StickByte&);
     void draw(view::Screen&) const;
     bool slow_mode{true};
+    template <class A> void persist(A& ar) { ar(behind_, items_, header_, item_at_, chosen_, timeout_, counter_, slow_mode); }
 
 private:
     const data::Assets& assets_;
@@ -50,7 +56,6 @@ private:
     int chosen_{};
     int timeout_;
     int counter_{};    // $37B2
-    std::uint8_t last_{0xFF}; // what opened the menu must be let go first
 };
 
 // $11E52: both clusters drawn small; holding left or right lights one,
@@ -62,6 +67,7 @@ public:
     // 0 still choosing, 1 Easy, 2 Hard ($36B4).
     int frame(std::uint8_t joystick);
     void draw(view::Screen&) const;
+    template <class A> void persist(A& ar) { ar(picture_, lit_, fire_down_); }
 
 private:
     const data::Assets& assets_;
@@ -84,6 +90,7 @@ public:
     // nothing is chosen. True once the frames are over.
     bool break_frame(std::uint8_t joystick, bool slow);
     view::ClusterView::Turn turn() const { return cluster_.turn(); }
+    template <class A> void persist(A& ar) { ar(planets_, shown_, cluster_, size_, break_frames_, chosen_, released_, refused_); }
     // $11798: a locked world's message over the map until fire.
     void refuse() { refused_ = true; released_ = false; }
     void draw(view::Screen&) const;
@@ -101,7 +108,10 @@ private:
 };
 
 // An effect asked of the effects player (the request block $36D2).
-struct EffectRequest { int channel, effect, volume; };
+struct EffectRequest {
+    int channel{}, effect{}, volume{};
+    template <class A> void persist(A& ar) { ar(channel, effect, volume); }
+};
 
 // $17CBE, once every world of the cluster is done: "Well done!" over the
 // last map, effect 1 on channels 0-2 ($17CA0), 151 frames. Easy ($17D74,
@@ -114,10 +124,12 @@ struct EffectRequest { int channel, effect, volume; };
 class Ending {
 public:
     Ending(const data::Assets&, const view::Screen& shown, bool easy);
-    // True once it is over.
-    bool frame(std::uint8_t joystick);
+    // True once it is over. `wait_over`: a key or the stick's fire taken
+    // (the module's $109CC test), read only while the Easy ending waits.
+    bool frame(bool wait_over);
     void draw(view::Screen& s) const { s = screen_; }
     std::vector<EffectRequest> sounds; // this frame's, taken by the module
+    template <class A> void persist(A& ar) { ar(screen_, easy_, frames_, picture_, sounds); }
 
 private:
     void effects_on_three();          // $17CA0
@@ -126,7 +138,6 @@ private:
     bool easy_;
     int frames_{};
     int picture_{};                   // d0 of $17CEE: 0-7
-    bool fire_held_{true};
 };
 
 // A world done as $16B8C records it ($36B6 lists): its number, the fuel
@@ -135,6 +146,7 @@ struct WorldRecord {
     int world{};
     int fuel{}, reserve{};
     int found{}, taken{};
+    template <class A> void persist(A& ar) { ar(world, fuel, reserve, found, taken); }
 };
 
 // $16DA4 ("Check performance", and after each world): "You have not

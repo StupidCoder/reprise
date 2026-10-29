@@ -118,14 +118,13 @@ Menu::Menu(const data::Assets& assets, const view::Screen& behind, std::uint32_t
     if (header_) text.print(behind_, header_);
 }
 
-int Menu::frame(std::uint8_t joystick) {
-    // $18086: the joystick byte is taken once; here a press is a change.
-    const std::uint8_t pressed = joystick & ~last_;
-    last_ = joystick;
-    if (pressed & 0x80) return chosen_;
-    if (pressed & 1) chosen_ = std::max(chosen_ - 1, 0);
-    if (pressed & 2) chosen_ = std::min(chosen_ + 1, int(item_at_.size()) - 1);
-    if (pressed & 0x0C) {
+int Menu::frame(play::StickByte& stick) {
+    const std::uint8_t taken = stick.byte;
+    stick.byte = 0;
+    if (taken & 0x80) return chosen_;
+    if (taken & 1) chosen_ = std::max(chosen_ - 1, 0);                              // $180C6
+    else if (taken & 2) chosen_ = std::min(chosen_ + 1, int(item_at_.size()) - 1);  // $180DA
+    else if (taken & 0x0C) { // $18100 / $1810E: the value ± 1
         const std::uint32_t next = item_at_[std::size_t(chosen_)] + assets_.main.u16(item_at_[std::size_t(chosen_)]);
         if (assets_.main.u16(next - 2) == 0x4000) slow_mode = !slow_mode; // a bit item: $17EA4
     }
@@ -255,17 +254,14 @@ void Ending::effects_on_three() {
     for (int channel = 0; channel < 3; ++channel) sounds.push_back({channel, 1, 0x40});
 }
 
-bool Ending::frame(std::uint8_t joystick) {
+bool Ending::frame(bool wait_over) {
     constexpr int shown_frames = 0x96 + 1; // $17CD4: $10A1E waits d0 + 1 frames
     constexpr int zoom_frames = 0x2F + 1, last_frames = 8 + 1; // $17CEC, $17D3A
     constexpr std::uint32_t frame_effects = 0x17C62;
     const int n = frames_++;
     if (easy_) {
         if (n < shown_frames + 0x32 + 1) return false; // $17D52: 51 more
-        const bool fire = joystick & 0x80;             // $109CC: then fire
-        const bool pressed = fire && !fire_held_;
-        fire_held_ = fire;
-        return pressed;
+        return wait_over;                              // $109CC: then a key or fire
     }
     if (n < shown_frames) return false;
     const int k = n - shown_frames;

@@ -25,6 +25,7 @@ private:
 struct Star {
     int x{}, y{};           // screen pixels
     std::uint16_t clear{};  // the word's bits that must be background ($15B96 by x & 15)
+    template <class A> void persist(A& ar) { ar(x, y, clear); }
 };
 
 // $15AFC: `count` stars (the first parameter); a non-zero seed (the second,

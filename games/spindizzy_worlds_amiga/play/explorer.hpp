@@ -27,6 +27,24 @@ constexpr std::uint8_t right = 0x08; // +y
 constexpr std::uint8_t fire = 0x80;  // doubles the push on the ground
 } // namespace stick
 
+// The joystick byte $10A63 as the game reads it: the reader ($104C0, from
+// the CIA-B interrupt) rewrites it only when the stick changes ($10A64
+// keeps the last read); the waits take its fire bit away ($109CC, $109E2:
+// bclr #7) and the dying kind clears it ($12CCC), so fire counts again
+// only once the stick changes. The explorer steers by it too.
+struct StickByte {
+    std::uint8_t byte{}, last{}; // $10A63, $10A64
+    void read(std::uint8_t now) {
+        if (now != last) byte = last = now;
+    }
+    bool take_fire() {
+        const bool fire = byte & stick::fire;
+        byte = std::uint8_t(byte & ~stick::fire);
+        return fire;
+    }
+    template <class A> void persist(A& ar) { ar(byte, last); }
+};
+
 // Contact flags ($2510), set by the surface the explorer touches this tick.
 namespace contact {
 constexpr std::uint16_t grounded = 0x8000; // on a top (landing sound, respawn point)
@@ -55,6 +73,11 @@ struct Explorer {
     std::int16_t respawn_x{}, respawn_y{}, respawn_z{}; // $24CC
     std::int16_t timer_a{}, timer_b{}, arrival_ticks{}; // $24F4, $24F6, $24F2
     std::int16_t falling_speed{};        // $24D2: vz's whole part before the top acted
+    template <class A> void persist(A& ar) {
+        ar(x, y, z, vx, vy, vz, contact, previous_contact, friction, on_surface, floor_block, floor_base, column_x, column_y,
+           wall_level, ice_ticks, brake_lock, brake_requested, respawn_x, respawn_y, respawn_z, timer_a, timer_b,
+           arrival_ticks, falling_speed);
+    }
 };
 
 // What a tick did besides moving the explorer.

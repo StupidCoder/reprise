@@ -29,6 +29,8 @@ public:
     std::span<const std::int8_t> memory() const { return memory_; }
     // The effect a channel plays ($36EA + n; −1 none).
     int playing(int channel) const { return channels_[std::size_t(channel & 3)].playing; }
+    // The players' state (the file's samples are not part of it).
+    template <class A> void persist(A& ar) { ar(channels_); }
 
 private:
     struct Channel {
@@ -44,6 +46,10 @@ private:
         int envelope{};                   // $36AE + 2n: envelope offset
         int position{}, countdown{}, repeats{}; // $36B6, $36BA, $36BE + n
         int period{};                     // $36CA + 2n
+        template <class A> void persist(A& ar) {
+            ar(requested, volume, busy, duration, sample, playing, start, repeat, length, repeat_length, envelope_volume,
+               envelope, position, countdown, repeats, period);
+        }
     };
     std::uint8_t byte(std::uint32_t address) const { return file_[address - 0x3400]; }
     std::uint16_t word(std::uint32_t address) const { return std::uint16_t(byte(address) << 8 | byte(address + 1)); }

@@ -13,6 +13,7 @@ namespace spindizzy::view {
 struct Camera {
     int scroll_x{}; // $2570
     int scroll_y{}; // $2572
+    template <class A> void persist(A& ar) { ar(scroll_x, scroll_y); }
 
     // The window's left and top in map pixels (as draw_playfield takes them).
     int left() const { return scroll_x - 16; }

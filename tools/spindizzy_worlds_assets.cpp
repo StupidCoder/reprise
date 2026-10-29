@@ -369,6 +369,8 @@ int play_check(const spindizzy::data::Assets& assets, const std::filesystem::pat
         for (const auto& o : lp->objects().objects()) {
             if (!o.alive) continue;
             used[std::size_t(o.slot)] = true;
+            if (o.kind != world::ObjectKind::starfield) // +$18, the draw order's key
+                fields.push_back({"slot" + std::to_string(o.slot) + " +18", o.sort, m.u16(0x258C + o.slot * 0x40 + 0x18)});
             if (o.kind == world::ObjectKind::starfield || o.kind == world::ObjectKind::clue) continue; // fields reused
             const int r = 0x258C + o.slot * 0x40;
             const std::string n = "slot" + std::to_string(o.slot) + " " + std::string(world::object_kind_name(int(o.kind)));
@@ -776,7 +778,7 @@ int main(int argc, char** argv) {
             // drivefile <content> <out folder> <file>: BITS:FRAMES items from
             // a file; "!" saves a picture (shotNN.png), the last frame too;
             // "state:<file>" loads a saved state; "kNN" holds matrix key NN
-            // for one frame.
+            // for one frame; "check" tests a quick save (above).
             auto module = spindizzy::game::start(platform::utf8_path(argv[2]));
             const auto out = platform::utf8_path(argv[3]);
             std::filesystem::create_directories(out);
@@ -784,11 +786,34 @@ int main(int argc, char** argv) {
             std::string item;
             int shots = 0;
             std::vector<float> sound; // 44.1 kHz stereo, written to audio.wav
+            // "check": a quick save loaded into a second module, which then
+            // runs beside the first; every frame their saved states, pictures
+            // and sound must be the same.
+            std::unique_ptr<app::GameModule> twin;
+            long frames = 0, checked = 0;
+            bool differed = false;
             auto run = [&](const app::GameInput& input) {
                 module->tick(input);
                 std::vector<float> frame(882 * 2);
                 module->audio(frame, 44100);
                 sound.insert(sound.end(), frame.begin(), frame.end());
+                ++frames;
+                if (!twin || differed) return;
+                twin->tick(input);
+                std::vector<float> other(882 * 2);
+                twin->audio(other, 44100);
+                const auto a = module->picture(), b = twin->picture();
+                const bool same_state = module->write_state() == twin->write_state();
+                bool same_picture = a.pixels.size() == b.pixels.size();
+                for (std::size_t i = 0; same_picture && i < a.pixels.size(); ++i)
+                    same_picture = a.pixels[i].r == b.pixels[i].r && a.pixels[i].g == b.pixels[i].g && a.pixels[i].b == b.pixels[i].b;
+                const bool same_sound = frame == other;
+                if (!same_state || !same_picture || !same_sound) {
+                    std::printf("frame %ld: the loaded game differs (%s%s%s)\n", frames, same_state ? "" : "state ",
+                                same_picture ? "" : "picture ", same_sound ? "" : "sound");
+                    differed = true;
+                }
+                ++checked;
             };
             auto shot = [&] {
                 char name[32];
@@ -801,6 +826,16 @@ int main(int argc, char** argv) {
                     std::ifstream in(item.substr(6), std::ios::binary);
                     const std::vector<std::uint8_t> bytes{std::istreambuf_iterator<char>(in), {}};
                     module->read_state(bytes);
+                    continue;
+                }
+                if (item == "check") {
+                    const auto saved = module->write_state();
+                    twin = spindizzy::game::start(platform::utf8_path(argv[2]));
+                    twin->read_state(saved);
+                    std::printf("frame %ld: saved %zu bytes, loaded%s\n", frames, saved.size(),
+                                twin->write_state() == saved ? " (saved again: the same bytes)" : " (saved again: DIFFERENT)");
+                    differed = false;
+                    checked = 0;
                     continue;
                 }
                 if (item[0] == 'k') { // a key of the C64 matrix held for one frame
@@ -817,6 +852,7 @@ int main(int argc, char** argv) {
                 for (int f = 0; f < frames; ++f) run(input);
             }
             shot();
+            if (twin) std::printf("%ld frames checked after the load%s\n", checked, differed ? " (stopped at the first difference)" : ", all the same");
             {
                 std::ofstream wav(out / "audio.wav", std::ios::binary);
                 auto u32 = [&](std::uint32_t v) { wav.write(reinterpret_cast<const char*>(&v), 4); };
@@ -851,7 +887,7 @@ int main(int argc, char** argv) {
                     std::snprintf(name, sizeof name, "ending%03d.png", frame);
                     platform::save_png(s.image(), out / name);
                 }
-                if (ending.frame(frame == last ? 0x80 : 0)) { std::printf("over after frame %d\n", frame); break; }
+                if (ending.frame(frame == last)) { std::printf("over after frame %d\n", frame); break; }
             }
             return 0;
         }

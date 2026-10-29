@@ -1,4 +1,5 @@
 #include "spindizzy_worlds_amiga/game/play_screen.hpp"
+#include <utility>
 #include "spindizzy_worlds_amiga/view/panel.hpp"
 #include "spindizzy_worlds_amiga/view/playfield.hpp"
 #include "spindizzy_worlds_amiga/view/text.hpp"
@@ -35,66 +36,94 @@ PlayScreen::PlayScreen(const data::Assets& assets, const play::SurfaceTable& sur
     start_level();
 }
 
+PlayScreen::PlayScreen(const data::Assets& assets, const play::SurfaceTable& surfaces, play::Progress& progress,
+                       play::LevelPlay::Restore restore)
+    : assets_(assets), surfaces_(surfaces), progress_(progress),
+      play_(std::make_unique<play::LevelPlay>(assets, surfaces, progress, restore)), map_(std::make_unique<view::TileMap>()) {}
+
 void PlayScreen::start_level() {
+    shown_.reset();
     play_ = std::make_unique<play::LevelPlay>(assets_, surfaces_, progress_);
     map_ = std::make_unique<view::TileMap>(view::TileMap::build(play_->level().grid, assets_.graphics));
     map_build_ = play_->build_count();
 }
 
-void PlayScreen::frame(const PlayInput& input, bool slow) {
+void PlayScreen::frame(const PlayInput& input, bool slow, play::StickByte& stick) {
     if (outcome_ != Outcome::playing) return;
-    const bool fire_now = input.joystick & play::stick::fire;
-    const bool fire_pressed = fire_now && !fire_held_;
-    fire_held_ = fire_now;
-    if (message_frames_ >= 0) { // $109E2: until d7 + 1 frames are over or fire
-        if (fire_now || --message_frames_ <= 0) {
+    if (input.key) key_waiting_ = true;
+    // $109CC / $109E2 poll the key ($109B2 reads and clears $107A8) and
+    // take the stick's fire bit.
+    auto wait_over = [&] { return std::exchange(key_waiting_, false) | stick.take_fire(); };
+    if (message_frames_ >= 0) { // $109E2: until a key, fire or d7 + 1 frames
+        if (wait_over() || --message_frames_ <= 0) {
             message_frames_ = -1;
+            held_.reset();
             finish_level();
         }
         return;
     }
-    if (notice_) { // $109CC: until fire
-        if (fire_now) notice_ = false;
+    if (notice_) { // $109CC: until a key or fire
+        if (!wait_over()) return;
+        notice_ = false;
+        held_.reset();
         return;
     }
-    if (overview_) { // $113FA: until fire, then the level loop goes on
-        if (!fire_pressed) return;
+    bool resumed = false;
+    if (overview_) { // $113FA: until a key or fire, then the level loop goes on
+        if (!wait_over()) return;
         overview_.reset();
+        resumed = true;
     }
-    if (paused_) { // $1133C: until fire, then the palette back ($1106E)
-        if (fire_pressed) paused_ = false;
-        return;
+    if (paused_) { // $1133C: until a key or fire, the palette back ($1106E), the ticks
+        if (!wait_over()) return;
+        paused_ = false;
+        resumed = true;
     }
-    if (input.pause || input.hold) {
-        paused_ = true;
-        dimmed_ = input.pause;
-        return;
-    }
-    if (input.overview && !(play_->level_flags() & 0x4000)) { // header bit 14: "Disable Mapper"
-        open_overview(slow);
-        return;
-    }
-    if (input.centre) play_->centre();
-    if (clue_) { // the game waits inside $15FC0
+    if (clue_) { // the game waits inside $15FC0: 26 frames, then $109E2
         ++clue_frames_;
-        const bool fire = input.joystick & play::stick::fire;
-        if (clue_frames_ >= clue_hold + clue_wait || (clue_frames_ > clue_hold && fire)) clue_.reset();
+        if (clue_frames_ <= clue_hold) return;
+        if (!wait_over() && clue_frames_ < clue_hold + clue_wait) return;
+        // The rest of the frame ran when the clue came up, so this one ends here.
+        clue_.reset();
+        held_.reset();
         return;
+    }
+    if (!resumed) {
+        // The level loop's key ($112F6, once a frame).
+        key_waiting_ = false;
+        if (input.pause || input.hold) {
+            paused_ = true;
+            dimmed_ = input.pause;
+            return;
+        }
+        if (input.overview && !(play_->level_flags() & 0x4000)) { // header bit 14: "Disable Mapper"
+            open_overview(slow);
+            return;
+        }
+        if (input.centre) play_->centre();
     }
     if (input.turn) play_->turn(input.turn);
     if (input.space && !space_held_) play_->brake();
     space_held_ = input.space;
     for (int tick = 0; tick < (slow ? 1 : 2) && !play_->ended() && !notice_; ++tick) {
-        play_->tick(input.joystick);
+        play_->tick(stick.byte);
+        if (play_->take_stick_clear()) stick.byte = 0;
         if (auto clue = play_->take_clue()) {
             clue_ = clue->number;
             clue_frames_ = 0;
+            hold_picture([&](view::Screen& screen) { print_clue(screen); });
         }
     }
     // The rest of the level loop: camera, fuel, frame handlers, rebuilds.
     play_->frame(slow);
     explorer_frame_ = play_->explorer_frame(assets_.main, slow);
-    if (play_->take_notice()) notice_ = true; // drawn by its frame handler
+    if (play_->take_notice()) { // printed by its frame handler ($13862), then $109CC
+        notice_ = true;
+        hold_picture([&](view::Screen& screen) {
+            view::TextPrinter text(assets_.main);
+            text.print(screen, 0x13888);
+        });
+    }
     if (play_->build_count() != map_build_) {
         map_ = std::make_unique<view::TileMap>(view::TileMap::build(play_->level().grid, assets_.graphics));
         map_build_ = play_->build_count();
@@ -106,6 +135,7 @@ void PlayScreen::frame(const PlayInput& input, bool slow) {
         view::Screen scratch;
         const auto text = print_reserve(scratch, assets_.main, progress_);
         message_frames_ = text.height() + text.row + 1;
+        hold_picture([&](view::Screen& screen) { print_reserve(screen, assets_.main, progress_); });
         return;
     }
     finish_level();
@@ -167,6 +197,10 @@ void PlayScreen::draw_view(view::Canvas& canvas, const view::Camera& camera) con
             state.z = o.z;
             state.shown = o.byte20 != 0;
             if (o.kind == world::ObjectKind::boink || o.kind == world::ObjectKind::pac || o.kind == world::ObjectKind::pyramid) { state.x = o.x; state.y = o.y; state.heading = o.heading & 3; state.popping = o.popping; }
+            if (o.kind == world::ObjectKind::pac && o.eaten) {
+                state.gone = !o.eaten_drawn;
+                state.eaten_picture = o.eaten_picture;
+            }
             break;
         }
         return state;
@@ -183,8 +217,41 @@ void PlayScreen::draw(view::Screen& screen) const {
         screen = *overview_;
         return;
     }
+    if (held_) {
+        screen = *held_;
+        return;
+    }
+    draw_live(screen);
+    shown_ = screen;
+}
+
+// The texts are printed once into the shown buffer ($379C: the picture
+// on screen, the frame before) and stay while the game waits.
+void PlayScreen::hold_picture(const std::function<void(view::Screen&)>& print) {
+    view::Screen screen;
+    if (shown_) screen = *shown_;
+    else draw_live(screen);
+    print(screen);
+    held_ = std::move(screen);
+}
+
+void PlayScreen::print_clue(view::Screen& screen) const {
+    // $15FC0: the clue's text ($15F94 picks it from the list at $15CDA by
+    // its number).
+    view::TextPrinter text(assets_.main);
+    text.to_hidden = false;
+    std::uint32_t at = 0x15CDA;
+    while (assets_.main.u8(at) != 0 && assets_.main.u8(at) != std::uint8_t(*clue_)) {
+        ++at;
+        while (assets_.main.u8(at) != 0) ++at;
+        ++at;
+    }
+    if (assets_.main.u8(at) == std::uint8_t(*clue_)) text.print(screen, at + 1);
+}
+
+void PlayScreen::draw_live(view::Screen& screen) const {
     screen.fill(0);
-    view::set_level_palette(screen, assets_.graphics);
+    view::set_level_palette(screen, assets_.graphics, play_->palette());
     if (paused_ && dimmed_) // $11074: each ST colour word less its ror by 1 & $777, then doubled
         for (std::size_t i = 0; i < 16; ++i) {
             const int st = screen.palette[i] >> 1;
@@ -195,23 +262,6 @@ void PlayScreen::draw(view::Screen& screen) const {
     view::draw_compass(screen, assets_.main, progress_.rotation);
     view::draw_clue(screen, assets_.main, progress_.clue_word);
     view::draw_pillars(screen, assets_.main, progress_.fuel_shown);
-    if (clue_) {
-        // $15FC0: the clue's text over the playfield ($15F94 picks it from
-        // the list at $15CDA by its number).
-        view::TextPrinter text(assets_.main);
-        text.to_hidden = false;
-        std::uint32_t at = 0x15CDA;
-        while (assets_.main.u8(at) != 0 && assets_.main.u8(at) != std::uint8_t(*clue_)) {
-            ++at;
-            while (assets_.main.u8(at) != 0) ++at;
-            ++at;
-        }
-        if (assets_.main.u8(at) == std::uint8_t(*clue_)) text.print(screen, at + 1);
-    }
-    if (notice_) {
-        view::TextPrinter text(assets_.main);
-        text.print(screen, 0x13888);
-    }
     if (play_->dying()) { // $12D22: not over the overview map ($249E)
         view::TextPrinter text(assets_.main);
         text.print(screen, 0x12D68);
@@ -220,7 +270,6 @@ void PlayScreen::draw(view::Screen& screen) const {
         view::TextPrinter text(assets_.main);
         text.print(screen, 0x153F6);
     }
-    if (message_frames_ >= 0) print_reserve(screen, assets_.main, progress_);
     // $153C4: a timer's seconds, right-aligned at column 20, row 6, in the
     // printer's state the panel left (bank 2, normal size).
     for (const auto& o : play_->objects().objects()) {

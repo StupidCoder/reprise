@@ -64,6 +64,7 @@ struct LevelHeader {
     std::uint16_t second{};
     std::uint16_t flags{};   // $24B8: bit 15 must be set for $12018; bit 12 tested at $11FE4
     std::uint16_t fourth{};
+    template <class A> void persist(A& ar) { ar(first, second, flags, fourth); }
 };
 
 // A world ("Cluster" file): numbered levels built from command lists, and

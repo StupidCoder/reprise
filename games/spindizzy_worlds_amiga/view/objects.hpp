@@ -31,6 +31,7 @@ struct ObjectState {
     bool shown{};        // +$20: exits shown; spark generators fired (hidden)
     bool gone{};         // the slot was freed (a jewel taken) or never made
     bool popping{};      // a creature touched: its pop list ($147E2, pair +$10)
+    int eaten_picture{-1}; // a Pac eaten: its score picture ($157DC), drawn instead
 };
 
 // Sprites sorted for drawing (sort value, then level order, as $1440E

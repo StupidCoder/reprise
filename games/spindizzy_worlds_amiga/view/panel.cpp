@@ -112,9 +112,11 @@ void draw_pillars(Screen& screen, const data::Memory& main, int fuel_shown) {
     }
 }
 
-void set_level_palette(Screen& screen, const data::Graphics& graphics) {
+void set_level_palette(Screen& screen, const data::Graphics& graphics, int palette) {
+    // Colours 0-15 the level palette ($11096: $110AE + (n & 3) × 32), the
+    // sprites' 16-31 always palette 0.
     for (std::size_t i = 0; i < 16; ++i) {
-        screen.palette[i] = graphics.palettes[0][i];
+        screen.palette[i] = graphics.palettes[std::size_t(palette & 3)][i];
         screen.palette[16 + i] = graphics.palettes[0][i];
     }
     screen.palette[24] = 0;

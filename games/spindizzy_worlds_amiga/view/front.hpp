@@ -28,6 +28,7 @@ struct AttractSprite {
     int countdown{};      // +$A
     int period{};         // +$C
     int entry{};          // +$2E / 2
+    template <class A> void persist(A& ar) { ar(wide, rows, frames, list, offset, countdown, period, entry); }
 };
 std::vector<AttractSprite> read_attract_sprites(const data::Memory& main, std::uint32_t address);
 // One object tick ($17A1E): when its countdown passes zero it shows its
@@ -39,6 +40,7 @@ struct Planet {
     std::int16_t x{}, y{}, z{};
     int picture{};  // 0-3 ($7D0 each at SELECT.SWP + $1404); −1 the "?" one ($3344)
     int world{};
+    template <class A> void persist(A& ar) { ar(x, y, z, picture, world); }
 };
 std::vector<Planet> read_cluster(const data::Memory& main, std::uint32_t list);
 
@@ -50,7 +52,10 @@ public:
     // The three angles ($166EC, $166F0, $166F4): never reset, so the map
     // keeps its turn from one visit to the next (only the speeds are
     // cleared, $1169A).
-    struct Turn { std::int32_t angle[3]{}; };
+    struct Turn {
+        std::int32_t angle[3]{};
+        template <class A> void persist(A& ar) { ar(angle); }
+    };
     Turn turn() const { return {{angle_[0], angle_[1], angle_[2]}}; }
     void set_turn(const Turn& t) { for (int i = 0; i < 3; ++i) angle_[i] = t.angle[i]; }
 
@@ -67,11 +72,21 @@ public:
     // the list's last entry ($FF ticks) is reached $16AA6 removes it.
     void break_up(int index) { breaking_ = index; break_ticks_ = 4; break_entry_ = 0; break_gone_ = false; }
     void step_break_up(const data::Memory& main, int steps, bool slow);
+
+    template <class A> void persist(A& ar) {
+        ar(placed_, chosen_, angle_, speed_, spin_, breaking_, break_ticks_, break_entry_, break_offset_, break_under_,
+           break_gone_, break_removed_);
+    }
     // Draws the box, the shadows and the planets of the last update.
     void draw(Canvas&, const data::Assets&, const data::Memory& main, const std::vector<Planet>&) const;
 
 private:
-    struct Placed { int index; std::int16_t x, y, z; std::uint16_t sort; };
+    struct Placed {
+        int index{};
+        std::int16_t x{}, y{}, z{};
+        std::uint16_t sort{};
+        template <class A> void persist(A& ar) { ar(index, x, y, z, sort); }
+    };
     std::vector<Placed> placed_;
     int chosen_{-1};
     std::int32_t angle_[3]{};   // $166EC, $166F0, $166F4 (16.16, index = whole part & $FF)

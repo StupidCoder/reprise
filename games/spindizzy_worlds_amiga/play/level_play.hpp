@@ -22,6 +22,7 @@ enum class ExplorerPhase { playing, arriving, lost, out_of_fuel };
 struct ListStepper {
     int count{1};
     int entry{};
+    template <class A> void persist(A& ar) { ar(count, entry); }
     // One drawn frame (slow mode: one count per frame); the frame offset.
     std::uint32_t advance(const data::Memory& main, std::uint32_t list, bool slow = true);
 };
@@ -33,6 +34,7 @@ struct FuelCosts {
     std::int16_t unknown{};     // $205E (not read in the code traced)
     std::int16_t death{};       // $2060
     std::int16_t alien{};       // $2062
+    template <class A> void persist(A& ar) { ar(first_visit, unknown, death, alien); }
 };
 
 // What a world's play keeps from level to level.
@@ -70,11 +72,18 @@ struct Progress {
 
     // $16D44 for a world's start and $10E1E (the difficulty's fuel costs).
     void start_world(const data::Memory& main, int number, int difficulty);
+
+    template <class A> void persist(A& ar) {
+        ar(world, level, fuel, fuel_shown, clue_word, clue_counter, fuel_change, drain, reserve, reserve_at_start, jewel_fuel,
+           costs, difficulty, level_jewels, jewels, jewels_found, jewels_taken, switches, timer, timer_expired, clues_left,
+           rotation, random, turn_side, arrival_place, game_over, explorer, sounds, heard_last);
+    }
 };
 
 // A clue or message to show over the playfield ($15FC0): the game waits.
 struct ShownClue {
-    int number;
+    int number{};
+    template <class A> void persist(A& ar) { ar(number); }
 };
 
 class LevelPlay {
@@ -82,6 +91,18 @@ public:
     // $11F72: builds `progress.level` of the world, creates the explorer
     // (kind −4) and the objects, places the explorer ($12714).
     LevelPlay(const data::Assets&, const SurfaceTable&, Progress&);
+    // For a saved state: the level of `progress` with nothing built; its
+    // state comes from persist (a quick save holds the whole level).
+    struct Restore {};
+    LevelPlay(const data::Assets&, const SurfaceTable&, Progress&, Restore);
+
+    // The level's run-time state (`progress` is the caller's to keep).
+    template <class A> void persist(A& ar) {
+        ar(header_, level_, level_flags_);
+        objects_->persist(ar);
+        ar(condition_results_, phase_, phase_ticks_, stepper_, spin_, flash_, running_, timer_dying_, reserve_message_,
+           timer_word_, palette_, reserve_used_, timer_explorer_ticks_, joystick_, moved_, notice_, camera_, stars_, clue_, builds_);
+    }
 
     // One rules tick ($11510): the explorer, the objects, the rest of the
     // explorer's tick.
@@ -121,6 +142,10 @@ public:
     // that ran out with "Die if elapse" prints "TIME OUT" ($153F6).
     bool dying() const { return phase_ == ExplorerPhase::out_of_fuel; }
     bool time_out() const { return timer_dying_; }
+    // $207E: the level palette shown (0 at the level's start, $11FA4; palette objects change it).
+    int palette() const { return palette_; }
+    // The explorer began dying this tick: the stick byte is cleared ($12CCC).
+    bool take_stick_clear() { const bool c = stick_clear_; stick_clear_ = false; return c; }
     // An exit or timer to another level with header bit 12 ("Add reserve
     // fuel"): its frame shows "Reserve fuel collected" ($15186), once.
     bool take_reserve_message() { const bool m = reserve_message_; reserve_message_ = false; return m; }
@@ -166,6 +191,10 @@ private:
     bool running_{true}; // $2498
     bool timer_dying_{};          // the timer's frame handler is $153EA
     bool reserve_message_{};
+    bool stick_clear_{};
+    int palette_{};
+    bool reserve_used_{};         // $24FC: "Use reserve fuel", until the explorer dies again
+    int timer_explorer_ticks_{-1}; // the timer's record remade as the dying explorer ($12B58): its +$2C
     std::uint16_t timer_word_{};  // that timer's +$2C, counted down
     std::uint8_t joystick_{};     // the last tick's (for the fire latch $10A63)
     bool moved_{};

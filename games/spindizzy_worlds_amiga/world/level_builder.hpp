@@ -26,6 +26,11 @@ struct CellLook {
     bool lowered{};   // bit 6 (attribute bits 0 and 1): its pieces start one row lower
     bool base{};      // bit 7: the lowest cell of a block's column, gets a base row
     int depth{};      // bits 0-1: a column cell's distance below its block (piece variant)
+    template <class A> void persist(A& ar) {
+        std::uint8_t d = std::uint8_t(depth);
+        ar(in_front, lowered, base, d);
+        depth = d;
+    }
 };
 
 class LevelGrid {
@@ -41,6 +46,7 @@ public:
     void set_type(int x, int y, int z, std::uint8_t type) { cells_[index(x, y, z)] = type; }
     // The highest occupied cell of a column, or -1.
     int top(int x, int y) const;
+    template <class A> void persist(A& ar) { ar(cells_, looks_); }
 
 private:
     static std::size_t index(int x, int y, int z) { // the original's x*256 + y*8 + z
@@ -56,6 +62,7 @@ struct PlacedObject {
     int x{}, y{}, z{};
     int kind{};
     std::vector<std::uint8_t> parameters;
+    template <class A> void persist(A& ar) { ar(x, y, z, kind, parameters); }
 };
 
 // The switch state conditional macros test ($16266). The defaults are the
@@ -72,12 +79,14 @@ struct Switches {
     // jewels", "jew NOTgone", "use push", "push switch", "NOT pushed", "use
     // binary" and "Val / Mask").
     bool holds(std::uint16_t condition) const;
+    template <class A> void persist(A& ar) { ar(conditions_enabled, jewels_left, primary, secondary, binary); }
 };
 
 struct Level {
     LevelGrid grid;
     std::vector<PlacedObject> objects;
     std::vector<std::uint16_t> conditions; // the condition words met while building, in order ($162D8)
+    template <class A> void persist(A& ar) { ar(grid, objects, conditions); }
 };
 
 // `rotation`: the level's quarter turns ($248B; the r and t keys).

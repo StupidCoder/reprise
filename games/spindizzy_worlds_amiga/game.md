@@ -348,6 +348,19 @@ insertion sort on (+$18 << 16 | slot offset)) and $143B6 calls the frame
 handlers in that order (records from $258C(a5); slot 1 = $25CC = the
 explorer). $143B6 leaves early through $13358 at the first empty slot.
 
++$18 (checked in every record, `playcheck`): $7FFF from the create
+($144F2) until something projects the object; a deleted slot $FFFF
+($144A6). The kinds that never move project themselves once when made
+($14A68 / $14A96: jewels, buttons, switches, spark generators, exits
+unless invisible, flags bit 7) and again in their rotate handlers;
+lifts every tick after moving ($14E22), heads every tick ($15A48);
+creatures in their drawers every frame ($152CE, $156C2 + $10, $1591C +
+$C), an eaten Pac in its tick ($15792, + $C); the explorer its own. The
+value is the projection's ($128CE): (x & $FF00) + (y & $FF00) + (((z &
+$FF80) + $4000) >> 4). Clues, messages, timers, passages and palettes
+keep $7FFF. The clue search ($1635E) walks this sorted list, so "the
+first" candidate is the first in drawing order.
+
 Animation $10058: entries (ticks, frame offset) at the kind's list; +$1E
 counts down (twice per frame when $24A6 = 0), +$1F = step; negative ticks
 end the list. Lists start with the count at 1, so their first entry is
@@ -414,6 +427,28 @@ skipped.
   the star's word bits from $15B96 are background, 16 pixels in from the
   buffer edge.
 - **8 Secret passage, 13 Clue, 15 Message, 16 Palette** draw nothing.
+
+## Input: the stick byte and keys
+
+The joystick reader $104C0 (from the CIA-B interrupt, $10DD6) builds the
+direction bits and fire and writes them to $10A63 only when they differ
+from the last read ($10A64). Readers:
+
+- the explorer's steering and the dying kind's fire test (`tst.b`);
+- the waits $109CC (until a key or fire) and $109E2 (the same, at most
+  d7 + 1 frames): each pass the key ($109B2: $107A8, cleared when read)
+  and then `bclr #7` of $10A63, so fire counts once and again only
+  after the stick changes;
+- the menus ($17E46): $10A63 cleared on opening ($17E5A); each pass
+  $18086 takes the byte and clears it: fire takes the item, else up,
+  down, left (value + 1) or right (value − 1), one action per stick
+  change; then the keys (cursor up $4C / down $4D, Return, Del, +, −,
+  ".", digits for number items);
+- the dying kind clears it ($12CCC).
+
+A key pressed in a level is read by the level loop once a frame
+($112F6); one pressed while a wait holds stays in $107A8 and ends the
+wait at its next poll (the clue's first 26 frames do not poll).
 
 ## Rules tick
 
@@ -594,7 +629,10 @@ Menu results ($18AA2 …): 0 "Continue" and 6 "Slow Mode?" → the map; 1
 2 "Load saved game" ($16D28): on success the statistics ($18AF6), else
 the message $16BCF; then fire and the menu again; 3 "Save game state"
 ($16CBE); 4 "Check performance" (statistics, fire, menu); 5 "Wind back
-world" ($36B0 − 2, then $16D44). After a world, "Save game" ($18CC6)
+world" ($18B10: $36B0 − 2 when worlds are done, then $16D44, which
+recomputes the worlds left from the records kept, and the map); the
+last, "Create Data disk" ($10AB0), writes a data disk (left out: the
+shell's saves do that). After a world, "Save game" ($18CC6)
 saves and shows its menu again; only "Next world" goes on.
 
 $16D44 (a world's start): switches $3616 = $FFFF, $3618 = 0, rotation 0,
@@ -779,8 +817,20 @@ is (object z + extra − explorer z) unsigned ≤ reach.
   at once: Roller-ama 4's timer ($C306) ends the level loop on the frame
   it runs out (the record stops at tick 641); without it the explorer's
   200-tick countdown comes first. With $24FC set (the reserve used, and
-  the explorer not dead since), $12CE8 goes to $12B58 and remakes the
-  timer's record as the explorer's (a quirk, not rebuilt).
+  the explorer not dead since), $12CE8 goes to $12B58: $12B2E makes the
+  timer's record the explorer's (its timers cleared, $24F2 = $13, +$1A
+  the explorer's frames, +$18 = $2580), the table $12B70 gives it the
+  explorer's frame $1490A and tick $12B7C, which runs at once, sees
+  $2492 and makes it the dying kind ($12CB0: +$2C = $C8, the stick byte
+  and $24FC cleared, then one count). The real explorer dies on its next
+  tick; the remade record, a pass ahead, ends the game first, and no
+  "TIME OUT" is printed.
+- **Palette** (kind 16; create $1110E, tick $11124): +$26 a condition,
+  +$1A/+$1B two palette numbers; each tick the first while the condition
+  holds, else (or with no condition) the second; when it differs from
+  $207E it is set and loaded at once ($11096: colours 0-15 from $110AE +
+  (n & 3) × 32; the sprites' 16-31 stay palette 0). No fades. $207E is 0
+  at a level's start ($11FA4). No level has one.
 - **Message** ($16002, tick $16028): after `delay` + 1 ticks shows message
   p0 & $1F (once a game, or every time with bit 7); not made in the
   editor's test mode ($24BE).
@@ -840,7 +890,11 @@ is (object z + extra − explorer z) unsigned ≤ reach.
   tick. Touch: unless the explorer flashes from a
   jewel ($24F4 ≠ 0, then it is eaten: $1571E: $24F6 + 1 up to 5, its
   score frame from $25930, it rises $20 a tick for 32 ticks, then is
-  made again at its start with a pause of $7F), clue 5, fuel $2062,
+  made again at its start with a pause of $7F; its frame $157DC skips
+  the first frame (+$20 = $FFFF, bclr #7) and then draws the 16 × 8
+  picture $25930 + (n − 1) × $50 through the 16-pixel masked drawer
+  $100A2 at the projection less 8 across and $10 up, with no animation
+  step), clue 5, fuel $2062,
   $24F2 + 15; it pops and is made again at its start ($157A4, pause $7F).
 - **Pyramid** ($157F6, tick $15876): speed p0, set p1, heading = set +
   rotation; it walks like a Pac without turning at random: at a cell
@@ -1194,8 +1248,8 @@ Kept in the port's original mode unless noted.
 - $1341C (a variant of $13394 with $FFFD9365) and $13454/$1347A
   (height-only forms) are not in the surface table.
 - $24E0 is written ($16, $5E, $B8) but never read.
-- The Palette object kind (16) appears in no level; worlds 29 and 30 have
-  no records.
+- The Palette object kind (16) appears in no level (rebuilt anyway);
+  worlds 29 and 30 have no records.
 - A 33rd world slot at $C0000 (unscrambled, never loaded).
 - Disk ranges $37400–$3A1FF and $42400–$45DFF are never loaded; the latter
   holds the level editor's text.
@@ -1275,7 +1329,20 @@ Native checks and tools (`spindizzy_worlds_assets`):
   every 8 frames and the effects asked (not compared with the original).
 - `drivefile` items `state:FILE` (a saved state) and `kNN` (a matrix key
   for one frame): the break-up after the Tutorial, the Easy ending from
-  a state with one world left, the overview map.
+  a state with one world left, the overview map. `check` makes a quick
+  save, loads it into a second module and runs both on the same inputs,
+  comparing the saved state, the picture and the sound every frame:
+  equal through the whole Tutorial (title, menu, cluster choice, map,
+  levels, clues, the reserve message, break-up, statistics), the
+  overview map, both pauses and the Easy ending; a load saved again
+  gives the same bytes.
+
+The port's quick save is the whole state through `state::Archive`
+(schema 2, "SWZS"): the stage, the stick byte and keys, the world's
+progress, every screen's own state (pictures included), the level as it
+stands (header, grid with looks, the tile map as built, objects, the
+explorer, camera, stars, timers, the held picture), both sound players
+and their Paula channels. Version 1 saves (between worlds) still load.
 - `playcheck` says after a record what the port does next: Roller-ama 4
   (`play_w9_4`, 641 ticks, recorded until the original stopped ticking)
   ends in game over at the next tick, as the original does.
