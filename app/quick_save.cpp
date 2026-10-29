@@ -241,6 +241,7 @@ bool persistent_saves(std::string_view game) {
            game == "marble_madness_amiga" || game == "mindwalker_amiga" || game == "wings_of_fury_amiga" ||
            game == "cannon_fodder_amiga" || game == "spy_mouse_ios" || game == "sonic_gg" || game == "sonic2_gg" ||
            game == "triple_trouble_gg" || game == "tower_of_babel_amiga" || game == "rock_n_roll_amiga" ||
+           game == "spindizzy_worlds_amiga" ||
            // The puzzle adventures with checkpoints: the quick save keeps the last room checkpoint
            // (games/layton/reprise/saved_checkpoint.hpp), not the exact moment.
            game == "curious_village_ds" || game == "pandoras_box_ds" || game == "lost_future_ds" ||

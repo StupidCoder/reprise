@@ -173,6 +173,11 @@ rate apart from drawing.
 
 - [x] Quick save and load of the whole state (schema 2); version 1 saves
       (between worlds) still load onto the map.
+- [x] Quick saves on disk (2026-10-29): the app's save files (Cmd+S /
+      Cmd+L, the pause menu, Continue on the details page after a
+      restart), checked in the real window on scratch data. Widescreen
+      and smooth motion are presentation options: a load keeps the
+      player's current choice.
 - [ ] Save size on handhelds: pictures held by the front-end screens
       (64,000 bytes each) could be rebuilt instead of stored.
 

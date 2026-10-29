@@ -1345,6 +1345,10 @@ Native checks and tools (`spindizzy_worlds_assets`):
   overview map, both pauses and the Easy ending; a load saved again
   gives the same bytes.
 
+The app keeps the quick save on disk (`app/quick_save.cpp`'s save
+folders: state.bin and the preview picture; Continue after a restart
+restores it; real window, scripted with `--events`, 2026-10-29).
+
 The port's quick save is the whole state through `state::Archive`
 (schema 2, "SWZS"): the stage, the stick byte and keys, the world's
 progress, every screen's own state (pictures included), the level as it

@@ -137,10 +137,12 @@ public:
     std::vector<app::GameOption> options() const override {
         return {{"Widescreen", {"Off", "On"}, widescreen_ ? 1 : 0,
                  "Fills the window to its edges, up to 21:9: the levels show more of the world left and right, "
-                 "the pillars stand at the new edges. The other screens stay in the middle. The game plays the same."},
+                 "the pillars stand at the new edges. The other screens stay in the middle. The game plays the same.",
+                 {}, true},
                 {"Smooth motion", {"Off", "On"}, smooth_ ? 1 : 0,
                  "The explorer, the moving objects and the view glide at the display's own rate instead of "
-                 "stepping 50 times a second. The game plays the same."},
+                 "stepping 50 times a second. The game plays the same.",
+                 {}, true},
                 app::screen_filter_option(vhs_)};
     }
     void set_option(std::size_t index, int value) override {
