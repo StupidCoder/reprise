@@ -45,6 +45,7 @@
 #include "fa_18_interceptor_amiga/game/replay.hpp"
 #include "fa_18_interceptor_amiga/game/carrier.hpp"
 #include "fa_18_interceptor_amiga/game/object_step.hpp"
+#include "fa_18_interceptor_amiga/game/radar.hpp"
 #include "fa_18_interceptor_amiga/game/world_objects.hpp"
 #include "fa_18_interceptor_amiga/game/cockpit.hpp"
 #include "fa_18_interceptor_amiga/game/messages.hpp"
@@ -390,10 +391,12 @@ interceptor::game::WorldObject world_object_from(int record, const std::vector<s
 // (as the module's `objects_tick`).
 void step_objects(std::vector<interceptor::game::WorldObject>& objects, interceptor::game::Aircraft& player,
                   const interceptor::game::ObjectStep& step, const interceptor::game::Autopilot& autopilot,
-                  const interceptor::game::FlightTables& tables, std::uint8_t mode, std::int8_t level, std::uint32_t list) {
+                  const interceptor::game::FlightTables& tables, std::uint8_t mode, std::int8_t level, std::uint32_t list,
+                  std::int16_t player_distance = 0x7FFF, int locked = -1) {
     using namespace interceptor;
-    game::Records records{&player, 0x7FFF, &objects};
+    game::Records records{&player, player_distance, &objects};
     game::StepWorld world;
+    world.locked = locked;
     world.mode = mode;
     world.level = level;
     world.list = list;
@@ -839,28 +842,72 @@ int demo_check(const std::filesystem::path& content, const std::filesystem::path
     // The first recorded frame is the state after the flight's first frame;
     // a recording that starts later starts from its first frame's state.
     std::size_t first = 0;
+    game::Radar radar;
+    std::int16_t player_distance = 0;
+    int range = 0xD;
     if (frames.front().number > 1) {
         for (int n = 1; n <= frames.front().number; ++n) pending = replay.next().game;
         a = aircraft_from(frames.front());
         if (!bogey.empty()) objects.front() = world_object_from(10, bogey.front(), frames.front().globals);
         first = 1;
+        const Record g{frames.front().globals}, p{frames.front().object};
+        const auto lock = g.s16(0x13ACB0 - 0x13A9E0);
+        radar.set_state(g.s8(0x13AB27 - 0x13A9E0), lock < 0 ? -1 : lock / 0x200, g.s8(0x13AB5F - 0x13A9E0));
+        player_distance = p.s16(0x4A);
+        range = p.u8(0x63) & 15;
     }
+    int radar_matched = 0;
     for (std::size_t k = first; k < frames.size(); ++k) {
         if (pending & (1u << game::replay_key::gear)) {
             if (!(a.motion & game::flag::on_ground)) a.gear ^= 0x80;
         }
         if (pending & (1u << game::replay_key::hook)) a.motion ^= 0x8000;
         if (pending & (1u << game::replay_key::speed_brake)) a.state ^= game::flag::speed_brake;
+        if (pending & (1u << game::replay_key::target)) radar.request_target();
+        if (pending & (1u << game::replay_key::radar_range)) range = range == 0x9 ? 0xD : range == 0xB ? 0x9 : 0xB;
         const auto f = replay.next();
         pending = f.game;
         game::FlightControls c;
         c.recorded = f.control;
         rules.world = nullptr;
+        if (!bogey.empty()) {
+            // $1183E2 (the player's step, before its move).
+            const game::Aircraft* locked = nullptr;
+            for (const auto& o : objects) {
+                if (o.record == radar.locked() && radar.locked() > 0) locked = &o.craft;
+            }
+            step.measure_player(a, player_distance, locked);
+        }
         const auto before = a;
         game::fly(a, c, rules, tables);
         if (carrier.touch(a, before)) a.state |= game::flag::crashed;
         if (!bogey.empty()) {
-            step_objects(objects, a, step, autopilot, tables, 3, 0, spawned.first_entry);
+            step_objects(objects, a, step, autopilot, tables, 3, 0, spawned.first_entry, player_distance, radar.locked());
+            // The radar after the scene and in the panel, by the views the
+            // recording shows (outside `$13AA75`, the look `$13AC76`; a
+            // change draws the panel anew).
+            const Record g{frames[k].globals}, gp{frames[k - 1].globals};
+            const bool outside = g.u8(0x13AA75 - 0x13A9E0) != 0;
+            const int look = g.s16(0x13AC76 - 0x13A9E0);
+            if (outside != (gp.u8(0x13AA75 - 0x13A9E0) != 0) || look != gp.s16(0x13AC76 - 0x13A9E0)) radar.redraw_panel();
+            game::Records records{&a, player_distance, &objects};
+            const auto counter = std::uint16_t(frames[k].number - 1);
+            radar.after_scene(records, counter, outside, tables);
+            if (!outside) {
+                radar.panel(records, counter, look, range, 3);
+                radar.end_panel(counter);
+            }
+            const auto lock = g.s16(0x13ACB0 - 0x13A9E0);
+            const int want_lock = lock < 0 ? -1 : lock / 0x200;
+            const auto want_confirm = g.s8(0x13AB5F - 0x13A9E0);
+            const auto want_distance = Record{frames[k].object}.s16(0x4A);
+            if (radar.locked() == want_lock && radar.confirmation() == want_confirm && player_distance == want_distance) {
+                ++radar_matched;
+            } else if (int(k - first) - radar_matched < 10) {
+                std::printf("frame %d radar: lock %d/%d confirm %d/%d distance %d/%d redraw %d/%d\n", frames[k].number,
+                            radar.locked(), want_lock, radar.confirmation(), want_confirm, player_distance, want_distance,
+                            radar.redraw(), g.s8(0x13AB27 - 0x13A9E0));
+            }
             const auto w = world_object_from(10, bogey[k], frames[k].globals);
             const auto& o = objects.front();
             std::string bd;
@@ -894,7 +941,7 @@ int demo_check(const std::filesystem::path& content, const std::filesystem::path
         }
     }
     std::printf("%d of %d frames match\n", matched, compared);
-    if (!bogey.empty()) std::printf("the bogey: %d of %d frames match\n", bogey_matched, compared);
+    if (!bogey.empty()) std::printf("the bogey: %d of %d frames match\nthe radar: %d of %d frames match\n", bogey_matched, compared, radar_matched, compared);
     return matched == compared && (bogey.empty() || bogey_matched == compared) ? 0 : 1;
 }
 

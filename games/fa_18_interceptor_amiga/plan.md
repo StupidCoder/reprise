@@ -107,9 +107,10 @@ from drawing, and must still respect the passes' model rule).
     heading; the other aircraft's object step (speed, distance, pursuit
     point, attack choice: game/object_step.*), the autopilot's mission
     roles and the attitude step's rules for others, checked with
-    `objectcheck` (m3a, demo_objs). Left: the radar's list and the lock
-    (`$1435A8`, `$126408`, `$1183E2`), weapons against objects (near,
-    hits), the objects' touches and crashes, the trigger areas
+    `objectcheck` (m3a, demo_objs); the radar (list, pass, contacts,
+    T lock, mission 3's confirmation, the player's distance). Left: the
+    threat lamps, weapons against objects (the shots' hit tests over the
+    drawer's list `$13ACB6`, `$11AE96`; missiles near and hits), the objects' touches and crashes, the trigger areas
     (`$11D17A`), the missions' flows (briefings, outcomes `$118650`...),
     the log.
 12. **Dusk and night**: palettes 3-9 (the fades).

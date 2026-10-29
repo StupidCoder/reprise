@@ -16,6 +16,11 @@ namespace interceptor::game {
 
 struct CockpitReadings {
     int feet{}, knots{}, thrust_percent{}, zoom{1}, fuel_pounds{}, radar_miles{40};
+    struct Contact {
+        int x{}, y{}, colour{};
+        bool wide{};
+    };
+    std::vector<Contact> contacts; // the radar's blips ($126230)
     int message{}, message_colour{1}; // the message line's record and colour
     // The head-up display ($127EB8, with $13AA91 set once the flight runs).
     bool hud = true;

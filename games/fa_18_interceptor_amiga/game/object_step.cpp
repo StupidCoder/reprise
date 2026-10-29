@@ -180,6 +180,26 @@ void ObjectStep::measure(WorldObject& o) const {
     o.weapons = std::uint8_t((o.weapons & 0x0F) | (d <= 0x300 ? 0x10 : d <= 0xC00 ? 0x20 : 0x30));
 }
 
+void ObjectStep::measure_player(Aircraft& p, std::int16_t& distance, const Aircraft* locked) const {
+    if (!locked) return;
+    p.throttle_steps = std::uint8_t(p.throttle_steps + 0x10);
+    if (distance >= 0x480) {
+        const int every = distance >= 0x900 ? 0x50 : 0x20;
+        if ((p.throttle_steps & 0xF0) <= every) return;
+    }
+    p.throttle_steps &= 0x0F;
+    const auto t = place_of(*locked);
+    const i32 dx = std::abs((i32(i16(t.cell_x - i16(p.x >> 22))) << 14) + i16(t.fine_x - i16((p.x & 0x3FFFFF) >> 8)));
+    const i32 dz = std::abs((i32(i16(t.cell_z - i16(p.z >> 22))) << 14) + i16(t.fine_z - i16((p.z & 0x3FFFFF) >> 8)));
+    const i32 dy = std::abs(t.height - (p.y >> 8));
+    if (dx > 0x7F00 || dy > 0x7F00 || dz > 0x7F00) {
+        distance = 0x7FFF;
+        return;
+    }
+    distance = length_estimate(tables_, std::uint16_t(dx), std::uint16_t(dy), std::uint16_t(dz));
+    p.surface |= 0x01;
+}
+
 // $117BA6: where its point is.
 void ObjectStep::follow(WorldObject& o, Records& records, StepWorld& world) const {
     auto& a = o.craft;

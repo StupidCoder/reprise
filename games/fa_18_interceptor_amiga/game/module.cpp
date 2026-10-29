@@ -9,6 +9,7 @@
 #include "fa_18_interceptor_amiga/game/cockpit.hpp"
 #include "fa_18_interceptor_amiga/game/front_end.hpp"
 #include "fa_18_interceptor_amiga/game/pilot_record.hpp"
+#include "fa_18_interceptor_amiga/game/radar.hpp"
 #include "fa_18_interceptor_amiga/game/replay.hpp"
 #include "fa_18_interceptor_amiga/game/messages.hpp"
 #include "fa_18_interceptor_amiga/game/object_step.hpp"
@@ -217,6 +218,7 @@ public:
             if (smooth_ && flash_left_ == 0) t = frame_fraction_;
             auto readings = read_cockpit(aircraft_);
             readings.zoom = zoom_ == 0x80 ? 1 : zoom_ == 0x40 ? 2 : 4; // ($1266C8)
+            for (const auto& b : radar_.blips()) readings.contacts.push_back({b.x, b.y, b.colour, b.wide});
             if (outside_) {
                 // The outside view ($13AA75): the scene down to row 167
                 // ($13AC74) with the aircraft in it, and its numbers below.
@@ -400,8 +402,9 @@ public:
     // ...): the others' part (`$11797E`), the autopilot, the flight step.
     // (Their touches, weapons and crashes are not built yet.)
     void objects_tick() {
-        Records records{&aircraft_, 0x7FFF, &objects_};
+        Records records{&aircraft_, player_distance_, &objects_};
         StepWorld world;
+        world.locked = radar_.locked();
         world.mode = std::uint8_t(mission_mode());
         world.level = level_;
         world.list = list_start_;
@@ -420,6 +423,24 @@ public:
             rules.world = &world_;
             if (a.state & 0x1000) fly(a, c, rules, tables_);
             Autopilot::level_out(a, o.pilot, roll_before);
+        }
+    }
+
+    // The radar after the scene ($10FF26) and in the panel ($125E22) when
+    // the cockpit shows; a change of view or look draws the panel anew
+    // ($10F024).
+    void radar_tick() {
+        static constexpr int look_shift[14] = {0, -7, -14, -21, -50, 50, 50, 50, 50, 21, 14, 7, 50, 50};
+        const int look = outside_ ? 50 : look_shift[look_];
+        if (outside_ != radar_outside_ || look != radar_look_) radar_.redraw_panel();
+        radar_outside_ = outside_;
+        radar_look_ = look;
+        Records records{&aircraft_, player_distance_, &objects_};
+        const auto frame = std::uint16_t(ticks_);
+        radar_.after_scene(records, frame, outside_, tables_);
+        if (!outside_) {
+            radar_.panel(records, frame, look, radar_range_, std::uint8_t(mission_mode()));
+            radar_.end_panel(frame);
         }
     }
 
@@ -802,6 +823,8 @@ private:
 
     // $10D51E: the aircraft at the chosen start; the engine sound starts.
     void restart() {
+        radar_.reset();
+        player_distance_ = 0;
         spawn_objects();
         if (place_ == carrier_place) {
             aircraft_ = carrier_.start_on_deck(assets_.program, tables_);
@@ -1109,6 +1132,14 @@ private:
         FlightRules rules;
         rules.world = &world_;
         if (mode_ == FlightMode::practice) reposition_step();
+        // $1183E2: the distance to the locked record, before the move.
+        {
+            const Aircraft* locked = nullptr;
+            for (const auto& o : objects_) {
+                if (radar_.locked() > 0 && o.record == radar_.locked()) locked = &o.craft;
+            }
+            object_step_.measure_player(aircraft_, player_distance_, locked);
+        }
         const std::array<std::int32_t, 3> before{aircraft_.x, aircraft_.y, aircraft_.z};
         const Aircraft unmoved = aircraft_;
         const auto events = fly(aircraft_, c, rules, tables_);
@@ -1152,6 +1183,7 @@ private:
         lead_point();
         if (mode_ == FlightMode::practice) lead_tick();
         objects_tick();
+        radar_tick();
 
         chase_camera();
         ++ticks_;
@@ -1414,7 +1446,10 @@ private:
             sounds_.refuse();
             radar_range_ = radar_range_ == 0x9 ? 0xD : radar_range_ == 0xB ? 0x9 : 0xB;
             break;
-        case replay_key::target: sounds_.refuse(); break; // $10DEF8 (no targets in free flight)
+        case replay_key::target: // $10DEF8: the radar takes the next target at its next pass
+            sounds_.refuse();
+            radar_.request_target();
+            break;
         case replay_key::ecm:                             // $10EF46
             sounds_.refuse();
             ecm_ = !ecm_;
@@ -1931,6 +1966,10 @@ private:
     ObjectStep object_step_{assets_.program, tables_, lists_};
     std::uint32_t list_start_ = 0;      // `$13AA2A`
     std::int8_t level_ = 0;             // `$13AB97` (the demo: 0)
+    Radar radar_;
+    std::int16_t player_distance_ = 0;  // the player's +$4A (`$1183E2`)
+    bool radar_outside_ = false;
+    int radar_look_ = 0;
     std::mt19937 random_{std::random_device{}()}; // (`$13ADE8`'s draws)
     std::uint8_t trainer_pilot_ = 0;    // the trainer's +$64
     int maneuver_ = 0;                  // $13AA89

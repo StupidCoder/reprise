@@ -341,13 +341,17 @@ void Cockpit::draw(IndexedImage& image, int left, const CockpitReadings& r) cons
     }
     // The radar display ($125E22): the scan's two edges (from $125E86,
     // colour 3; drawn from 163 up to 148) and the own aircraft's mark
-    // ($125F0E, colour 12). (Contacts need the other objects.)
+    // ($125F0E, colour 12), the contacts.
     for (int k = 0; k <= 15; ++k) {
         image.put(left + 154 - k, 163 - k, 3);
         image.put(left + 162 + k, 163 - k, 3);
     }
     for (int x = 157; x <= 159; ++x) image.put(left + x, 168, 12);
     image.put(left + 158, 167, 12);
+    for (const auto& c : r.contacts) {
+        image.put(left + c.x, c.y, std::uint8_t(c.colour));
+        if (c.wide) image.put(left + c.x - 1, c.y, std::uint8_t(c.colour));
+    }
     // The compass strip ($125B74): the chip data's "W N E S" strip
     // (`$132D9C`: 7 rows of 96 pixels, a letter every 12, 7.5 degrees a
     // pixel) seen through the window at 192-225, the red index at 208.

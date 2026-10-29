@@ -1656,11 +1656,55 @@ that frame): `work/ref/m3a.jsonl` 314 of 314 frames; `work/ref/
 demo_objs.jsonl` (the demo with records 10 and 14) every frame until the
 player's shots pass the bogey (frame 636: "near", then the hit — weapons
 against objects are not built). `democheck` on `demo_objs.jsonl` flies
-the bogey freely beside the player: equal for 530 frames, until its first
-attack choice, which needs the player's distance to its locked record
-(+$4A, `$1183E2`) and the lock (key T: `$13AAA9`, made in the radar
-routine `$126408` from the drawer's list `$1435A8`) — next. +$20 bit 6 is
-set by the radar (`$1260CC`: on the radar), not built.
+the bogey freely beside the player, with the radar ("The radar"): equal
+for all 608 frames up to the player's shots reaching it (frame 636).
+
+### The radar (`$10FF26`, `$125E22`, 2026-10-29)
+
+**The list** (`$10FF26`, at the end of the scene's drawing; nothing in
+the outside view): `$13AB28` (a pass is due) is set when the frame
+counter's bit 1 is clear; the list is rebuilt every 4th frame (counter &
+3 = 0) — every frame, and the pass due, while the panel is being drawn
+anew (`$13AB27` > 1). Every other active record (not the viewed one,
+records in order): its place less the viewer's, shifted right by 2 until
+the largest is at most $7FFFFF and then by 8 more, turned by the heading
+alone (`$13AEEC` from `$122B1E`: cos and sin / 64; products over 256,
+shifted back up: `$119DDA`), into 16-byte entries at `$1435A8` (x, 0, z,
+record × 256 | $10; an entry of zeros ends it). The pointer is reset
+every frame (`$119DC8`); entries not rewritten stay.
+
+**The pass** (`$125E22` in the panel, when the radar is on screen: the
+look shift `$13AC76` within ±11, `$125CDE`; once a frame, twice while the
+panel is drawn anew — `$13AB27` 3 from `$10F024`: a view or look change,
+and every 32 frames when counter & $1F = $10, `$101492`; it counts down a
+frame to −1 at `$1013DC`): per entry, rounded shifts (an arithmetic shift
+plus the last bit out): by 13, outside the window (x within ±$1B, z from
+−$10 to $15 ahead — the 40-mile picture) or a record not active, on the
+ground or the viewer's: state $4000 cleared. Else, except in the
+maneuvers, within $10000 on both axes it is "seen" (+$20 bit 6) — and
+then for an aircraft while anything is locked mission 3's confirmation
+counts (`$13AB5F`: 0 → 30, then −1 a pass, 1 → −1: confirmed), and the
+threat lamps' bits (`$13AB5D`: aircraft 4, type $15 8, touchable 2,
+missiles at the player $10, others $20 — not built) — beyond it +$20 bit
+6 is cleared; state $4000 set (on the radar). By the range (the player's
++$63 low nibble: 9, B, D; key R) the same window says whether it is on
+the scope (the entry's bit 5) and where its blip goes: (−x + $9E, −z +
+$A7) in the panel, colour 5 ships, 8 not seen or spinning, 4 touchable,
+2 missiles, 1 aircraft; two pixels wide (`$12420A`) at or above the
+viewer's height; the locked one only every other pass (`$13AB73`).
+
+**The lock** (key T, `$10DEF8`: `$13AAA9`; taken at the end of the next
+pass, `$126408`): from the entry after the locked record's (not found:
+message $30 and the first) the first on the scope that is an aircraft
+(not class 0, $20, $30) and not spinning; none: unlocked (`$13ACB0` −1).
+The player's step (`$1183E2`) measures its distance to the locked record
+(+$4A, the others' counter and estimate; kept while unlocked).
+
+Checked with `democheck` on `demo_objs.jsonl` (the views from the
+recording): the lock, the confirmation and the distance equal in every
+frame up to the hit at 636 (the confirmation reaches −1 at frame 314).
+Not built: the threat lamps, the lock dropped when its record is
+destroyed (`$11858A`, message $4016).
 
 The angle routine `$10454A` (heading part used here; the port's
 `direction_of`): signs apart, the three lengths scaled so the largest

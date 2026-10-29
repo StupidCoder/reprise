@@ -40,6 +40,9 @@ public:
     // `$11797E` for a record of class $10: true when it then flies
     // (autopilot and flight step); the others' classes are not built.
     bool before_flight(WorldObject& o, Records& records, StepWorld& world) const;
+    // `$1183E2`, the player's step: now and then its distance to the
+    // locked record (+$4A; the same counter and estimate as the others').
+    void measure_player(Aircraft& player, std::int16_t& distance, const Aircraft* locked) const;
 
 private:
     void aim_speed(WorldObject& o, const Records& records) const;        // $117A16
