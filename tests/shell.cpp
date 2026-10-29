@@ -135,6 +135,29 @@ int main(int argc, char** argv) {
                 return result;
             };
             entries[0].start = [](const std::filesystem::path&) { return std::make_unique<MotionGame>(); };
+            {
+                auto recent_entries = entries;
+                recent_entries[1].import = recent_entries[0].import;
+                recent_entries[1].start = recent_entries[0].start;
+                app::Library recent(root / "recency", recent_entries);
+                const auto source = root / "recency-source.bin";
+                { std::ofstream out(source); out << "synthetic import"; }
+                check(recent.import(source, 0).ok && recent.import(source, 1).ok, "Recency fixtures import");
+                auto first = app::with_quick_save(recent.games()[0], recent.content_directory(0));
+                auto second = app::with_quick_save(recent.games()[1], recent.content_directory(1));
+                check(first->save(), "Older fixture save succeeds");
+                SDL_Delay(1100); // Save schema records whole UTC seconds.
+                check(second->save(), "Newer fixture save succeeds");
+                const auto old = app::save_preview(recent.content_directory(0), recent.games()[0].id);
+                const auto latest = app::save_preview(recent.content_directory(1), recent.games()[1].id);
+                check(old.saved_at < latest.saved_at, "Validated save previews expose chronological timestamps");
+                app::Launcher shelf(recent);
+                shelf.filter(1);
+                check(shelf.selected() == 1, "Continue starts with newer save, not older release year");
+                platform::Controls right; right.nav_right = true;
+                shelf.update(right, 1);
+                check(shelf.selected() == 0, "Older save follows the newest save");
+            }
             app::Library fixture(root / "fixture", entries);
             app::Launcher importing(fixture);
             const auto source = root / "generated.bin";
@@ -150,6 +173,21 @@ int main(int argc, char** argv) {
             const auto old_save = importing.draw(14), new_save = importing.draw(14.3);
             check(different(old_save, new_save), "A changed save screenshot fades when returning to Details");
             check(!different(new_save, importing.draw(15)), "Screenshot settles without idle animation");
+            importing.set_canvas(640, 960);
+            check(importing.draw(15.5).width == 640, "Saved screenshot details fit portrait without landscape fading bounds");
+            importing.open_assets(3);
+            importing.draw(15.6);
+            importing.update(click(300, 450), 15.7);
+            std::vector<float> portrait_audio(200);
+            importing.preview_audio(portrait_audio, 48000);
+            check(std::any_of(portrait_audio.begin(), portrait_audio.end(), [](float v) { return v != 0; }), "Portrait waveform tap starts audio");
+            importing.open_assets(4); importing.draw(15.8);
+            importing.update(click(300, 450), 15.9);
+            platform::Controls portrait_drag; portrait_drag.mouse_held = true;
+            portrait_drag.ui_pointer = std::array<int,2>{420,500};
+            importing.update(portrait_drag, 15.95);
+            check(importing.draw(15.96).width == 640, "Portrait model drag renders safely");
+            importing.set_canvas(960, 640);
             importing.open_assets(1); importing.draw(16);
             platform::Controls right; right.nav_right = true;
             importing.update(right, 17);
@@ -487,37 +525,57 @@ int main(int argc, char** argv) {
         shell.update(back, 1);
         shell.update(right, 1); check(shell.selected() == 1, "Right must select Bruce Lee");
         shell.update(up, 1); check(shell.selected() == 1, "Top boundary must preserve column");
-        shell.update(down, 1); check(shell.selected() == 3, "Down must select Mindwalker in chronological order");
-        shell.update(down, 1); shell.update(down, 1); check(shell.selected() == 10, "Spindizzy Worlds must appear in release-year order");
-        shell.draw(2); // includes the last row's covers, with selection scrolled into view
-        check(shell.update(enter, 1) == Request::none, "Spindizzy Worlds opens details before import");
-        shell.draw(2); shell.update(back, 1);
-        shell.select(0); shell.update(left, 1); shell.update(down, 1); shell.update(down, 1);
-        shell.update(right, 1); check(shell.selected() == 4, "Keyboard filter must select first Amiga entry");
-        shell.update(left, 1); shell.update(down, 1); shell.update(right, 1);
-        check(shell.selected() == 4, "Down from Amiga must wrap to All games (no Planned filter), keeping the selection");
-        shell.draw(2); shell.update(back, 1);
-        shell.update(click(40, 125), 1); // All games
-        shell.select(0); shell.update(click(915, 80), 1);
-        check(shell.selected() == 2, "Pointer paging must follow chronological order");
-        shell.update(click(600, 400), 2); check(shell.selected() == 10, "Pointer hit testing must follow scrolling");
-        shell.draw(2); shell.update(back, 1);
+        shell.update(down, 1); check(shell.selected() == 2, "Down moves one three-card row, preserving its column");
+        shell.filter(3); check(library.games()[shell.selected()].collection == app::Collection::sonic, "Sonic filter selects Sonic");
+        {
+            app::Launcher sonic(library); sonic.filter(3);
+            check(library.games()[sonic.selected()].id == "sonic_gg", "Sonic 1 comes first");
+            sonic.update(right, 1);
+            check(library.games()[sonic.selected()].id == "sonic2_gg", "Sonic 2 comes second");
+            sonic.update(right, 2);
+            check(library.games()[sonic.selected()].id == "triple_trouble_gg", "Triple Trouble comes third");
+            sonic.update(down, 3);
+            check(library.games()[sonic.selected()].id == "sonic_advance_gba", "Sonic Advance is fourth");
+            sonic.set_canvas(640, 960);
+            check(sonic.draw(4).width == 640, "Four Sonic covers render in portrait");
+        }
+        shell.draw(2);
+        check(shell.update(enter, 2) == Request::none && shell.update(enter, 3) == Request::none, "Preview titles cannot launch or import");
+        shell.update(back, 4);
+        shell.filter(4); check(library.games()[shell.selected()].collection == app::Collection::layton, "Layton filter selects Layton");
+        shell.draw(5);
+        shell.filter(1);
+        check(shell.update(enter, 6) == Request::none, "An empty Continue list cannot open stale selection");
+        shell.draw(7);
+        shell.update(right, 7); // Leave sidebar, entering an empty Continue list.
+        shell.update(left, 7.2); shell.update(down, 7.3);
+        check(shell.filter() == 2, "An empty collection must allow keyboard return to sidebar");
+        shell.update(click(40, 255), 8);
+        check(shell.filter() == 2, "Pointer selects Commodore collection");
+        shell.update(left, 9); shell.update(down, 10); shell.update(right, 11);
+        check(shell.filter() == 3, "Controller changes collection and enters its shelf");
+        shell.filter(0); shell.select(0);
+        shell.update(click(720, 170), 12);
+        check(shell.selected() == 4, "Third card hit testing uses three-column layout");
+        shell.draw(13); shell.update(back, 14);
+        const auto spy = std::find_if(library.games().begin(), library.games().end(), [](const auto& g) { return g.id == "spy_mouse_ios"; });
+        check(spy != library.games().end() && spy->collection == app::Collection::none, "Spy Mouse has no collection membership");
         {
             const auto& interceptor = library.games().at(9);
             check(interceptor.machine == app::Machine::amiga && interceptor.import && interceptor.previews &&
-                      !interceptor.start && interceptor.release_year == 1988,
-                  "F/A-18 Interceptor imports and previews but is not playable yet");
+                      interceptor.start && interceptor.release_year == 1988,
+                  "F/A-18 Interceptor imports, previews and starts free flight");
             const auto& spindizzy = library.games().at(10);
             check(spindizzy.machine == app::Machine::amiga && spindizzy.import && spindizzy.previews &&
-                      !spindizzy.start && spindizzy.release_year == 1990,
-                  "Spindizzy Worlds imports and previews but is not playable yet");
+                      spindizzy.start && spindizzy.release_year == 1990,
+                  "Spindizzy Worlds imports, previews and starts its test drive");
         }
         for (std::size_t i = 0; i < library.games().size(); ++i) {
             shell.select(i); const auto image = shell.draw(2);
             check(image.width == 960 && image.height == 640, "All cards must render in logical canvas");
             const auto& game=library.games()[i];
-            check(game.release_year >= 1983 && game.release_year <= 1993, "Every release needs its platform year");
-            check(!game.description.empty() && !game.history.empty() && !game.history_sources.empty(), "Every game needs sourced editorial content");
+            if (!game.integration_pending) check(game.release_year >= 1983 && game.release_year <= 2015, "Every release needs its platform year");
+            if (!game.integration_pending) check(!game.description.empty() && !game.history.empty() && !game.history_sources.empty(), "Every game needs sourced editorial content");
             shell.open_details();
             const auto overview = shell.draw(2);
             check(shell.update(click(200, 390), 1) == Request::none,
@@ -549,6 +607,39 @@ int main(int argc, char** argv) {
         shell.update(back, 1);
         check(shell.update(click(820, 35), 1) == Request::choose_image, "Global import button must work");
         Module module;
+        // Portrait reflow preserves selection and uses matching input bounds.
+        {
+            app::Launcher portrait(library);
+            portrait.set_canvas(1080, 1920);
+            auto image = portrait.draw(0);
+            check(image.width == 640 && image.height == 1137, "Portrait uses a tall logical canvas");
+            portrait.update(click(240, 140), 1); // Layton collection in second tab row
+            check(portrait.filter() == 4, "Portrait collection buttons use their drawn positions");
+            portrait.update(click(100, 270), 2);
+            check(portrait.draw(3).width == 640, "Portrait card tap opens portrait details");
+            portrait.update(click(500, 280), 3.1);
+            check(portrait.draw(3.2).width == 640, "Documentation remains portrait");
+            portrait.update(click(300, 280), 3.3);
+            check(portrait.draw(3.4).height == 1137, "Development notes use the reading pane");
+            portrait.update(back, 3.5);
+            portrait.update(back, 4);
+            check(portrait.draw(5).width == 640, "Back restores portrait shelf without mismatched transition");
+            auto selected = portrait.selected();
+            portrait.set_canvas(1920, 1080);
+            check(portrait.selected() == selected && portrait.draw(6).width == 960, "Rotation preserves selection");
+            portrait.set_canvas(1080, 1920);
+            portrait.filter(0);
+            platform::Controls press = click(100, 400);
+            press.mouse_held = true; press.ui_pointer = std::array<int,2>{100,400};
+            portrait.update(press, 7);
+            platform::Controls drag;
+            drag.mouse_held = true; drag.ui_pointer = std::array<int,2>{100,180};
+            portrait.update(drag, 7.1);
+            drag.mouse_held = false;
+            portrait.update(drag, 7.2);
+            check(portrait.draw(8).width == 640, "Swiping a card must not open details");
+            platform::save_png(portrait.draw(8), std::filesystem::temp_directory_path() / "reprise-portrait-check.png");
+        }
         app::PauseMenu menu;
         using Action = app::PauseMenu::Action;
         menu.show(0); menu.show_options();

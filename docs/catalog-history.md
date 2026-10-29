@@ -117,3 +117,19 @@ reconstructed rules have been revised using these external accounts.
 The descriptions and original illustrations of these two entries are
 editorial introductions, not evidence of reconstructed rules. Release
 metadata checked 2026-10-28; no external game implementation material used.
+
+## Spy Mouse — iOS, 2011
+
+- [Engadget, 8 March 2011](https://www.engadget.com/2011-03-08-gdc-2011-firemints-agent-squeek.html): Firemint's Agent Squeek at GDC 2011.
+- [Engadget, 12 July 2011](https://www.engadget.com/2011-07-12-firemints-agent-squeek-becomes-spy-mouse-gets-a-new-trailer.html): renamed Spy Mouse in a marketing revamp after EA bought Firemint; first seen as an unnamed prototype at GDC 2010; line-drawing stealth.
+- [Wikipedia: Spy Mouse](https://en.wikipedia.org/wiki/Spy_Mouse): August 2011 release (regional App Store dates differ by a few days).
+
+Connected to Reprise on 2026-10-28; the year is the platform release.
+
+## Incoming preview entries
+
+Layton years match Picarat/src/shell/library_screen.cpp's existing catalog
+(first Japanese release, not the imported European edition). Sonic years are
+intentionally unset pending their catalog handoff.
+Incoming descriptions are original editorial summaries, not reconstruction
+evidence or claims that the games are connected to Reprise.

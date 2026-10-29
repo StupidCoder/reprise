@@ -1,0 +1,104 @@
+# Pandora's Box (Nintendo DS): plan
+
+What remains for a complete re-implementation of the second adventure
+(`YLTD`), and the known bugs and differences. How the game works:
+[game.md](game.md). The living gap register with evidence:
+`.analysis/RECOVERY-GAPS.md` (gap ids G.. below).
+
+## Where it stands (2026-10-29)
+
+The game is complete, from the opening to the ending and into the post-game:
+
+- the story, from the recovered router and state;
+- all 187 puzzles;
+- the herb tea, camera repair, photo hunt and hamster;
+- the bag with its pages;
+- the shack and the staff roll;
+- the three save slots in the cartridge layout;
+- the bonus section;
+- movies, voices, music and sound effects.
+
+Conveniences: music player, theatre, puzzle mode, minigame free play,
+skipping, checkpoints and touch-area help.
+
+## Remaining tasks
+
+1. **Place 63, the room with puzzle bottles** (ov7 `020F3050`, G43): not
+   reconstructed. It is reached only when a script puts the player there.
+2. **First-touch overlay** (command 0x92, ov7 `020F0218..020F0268`, G02):
+   recover the flag's lifetime, the sprite (`map/%s/firsttouch.spr`), its
+   dismissal and input gating.
+3. **Room widgets** (G03/G42): map icons, the puzzle counter, place label
+   position, the exclamation mark, hint-coin flight and sparkle (`020F1EF8`),
+   the move-mode blink, and the tea request that replaces a talk event
+   (`+0x434`, `ht_event`).
+4. **Background blend of command 0x37** (G08): accepted but has no effect.
+5. **Windows** (G41): objective, prize, item, reward, photo piece, torn photo,
+   feature, companion, hamster name and save prompt use ROM text and icons with
+   a native layout, and their fades are waits. Recover the window objects
+   (`prize_window2`, text layer `02072F18`).
+6. **Event lifecycle** (G07): event entry, chapter cards and narration set-up
+   use native timing. Narration modes 2/3 are not compared (G47).
+7. **Dialogue** (G09): one dialogue field is read but unused; mouth and
+   bubble timing are not compared.
+8. **Puzzle scene lifecycle** (G10, G27): intro, tutorial, hint, retry,
+   give-up and solved animations are only partly recovered (some sprites show
+   only their first frame); the solved explanation lacks its small header.
+9. **Shack memo** (0x76 notice screen, G44): native layout.
+10. **Wi-Fi** (G57): the downloaded-puzzle list (scene 22), download (39) and
+    settings (38) show a native notice.
+11. **Bonus pages not captured from the ROM** (G57): art, characters, music,
+    voices, movies, challenges and the challenge notice. The character page's
+    blend is not modelled. Unlock code 2 was not entered on the ROM. The quiet
+    save's timing is not compared.
+12. **Soft reset**: the bag's reset prompt restarts the native game instead of
+    `0201FE14` (G48).
+13. **Sound call sites** (G14b): menus and minigames, the hint-coin sparkle,
+    events outside the recorded route, the narration page duck and the
+    movie's pause and resume.
+14. **Movies** (G16): pacing (timer, late-frame skip `0205A330`,
+    decode-ahead, the five closing frames) and A/V sync are native.
+15. **Random numbers** (G12, G45): synchronise the remaining consumers
+    (voices, background shake, pancake entrances) with the original's single
+    generator and its seed.
+
+## Known bugs and differences
+
+- **3D renderer**: a clean-room rewrite from hardware documentation, not
+  pixel-identical. Edge pixels and blending can differ: hamster message
+  window edges, translucent polygons under brightness (G50), turned pieces at
+  intermediate angles (G25).
+- **Layer latency** (G35): the puzzle scene presents its layers together;
+  mid-stroke trace frames differ by the newest ink segment.
+- **Drawing feedback** (G23): eight unexplained pixels in invalid feedback.
+- **Hint button phase** (G10): its animation differs by 530 pixels in some
+  captures.
+- **Peg solitaire** (G33): eight drag frames differ by input and presentation
+  phase.
+- **Load lag** (G52, G54): the DS skips frames while reading the card (photo
+  album, staff roll, bag pages). The port has no load lag, so audio-gated
+  waits end a few frames apart.
+- **Play time** (G49): counted in native frames.
+- **Native checkpoints** (G13): a checkpoint written at an event start resumes
+  there, not in the room before it.
+- **Lines** (G36): the original's uninitialised snap target is treated as "no
+  target".
+- **Pancakes** (G27): the entrance bounces use the port's random numbers, so
+  bounce counts can differ by one or two.
+- **Microphone** (G26): holding B stands in for blowing.
+- **Passcodes**: computed from a per-installation stand-in for the console's
+  MAC address.
+- **Title after the ending** (G55): not compared.
+- **Not compared yet**: retry title cards and special puzzle cards (G14c);
+  hamster level 6 and slim mode (G53).
+- **Puzzle mode**: unknown special catalogue numbers show `W??` (G20).
+  Puzzle mode keeps its own progress (G21, intentional).
+
+## Checks to run after changes
+
+- `.analysis/tools/golden.py run PACK OUT` and `compare` against the baseline.
+- `.analysis/tools/validate_story_state.py`: 0 mismatches.
+- `run_engine_regression.py` and `run_answer_checks.py` after puzzle changes.
+- `run_mobiclip_validation.py` after decoder changes.
+- `ctest`; `build.sh` runs the story and first-puzzle self-test when the pack
+  exists.

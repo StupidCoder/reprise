@@ -1,4 +1,4 @@
-"""Packages build/joyport as a self-contained macOS app bundle.
+"""Packages build/reprise as a self-contained macOS app bundle.
 
 The bundle contains the executable and the SDL 3 library it links (with its
 license); no game data. It is signed ad hoc, which is enough to run locally
@@ -15,7 +15,7 @@ VERSION = '0.2.0'
 BUILD = '1'
 
 root = Path(__file__).resolve().parents[1]
-destination = root / 'build' / 'Joyport.app'
+destination = root / 'build' / 'Reprise.app'
 
 
 def run(*args):
@@ -38,13 +38,13 @@ with tempfile.TemporaryDirectory(prefix='package-', dir=root / 'build') as temp:
     for folder in ['MacOS', 'Frameworks', 'Resources/licenses']:
         (contents / folder).mkdir(parents=True, exist_ok=True)
 
-    executable = contents / 'MacOS' / 'joyport'
-    shutil.copy2(root / 'build' / 'joyport', executable)
+    executable = contents / 'MacOS' / 'reprise'
+    shutil.copy2(root / 'build' / 'reprise', executable)
     (contents / 'Info.plist').write_bytes(plistlib.dumps({
-        'CFBundleName': 'Joyport',
-        'CFBundleDisplayName': 'Joyport',
-        'CFBundleIdentifier': 'local.joyport',
-        'CFBundleExecutable': 'joyport',
+        'CFBundleName': 'Reprise',
+        'CFBundleDisplayName': 'Reprise',
+        'CFBundleIdentifier': 'local.reprise',
+        'CFBundleExecutable': 'reprise',
         'CFBundlePackageType': 'APPL',
         'CFBundleVersion': BUILD,
         'CFBundleShortVersionString': VERSION,

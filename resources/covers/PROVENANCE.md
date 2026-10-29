@@ -43,3 +43,22 @@ blue, burnt orange, ochre and ivory. No lettering, logos, UI or copied box art.
 Original built-in image-generation illustrations, saved as
 `fa_18_interceptor_amiga.png` and `spindizzy_worlds_amiga.png`.
 Full prompts and provenance: `design/planned-covers/amiga-additions.md`.
+
+## Reprise preview covers
+
+curious_village_ds, pandoras_box_ds, lost_future_ds, spectres_call_ds,
+miracle_mask_3ds, azran_legacy_3ds: reused existing Picarat/art original
+illustrations (village/train/clock/canal/mask/sanctuary), unchanged.
+sonic_gg, sonic2_gg, triple_trouble_gg and spy_mouse_ios: new original
+AI-generated screenprint illustrations, 2026-10-28, built-in image generator.
+No original game data or commercial box art. The first Sonic cover is an
+abstract loop-and-rings landscape. Full design direction: design/reprise/.
+
+## Sonic Advance — 2026-10-29
+
+Original built-in image-generation illustration, `sonic_advance_gba.png`.
+Screenprinted coastal platforming landscape with blue speed ribbons, golden
+rings, grassy geometric ramps and a futuristic industrial skyline. Cobalt,
+cyan, emerald, gold and ivory; no lettering or copied publisher art.
+Interpretive library artwork, not evidence of a particular reconstructed level.
+Source: exec-a45dd45e-b932-4d37-9282-0c6670ea6bb8.png.

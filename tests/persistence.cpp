@@ -82,8 +82,15 @@ struct Fake : app::GameModule {
         a(tick_);
         a.finish();
     }
-    std::vector<app::GameOption> options() const override { return {{"Fail", {"Off", "On"}, int(fail), ""}}; }
-    void set_option(std::size_t, int v) override { fail = v != 0; }
+    int vhs{}; // the framework's screen filter (a presentation option)
+    std::vector<app::GameOption> options() const override {
+        return {{"Fail", {"Off", "On"}, int(fail), ""}, app::screen_filter_option(vhs)};
+    }
+    void set_option(std::size_t i, int v) override {
+        if (i == 0) fail = v != 0;
+        else vhs = v;
+    }
+    int vhs_level() const override { return vhs; }
 };
 int main(int argc, char **argv) try {
     if (argc == 4 && std::string(argv[1]).starts_with("--mind-")) {
@@ -317,6 +324,14 @@ int main(int argc, char **argv) try {
     game = app::with_quick_save(entry, content);
     check(game->has_save() && game->load(), "fresh module loads disk slot");
     check(picture_hash(*game) == expected, "disk progress");
+    // Loading brings the save's game options back, but the screen filter (a presentation
+    // option) keeps the player's current choice.
+    game->set_option(1, 3);
+    game->set_option(0, 1);
+    check(game->load(), game->save_error());
+    check(game->vhs_level() == 3 && game->options()[1].value == 3, "load keeps the current screen filter");
+    check(game->options()[0].value == 0, "load restores the save's game options");
+    check(!app::screen_effect(*game, 0), "picture games get no host screen effect (no double filtering)");
     game->set_option(0, 1);
     check(!game->save() && !game->save_error().empty(), "failed save reports error");
     check(game->load() && picture_hash(*game) == expected, "failed save retains prior slot");

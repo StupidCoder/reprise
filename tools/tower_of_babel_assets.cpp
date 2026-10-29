@@ -5,6 +5,8 @@
 //   tower_of_babel_assets export <content folder> <output folder>
 //   tower_of_babel_assets models <content folder> <out.png>   (contact sheet of the shapes)
 //   tower_of_babel_assets animcheck <content folder> <animrec.txt>   (harness/animrec.py)
+//   tower_of_babel_assets logiccheck <content> <logicrec.txt>   (harness/logicrec.py; research)
+//   tower_of_babel_assets objectcheck <content> <logicrec.txt>  (logicrec.py --objects: moves and objects)
 //   tower_of_babel_assets viewcheck <content folder> <memory.bin> <group> <tower> <out.png>
 //
 // viewcheck (research): takes the camera from a reference machine's chip
@@ -23,6 +25,8 @@
 #include "tower_of_babel_amiga/data/preview.hpp"
 #include "ui/draw.hpp"
 #include "tower_of_babel_amiga/game/animation.hpp"
+#include "tower_of_babel_amiga/game/rules.hpp"
+#include "tower_of_babel_amiga/game/tower_state.hpp"
 #include "tower_of_babel_amiga/game/tower_map.hpp"
 #include "tower_of_babel_amiga/view/overlay.hpp"
 #include "tower_of_babel_amiga/view/polygon.hpp"
@@ -73,6 +77,134 @@ std::pair<int, int> find_tower(const babel::data::Assets& assets, const Dump& d)
             if (assets.groups[g].towers[t].name == name) return {int(g), int(t)};
     std::printf("no tower named \"%s\"\n", name.c_str());
     return {-1, -1};
+}
+
+// Research: the variables A6+$1100.. of one logicrec line, read into the
+// native state and written back for comparison.
+struct Vars {
+    std::vector<std::uint8_t> b;
+    // logicrec.py records A6+$E00..$1FFF (older recordings A6+$1100..).
+    int base() const { return b.size() == 0xF00 ? 0x1100 : 0xE00; }
+    int u8(int a) const {
+        const int i = a - base();
+        return i >= 0 && std::size_t(i) < b.size() ? b[std::size_t(i)] : 0;
+    }
+    int s16(int a) const { return std::int16_t(u8(a) << 8 | u8(a + 1)); }
+    std::uint32_t u32(int a) const { return std::uint32_t(s16(a) & 0xFFFF) << 16 | std::uint32_t(s16(a + 2) & 0xFFFF); }
+};
+
+babel::game::TowerState state_from(const Vars& v) {
+    using namespace babel::game;
+    TowerState t;
+    for (CellIndex i = 0; i < 500; ++i) t.set_cell(i, std::uint8_t(v.u8(0x1C5A + i)));
+    for (CellIndex i = 100; i < 500; ++i) t.set_object_at(i, std::int8_t(v.u8(0x1E4E + i - 100)));
+    for (int n = 0; n < TowerState::objects_max; ++n) {
+        const int r = 0x15DA + n * 32;
+        auto& o = t.objects[std::size_t(n)];
+        o = {v.s16(r), v.u32(r + 2), v.s16(r + 6), v.s16(r + 8), v.s16(r + 10), v.s16(r + 12), v.s16(r + 14),
+             v.s16(r + 16), v.s16(r + 18), v.s16(r + 20) ? v.s16(r + 20) + 100 : 0, v.s16(r + 22) ? v.s16(r + 22) + 100 : 0,
+             v.s16(r + 24), v.s16(r + 26), v.s16(r + 28), v.s16(r + 30)};
+        if (o.type == 0xD && o.counter_1c != 0) o.counter_1c += 100; // a Lizard's +$1C is a cell
+    }
+    for (int n = 0; n < 7; ++n) {
+        const int r = 0x156A + n * 16;
+        auto& p = t.programs[std::size_t(n)];
+        p.command = v.s16(r); p.word2 = v.s16(r + 2); p.mode = v.s16(r + 4); p.position = v.s16(r + 6);
+        for (int k = 0; k < 8; ++k) p.commands[std::size_t(k)] = std::uint8_t(v.u8(r + 8 + k));
+    }
+    t.panel.move = v.s16(0x1558); t.panel.turn = v.s16(0x155C); t.panel.program = v.s16(0x1560);
+    const std::uint32_t record = v.u32(0x1564);
+    t.panel.program_record = record >= 0x806 + 0x156A ? int((record - 0x806 - 0x156A) / 16) : -1;
+    t.active = v.s16(0x1568);
+    t.lift_moves = v.s16(0x1216);
+    t.turn_flags = v.u8(0x1218);
+    t.backwards_allowed = v.s16(0x110E) >= 0;
+    t.clock = v.s16(0x11E4);
+    t.klondikes = v.s16(0x11D8); t.destroyed = v.s16(0x11DA);
+    t.klondikes_needed = v.s16(0xE30); t.destroy_needed = v.s16(0xE32);
+    t.end_countdown = v.s16(0x11E0); t.end_reason = v.s16(0x11E2);
+    t.blink = v.s16(0xFC0);
+    t.frame = v.s16(0xFBE);
+    t.footsteps = v.s16(0xA6) == 0;
+    t.mine_holes = v.s16(0xE2A) >= 0;
+    t.bomb_speed = v.s16(0xE2E);
+    t.forcer_frames = v.s16(0x1212); t.forcer_direction = v.s16(0x1214);
+    for (int k = 0; k < v.s16(0x1210); ++k) t.forcer_cells.push_back(v.s16(0x11E8 + 2 * k) + 100);
+    return t;
+}
+
+// `objects`: the recording also covers the objects' own update ($BEE4,
+// logicrec.py --objects), which then runs after the moves.
+int logic_check(const babel::data::Assets& assets, const std::filesystem::path& file, bool objects) {
+    using namespace babel::game;
+    const Rules rules(assets.program);
+    std::ifstream in(file);
+    std::string before_hex, after_hex;
+    int frames = 0, bad = 0;
+    const auto bytes = [](const std::string& h) {
+        std::vector<std::uint8_t> b(h.size() / 2);
+        for (std::size_t i = 0; i < b.size(); ++i) b[i] = std::uint8_t(std::stoi(h.substr(2 * i, 2), nullptr, 16));
+        return b;
+    };
+    while (in >> before_hex >> after_hex) {
+        ++frames;
+        TowerState native = state_from(Vars{bytes(before_hex)});
+        rules.step(native);
+        if (objects) rules.update(native);
+        const TowerState original = state_from(Vars{bytes(after_hex)});
+        std::vector<std::string> diffs;
+        const auto check = [&](const std::string& what, long a, long b) {
+            if (a != b) diffs.push_back(what + " original " + std::to_string(b) + " native " + std::to_string(a));
+        };
+        for (CellIndex i = 0; i < 500; ++i) {
+            check("cell " + std::to_string(i), native.cell(i), original.cell(i));
+            if (i >= 100) check("object at " + std::to_string(i), native.object_at(i), original.object_at(i));
+        }
+        for (int n = 0; n < TowerState::objects_max; ++n) {
+            const auto& a = native.objects[std::size_t(n)];
+            const auto& b = original.objects[std::size_t(n)];
+            const std::string o = "slot " + std::to_string(n) + " ";
+            check(o + "type", a.type, b.type); check(o + "x", a.x, b.x); check(o + "y", a.y, b.y); check(o + "z", a.z, b.z);
+            check(o + "heading", a.heading, b.heading); check(o + "state", a.state, b.state);
+            check(o + "progress", a.progress, b.progress); check(o + "cell", a.cell, b.cell); check(o + "target", a.target, b.target);
+            check(o + "flags", a.flags, b.flags); check(o + "1a", a.counter_1a, b.counter_1a); check(o + "1c", a.counter_1c, b.counter_1c);
+            if (objects) { check(o + "1e", a.counter_1e, b.counter_1e); check(o + "shape", long(a.shape), long(b.shape)); }
+        }
+        for (int n = 0; n < 7; ++n) {
+            const auto& a = native.programs[std::size_t(n)];
+            const auto& b = original.programs[std::size_t(n)];
+            const std::string p = "program " + std::to_string(n) + " ";
+            check(p + "command", a.command, b.command); check(p + "mode", a.mode, b.mode); check(p + "position", a.position, b.position);
+        }
+        check("panel move", native.panel.move, original.panel.move);
+        check("panel turn", native.panel.turn, original.panel.turn);
+        check("panel program", native.panel.program, original.panel.program);
+        // $1564 is a redraw request the vertical-blank hook ($AB5A) consumes and
+        // clears; it can do so between $BC7A and the recording's stop.
+        if (original.panel.program_record != -1)
+            check("panel record", native.panel.program_record, original.panel.program_record);
+        check("lift moves", native.lift_moves, original.lift_moves);
+        check("turn flags", native.turn_flags, original.turn_flags);
+        check("forcer frames", native.forcer_frames, original.forcer_frames);
+        check("forcer direction", native.forcer_direction, original.forcer_direction);
+        check("forcer cells", long(native.forcer_cells.size()), long(original.forcer_cells.size()));
+        for (std::size_t k = 0; k < native.forcer_cells.size() && k < original.forcer_cells.size(); ++k)
+            check("forcer cell", native.forcer_cells[k], original.forcer_cells[k]);
+        check("clock", native.clock, original.clock);
+        check("klondikes", native.klondikes, original.klondikes);
+        check("destroyed", native.destroyed, original.destroyed);
+        check("end countdown", native.end_countdown, original.end_countdown);
+        check("end reason", native.end_reason, original.end_reason);
+        if (!diffs.empty()) {
+            if (++bad <= 5) {
+                std::printf("frame %d:", frames);
+                for (std::size_t i = 0; i < diffs.size() && i < 6; ++i) std::printf(" [%s]", diffs[i].c_str());
+                std::printf("\n");
+            }
+        }
+    }
+    std::printf("logic: %d of %d frames differ\n", bad, frames);
+    return 0;
 }
 
 int view_check(const babel::data::Assets& assets, const Dump& d, int group, int index, const std::filesystem::path& out,
@@ -362,6 +494,12 @@ int main(int argc, char** argv) {
             }
             std::printf("copper list %d: %d mismatches, %zu of %zu colour-7 changes seen\n", list, mismatches, next7, plan.colour7.size());
             return r;
+        }
+        if (command == "logiccheck" && argc == 4) {
+            return logic_check(load_assets(platform::utf8_path(argv[2])), platform::utf8_path(argv[3]), false);
+        }
+        if (command == "objectcheck" && argc == 4) {
+            return logic_check(load_assets(platform::utf8_path(argv[2])), platform::utf8_path(argv[3]), true);
         }
         if (command == "viewcheck" && argc == 7) {
             const auto assets = load_assets(platform::utf8_path(argv[2]));

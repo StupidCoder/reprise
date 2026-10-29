@@ -9,6 +9,23 @@
 *.ADF
 *.dms
 *.ipf
-/.analysis/
+/.analysis
 /build/
 .DS_Store
+
+# Local source images, never bundled or committed.
+/images/
+*.ipa
+*.nds
+*.3ds
+*.cia
+
+# Imported engines keep local research links and standalone build directories.
+/games/*/.analysis
+/games/*/build*/
+/games/*/.cache/
+
+# Android outputs, downloaded tool dependencies and signing material.
+/build-android/
+*.keystore
+*.jks

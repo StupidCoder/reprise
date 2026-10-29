@@ -1,0 +1,16 @@
+# Game data must never be committed: the IPA and anything extracted from it.
+*.ipa
+
+# Local research, never committed:
+# .analysis: notes, tools, extracted IPA, armv7 slice, touchHLE checkout (ext/), evidence
+#            (reference runs: screenshots, traces, save snapshots).
+# ghidra:    Ghidra project (kept outside .analysis because Ghidra rejects dot paths).
+/.analysis/
+/ghidra/
+
+# Build output.
+/build/
+
+# System and editor files.
+.DS_Store
+__pycache__/

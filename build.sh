@@ -1,6 +1,6 @@
 #!/bin/zsh
-# Builds Joyport (optimised, with debug symbols) and packages it as
-# "build/Joyport.app" with SDL bundled. Requires CMake, Ninja and SDL 3
+# Builds Reprise (optimised, with debug symbols) and packages it as
+# "build/Reprise.app" with SDL bundled. Requires CMake, Ninja and SDL 3
 # (for example from Homebrew).
 set -eu
 cd -- "$(dirname -- "$0")"

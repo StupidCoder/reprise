@@ -1,0 +1,44 @@
+[
+  {
+    "card": 1,
+    "asset": "village.png",
+    "prompt": "Use case: illustration-story. Asset type: original landscape cover artwork for a native mystery-game library card, aspect ratio 3:2. Subject: a quaint, impossible European village on a hill, clustered crooked rooftops and one tall clock tower, winding cobbled lane in foreground. Style: elegant hand-painted storybook watercolor with fine sepia ink contours, early twentieth-century travel illustration, refined and softly detailed, not pixel art. Color palette: muted moss, parchment ivory, honey gold and walnut brown. Atmospheric late afternoon light. Composition: full-bleed cohesive painting, landmark centered, uncluttered foreground; no border. Constraints: entirely original scenery, no recognizable game characters, no logos, no text, no lettering, no watermark. This will be the placeholder card for the first of three mystery adventures.",
+    "tool": "built-in image_gen",
+    "processing": "Converted to PNG, scaled to 640 px wide and cropped to the 640x224 band the card shows."
+  },
+  {
+    "card": 2,
+    "asset": "train.png",
+    "prompt": "Use case: illustration-story. Asset type: original landscape card cover for a native mystery-game library, 3:2 aspect ratio. Subject: an elegant dark green steam train arriving beside a tiny station at dusk, a mysterious small closed brass keepsake box and a folded railway ticket in the foreground. Style: refined hand-painted storybook watercolor and precise sepia ink, evocative early twentieth-century European travel illustration, not pixel art. Palette: deep petrol green, warm amber windows, walnut brown, parchment cream, burnished brass. Full-bleed painting, beautifully balanced composition, train in middle ground and box visible lower right. No people, no recognizable copyrighted characters, no logos, no text, no lettering, no watermark, no frame. Original placeholder artwork for the second mystery adventure, coordinated with a watercolor village card.",
+    "tool": "built-in image_gen",
+    "processing": "Converted to PNG, scaled to 640 px wide and cropped to the 640x224 band the card shows."
+  },
+  {
+    "card": 3,
+    "asset": "clock.png",
+    "prompt": "Use case: illustration-story. Asset type: original landscape cover artwork for a native mystery-game library card, 3:2. Subject: an imagined old London street disappearing into mist with elegant clockmaker shop windows and a distant clock tower, a large antique pocket watch and a softly glowing intricate brass mechanism in foreground. Style: hand-painted storybook watercolor with precise sepia ink contours, refined early twentieth-century mystery illustration, not pixel art. Palette: dusty midnight blue, muted lavender gray, parchment cream and antique gold; dusky lamplight. Full-bleed painting, balanced and readable at card size. Entirely original architecture; no characters, no logos, no text, no lettering, no watermark, no frame. Coordinated with watercolor village and steam-train cards; the third adventure suggests time and a lost future.",
+    "tool": "built-in image_gen",
+    "processing": "Converted to PNG, scaled to 640 px wide and cropped to the 640x224 band the card shows."
+  },
+  {
+    "card": 4,
+    "asset": "canal.png",
+    "prompt": "Original landscape illustration for a mystery adventure library card, 3:2 aspect ratio. Refined hand-painted storybook watercolor with fine sepia ink contours, early twentieth-century travel illustration. Muted parchment, moss, honey gold and walnut palette; atmospheric lighting, full bleed, no border. Compose principal subjects in central horizontal band so a wide crop remains attractive. No text, logos, lettering, watermarks or recognizable game characters. A quiet canal village in blue-green evening mist, a stone bridge and warmly lit crooked houses, with a mysterious swirling plume of fog above the water. An original atmospheric placeholder evoking a spectral mystery.",
+    "tool": "built-in image_gen",
+    "processing": "Converted to PNG, scaled to 640 px wide and cropped to the 640x224 band the card shows."
+  },
+  {
+    "card": 5,
+    "asset": "mask.png",
+    "prompt": "Original landscape illustration for a mystery adventure library card, 3:2 aspect ratio. Refined hand-painted storybook watercolor with fine sepia ink contours, early twentieth-century travel illustration. Muted parchment, moss, honey gold and walnut palette; atmospheric lighting, full bleed, no border. Compose principal subjects in central horizontal band so a wide crop remains attractive. No text, logos, lettering, watermarks or recognizable game characters. An ornate antique carnival mask resting on velvet in the foreground, behind it an imagined sunlit desert town with elegant ochre arcades and festive bunting. Amber and muted plum accents. An original mysterious adventure placeholder.",
+    "tool": "built-in image_gen",
+    "processing": "Converted to PNG, scaled to 640 px wide and cropped to the 640x224 band the card shows."
+  },
+  {
+    "card": 6,
+    "asset": "sanctuary.png",
+    "prompt": "Original landscape illustration for a mystery adventure library card, 3:2 aspect ratio. Refined hand-painted storybook watercolor with fine sepia ink contours, early twentieth-century travel illustration. Muted parchment, moss, honey gold and walnut palette; atmospheric lighting, full bleed, no border. Compose principal subjects in central horizontal band so a wide crop remains attractive. No text, logos, lettering, watermarks or recognizable game characters. An imagined ancient stone sanctuary suspended among pale clouds and remote mountain peaks, delicate geometric carvings and a small weathered bronze compass in the foreground. Icy turquoise and warm brass accents. An original archaeological mystery placeholder.",
+    "tool": "built-in image_gen",
+    "processing": "Converted to PNG, scaled to 640 px wide and cropped to the 640x224 band the card shows."
+  }
+]

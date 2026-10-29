@@ -1,0 +1,26 @@
+# Game data must never be committed: ROM dumps and anything extracted from
+# them (imported libraries, decoded assets, audio, captures).
+*.nds
+*.srl
+*.cci
+*.3ds
+*.sav
+*.l2cp
+
+# Local research: notes, tools, emulator harness, evidence and test results.
+/.analysis/
+
+# Build output and release packages.
+/build/
+/build-*/
+/dist/
+CMakeUserPresets.json
+compile_commands.json
+
+# System and editor files.
+.DS_Store
+__pycache__/
+*.pyc
+.vscode/
+.idea/
+*.swp

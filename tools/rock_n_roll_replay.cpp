@@ -16,6 +16,8 @@
 #include "platform/host.hpp"
 #include "rock_n_roll_amiga/data/assets.hpp"
 #include "rock_n_roll_amiga/game/ball.hpp"
+#include "rock_n_roll_amiga/game/module.hpp"
+#include "platform/host.hpp"
 #include <cstdio>
 #include <exception>
 #include <fstream>
@@ -79,7 +81,9 @@ std::vector<Row> read_recording(const std::string& path, bool& loop_left, std::v
                                 name == "fallcount" || name == "lost" || name == "mappieces" ||
                                 name == "energy2" || name == "kindtime" || name == "kindoff" || name == "iceproof" ||
                                 name == "protect" || name == "warpcount" || name == "rewardcount" ||
-                                name == "shopwait" || name == "carried"
+                                name == "shopwait" || name == "carried" || name == "countdown" || name == "ticks" ||
+                                name == "drained" || name == "latch" || name == "frozen" || name == "done" ||
+                                name == "pending" || name == "crumblecount"
                             ? std::int64_t(v)
                             : std::int64_t(std::int32_t(std::uint32_t(v)));
         }
@@ -107,8 +111,12 @@ game::Pocket pocket_from(const Row& r) {
     }
     if (r.count("repairs")) {
         p.repair_sets = int(r.at("repairs"));
-        p.eyes = int(r.at("eyes"));
+        p.bombs = int(r.at("eyes"));
         p.energy = int(r.at("energy2"));
+    }
+    if (r.count("hourglass")) {
+        p.rescues = int(r.at("hourglass"));
+        p.continues = int(r.at("continues"));
     }
     p.score = int(r.at("money"));   // the recorder's "money" column is $719BA (the score)
     p.money = int(r.at("energy"));  // and "energy" is $719C2 (the money)
@@ -131,8 +139,12 @@ int compare_pocket(const game::Pocket& p, const Row& r, std::int64_t update) {
     }
     if (r.count("repairs")) {
         check("repairs", p.repair_sets);
-        check("eyes", p.eyes);
+        check("eyes", p.bombs);
         check("energy2", p.energy);
+    }
+    if (r.count("hourglass")) {
+        check("hourglass", p.rescues);
+        check("continues", p.continues);
     }
     check("money", p.score);
     check("energy", p.money);
@@ -180,6 +192,20 @@ game::Ball ball_from(const Row& r) {
         b.max_speed_x = b.max_speed_y = game::Fixed(r.at("maxvx"));
         b.min_speed_x = b.min_speed_y = game::Fixed(r.at("minvx"));
     }
+    if (r.count("hund")) {
+        b.clock.hundredths = int(r.at("hund"));
+        b.clock.seconds = int(r.at("secs"));
+        b.clock.countdown = int(r.at("countdown"));
+        b.clock.ticks = std::uint8_t(r.at("ticks"));
+        b.clock.drained = r.at("drained") & 1;
+        b.clock.switch_latch = int(r.at("latch"));
+        b.clock.mouse_frozen = r.at("frozen") != 0;
+        b.level_done = r.at("done") & 1;
+    }
+    if (r.count("remembered")) {
+        b.remembered_cell = long(r.at("remembered")) - 0x73BA8; // the map starts at $73BA8
+        b.pending_value = std::uint8_t(r.at("pending"));
+    }
     if (r.count("save_cx")) {
         b.continue_camera_x = game::Fixed(r.at("save_cx"));
         b.continue_camera_y = game::Fixed(r.at("save_cy"));
@@ -209,6 +235,29 @@ int compare(const game::Ball& b, const Row& r, bool all, std::int64_t update) {
                               {"shopspot", b.shop_spot}, {"carried", b.carried}, {"maxvx", b.max_speed_x},
                               {"minvx", b.min_speed_x}};
         for (const auto& f : more) {
+            if (r.at(f.name) != f.native) {
+                std::printf("update %lld: %s native %llx original %llx\n", (long long)update, f.name,
+                            (unsigned long long)(std::uint32_t)f.native, (unsigned long long)(std::uint32_t)r.at(f.name));
+                ++differing_saved;
+            }
+        }
+    }
+    if (r.count("hund")) {
+        const auto& c = b.clock;
+        const Field clock[] = {{"hund", c.hundredths}, {"secs", c.seconds}, {"countdown", c.countdown},
+                               {"ticks", c.ticks}, {"drained", c.drained}, {"latch", c.switch_latch},
+                               {"frozen", c.mouse_frozen}, {"done", b.level_done}};
+        if (r.count("remembered")) {
+            const Field crumble[] = {{"remembered", b.remembered_cell + 0x73BA8}, {"pending", b.pending_value}};
+            for (const auto& f : crumble) {
+                if (r.at(f.name) != f.native) {
+                    std::printf("update %lld: %s native %llx original %llx\n", (long long)update, f.name,
+                                (unsigned long long)(std::uint32_t)f.native, (unsigned long long)(std::uint32_t)r.at(f.name));
+                    ++differing_saved;
+                }
+            }
+        }
+        for (const auto& f : clock) {
             if (r.at(f.name) != f.native) {
                 std::printf("update %lld: %s native %llx original %llx\n", (long long)update, f.name,
                             (unsigned long long)(std::uint32_t)f.native, (unsigned long long)(std::uint32_t)r.at(f.name));
@@ -345,6 +394,78 @@ int main(int argc, char** argv) {
                 std::printf("\n");
             }
             return bad_updates ? 1 : 0;
+        }
+        if (command == "probe" && argc >= 7) {
+            // probe <content> <level> <col> <row> <updates> [a-b:dx,dy …]:
+            // places the ball as play.py's place() does (top-left cell at
+            // col,row, view centre, no speed), runs the native rules with
+            // the mouse moves and prints the state per update.
+            const auto assets = data::load_assets(platform::utf8_path(argv[2]));
+            const auto& level = assets.levels.at(std::size_t(std::stoi(argv[3]) - 1));
+            const auto& world = assets.world(level.world);
+            auto map = game::LevelMap::from(level);
+            game::Ball ball = game::Ball::at_start(map);
+            ball.camera_x = game::Fixed(std::stoi(argv[4]) - 7) << 16;
+            ball.camera_y = game::Fixed(std::stoi(argv[5]) - 3) << 16;
+            ball.view_x = 0x90000;
+            ball.view_y = 0x30000;
+            game::Pocket pocket;
+            const int updates = std::stoi(argv[6]);
+            struct Step { int a, b, dx, dy; };
+            std::vector<Step> steps;
+            for (int i = 7; i < argc; ++i) {
+                Step st{};
+                if (std::sscanf(argv[i], "%d-%d:%d,%d", &st.a, &st.b, &st.dx, &st.dy) == 4) steps.push_back(st);
+            }
+            game::MouseCounters mouse{};
+            ball.last_mouse = mouse;
+            for (int n = 0; n < updates; ++n) {
+                for (const auto& st : steps) {
+                    if (n < st.a || n > st.b) continue;
+                    mouse.x = std::uint8_t(mouse.x + st.dx);
+                    mouse.y = std::uint8_t(mouse.y + st.dy);
+                }
+                game::update_ball(ball, pocket, map, world, mouse);
+                // The ball's top-left in map pixels (the cell under it is
+                // two columns left of camera + view).
+                const auto px = [](game::Fixed c, game::Fixed v) { return double(c + v) / 4096.0; };
+                std::printf("%3d x %7.2f y %7.2f vx %6x vy %6x contact %d,%d centre %d mode %d\n", n,
+                            px(ball.camera_x, ball.view_x) - 32, px(ball.camera_y, ball.view_y),
+                            unsigned(ball.speed_x) & 0xFFFFFF, unsigned(ball.speed_y) & 0xFFFFFF,
+                            ball.contact_rows, ball.contact_columns, ball.centre_cell, int(ball.mode));
+            }
+            return 0;
+        }
+        if (command == "play" && argc >= 5) {
+            // play <content> <updates> <out.png> [a-b:dx,dy[,l|r] …]: runs the
+            // game module headless with mouse moves and buttons per update.
+            auto game = game::start(platform::utf8_path(argv[2]));
+            const int updates = std::stoi(argv[3]);
+            struct Step { int a, b, dx, dy; bool l, r; };
+            std::vector<Step> steps;
+            for (int i = 5; i < argc; ++i) {
+                Step st{};
+                char buttons[4] = {};
+                if (std::sscanf(argv[i], "%d-%d:%d,%d,%3s", &st.a, &st.b, &st.dx, &st.dy, buttons) < 4) continue;
+                st.l = std::string(buttons).find('l') != std::string::npos;
+                st.r = std::string(buttons).find('r') != std::string::npos;
+                steps.push_back(st);
+            }
+            app::GameInput input;
+            for (int n = 0; n < updates; ++n) {
+                input.mouse_button = input.mouse_right = false;
+                input.mouse_dx = input.mouse_dy = 0;
+                for (const auto& st : steps) {
+                    if (n < st.a || n > st.b) continue;
+                    input.mouse_dx += float(st.dx);
+                    input.mouse_dy += float(st.dy);
+                    input.mouse_button = st.l;
+                    input.mouse_right = st.r;
+                }
+                game->tick(input);
+            }
+            platform::save_png(game->picture(), platform::utf8_path(argv[4]));
+            return 0;
         }
     } catch (const std::exception& error) {
         std::fprintf(stderr, "%s\n", error.what());

@@ -1,5 +1,5 @@
 // Rock 'n Roll research tool: imports the disk image into a content folder
-// and exports the decoded data (.analysis/rock_n_roll_amiga/formats.md).
+// and exports the decoded data (games/rock_n_roll_amiga/game.md).
 //
 //   rock_n_roll_assets import <image.adf> <content folder>
 //   rock_n_roll_assets export <content folder> <output folder>

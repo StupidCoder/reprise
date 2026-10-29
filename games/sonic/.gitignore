@@ -1,0 +1,23 @@
+# Game data must never be committed: ROM and disc dumps, and anything
+# extracted from them. (Mega Drive dumps named *.md are not listed because
+# that extension is also Markdown; keep dumps outside this folder.)
+*.gg
+*.sms
+*.bin
+*.cue
+*.chd
+*.iso
+*.gen
+*.smd
+*.nds
+*.gba
+
+# Local research data, tools and builds.
+/.analysis/
+/.tools/
+/build/
+/assets/
+
+# System and editor files.
+.DS_Store
+__pycache__/
