@@ -156,7 +156,12 @@ void Screen::draw_view(const LevelMap& map, const Ball& b) {
     // The ball ($6F7B6): cookie-cut through its mask, plane by plane, at
     // buffer x (view x tiles) × 16 + fine x of camera + view, line view y.
     const auto ball = ball_picture(b);
-    const int ball_x = int(std::uint32_t(b.view_x) >> 16) * 16 + int(((low_word(b.camera_x) + low_word(b.view_x)) & 0xF000) >> 12);
+    // (The original's blit drops the carry of the two fine parts' sum; its
+    // states never have one, as the view's fraction is 0 while the camera
+    // follows and the camera's limits are whole cells. Smooth motion's
+    // in-between places can have both, so the carry is kept.)
+    const int ball_x = int(std::uint32_t(b.view_x) >> 16) * 16 +
+                       ((int(low_word(b.camera_x) & 0xF000) + int(low_word(b.view_x) & 0xF000)) >> 12);
     const int ball_y = int(b.view_y >> 12);
     for (int y = 0; y < 16; ++y) {
         for (int x = 0; x < 16; ++x) {
@@ -191,7 +196,9 @@ void Screen::draw_view(const LevelMap& map, const Ball& b) {
     for (int line = 0; line < view_lines; ++line) {
         for (int p = -margin_; p < width + margin_; ++p) {
             const int x = 1 + fine_x + p;
-            at(p, bar_lines + line) = in_buffer(x) ? buf(x, line) : 0;
+            // The last column, right of the right pillar, is past the
+            // original's 16 tile columns in its buffer: black at any width.
+            at(p, bar_lines + line) = in_buffer(x) && p < width - 1 + margin_ ? buf(x, line) : 0;
         }
     }
 }

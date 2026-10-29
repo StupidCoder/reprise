@@ -1338,6 +1338,8 @@ replay the same with any of them).
   - The view draws the map's own columns there (beyond its edges, the
     abyss); the original's 16 columns run on into the next row at the
     right edge, which the original width never shows.
+  - The original's last column, right of the right pillar, is black (its
+    buffer has no tiles there); it stays black at any width.
   - The pillars move out to the new edges. The name bar's pipes (column
     80) and the panel's top tube (column 152, six lines) run on. The rest
     of the bar and the panel stay in the middle, with black beside the
@@ -1349,6 +1351,13 @@ replay the same with any of them).
   update, at the host's frame fraction (so a step behind). Jumps of more
   than two cells (teleports, restarts, a continue) are shown as they are.
   With the fraction at 1 the picture is the original's.
+  - The ball's x is drawn as the original's blit sets it (`$6F82E`): the
+    view's whole cells × 16 plus the sum of the camera's and the view's
+    fine parts, whose carry the original drops. The original never has a
+    carry (the view's fraction is 0 while the camera follows, and the
+    camera's limits are whole cells), but an in-between place where the
+    camera stops at its limit can: the port keeps it, or the ball would
+    jump 16 pixels left for a frame.
 - **Quick save** (`write_state`/`read_state`): in a level, in play or at its
   start wait (elsewhere the state is empty: not ready). It keeps the ball,
   the pocket, the map's changing parts (cells, countdowns, block, tile
