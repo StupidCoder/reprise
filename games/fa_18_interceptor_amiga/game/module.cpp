@@ -168,6 +168,7 @@ public:
             double t = 1;
             if (smooth_ && flash_left_ == 0) t = frame_fraction_;
             auto readings = read_cockpit(aircraft_);
+            readings.zoom = zoom_ == 0x80 ? 1 : zoom_ == 0x40 ? 2 : 4; // ($1266C8)
             if (outside_) {
                 // The outside view ($13AA75): the scene down to row 167
                 // ($13AC74) with the aircraft in it, and its numbers below.
@@ -206,7 +207,7 @@ public:
                 self.push_back(v);
             }
             scene_.draw(frame, width / 2 - 1, cockpit ? Cockpit::view_bottom : view_rows,
-                        camera(before_, aircraft_, t, look_), self);
+                        camera(before_, aircraft_, t, look_, zoom_), self);
             readings.hud = phase_ != Phase::ready; // ($13AA91, set as the flight starts)
             readings.message = messages_.shown();
             readings.message_colour = messages_.colour();
@@ -531,6 +532,11 @@ private:
         if (!outside_) {
             // In the cockpit ($10E684, $10E6B4, $10E668, $10E64C): keypad 4
             // and 6 step the look direction round, 8 looks ahead, 2 back.
+            // `[` / `]` ($10E836, $10E856; here Ctrl with - / =): the zoom
+            // `$13AD32` halves (in, kept at $20 or more here: the readout
+            // knows 1.0, 2.0 and 4.0) or doubles back up to $80.
+            if (nearer && zoom_ > 0x20) zoom_ >>= 1;
+            if (farther && zoom_ < 0x80) zoom_ <<= 1;
             if (left) look_ = (look_ + 11) % 12;
             if (right) look_ = (look_ + 1) % 12;
             if (up) look_ = 0;
@@ -698,7 +704,7 @@ private:
     // The cockpit camera: the eye 5 up and 20 ahead of the aircraft's
     // centre along its view matrix ($10F49E), looking along the body
     // matrix, rows scaled as the original's view ($10D308, $122D84).
-    static Camera camera(const Aircraft& was, const Aircraft& now, double t, int look = 0) {
+    static Camera camera(const Aircraft& was, const Aircraft& now, double t, int look = 0, int zoom = 0x80) {
         Camera c;
         const auto mix = [t](double a, double b) { return a + (b - a) * t; };
         std::array<double, 9> body{};
@@ -722,7 +728,7 @@ private:
                 body[6 + k] = cs * ahead - sn * left;
             }
         }
-        constexpr double rows[3] = {0xA8 / 256.0, 0xFC / 256.0, 0x80 / 256.0};
+        const double rows[3] = {0xA8 / 256.0, 0xFC / 256.0, zoom / 256.0};
         for (std::size_t r = 0; r < 3; ++r)
             for (std::size_t k = 0; k < 3; ++k) c.matrix[3 * r + k] = body[3 * r + k] * rows[r];
         return c;
@@ -756,6 +762,7 @@ private:
     std::array<bool, 7> pad_was_{};
     bool above_ = false, v_was_ = false;      // $13AA9D: the view from above
     int look_ = 0;                            // $13AA97: the cockpit's look direction
+    int zoom_ = 0x80;                         // $13AD32
     double above_height_ = 0x3000000 / 256.0; // $13AF32 / $13A954
     static constexpr int outside_bottom = 0xA7;
     Phase phase_ = Phase::flying;

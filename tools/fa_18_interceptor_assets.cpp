@@ -623,6 +623,8 @@ int fly_script(const std::filesystem::path& content, const std::string& prefix, 
         input.c64_keys[1] = has('*');
         input.c64_keys[63] = has('~');
         input.ctrl_keys[63] = has('^');
+        input.ctrl_keys[53] = has('('); // Ctrl+= (nearer, zoom in)
+        input.ctrl_keys[43] = has(')'); // Ctrl+- (farther, zoom out)
         input.fire = has('_');
         // The keypad's view keys: @ 0, [ 4, ] 6, { 8, } 2.
         input.fire2 = has('@'); input.left2 = has('['); input.right2 = has(']');

@@ -933,6 +933,11 @@ shows (no shadow: `$113984` draws it only outside). Checked against
 `work/ref/look/l1-l6.png` (directions 11 to 6 on runway 1): the
 cockpit's place and the view's extent equal.
 
+**Zoom** (keys `[` / `]` in the cockpit, `$10E836` / `$10E856`):
+`$13AD32` halves (in) or doubles up to $80; it is the third row's scale
+of the view matrix, the readout ($1266C8) shows 1.0, 2.0 or 4.0 (the
+port stops at $20); `$13AACD` bit 7 is set at $80.
+
 Not rebuilt: the fly-in states (also the start map's descent), looking
 up and down (keypad 7 and 1 do not exist in Reprise's key map).
 

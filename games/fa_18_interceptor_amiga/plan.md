@@ -39,8 +39,9 @@ from drawing, and must still respect the passes' model rule).
    symbol, the radar's scan and own mark, the panel's own colours. Left:
    the GEAR box's lighting while the gear-speed warning blinks, the
    alert lights' colours (`$125D26`, from the alerts of task 7), the
-   radar contacts and the weapons' marks (tasks 7-8), the zoom keys
-   (`$13AD32`, keys `[` / `]` in the cockpit).
+   radar contacts and the weapons' marks (tasks 7-8). Done since: the
+   zoom (Ctrl with = / -, the original's `[` / `]`, `$13AD32` $80 / $40
+   / $20 with its readout).
 4. **Warnings and messages** — partly done 2026-10-29: fuel low,
    critical and exhausted in the message line, the 7.8 G beep and the
    blackout counter (engine at half volume). Left: the radar and missile
