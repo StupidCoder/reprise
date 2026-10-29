@@ -35,8 +35,16 @@ public:
     // A sampled piece to start this frame (0 the title music, 1 the jingle), or none.
     std::optional<int> take_piece() { return std::exchange(piece_, std::nullopt); }
     bool piece_playing() const { return piece_frames_ > 0; }
-    // Effect records started since the last call, in order.
-    std::vector<std::uint32_t> take_sounds() { return std::exchange(sounds_, {}); }
+    // What the sound player is told, in order, since the last call: stop
+    // ($15494), pause ($154C6), go on ($154F2), a game frame's sounds ($15342)
+    // or a sound started at once ($15540).
+    struct SoundEvent {
+        enum class Kind { stop, pause, resume, frame, start } kind;
+        Effects::Frame frame{};
+        std::uint32_t record{};
+        int volume_offset{};
+    };
+    std::vector<SoundEvent> take_sounds() { return std::exchange(sounds_, {}); }
 
 private:
     // --- waiting
@@ -94,7 +102,9 @@ private:
     std::array<data::Colour, 48> current_{};
     std::optional<int> piece_;
     int piece_frames_{};
-    std::vector<std::uint32_t> sounds_;
+    std::vector<SoundEvent> sounds_;
+    void sound(SoundEvent::Kind k, std::uint32_t record = 0) { sounds_.push_back({k, {}, record, 0}); }
+    void sound_frame(const Play&);
     std::uint16_t random_{0x1234}; // $890
 
     // The player and the game ($111E, $113C, $1140-$11CA, $FD6).

@@ -12,27 +12,19 @@ Playable in the shell from the title:
 - every tower with the panel, programs, cameras and every object;
 - the pause menus (Setup, View, Info, Exit with Abandon and Restart);
 - the score screen and the end screens with their demonstrations, and the demo sequence;
-- the title music and the jingle.
+- the title music, the jingle and every sound effect (envelopes, the lifts' hum, the towers' background sounds).
 
 Checked against the original, frame by frame or pixel by pixel:
 
 - import and assets, the 3D view, sky and overlays;
 - the rules and every object's behaviour;
 - the panel's poll;
+- the sound channels' starts and envelope ticks;
 - the front end's screens and tower A played to its score.
 
 ## Remaining tasks
 
-### 1. Sound effects (next)
-
-- Effect records ($3504–$3AF1, 34 of 46 bytes): find the envelope semantics (+$1C/+$20/+$26/+$2A, the second part at +$2E).
-- Channel choice by priority ($15540), up to 16 queued a frame ($15316/$1531E); the audio interrupt's steps ($8202–$8650).
-- The volume offset from the camera's distance ($CE(a6), $AB22).
-- Mix them with the sampled pieces in `front/module.cpp`, which already receives every effect started (`FrontEnd::take_sounds`).
-- Compare the queue with the original's ($15316 calls) in a recording.
-- Find what $A6 = 0 means for footsteps; the "sound setting" reading is a hypothesis.
-
-### 2. The rest of the front end
+### 1. The rest of the front end (next)
 
 - **High scores, view and update ($A81E):** the table, the entry of a new score, where they are kept. Map them to Reprise storage. The menu item does nothing yet.
 - **Save and load a position ($A6B6):** find the format, then the shell's saves. The menu item does nothing yet. Quick save (`write_state`) is not offered yet either.
@@ -41,13 +33,13 @@ Checked against the original, frame by frame or pixel by pixel:
 - **Keys in the menus:** Escape in Setup (resets the screen position), the editor's cursor keys (codes 1–4).
 - **Capital letters in the name:** the shell reports keys without Shift, so names are lower case.
 
-### 3. Tower designer ($E386)
+### 2. Tower designer ($E386)
 
 - Editing cells, objects and colours, the designer's object list ($6F10), the name, author, password and task fields; its menus (the numbered texts $3A–$56: colour names, checks such as "No Grabber").
 - Saving custom towers: the original's format and where it writes them; map them to Reprise storage. "Use Designer Contents" then uses them.
 - The full object kind → designer name mapping.
 
-### 4. Enhancements (after the original is complete)
+### 3. Enhancements (after the original is complete)
 
 - **Widescreen:** the view is drawn from game state, so widen the frustum, then check the sky, stars and overlays at the new width.
 - **Smooth motion up to 120 Hz:** interpolate spider, object and camera positions between game ticks (`GameModule::set_frame_fraction`).
@@ -61,13 +53,16 @@ These run in native code but have not been compared with the original yet:
 - **The panel:** a click in the view selecting a spider (the pick); the noise view ($D804, a spider gone or cameras forbidden).
 - **Screens not compared:** the Info and Exit pages, the Yes/No requester, the lost-tower screens, the final "all towers solved" screen and the demo sequence. They were drawn from the same code paths, but never side by side with the original's; the View page only up to the reference's crash (game.md, "Copy protection").
 - **The timer:** its warning sounds and the time-out compared with the original.
-- **Sounds:** collected, but not compared.
+- **Sounds:**
+  - the towers' background sounds and the timer's warnings, not yet seen in a recording;
+  - the camera's volume offset;
+  - the title music and the jingle, not compared with the original's output;
+  - the effects' sound itself: only the channel state was compared; the shared Paula model renders it.
 
 ## Known bugs
 
 - **Native:**
   - The moon's animation phase after the menus can differ from the original's. It moves on only when drawn ($E44), and the port's front end draws the view a different number of times before a tower. Not yet confirmed by a check.
-  - Effects are silent (task 1).
 - **Original bugs kept on purpose** (see game.md, "Bugs in the original"):
   - the meteor's first partial word takes plane 3 from plane 0;
   - zapping a Freezer after it thawed throws the freeze counter off by one, so the next Freezer stops nothing.
@@ -84,6 +79,7 @@ These run in native code but have not been compared with the original yet:
   - $283C0 / $2CDC0 / $2D3C0: the chooser's pictures are known; the rest are open;
   - the panel set's full layout ($23BC0): the button images are known.
 - **Object pens 23 and 24** are inverted every game frame ($AB44): the blink. Find which objects use them.
+- **Footsteps:** find what $A6 = 0 means exactly; the "no footsteps" reading is a hypothesis (6 towers set it).
 - **Copy protection:** confirm that the View page's hash is the delayed manual-word check (hypothesis), with the right word on the reference.
 - **Disk blocks** $538–$6DF are never read ($540 onward is noise).
 - **Ghidra seeds:** add the jump table entries $E2CC–$E310.

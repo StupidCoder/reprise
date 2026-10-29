@@ -54,8 +54,8 @@ app::GameEntry entry() {
         .start = front::start,
         .progress = "The front end (title, credits, name, menus, tower chooser and information) and playing a "
                     "tower with the panel, programs, cameras and every object, the pause menus, the scores and the "
-                    "end screens with their demonstrations; the demo sequence. Not yet: effect sounds, high scores, "
-                    "saved positions, the tower designer, custom groups from disk.",
+                    "end screens with their demonstrations; the demo sequence; music and sound effects. Not yet: high "
+                    "scores, saved positions, the tower designer, custom groups from disk.",
     };
 }
 

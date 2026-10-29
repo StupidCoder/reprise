@@ -1,8 +1,10 @@
 #include "tower_of_babel_amiga/front/module.hpp"
 #include "amiga/paula_voices.hpp"
 #include "tower_of_babel_amiga/data/assets.hpp"
+#include "tower_of_babel_amiga/front/effects.hpp"
 #include "tower_of_babel_amiga/front/front_end.hpp"
 #include <algorithm>
+#include <cmath>
 
 namespace babel::front {
 namespace {
@@ -31,7 +33,7 @@ int typed_key(int index) {
 class Module final : public app::GameModule {
 public:
     explicit Module(const std::filesystem::path& content)
-        : assets_(data::load_assets(content)), front_(std::make_unique<FrontEnd>(assets_)) {}
+        : assets_(data::load_assets(content)), front_(std::make_unique<FrontEnd>(assets_)), effects_(assets_) {}
 
     double step_seconds() const override { return 1.0 / 50; } // a PAL frame; game frames are 14 CIA ticks
     double pixel_aspect() const override { return 1.0; }
@@ -68,7 +70,19 @@ public:
             voices_.set_volume(0, 0);
             playing_ = false;
         }
-        (void)front_->take_sounds(); // effect sounds: not rebuilt yet (plan.md)
+        using Kind = FrontEnd::SoundEvent::Kind;
+        for (const auto& e : front_->take_sounds()) {
+            switch (e.kind) {
+            case Kind::stop: effects_.stop(); break;
+            case Kind::pause: effects_.pause(); break;
+            case Kind::resume: effects_.resume(); break;
+            case Kind::start: effects_.start(e.record); break;
+            case Kind::frame:
+                effects_.set_volume_offset(e.volume_offset);
+                effects_.frame(e.frame);
+                break;
+            }
+        }
     }
 
     platform::Image picture() const override { return front_->screen().image(); }
@@ -76,12 +90,30 @@ public:
     void audio(std::span<float> stereo, int sample_rate) override {
         std::fill(stereo.begin(), stereo.end(), 0.0f);
         voices_.render(stereo, sample_rate);
+        // The effects' envelopes step with the CIA timer (about 99 a
+        // second): rendered in stretches between its ticks.
+        constexpr double timer_rate = 709379.0 / 7160.0;
+        const double ticks_per_frame = timer_rate / double(std::max(sample_rate, 1));
+        const std::size_t frames = stereo.size() / 2;
+        for (std::size_t done = 0; done < frames;) {
+            const auto until_tick = std::size_t(std::ceil((1.0 - tick_phase_) / ticks_per_frame));
+            const std::size_t n = std::min(frames - done, std::max<std::size_t>(until_tick, 1));
+            effects_.render(stereo.subspan(done * 2, n * 2), sample_rate);
+            done += n;
+            tick_phase_ += double(n) * ticks_per_frame;
+            if (tick_phase_ >= 1.0) {
+                tick_phase_ -= 1.0;
+                effects_.tick();
+            }
+        }
     }
 
 private:
     data::Assets assets_;
     std::unique_ptr<FrontEnd> front_;
     amiga::PaulaVoices voices_;
+    Effects effects_;
+    double tick_phase_{};
     std::array<bool, 64> keys_{};
     bool space_{}, playing_{};
     int vhs_{};

@@ -1,6 +1,7 @@
 #pragma once
 #include "tower_of_babel_amiga/data/assets.hpp"
 #include "tower_of_babel_amiga/data/shape.hpp"
+#include "tower_of_babel_amiga/front/effects.hpp"
 #include "tower_of_babel_amiga/front/screen.hpp"
 #include "tower_of_babel_amiga/game/panel.hpp"
 #include "tower_of_babel_amiga/game/rules.hpp"
@@ -79,6 +80,9 @@ public:
     int end_reason() const { return state_.end_reason; } // 1 won, 2 time out, 3 all spiders, 4 Grabber
     // The effect records started during the last frame, in order.
     const std::vector<std::uint32_t>& sounds() const { return sounds_; }
+    // What the sound player does at the end of the frame ($15342).
+    Effects::Frame sound_frame() const;
+    int volume_offset() const { return volume_offset_; } // $CE(a6)
 
 private:
     void one_frame(const Pointer&, bool ready);
@@ -106,6 +110,7 @@ private:
     int picked_{-1};      // the pick's result for the next poll ($7F4)
     int view_offset_{}, view_height_{0x58}, view_distance_{-16}; // $FBC, $FB8, $FBA
     int noise_x_{}, noise_y_{}, noise_step_{}; // $88A-$88E
+    int volume_offset_{};
     // The program shown in the strip, as last drawn (the original redraws
     // the strip only when asked, $1564).
     game::Program strip_{};

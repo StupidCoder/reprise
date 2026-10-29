@@ -1,3 +1,4 @@
+#include "tower_of_babel_amiga/front/effects.hpp"
 #include "tower_of_babel_amiga/game/panel.hpp"
 #include "tower_of_babel_amiga/front/front_end.hpp"
 // Tower of Babel research tool: imports the disk image into a content folder
@@ -437,18 +438,119 @@ int panel_check(const babel::data::Assets& assets, const std::filesystem::path& 
     return 0;
 }
 
+// Research: the sound channels against fxrec.py's recording: from each
+// event's channels, a tick ($81FA), a start ($15540) or a stop ($15494)
+// must give the channels recorded at the next event.
+int fx_check(const babel::data::Assets& assets, const std::filesystem::path& file) {
+    using babel::front::Effects;
+    Effects fx(assets);
+    std::ifstream in(file);
+    struct Event {
+        char kind;
+        std::uint32_t record;
+        int ce, aa;
+        std::array<Effects::Channel, 4> ch;
+    };
+    std::vector<Event> events;
+    std::string kind, record, hex;
+    int ce = 0, aa = 0;
+    while (in >> kind >> record >> ce >> aa >> hex) {
+        Event e{kind[0], std::uint32_t(std::stoul(record, nullptr, 16)), ce, aa, {}};
+        const auto b = [&](int i) { return int(std::stoi(hex.substr(std::size_t(2 * i), 2), nullptr, 16)); };
+        const auto w = [&](int i) { return int(std::int16_t(b(i) << 8 | b(i + 1))); };
+        for (int c = 0; c < 4; ++c) {
+            const int o = c * 0x22;
+            auto& x = e.ch[std::size_t(c)];
+            x.record = std::uint32_t(b(o + 4) << 24 | b(o + 5) << 16 | b(o + 6) << 8 | b(o + 7));
+            x.priority = w(o + 8) & 0xFFFF;
+            x.pitch_repeats = w(o + 0xA); x.volume_repeats = w(o + 0xC); x.pitch = w(o + 0xE); x.volume = w(o + 0x10);
+            x.pitch_segment = w(o + 0x16); x.volume_segment = w(o + 0x18);
+            x.pitch_step = w(o + 0x1A); x.pitch_wait = w(o + 0x1C); x.volume_step = w(o + 0x1E); x.volume_wait = w(o + 0x20);
+        }
+        events.push_back(e);
+    }
+    int checked = 0, bad = 0;
+    std::map<char, int> counts;
+    for (std::size_t i = 0; i + 1 < events.size(); ++i) {
+        const auto& e = events[i];
+        fx.channels() = e.ch;
+        fx.set_volume_offset(e.ce);
+        if (e.aa != 0) fx.pause(); else fx.resume();
+        if (e.kind == 'T') fx.tick();
+        else if (e.kind == 'S') fx.start(e.record);
+        else if (e.kind == 'X') fx.stop();
+        else continue;
+        // $15342 silences the lifts' hum (priority >= $141) just before it
+        // starts the clunk ($35BC), with no call in between to record.
+        if (events[i + 1].kind == 'S' && events[i + 1].record == 0x35BC) {
+            for (auto& c : fx.channels())
+                if (unsigned(c.priority) >= 0x141) c.priority = 0;
+        }
+        ++checked;
+        ++counts[e.kind];
+        std::vector<std::string> diffs;
+        for (int c = 0; c < 4; ++c) {
+            const auto& a = fx.channels()[std::size_t(c)];
+            const auto& o = events[i + 1].ch[std::size_t(c)];
+            const auto check = [&](const char* what, long x, long y) {
+                if (x != y) diffs.push_back("ch" + std::to_string(c) + " " + what + " original " + std::to_string(y) + " native " + std::to_string(x));
+            };
+            check("priority", a.priority, o.priority);
+            if (o.priority == 0) continue; // a free channel keeps stale values
+            check("record", long(a.record), long(o.record));
+            check("pitch repeats", a.pitch_repeats, o.pitch_repeats); check("volume repeats", a.volume_repeats, o.volume_repeats);
+            check("pitch", a.pitch, o.pitch); check("volume", a.volume, o.volume);
+            check("pitch segment", a.pitch_segment, o.pitch_segment); check("volume segment", a.volume_segment, o.volume_segment);
+            check("pitch step", a.pitch_step, o.pitch_step); check("pitch wait", a.pitch_wait, o.pitch_wait);
+            check("volume step", a.volume_step, o.volume_step); check("volume wait", a.volume_wait, o.volume_wait);
+        }
+        if (!diffs.empty() && ++bad <= 8) {
+            std::printf("event %zu %c %x:", i, e.kind, e.record);
+            for (std::size_t k = 0; k < diffs.size() && k < 5; ++k) std::printf(" [%s]", diffs[k].c_str());
+            std::printf("\n");
+        }
+    }
+    std::printf("effects: %d of %d events differ (ticks %d, starts %d, stops %d)\n", bad, checked, counts['T'], counts['S'], counts['X']);
+    return 0;
+}
+
 // Research: runs the front end headless from a script of lines:
 //   frames N | move X Y | click X Y [HOLD] | hold X Y N | key C (ret, bs, esc, space or a character) | shot FILE
 int drive(const babel::data::Assets& assets, const std::filesystem::path& script, const std::filesystem::path& out) {
     babel::front::FrontEnd fe(assets);
     babel::front::FrontEnd::Input in;
     in.pointer = true;
+    // The effects as the module plays them, written to effects.wav (22050 Hz, left channel).
+    babel::front::Effects fx(assets);
+    std::vector<std::int8_t> wav;
+    double phase = 0;
+    const auto sound = [&] {
+        using Kind = babel::front::FrontEnd::SoundEvent::Kind;
+        for (const auto& e : fe.take_sounds()) {
+            if (e.kind == Kind::stop) fx.stop();
+            else if (e.kind == Kind::pause) fx.pause();
+            else if (e.kind == Kind::resume) fx.resume();
+            else if (e.kind == Kind::start) fx.start(e.record);
+            else { fx.set_volume_offset(e.volume_offset); fx.frame(e.frame); }
+        }
+        std::vector<float> buffer(441 * 2);
+        const double per = 709379.0 / 7160.0 / 22050.0;
+        for (std::size_t done = 0; done < 441;) {
+            std::size_t n = std::min<std::size_t>(441 - done, std::size_t(std::max(1.0, std::ceil((1 - phase) / per))));
+            fx.render(std::span<float>(buffer).subspan(done * 2, n * 2), 22050);
+            done += n;
+            phase += double(n) * per;
+            if (phase >= 1) { phase -= 1; fx.tick(); }
+        }
+        for (std::size_t i = 0; i < 441; ++i) wav.push_back(std::int8_t(std::clamp(buffer[2 * i] * 127.0f, -127.0f, 127.0f)));
+    };
     std::ifstream file(script);
     std::string line;
     long frame = 0;
     const auto step = [&](int n) {
         for (int i = 0; i < n; ++i, ++frame) {
             fe.vblank(in);
+            sound();
             in.key = 0;
         }
     };
@@ -473,6 +575,7 @@ int drive(const babel::data::Assets& assets, const std::filesystem::path& script
             std::fflush(stdout);
         }
     }
+    save_wav(out / "effects.wav", wav, 22050);
     return 0;
 }
 
@@ -483,6 +586,10 @@ int main(int argc, char** argv) {
         if (command == "panelcheck" && argc == 4) {
             const auto assets = load_assets(platform::utf8_path(argv[2]));
             return panel_check(assets, platform::utf8_path(argv[3]));
+        }
+        if (command == "fxcheck" && argc == 4) {
+            const auto assets = load_assets(platform::utf8_path(argv[2]));
+            return fx_check(assets, platform::utf8_path(argv[3]));
         }
         if (command == "drive" && argc == 5) {
             const auto assets = load_assets(platform::utf8_path(argv[2]));

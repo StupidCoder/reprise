@@ -74,6 +74,10 @@ void FrontEnd::vblank(const Input& input) {
 
 // --- waiting ---------------------------------------------------------------
 
+void FrontEnd::sound_frame(const Play& play) {
+    sounds_.push_back({SoundEvent::Kind::frame, play.sound_frame(), 0, play.volume_offset()});
+}
+
 Flow FrontEnd::wait_frames(int n) {
     for (int i = 0; i < n; ++i) co_await next_frame();
 }
@@ -672,10 +676,12 @@ Flow FrontEnd::play_tower(const data::Tower& tower, int game_type, int& reason) 
         // $969A: the game screen, faded in from black.
         co_await fade_out();
         Play play(assets_, screen_, tower, settings_, game_type);
+        sound(SoundEvent::Kind::stop); // the unpacker ($135C6)
         play.draw_screen();
         co_await fade(play.target_palette());
         clicked_ = false;
         int leave = 0;
+        sound(SoundEvent::Kind::resume); // the play loop's start ($9976)
         for (;;) {
             co_await game_frame_wait();
             Play::Pointer p{in_.pointer ? in_.x : -1, in_.pointer ? in_.y : -1, in_.left || clicked_};
@@ -685,26 +691,29 @@ Flow FrontEnd::play_tower(const data::Tower& tower, int game_type, int& reason) 
             }
             clicked_ = false;
             const auto outcome = play.frame(p);
-            for (const auto s : play.sounds()) sounds_.push_back(s);
+            sound_frame(play);
             if (outcome == Play::Outcome::playing) continue;
             if (outcome == Play::Outcome::ended) {
                 reason = play.end_reason();
                 survivors_ = play.survivors();
                 // $9A6C: the jingle for a solved tower, otherwise a short sound.
+                sound(SoundEvent::Kind::stop);
                 if (reason == 1) {
                     piece_ = 1;
                     piece_frames_ = int(assets_.pieces.at(1).samples.size() * 50 / (3546895 / std::max(assets_.pieces.at(1).period, 1))) + 1;
                     while (piece_frames_ > 0) co_await next_frame();
                 } else {
-                    sounds_.push_back(lose_sound);
+                    sound(SoundEvent::Kind::start, lose_sound);
                 }
                 co_await wait_release();
                 co_return;
             }
+            sound(SoundEvent::Kind::pause);
             co_await wait_release();
             co_await pause_menu(play, leave);
             if (leave != 0) break;
             play.resume();
+            sound(SoundEvent::Kind::resume);
         }
         if (leave == 6) { // Restart Tower: one more try counted, the tower unpacked again
             if (game_type < 3 && selected_ >= 0) {
@@ -860,6 +869,7 @@ Flow FrontEnd::exit_page(int game_type, int& leave) {
 void FrontEnd::start_interlude(int index) {
     const auto& tower = assets_.groups.at(14).towers.at(std::size_t(index % 18));
     interlude_ = std::make_unique<Play>(assets_, screen_, tower, settings_, 5);
+    sound(SoundEvent::Kind::stop);
     interlude_->start_demo(index % 18);
     interlude_->draw_demo_screen();
 }
@@ -891,9 +901,10 @@ Flow FrontEnd::interlude_ok() {
         if (in_.left && lit) break;
         co_await game_frame_wait();
         interlude_->demo_frame();
-        for (const auto s : interlude_->sounds()) sounds_.push_back(s);
+        sound_frame(*interlude_);
     }
     if (lit) toggle();
+    sound(SoundEvent::Kind::pause); // $15A10
     co_await wait_release();
     co_await fade_out();
     screen_.copper = CopperMode::plain;
@@ -917,12 +928,14 @@ Flow FrontEnd::won_screen(int letter, int tries) {
     screen_.text_at(score_text);
     draw_score_numbers();
     interlude_->demo_frame();
+    sound_frame(*interlude_);
     auto target = interlude_->target_palette();
     for (std::size_t i = 0; i < 15; ++i) target[33 + i] = assets_.program.u16(panel_band_menu + std::uint32_t(i) * 2);
     co_await fade(target);
     for (int i = 0; i < 4; ++i) {
         co_await game_frame_wait();
         interlude_->demo_frame();
+        sound_frame(*interlude_);
     }
     for (int k = 0; k < 3; ++k) {
         for (int chunk = 20; chunk != 0;) {
@@ -935,12 +948,14 @@ Flow FrontEnd::won_screen(int letter, int tries) {
             draw_score_numbers();
             co_await game_frame_wait();
             interlude_->demo_frame();
+            sound_frame(*interlude_);
             co_await next_frame();
         }
         if (k < 2)
             for (int i = 0; i < 3; ++i) {
                 co_await game_frame_wait();
                 interlude_->demo_frame();
+                sound_frame(*interlude_);
             }
     }
     co_await interlude_ok();
@@ -970,6 +985,7 @@ Flow FrontEnd::end_screen(int game_type, int reason) {
     screen_.frame(0x87, 0xB7, 0xB8, 0xC4, 13);
     screen_.text_at(ok_text);
     interlude_->demo_frame();
+    sound_frame(*interlude_);
     auto target = interlude_->target_palette();
     for (std::size_t i = 0; i < 15; ++i) target[33 + i] = assets_.program.u16(panel_band_menu + std::uint32_t(i) * 2);
     co_await fade(target);
@@ -985,6 +1001,7 @@ Flow FrontEnd::demo_sequence() {
         start_interlude(index);
         screen_.picture(assets_.title_memory, logo_at, 0, 0x90, 20, 35);
         interlude_->demo_frame();
+        sound_frame(*interlude_);
         std::array<data::Colour, 48> target = interlude_->target_palette();
         for (std::size_t i = 0; i < 15; ++i) target[33 + i] = assets_.program.u16(var(0x249A) + std::uint32_t(i) * 2);
         co_await fade(target);
@@ -992,7 +1009,9 @@ Flow FrontEnd::demo_sequence() {
         for (;;) {
             co_await game_frame_wait();
             interlude_->demo_frame();
+            sound_frame(*interlude_);
             if (in_.key == ' ') {
+                sound(SoundEvent::Kind::pause);
                 co_await fade_out();
                 interlude_.reset();
                 screen_.copper = CopperMode::plain;
@@ -1000,6 +1019,7 @@ Flow FrontEnd::demo_sequence() {
             }
             if (in_.left) {
                 if (in_.y >= 0x80) {
+                    sound(SoundEvent::Kind::pause);
                     co_await wait_release();
                     co_await fade_out();
                     interlude_.reset();

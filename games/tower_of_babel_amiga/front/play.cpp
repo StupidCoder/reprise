@@ -13,6 +13,8 @@ constexpr std::uint32_t sound_time_low = var(0x314E), sound_time_out = var(0x317
 constexpr std::uint32_t default_name = var(0x52BD); // a tower without a name
 constexpr view::Window view_window{16, 303, 16, 127}; // $F9E-$FA4
 constexpr int panel_top = 0x84;                  // below this line a click is in the view
+constexpr std::uint32_t sound_thunder = var(0x30F2), sound_crack = var(0x3096);
+constexpr std::uint32_t footstep = var(0x2E12), footstep_lift = var(0x2E40); // queued even in a silent tower
 
 } // namespace
 
@@ -52,6 +54,16 @@ void Play::draw_title() {
     const std::string name = tower_.name.empty() ? assets_.program.text(default_name) : tower_.name;
     screen_.centre(name);
     screen_.text(name);
+}
+
+Effects::Frame Play::sound_frame() const {
+    Effects::Frame f;
+    f.silent = tower_.settings[11] != 0;
+    for (const auto s : sounds_)
+        if (!f.silent || s == footstep || s == footstep_lift) f.queued.push_back(s);
+    f.lifts_moving = !state_.forcer_cells.empty() || state_.lift_moves != 0; // $1210 + $1216
+    f.background = tower_.settings[9];
+    return f;
 }
 
 int Play::survivors() const {
@@ -206,13 +218,18 @@ void Play::draw_view(const Pointer& pointer, bool ready, const view::Camera* fix
     const auto& active = t.objects[std::size_t(t.active)];
     if (!fixed && ((t.active < 4 && tower_.flags[4]) || (t.active >= 4 && active.type >= 0x1A))) {
         draw_noise();
+        volume_offset_ = 0;
         return;
     }
     const auto camera = fixed ? *fixed
                         : t.active >= 4
                             ? view::spider_camera(active.x, active.y, active.z, active.heading, view_offset_, view_height_, view_distance_)
                             : view::spider_camera(active.x, active.y, active.z, active.heading, 0, 0, 0);
+    // $AB22: seen from a camera, sounds are quieter the farther it is.
+    volume_offset_ = !fixed && t.active < 4 ? (std::int16_t(camera.z) + 0x640) / 0x377 - 2 : fixed ? volume_offset_ : 0;
     view::SkyEffects::advance(sky_, sky_settings_, camera.heading, even_frame_);
+    if (sky_.thunder) sounds_.push_back(sound_thunder);
+    if (sky_.crack) sounds_.push_back(sound_crack);
     screen_.flash = sky_.flash;
 
     // The objects as the view draws them.

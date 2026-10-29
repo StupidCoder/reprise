@@ -453,17 +453,35 @@ to the ground shows up as "slots" 52–54. Slots 4–6 are the spiders; slots
   - The audio interrupt ($865A/$86CA) queues the next segment each time.
   - Title music, list $3B24: one sample, 209,452 bytes at period 176 (20,153 Hz).
   - Jingle $3AF2, started at $9A8E (the end of a tower?): 43,108 bytes at period 414, at $393F4.
-- **Effects:**
-  - **Records:** 46 bytes each, at $3504–$3AF1 (34 effects).
-  - **Fields:** +$24 priority; +$18 the waveform's offset from $8200; +$1C/+$20/+$26/+$2A envelope longs; +$2E a second part when bit 1 of +$09 is set. The waveform starts with its length in words. The envelope's meaning is open.
-  - **Queueing:** $15316/$1531E queue up to 16 a frame, and $15540 starts each on the channel with the lowest priority.
-  - **Waveforms:**
-    - $37E00/$37E12/$37E24 (16 bytes);
-    - $37E36 (2,048, noise?);
-    - $38638 (240);
-    - $39312/$39354 (64);
-    - $393A6 (128).
-  - **Periods and volume:** the period table is at $D2(a6) (432 entries); the volume offset is $CE(a6).
+- **Effect records:** 46 bytes each, at $3504–$3AF1 (34 effects):
+
+  | Offset | Meaning |
+  | --- | --- |
+  | +$00, +$0C, +$18 | three segments of 12 bytes: waveform (offset from $8200, or −1 to keep the one playing), pitch step, its length, volume step, its length |
+  | +$24 | priority: bit 0 the envelopes run, bit 1 a second record follows at +$2E |
+  | +$26, +$28 | how many more times the pitch and the volume segments repeat |
+  | +$2A, +$2C | starting pitch and volume, in 64ths |
+
+  A waveform starts with its length in words; the samples follow ($37E00–$393A6 in `main`: short tones, 2,048 bytes of noise at $37E36, …). All 34 priorities are odd.
+- **Starting ($15540):** the channel with the lowest priority is chosen (the first of equals, compared unsigned); the sound plays only if its own priority is higher. The channel record ($432(a6) + $22 n) takes:
+  - the record, its priority, the repeats, the pitch and the volume;
+  - segment 2's steps and lengths, with both segment counters at $18.
+
+  The channel's DMA goes off; it gets the location, length, period and volume; then DMA goes on. A record with bit 1 starts its second part on another channel the same way.
+- **The envelopes ($81FA),** each tick of the CIA timer (about 99 a second; not while $AA(a6) ≠ 0), for every channel whose priority has bit 0:
+  - **Pitch:** its length counts down; below 0 the segment counter drops by 12, and below 0 the repeats drop and the counter returns to $18. Repeats below 0 end the sound (priority 0, volume 0, DMA off). The new segment's waveform (if not −1) is written while the old one plays, so it follows at the end of the current block; its step and length are taken. Then pitch += step, and the period is table[clamp(pitch / 64 + $D0(a6), 0, $1AF)] from $D2(a6) (432 periods).
+  - **Volume:** the same with its own counter and repeats; volume += step, shown as clamp(volume / 64 + $CE(a6), 0, 63).
+- **Once a game frame ($15342):**
+  - the queued sounds start (up to 16 a frame; $15316 queues unless setting $A8 is set, $1531E always, used for footsteps);
+  - unless $A8 is set:
+    - **the lifts' hum:** while forcers ($1210) or lift rides ($1216) are under way, $2D5A(a6) (two channels) if no channel has a priority ≥ $141; when they stop, those channels are silenced and the clunk $2DB6(a6) starts;
+    - **the tower's background sound:** setting $A4 (1–3) picks two records from $AC(a6), started in turn whenever no channel has priority $29 (4 towers use 1, 9 use 2, 3 use 3).
+- **Stop, pause, go on:**
+  - $15494 frees every channel and clears $CE (at a tower's unpacking and its end);
+  - $154C6 freezes the envelopes and silences all four (the pause menu, the end of a demonstration);
+  - $154F2 switches DMA back on for the channels still in use (each time the play loop starts).
+- **The volume offset $CE(a6):** 0 for a spider's view; for a camera, (z + $640) / $377 − 2 with z its turned z ($AB22), about −3 at its start; 0 while the view shows noise.
+- **The tower's sound settings:** $A4 the background sound (2 bits), $A6 no footsteps (6 towers), $A8 no effects (no tower uses it).
 - **Effects the rules start** (records, as `$806 +` offset):
   - blast $2D2C;
   - footstep $2E12 (on a lift $2E40);
@@ -473,7 +491,8 @@ to the ground shows up as "slots" 52–54. Slots 4–6 are the spiders; slots
   - convertor hum $31D8;
   - a shot that does nothing $31AA;
   - the timer under 30 seconds $314E, under 10 $317C;
-  - a tower lost or abandoned $3120.
+  - a tower lost or abandoned $3120;
+  - lightning's crack $3096 and thunder $30F2.
 
 ### Other main-data ranges
 
@@ -779,9 +798,9 @@ Both are kept in the re-implementation.
 | `game/` | `tower_map` (cells with shape flags, lit columns $CCA8, colour pattern $CD90); `tower_state` (the running tower in the rules' bordered layout: object map, objects, programs, panel lights, forcers, objective, freeze counter); `rules` (programs, moves, firing); `behaviour.cpp` (each type's update); `animation` (the frame choice as a pure function of state and frame counter) |
 | `game/panel` | the panel's rules ($ADFC): choosing, direct commands, cameras, program editing, lockouts |
 | `view/` | `polygon` (the clipper, the filler, see-through and outlined fills); `tower_view` (camera, projection, traversal, faces, objects, particles, the pointer's pick); `sky` (incl. the 48-colour game palette and its copper view); `overlay` |
-| `front/` | `screen` (the 320 × 200 picture, pens, rectangles, lines, bevelled boxes, windows, pictures, the font and layout codes, menus' click areas, the copper modes); `play` (the game screen and the play loop, demonstrations); `front_end` (every screen from the title to the end screens, as coroutines that wait for vertical blanks, `flow.hpp`); `module` (the shell's game module: mouse, keys, picture, sampled pieces) |
+| `front/` | `screen` (the 320 × 200 picture, pens, rectangles, lines, bevelled boxes, windows, pictures, the font and layout codes, menus' click areas, the copper modes); `play` (the game screen and the play loop, demonstrations); `front_end` (every screen from the title to the end screens, as coroutines that wait for vertical blanks, `flow.hpp`); `effects` (the sound channels, their envelopes and the per-frame logic, on the shared Paula model); `module` (the shell's game module: mouse, keys, picture, the sampled pieces and effects, the effects' timer ticks between rendered stretches) |
 
-**Assets tool:** `tower_of_babel_assets import | export | viewcheck | animcheck | framecheck | logiccheck | objectcheck | panelcheck | drive`. `drive` runs the front end headless from a script (frames, move, click, key, shot).
+**Assets tool:** `tower_of_babel_assets import | export | viewcheck | animcheck | framecheck | logiccheck | objectcheck | panelcheck | fxcheck | drive`. `drive` runs the front end headless from a script (frames, move, click, key, shot) and writes the effects it played to effects.wav.
 
 **Design choices:**
 - **Drawing from state:** the view is drawn from game state by the native renderer, never by copying the original's 320-pixel output. That leaves room for widescreen.
@@ -819,6 +838,11 @@ by frame:
   - pixel-identical: the credits, the name prompt, the main menu, the game types, the chooser (with a tower chosen, and after a win with A solved and B, D open), the information pages of towers A and B, the Setup page, the game panel with a written program, the win screen's box and score (230 on tower A);
   - the demonstration after a win: the view identical to the reference's frame at the same moment;
   - the title differed only by the reference renderer's 3-line offset (since fixed: the display starts at $29, not $2C).
+- **Sound effects (`fxcheck`, harness/fxrec.py):** the four channel records at every envelope tick, every start and every stop of the reference, with the panel driven as in panelrec.py. From each event's channels the native tick or start must give the next event's. 0 differences in two recordings on tower A: 35 starts and about 6,000 ticks (plus 65,000 while paused):
+  - footsteps on the floor and on a lift, the zap, the grab, a push, a shot that did nothing;
+  - the lift's hum and clunk (both with their second parts).
+
+  The hum is silenced inside $15342 just before the clunk starts, with no call to record; the check applies that step as `Effects::frame` does.
 - **The timer (harness/fe/timecheck.cpp):** "The Lift Is Guarded" counts 160 BCD seconds down in 1,120 frames and ends with reason 2.
 - **Played through:** tower A solved by the program Fire Fire Fire for the Grabber (the score screen as the original's); Restart and Abandon from the Exit page.
 
