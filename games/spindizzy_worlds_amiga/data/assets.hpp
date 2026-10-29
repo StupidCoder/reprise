@@ -127,6 +127,8 @@ struct Assets {
     // $169AC), $1928 the shadow, $3340 the "?" planet, $35C0 the
     // disintegrating one ($280 a frame).
     std::vector<std::uint8_t> select_swap;
+    std::vector<std::uint8_t> effects; // the effects player and its samples ($3400)
+    std::vector<std::uint8_t> music;   // the music player and its tunes ($432A8)
 };
 
 Assets load_assets(const std::filesystem::path& content);

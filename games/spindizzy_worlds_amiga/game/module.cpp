@@ -4,6 +4,8 @@
 #include "spindizzy_worlds_amiga/game/play_screen.hpp"
 #include "spindizzy_worlds_amiga/play/level_play.hpp"
 #include "spindizzy_worlds_amiga/play/surfaces.hpp"
+#include "spindizzy_worlds_amiga/sound/effects.hpp"
+#include "spindizzy_worlds_amiga/sound/music.hpp"
 #include "spindizzy_worlds_amiga/view/panel.hpp"
 #include "spindizzy_worlds_amiga/view/screen.hpp"
 #include <array>
@@ -29,8 +31,11 @@ enum class Stage { attract, menu, clusters, map, play, statistics, next_menu, ga
 class Module final : public app::GameModule {
 public:
     explicit Module(const std::filesystem::path& content)
-        : assets_(data::load_assets(content)), surfaces_(play::read_surfaces(assets_.main)) {
+        : assets_(data::load_assets(content)), surfaces_(play::read_surfaces(assets_.main)), effects_(assets_.effects), music_(assets_.music) {
         attract_.emplace(assets_);
+        paula_.set_memory(effects_.memory());
+        effects_.reset(paula_);
+        music_paula_.set_memory(music_.memory());
     }
 
     double step_seconds() const override { return 1.0 / 50; } // PAL frames
@@ -79,6 +84,30 @@ public:
     }
     double pixel_aspect() const override { return 1.0; }
 
+    // The effects player runs from the CIA-B timer at 49.92 Hz ($10D5E:
+    // $3782 E-clock ticks) while a level plays; the samples come from Paula.
+    void audio(std::span<float> stereo, int rate) override {
+        std::fill(stereo.begin(), stereo.end(), 0.0f);
+        const std::size_t frames = stereo.size() / 2;
+        constexpr double tick_rate = 709379.0 / 0x3782;
+        std::size_t done = 0;
+        while (done < frames) {
+            const bool level = stage_ == Stage::play || stage_ == Stage::game_over;
+            if (sound_wait_ <= 0) {
+                // The hook $2054: the effects player in levels, the music
+                // player elsewhere ($1116C / $112A2), each on its own copy
+                // of the channels (only one runs at a time).
+                if (level) effects_.tick(paula_);
+                else music_.tick(music_paula_);
+                sound_wait_ += double(rate) / tick_rate;
+            }
+            const std::size_t chunk = std::min(frames - done, std::size_t(std::max(1.0, sound_wait_)));
+            (level ? paula_ : music_paula_).render(stereo.subspan(done * 2, chunk * 2), rate);
+            sound_wait_ -= double(chunk);
+            done += chunk;
+        }
+    }
+
     void tick(const app::GameInput& input) override {
         std::uint8_t joystick = 0;
         if (input.up) joystick |= play::stick::up;
@@ -86,6 +115,7 @@ public:
         if (input.left) joystick |= play::stick::left;
         if (input.right) joystick |= play::stick::right;
         if (input.fire) joystick |= play::stick::fire;
+        choose_tune();
         switch (stage_) {
         case Stage::attract:
             if (attract_->frame(joystick)) open_menu();
@@ -154,6 +184,13 @@ public:
             in.pause = pressed(key_p);
             keys_held_ = input.c64_keys;
             play_->frame(in, slow_);
+            for (const auto& sound : progress_.sounds) { // the request block $36D2
+                auto& volume = effects_volume_[std::size_t(sound.channel & 3)];
+                if (sound.volume >= 0) volume = sound.volume;
+                if (sound.effect < 0) effects_.set_volume(sound.channel, volume);
+                else effects_.request(sound.channel, sound.effect, volume);
+            }
+            progress_.sounds.clear();
             if (play_->outcome() == PlayScreen::Outcome::world_done) {
                 // $16B8C: the world is recorded done; fuel and reserve go on.
                 worlds_left_ &= ~(1u << (progress_.world & 31));
@@ -212,6 +249,21 @@ public:
             break;
         }
         }
+    }
+
+    // The tune each screen asks for ($11250): 0 the title and menus ($17734),
+    // 2 the cluster choice and world map ($1170A); levels use the effects.
+    void choose_tune() {
+        int tune = -1;
+        if (stage_ == Stage::attract || stage_ == Stage::menu || stage_ == Stage::statistics || stage_ == Stage::next_menu)
+            tune = 0;
+        else if (stage_ == Stage::clusters || stage_ == Stage::map)
+            tune = 2;
+        if (tune < 0) {
+            if (music_.playing()) music_.stop(music_paula_);
+            return;
+        }
+        if (music_.tune() != tune) music_.start(tune, music_paula_);
     }
 
     platform::Image picture() const override {
@@ -298,6 +350,11 @@ private:
     std::vector<WorldRecord> records_; // $36B6 …
     view::Screen statistics_;
     std::optional<Saved> saved_; // the menu's "Save game state" slot
+    sound::EffectsPlayer effects_;
+    sound::MusicPlayer music_;
+    amiga::PaulaChannels paula_, music_paula_;
+    double sound_wait_{};
+    std::array<int, 4> effects_volume_{0x40, 0x40, 0x40, 0x40};
     bool statistics_then_next_{}, fire_held_{};
     std::int32_t world_start_fuel_{}, world_start_reserve_{}; // what $16D44 restores for a retry
 };

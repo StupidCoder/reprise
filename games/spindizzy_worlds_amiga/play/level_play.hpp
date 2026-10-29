@@ -64,6 +64,9 @@ struct Progress {
     std::uint16_t arrival_place{};    // $24C0
     bool game_over{};                 // $2490
     Explorer explorer;
+    // Sound requests since the module last took them (the block at $36D2).
+    std::vector<ObjectEvents::Sound> sounds;
+    int heard_last{-1};               // $2080/$2084: the object and effect channel 2 plays (object × 256 + effect)
 
     // $16D44 for a world's start and $10E1E (the difficulty's fuel costs).
     void start_world(const data::Memory& main, int number, int difficulty);

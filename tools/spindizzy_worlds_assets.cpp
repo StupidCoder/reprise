@@ -41,6 +41,8 @@
 #include "spindizzy_worlds_amiga/play/explorer.hpp"
 #include "spindizzy_worlds_amiga/play/level_play.hpp"
 #include "spindizzy_worlds_amiga/play/surfaces.hpp"
+#include "spindizzy_worlds_amiga/sound/effects.hpp"
+#include "spindizzy_worlds_amiga/sound/music.hpp"
 #include "spindizzy_worlds_amiga/view/objects.hpp"
 #include "spindizzy_worlds_amiga/view/playfield.hpp"
 #include "spindizzy_worlds_amiga/view/sprites.hpp"
@@ -305,8 +307,23 @@ int play_check(const spindizzy::data::Assets& assets, const std::filesystem::pat
         }
     };
     int compared = 0, levels = 1;
+    // With the effects player's state recorded (SDW_SOUND: chip $3600 at
+    // +$3800), the effects each channel took, in order, both sides.
+    const bool sound = m.bytes.size() > 0x3800;
+    sound::EffectsPlayer player(assets.effects);
+    amiga::PaulaChannels paula;
+    paula.set_memory(player.memory());
+    std::array<std::vector<int>, 4> taken_native, taken_original;
+    std::array<int, 4> last_native{-1, -1, -1, -1}, last_original{-1, -1, -1, -1};
+    std::array<int, 4> volumes{0x40, 0x40, 0x40, 0x40};
     for (std::size_t i = 0; i < ticks.size(); ++i) {
         apply(ticks[i].second); // the state before tick i
+        if (sound)
+            for (int c = 0; c < 4; ++c) {
+                const int now = m.u8(0x38EA + c);
+                if (now != last_original[std::size_t(c)] && now != 0xFF) taken_original[std::size_t(c)].push_back(now);
+                last_original[std::size_t(c)] = now;
+            }
         // Compare.
         struct Field { std::string name; long native, original; };
         std::vector<Field> fields;
@@ -399,6 +416,20 @@ int play_check(const spindizzy::data::Assets& assets, const std::filesystem::pat
         lp->tick(std::uint8_t(ticks[i].first));
         (void)lp->take_clue();
         lp->frame(true);
+        if (sound) {
+            for (const auto& r : progress.sounds) {
+                if (r.volume >= 0) volumes[std::size_t(r.channel & 3)] = r.volume;
+                if (r.effect < 0) player.set_volume(r.channel, volumes[std::size_t(r.channel & 3)]);
+                else player.request(r.channel, r.effect, volumes[std::size_t(r.channel & 3)]);
+            }
+            progress.sounds.clear();
+            player.tick(paula);
+            for (int c = 0; c < 4; ++c) {
+                const int now = player.playing(c);
+                if (now != last_native[std::size_t(c)] && now >= 0) taken_native[std::size_t(c)].push_back(now);
+                last_native[std::size_t(c)] = now;
+            }
+        }
         // A key pressed at this record is read at the next frame's start.
         for (std::size_t k = ticks[i].second.find('K'); k != std::string::npos && k < 4; k = std::string::npos) {
             const int key = std::stoi(ticks[i].second.substr(k + 1, 2), nullptr, 16);
@@ -412,6 +443,12 @@ int play_check(const spindizzy::data::Assets& assets, const std::filesystem::pat
         }
     }
     std::printf("%d ticks equal over %d level%s\n", compared, levels, levels == 1 ? "" : "s");
+    if (sound)
+        for (int c = 0; c < 4; ++c) {
+            auto show = [](const std::vector<int>& v) { std::string t; for (int e : v) t += std::to_string(e) + " "; return t; };
+            std::printf("channel %d: native   %s\n           original %s%s\n", c, show(taken_native[std::size_t(c)]).c_str(),
+                        show(taken_original[std::size_t(c)]).c_str(), taken_native[std::size_t(c)] == taken_original[std::size_t(c)] ? " (equal)" : "");
+        }
     return 0;
 }
 
@@ -736,6 +773,13 @@ int main(int argc, char** argv) {
             std::ifstream items(argv[4]);
             std::string item;
             int shots = 0;
+            std::vector<float> sound; // 44.1 kHz stereo, written to audio.wav
+            auto run = [&](const app::GameInput& input) {
+                module->tick(input);
+                std::vector<float> frame(882 * 2);
+                module->audio(frame, 44100);
+                sound.insert(sound.end(), frame.begin(), frame.end());
+            };
             auto shot = [&] {
                 char name[32];
                 std::snprintf(name, sizeof name, "shot%02d.png", ++shots);
@@ -748,9 +792,18 @@ int main(int argc, char** argv) {
                 app::GameInput input;
                 input.up = bits & 1; input.down = bits & 2; input.left = bits & 4; input.right = bits & 8;
                 input.space = bits & 0x10; input.fire = bits & 0x80;
-                for (int f = 0; f < frames; ++f) module->tick(input);
+                for (int f = 0; f < frames; ++f) run(input);
             }
             shot();
+            {
+                std::ofstream wav(out / "audio.wav", std::ios::binary);
+                auto u32 = [&](std::uint32_t v) { wav.write(reinterpret_cast<const char*>(&v), 4); };
+                auto u16 = [&](std::uint16_t v) { wav.write(reinterpret_cast<const char*>(&v), 2); };
+                wav.write("RIFF", 4); u32(std::uint32_t(36 + sound.size() * 2)); wav.write("WAVEfmt ", 8);
+                u32(16); u16(1); u16(2); u32(44100); u32(44100 * 4); u16(4); u16(16);
+                wav.write("data", 4); u32(std::uint32_t(sound.size() * 2));
+                for (float v : sound) u16(std::uint16_t(std::int16_t(std::max(-1.0f, std::min(1.0f, v)) * 32767)));
+            }
             return 0;
         }
         if (command == "drive" && argc >= 4) {
@@ -769,6 +822,57 @@ int main(int argc, char** argv) {
                 std::snprintf(name, sizeof name, "drive%02d.png", i - 3);
                 platform::save_png(module->picture(), out / name);
             }
+            return 0;
+        }
+        if (command == "musiccheck" && argc == 4) {
+            // musiccheck <content> <trace>: the music player against the
+            // original's state at each tick (harness `sdw.py musictrace`).
+            const auto assets = load_assets(platform::utf8_path(argv[2]));
+            spindizzy::sound::MusicPlayer music(assets.music);
+            amiga::PaulaChannels paula;
+            paula.set_memory(music.memory());
+            std::ifstream in(argv[3]);
+            std::string line;
+            std::getline(in, line);
+            const bool attached = line == "now"; // recorded from the middle of a tune: start from its state
+            if (!attached) music.start(std::stoi(line.substr(5)) & 3, paula);
+            int t = 0;
+            bool first = true;
+            while (std::getline(in, line)) {
+                const auto m = from_hex(line);
+                if (attached && first) music.load_state(m);
+                first = false;
+                auto b = [&](int o) { return int(m.at(std::size_t(o))); };
+                auto w = [&](int o) { return b(o) << 8 | b(o + 1); };
+                const int a1 = 0x439A0 - 0x4390E;
+                std::vector<std::pair<std::string, std::pair<int, int>>> f;
+                for (int c = 0; c < 4; ++c) {
+                    const auto p = music.probe(c);
+                    const std::string n = "ch" + std::to_string(c) + " ";
+                    f.push_back({n + "period", {p.period, w(0x64 + 2 * c)}});
+                    f.push_back({n + "volume", {p.volume, w(0x0C + 16 * c)}});
+                    f.push_back({n + "note", {p.note, b(a1 + 0x44 + c)}});
+                    f.push_back({n + "row", {p.row, b(a1 + 0x1C + c)}});
+                    f.push_back({n + "pattern", {p.pattern, b(a1 + 0x24 + c)}});
+                    f.push_back({n + "countdown", {p.countdown & 0xFF, b(a1 + 0x3C + c)}});
+                    f.push_back({n + "position", {p.position, b(a1 + 0x18 + c)}});
+                    f.push_back({n + "instrument", {p.instrument & 0xFF, b(a1 + 0x4C + c)}});
+                    f.push_back({n + "envelope", {p.env_position, b(0x48 + c)}});
+                }
+                f.push_back({"tempo", {music.tempo_countdown() & 0xFF, b(a1 + 0x29)}});
+                f.push_back({"master", {music.master_volume(), w(a1 + 6)}});
+                bool same = true;
+                for (const auto& [k, v] : f) same = same && v.first == v.second;
+                if (!same) {
+                    std::printf("tick %d differs:\n", t);
+                    for (const auto& [k, v] : f)
+                        if (v.first != v.second) std::printf("  %-16s native %5X original %5X\n", k.c_str(), v.first, v.second);
+                    return 1;
+                }
+                music.tick(paula);
+                ++t;
+            }
+            std::printf("%d music ticks equal\n", t);
             return 0;
         }
         if (command == "route" && (argc == 6 || argc == 7)) {

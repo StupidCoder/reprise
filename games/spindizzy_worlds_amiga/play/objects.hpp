@@ -59,6 +59,13 @@ struct ObjectEvents {
     bool clue_always{};     // the message's bit 7: shown again
     bool timer_death{};     // the timer elapsed with "Die if elapse" ($15374)
     int fuel_cost{};        // whole fuel units a creature took ($152E2)
+    // Sound requests for the effects player ($36D2 + channel; volume −1:
+    // the volume word is not written).
+    struct Sound { int channel, effect, volume; }; // effect −1: the volume only
+    std::vector<Sound> sounds;
+    // The loudest object heard by distance this tick ($111EC): channel 2.
+    int heard_effect{-1}, heard_volume{-1};
+    std::size_t heard_object{};
     std::optional<int> timer_travel; // the timer elapsed: this level (0 = the world ends)
 };
 
@@ -116,12 +123,12 @@ public:
     const std::vector<LevelObject>& objects() const { return objects_; }
 
 private:
-    void tick_jewel(LevelObject&, ObjectWorld&);
-    void tick_lift(LevelObject&, ObjectWorld&);
+    void tick_jewel(LevelObject&, ObjectWorld&, ObjectEvents&);
+    void tick_lift(LevelObject&, ObjectWorld&, ObjectEvents&);
     void tick_exit(LevelObject&, ObjectWorld&, ObjectEvents&);
-    void tick_button(LevelObject&, ObjectWorld&);
-    void tick_switch(LevelObject&, ObjectWorld&);
-    void tick_heads(LevelObject&, ObjectWorld&);
+    void tick_button(LevelObject&, ObjectWorld&, ObjectEvents&);
+    void tick_switch(LevelObject&, ObjectWorld&, ObjectEvents&);
+    void tick_heads(LevelObject&, ObjectWorld&, ObjectEvents&);
     void tick_timer(LevelObject&, ObjectWorld&, ObjectEvents&);
     void tick_message(LevelObject&, ObjectEvents&);
     void tick_boink(LevelObject&, ObjectWorld&, ObjectEvents&);
@@ -130,6 +137,9 @@ private:
     void tick_spark(LevelObject&, ObjectWorld&, ObjectEvents&);
     void start_pac(LevelObject&, const ObjectWorld&);
     bool touches(const LevelObject&, const Explorer&) const;
+    // $1117E / $111A0: how loud an object is from the explorer (0 silent).
+    static int loudness(const LevelObject&, const Explorer&, bool flat);
+    void hear(const LevelObject&, ObjectEvents&, int effect, int volume) const;
 
     const data::Memory& main_;
     const SurfaceTable* surfaces_{};

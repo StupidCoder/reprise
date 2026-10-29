@@ -138,6 +138,7 @@ void LevelPlay::arrive() {
     e.z = with_low(e.respawn_z, 0x40);
     e.vx = e.vy = e.vz = 0;
     add_whole(progress_.fuel_change, -respawn_cost);
+    progress_.sounds.push_back({1, 3, 0x40}); // $12B1E
     e.timer_a = e.timer_b = 0;
     e.arrival_ticks = arrival_flash;
     phase_ = ExplorerPhase::arriving;
@@ -166,6 +167,7 @@ void LevelPlay::die(const Death& death) {
     } else {
         phase_ = ExplorerPhase::lost;
         phase_ticks_ = lost_time;
+        progress_.sounds.push_back({1, 2, 0x40}); // $12D7A
     }
 }
 
@@ -194,7 +196,10 @@ void LevelPlay::tick(std::uint8_t joystick) {
     if (phase_ == ExplorerPhase::playing) {
         // $12B7C: out of fuel (or the timer killed it): the dying kind.
         if (p.timer_expired || std::int16_t(p.fuel >> 16) <= 0) {
-            if (!p.timer_expired) show_clue(1, false);
+            if (!p.timer_expired) {
+                show_clue(1, false);
+                p.sounds.push_back({1, 4, 0x40}); // $12CA0
+            }
             p.timer_expired = true;
             phase_ = ExplorerPhase::out_of_fuel;
             phase_ticks_ = dying_time;
@@ -210,6 +215,22 @@ void LevelPlay::tick(std::uint8_t joystick) {
     if (phase_ == ExplorerPhase::playing) settle_explorer(e, events);
     if (happened.clue >= 0) show_clue(happened.clue, happened.clue_always);
     if (happened.fuel_cost) add_whole(p.fuel_change, -happened.fuel_cost);
+    p.sounds.insert(p.sounds.end(), happened.sounds.begin(), happened.sounds.end());
+    // $11208: channel 2 for the loudest object heard; its volume each
+    // tick, the effect when the object or effect changed; none: silent.
+    if (happened.heard_volume < 0) {
+        p.sounds.push_back({2, -1, 0});
+    } else {
+        p.sounds.push_back({2, -1, happened.heard_volume});
+        const int heard = int(happened.heard_object) * 256 + happened.heard_effect;
+        if (heard != p.heard_last) {
+            p.heard_last = heard;
+            p.sounds.push_back({2, happened.heard_effect, -1});
+        }
+    }
+    if (events.landing_volume) p.sounds.push_back({0, 6, events.landing_volume}); // $12F52
+    if (events.bounced) p.sounds.push_back({0, 0x24, 0x40});                      // $1352C
+    if (events.switch_sound) p.sounds.push_back({1, events.switch_sound, -1});    // $1325A
     if (happened.back_to_respawn) { // $12C3E
         e.x = with_low(e.respawn_x, 0x80);
         e.y = with_low(e.respawn_y, 0x80);

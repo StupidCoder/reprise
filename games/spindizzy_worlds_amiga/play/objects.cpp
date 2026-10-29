@@ -274,12 +274,12 @@ void LevelObjects::tick(ObjectWorld& w, ObjectEvents& events) {
     for (auto& o : objects_) {
         if (!o.alive) continue;
         switch (o.kind) {
-        case ObjectKind::jewel: tick_jewel(o, w); break;
-        case ObjectKind::lift: tick_lift(o, w); break;
+        case ObjectKind::jewel: tick_jewel(o, w, events); break;
+        case ObjectKind::lift: tick_lift(o, w, events); break;
         case ObjectKind::exit_point: tick_exit(o, w, events); break;
-        case ObjectKind::push_button: tick_button(o, w); break;
-        case ObjectKind::binary_switch: tick_switch(o, w); break;
-        case ObjectKind::heads: tick_heads(o, w); break;
+        case ObjectKind::push_button: tick_button(o, w, events); break;
+        case ObjectKind::binary_switch: tick_switch(o, w, events); break;
+        case ObjectKind::heads: tick_heads(o, w, events); break;
         case ObjectKind::timer: tick_timer(o, w, events); break;
         case ObjectKind::message: tick_message(o, events); break;
         case ObjectKind::boink: tick_boink(o, w, events); break;
@@ -291,7 +291,7 @@ void LevelObjects::tick(ObjectWorld& w, ObjectEvents& events) {
     }
 }
 
-void LevelObjects::tick_jewel(LevelObject& o, ObjectWorld& w) { // $14B04
+void LevelObjects::tick_jewel(LevelObject& o, ObjectWorld& w, ObjectEvents& events) { // $14B04
     const auto type = std::uint32_t(o.word2c);
     const int reach = main_.u16(jewel_reach_table + type);
     if (!explorer_on(o, w.explorer, reach, reach + 0x180)) return;
@@ -301,15 +301,17 @@ void LevelObjects::tick_jewel(LevelObject& o, ObjectWorld& w) { // $14B04
     w.jewel_fuel = std::int16_t(w.jewel_fuel + fuel);
     w.explorer.timer_a = std::int16_t(w.explorer.timer_a + std::int16_t(main_.u16(jewel_flash_table + type)));
     ++w.jewels_taken;
+    events.sounds.push_back({0, main_.u16(0x14B8C + type) & 0xFF, 0x40}); // $14B46
     o.alive = false; // $1449E
 }
 
-void LevelObjects::tick_lift(LevelObject& o, ObjectWorld& w) { // $14D46
+void LevelObjects::tick_lift(LevelObject& o, ObjectWorld& w, ObjectEvents& events) { // $14D46
     o.speed = 0;
     if (condition_holds(o.word26, w.switches, w.jewels) && o.word30-- == 0) {
         o.word30 = 0;
         int pause_index;
         bool turn = false;
+        hear(o, events, (o.word2e & 0x8000) ? 0x0C : 0x0B, loudness(o, w.explorer, false)); // $14D6A
         if (!(o.word2e & 0x8000)) { // going up: "UpSpeed", up to the level "Max z"
             o.speed = std::int16_t(low(o.word2e) & 0x7F);
             o.z = std::int16_t(o.z + o.speed);
@@ -370,6 +372,7 @@ void LevelObjects::tick_exit(LevelObject& o, ObjectWorld& w, ObjectEvents& event
         if ((std::uint16_t((o.x | 0xFF) - e.x) & 0xFF00) || (std::uint16_t((o.y | 0xFF) - e.y) & 0xFF00)) return;
     }
     if (!(flags & 0x10) && (std::uint16_t(o.z + 0x40 - e.z) & 0xFE00)) return; // "Ignore z" clear
+    events.sounds.push_back({2, 7, 0x40}); // $150FA
     if (flags & 0x08) { // back to the respawn point ($12C3E)
         events.back_to_respawn = true;
         return;
@@ -385,22 +388,29 @@ void LevelObjects::tick_exit(LevelObject& o, ObjectWorld& w, ObjectEvents& event
     w.running = false;
 }
 
-void LevelObjects::tick_button(LevelObject& o, ObjectWorld& w) { // $1609C: resting exactly on it
+void LevelObjects::tick_button(LevelObject& o, ObjectWorld& w, ObjectEvents& events) { // $1609C: resting exactly on it
     std::int16_t height = 0;
     if (!explorer_on(o, w.explorer, 0, 0xFFFF, &height) || height != 0) return;
     auto& s = w.switches;
     const int type = o.word2c;
+    // A sound only when the value changes ($160C6 …).
     if (type == 7) { // resets: word $3616 = $FFFF
+        if (s.primary == 0xFF && s.secondary == 0xFF) return;
         s.primary = s.secondary = 0xFF;
+        events.sounds.push_back({1, 0x0E, -1});
     } else if (type & 4) { // the primary value (byte $3616)
+        if (s.primary == std::uint8_t((type & 3) + 1)) return;
         s.primary = std::uint8_t((type & 3) + 1);
+        events.sounds.push_back({1, type + 0x0E, -1});
     } else { // word $3616 = type: primary 0, secondary type
+        if (s.primary == 0 && s.secondary == type) return;
         s.primary = 0;
         s.secondary = std::uint8_t(type);
+        events.sounds.push_back({1, type + 0x0E, 0x40});
     }
 }
 
-void LevelObjects::tick_switch(LevelObject& o, ObjectWorld& w) { // $161E0: resting exactly on it
+void LevelObjects::tick_switch(LevelObject& o, ObjectWorld& w, ObjectEvents& events) { // $161E0: resting exactly on it
     std::int16_t height = 0;
     if (!explorer_on(o, w.explorer, 0, 0xFFFF, &height) || height != 0) return;
     // The half of the cell along the switch's facing sets or clears its bit.
@@ -411,17 +421,24 @@ void LevelObjects::tick_switch(LevelObject& o, ObjectWorld& w) { // $161E0: rest
     if (facing & 2) part = std::uint8_t(~part);
     const std::uint16_t bit = o.word2c;
     std::uint16_t state = std::uint16_t(w.switches.binary | bit);
-    if (!(part & 0x80)) state = std::uint16_t(state ^ bit);
+    int sound = o.word32; // $18 + colour, or 3 less when it clears
+    if (!(part & 0x80)) { state = std::uint16_t(state ^ bit); sound -= 3; }
+    if (std::uint8_t(state) == w.switches.binary) return;
     w.switches.binary = std::uint8_t(state);
+    events.sounds.push_back({1, sound, 0x40});
 }
 
-void LevelObjects::tick_heads(LevelObject& o, ObjectWorld& w) { // $159DC
+void LevelObjects::tick_heads(LevelObject& o, ObjectWorld& w, ObjectEvents& events) { // $159DC
     o.speed = 0;
+    bool moved;
     if (condition_holds(o.word26, w.switches, w.jewels)) {
+        moved = o.word2e + 4 < 0x200;
         o.word2e = std::uint16_t(std::min(o.word2e + 4, 0x200));
     } else {
+        moved = o.word2e >= 4;
         o.word2e = std::uint16_t(o.word2e >= 4 ? o.word2e - 4 : 0);
     }
+    if (moved) hear(o, events, 0x0A, loudness(o, w.explorer, true)); // $15A12
     o.z = std::int16_t(o.word30 + 0x300 + ((o.word2c & 0x8000) ? o.word2e : -o.word2e));
     // $15A4C: a solid block three levels tall below its top.
     auto& e = w.explorer;
@@ -436,7 +453,11 @@ void LevelObjects::tick_timer(LevelObject& o, ObjectWorld& w, ObjectEvents& even
     if (w.timer_expired) return;
     if (w.timer >= 8) {
         w.timer = std::uint16_t(w.timer - 8);
-        return; // (a tick sound each second, $1538E)
+        if ((w.timer & 0xFF) == 0) { // $1538E: a tick each second, quieter as it runs out
+            const int seconds = w.timer >> 8;
+            events.sounds.push_back({3, 0x21 + (seconds & 1), std::max(0x40 - 2 * seconds, 0x20)});
+        }
+        return;
     }
     w.timer = 0;
     const int flags = high(o.word2c);
@@ -456,6 +477,25 @@ void LevelObjects::tick_timer(LevelObject& o, ObjectWorld& w, ObjectEvents& even
     o.byte21 = (w.level_flags & 0x1000) ? 0xFF : 0;
     events.travel = ObjectEvents::Travel{destination, 0, o.byte21 != 0};
     w.running = false;
+}
+
+int LevelObjects::loudness(const LevelObject& o, const Explorer& e, bool flat) {
+    const int dx = std::abs(o.x - e.x), dy = std::abs(o.y - e.y), dz = std::abs(o.z - e.z); // $111B4
+    if (flat) { // $111A0: x and y only, / 64
+        const int d = (dx + dy) >> 6;
+        return d >= 0x3F ? 0 : d ^ 0x3F;
+    }
+    const int d = ((dx + dy + dz) & 0xFFFF) >> 4; // $1117E
+    if (d >= 0x5F) return 0;
+    return std::max(d - 0x20, 0) ^ 0x3F;
+}
+
+void LevelObjects::hear(const LevelObject& o, ObjectEvents& events, int effect, int volume) const {
+    // $111EC: the loudest offer of the tick wins (an equal one does not).
+    if (events.heard_volume >= 0 && volume <= events.heard_volume) return;
+    events.heard_effect = effect;
+    events.heard_volume = volume;
+    events.heard_object = std::size_t(&o - objects_.data());
 }
 
 bool LevelObjects::touches(const LevelObject& o, const Explorer& e) const {
@@ -493,11 +533,16 @@ void LevelObjects::tick_boink(LevelObject& o, ObjectWorld& w, ObjectEvents& even
         speed = std::int16_t(-speed);
         o.word2c = std::uint16_t(speed);
         o.z = std::int16_t(o.z + speed);
-        if (std::int16_t(o.word32) < 0) o.word32 = 8; // and a sound ($152B0)
+        if (std::int16_t(o.word32) < 0) { // $152AA: a sound when heard, then 8 ticks quiet
+            if (const int volume = loudness(o, w.explorer, false)) events.sounds.push_back({1, 0x1F, volume});
+            o.word32 = 8;
+        }
     }
     if (!touches(o, w.explorer)) return;
     events.clue = 2;                // "Getting crushed destroys craft"
     events.fuel_cost += 0x30;       // $152E2
+    events.sounds.push_back({1, 5, 0x40});
+    events.sounds.push_back({0, 0x20, 0x40});
     o.popping = true;               // $14800 → $147E8
     o.count = 1;
     o.step = 0;
@@ -555,10 +600,12 @@ void LevelObjects::tick_pac(LevelObject& o, ObjectWorld& w, ObjectEvents& events
         if (w.explorer.timer_a != 0) { // $1571E: eaten while the explorer flashes from a jewel
             o.eaten = 0x20;
             w.explorer.timer_b = std::int16_t(std::min(w.explorer.timer_b + 1, 5));
+            events.sounds.push_back({1, 0x1D, 0x40}); // $1575E
             return;
         }
         events.clue = 5;
         events.fuel_cost += w.alien_cost;
+        events.sounds.push_back({1, 0x1E, 0x40}); // $156F2
         w.explorer.arrival_ticks = std::int16_t(w.explorer.arrival_ticks + 0xF);
         o.popping = true; // $147E8
         o.count = 1;
@@ -620,6 +667,7 @@ void LevelObjects::tick_pyramid(LevelObject& o, ObjectWorld& w, ObjectEvents& ev
         return;
     }
     auto touch = [&] { // $15910
+        hear(o, events, 0x23, loudness(o, w.explorer, false)); // $15922
         if (!touches(o, w.explorer)) return;
         events.clue = 5;
         events.fuel_cost += w.alien_cost + 0x10; // $1593A
@@ -659,6 +707,7 @@ void LevelObjects::tick_spark(LevelObject& o, ObjectWorld& w, ObjectEvents& even
     o.byte20 = 0xFF;
     if (condition_holds(o.word26, w.switches, w.jewels)) return;
     o.byte20 = 0;
+    hear(o, events, 0x25, loudness(o, w.explorer, false)); // $15C84
     if (!explorer_on(o, w.explorer, 0, 0x180)) return;
     events.clue = 9; // "You need to disable sparks"
     events.fuel_cost += 0x20;

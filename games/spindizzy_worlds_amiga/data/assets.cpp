@@ -174,6 +174,8 @@ Assets load_assets(const std::filesystem::path& content) {
     assets.main = Memory(main_base, platform::read_file(content / "main"));
     assets.title = read_neo(platform::read_file(content / "title.neo"));
     assets.select_swap = platform::read_file(content / "select.swp");
+    assets.effects = platform::read_file(content / "effects");
+    assets.music = platform::read_file(content / "music");
     const auto attributes = assets.main.bytes(block_attributes_at, 256);
     std::copy(attributes.begin(), attributes.end(), assets.block_attributes.begin());
     assets.graphics = read_graphics(assets.main);

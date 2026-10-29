@@ -360,6 +360,8 @@ add_library(spindizzy_worlds_amiga
     games/spindizzy_worlds_amiga/play/level_play.cpp
     games/spindizzy_worlds_amiga/play/objects.cpp
     games/spindizzy_worlds_amiga/play/surfaces.cpp
+    games/spindizzy_worlds_amiga/sound/effects.cpp
+    games/spindizzy_worlds_amiga/sound/music.cpp
     games/spindizzy_worlds_amiga/view/camera.cpp
     games/spindizzy_worlds_amiga/view/front.cpp
     games/spindizzy_worlds_amiga/view/objects.cpp

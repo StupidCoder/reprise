@@ -920,6 +920,107 @@ fills from row $87 upward on the left pillar (fuel 0-$7F), then the right.
 - SELECT.SWP is loaded to $A(a5) + 4 ($115E0 keeps a tag long first), so
   the code's offsets into it are the file's + 4.
 
+## Sound
+
+**Drivers.** The CIA-B timer B interrupt ($10D84; timer $3782 at the
+709,379 Hz E clock: 49.92 Hz, $10D5E) calls the routine whose address is
+in $2054(a5), when not 0: the music player (module + $94, set by $112A2)
+on the title and menus, the effects player ($344A, set by $1116C) in the
+levels; one at a time. $11250 (d0 & 3) starts a tune (module entry at
+offset 0 with d1 = tune, $1126C), $112B0 stops the music, $11152 resets
+the effects ($3400: requests $FF, channel volumes and DMA off).
+
+**Effects player** (the file "effects" at $3400). Requests at $36D2:
+bytes +0…+3 the effect asked for per channel ($FF none), words +4…+$A
+($36D6, $36D8, $36DA, $36DC) the channel volumes ($40 full). Its own
+per-channel state at $36D2+$C (busy count), +$10 (duration), +$14
+(sample), +$18 (effect playing) and at $366E (sample start, length,
+repeat start, repeat length, envelope volume, DMA bit, envelope offset,
+position, countdown and repeat count, period). Tables: effects at $3850
+(16 bytes: sample, envelope, period word, duration byte, $FF = no end),
+envelopes at $3800 (16 bytes: triples of ticks, volume change, repeats;
+a ticks byte ≥ $C0 jumps to position (byte & $3F); position 15 ends),
+sample offsets at $36EE (longs from $3AB0), sample loops at $375E
+(6 bytes: length in words, repeat offset in bytes, repeat length).
+
+Each call, channels 3 to 0 ($3462): a request is taken when it is below 8,
+or 8-$D while the channel plays 8 or more, or $E and up while it plays
+$E and up, or whenever the channel's busy count is 0; else it is dropped.
+Taking it: the effect's sample, period, duration and envelope (volume 0,
+countdown 1), DMA off for the channel, the sample's start and length
+written, busy $32. Playing: busy − 1; the duration − 1 unless $FF, at 0
+the channel's volume 0 and it stops; the envelope: when its countdown
+runs out the volume changes by the entry's step (kept in 0 … $40: above
+$40 → $40, a byte ≥ $80 → 0) and its repeats − 1; at 0 the next triple.
+Then DMA on for all four ($820F, after a busy-wait) and for every
+channel still playing: its repeat start and length (taken by Paula after
+the sample's first pass), its period, and the volume × the channel's
+request volume / $40.
+
+**Rebuilt** (`sound/effects`, from the effects file's own tables, on
+PaulaChannels, run at 49.92 Hz while a level plays). Checked with
+`play_route1s` (Tutorial 1 → 4 → 1 with the player's state at $3600
+recorded, `SDW_SOUND=1`): every channel takes the same effects in the
+same order as the original (channel 2: the lift's up and down sounds and
+the exit). The ticks can differ by a frame: the original's player runs
+from its own interrupt.
+
+Distance ($111B4: |dx|, |dy|, |dz|): $1117E: (sum >> 4) ≥ $5F silent,
+else (max(that − $20, 0)) ^ $3F; $111A0 (heads): ((|dx| + |dy|) >> 6) ^
+$3F unless ≥ $3F. Offers are taken only when louder than the tick's best
+so far; $11208 then writes channel 2's volume every tick (0 with none)
+and the effect when the object or effect changed ($2080/$2084).
+
+**What asks for sounds**: jewels (channel 0, effect from
+$14B8C), exits (channel 2, 7), push buttons and binary switches
+(channel 1, $E + type / $18 + colour), landings (6, volume by impact),
+bounces ($24), switch pads ($15 + n), deaths and respawns (2, 3), boinks
+($1F), creature touches ($1D, $1E, $20, 5), the timer's ticks (channel 3,
+$21/$22 with volume $40 − 2 × seconds, at least $20). Objects heard by
+distance ($111EC with the volume from $1117E / $111A0: lifts $B/$C,
+heads $A, sparks $25, pyramids $23) compete each tick for channel 2: the
+loudest one ($11208) sets $36DA and, when it changed, $36D4.
+
+**Music player** (the file "music" at $432A8; rebuilt as `sound/music`).
+Entry 0 starts tune d1: from the tune's 16-byte header at $4429A + 16 ×
+tune (four sequence offsets from $442DA, eight tempo counts) it resets
+only each channel's off flag, block flag, row, row countdown (1),
+instrument ($FF) and sequence position (from $43A1C + n, then one step),
+the fade ($FF: none), the counters $28/$29 and the master volume ($40);
+everything else in its state blocks ($4390E for Paula's side, $439A0 for
+the sequencer) carries over from the file or the tune before. Entry +$94
+($4333C) is one tick:
+
+- With a fade set (sequence command $FD n), the master volume drops one
+  step every n + 1 ticks; at 0 the tune stops.
+- Rows advance only on ticks whose tempo count ($29) is 0; the count is
+  then reloaded from the eight tempo counts in turn (backwards), a swing.
+- Sequences ($43876): $FD n the fade, $FE stop, $FF n jump to n, a byte
+  with bit 6 opens a block played (byte & $3F) times, else (pattern
+  repeats, pattern).
+- Pattern rows ($43D5C offsets into $43DEE; $FF ends a pattern): a byte
+  (bits 0-5 the length in rows, bit 6 the envelope taken up at its
+  position 9, bit 7 an instrument (< $80) or a slide byte follows), then a
+  note (bits 0-6 an index into the periods at $43A20, bit 7 tied). A new
+  instrument or an untied note starts the instrument's sample.
+- Instruments ($43C7C, 16 bytes): +0 sample, +1 envelope, +2 flags (bit 1
+  a second note every other tick from +$D, bit 2 a second sample and a
+  bend +4, bit 3 four notes in turn from +9, bit 4 the sample from +8
+  while +7 runs, bit 5 notes from +9 in turn while +7 runs), +7 a phase
+  length, +$E vibrato (depth $4397A, step shift $4398D: the gap to the
+  next note's period halved that many times), +$F a delay before it.
+  Slides: a byte ≥ $C0 raises the period by its low six bits a tick,
+  else lowers it.
+- Envelopes ($43BDC) as the effects player's, but a sum of $FF gives 0
+  (not every byte ≥ $80).
+- Then DMA on, and each channel's loop, period and volume × master / $40.
+
+Checked with `musiccheck` against `sdw.py musictrace` (the state blocks at
+every tick): tune 0 (title) and the map's tune, 1,500 ticks each, every
+channel's period, volume, note, row, pattern, countdown, sequence
+position, instrument and envelope position and the tempo and master
+volume equal.
+
 ## Bugs and quirks in the original
 
 Kept in the port's original mode unless noted.

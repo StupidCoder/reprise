@@ -114,9 +114,19 @@ rate apart from drawing.
 
 ### Sound
 
-- [ ] Effects (the player module at $3400 and its samples) and music
-      ($432A8): decode and rewrite natively; the objects' sound requests
-      ($36D2-$36DC) are not kept yet.
+- [x] Effects: the player rebuilt (`sound/effects`), the game's requests
+      and the distance-heard channel 2; every channel's effects equal in
+      order (`play_route1s`).
+- [ ] Effects not traced yet: the timer ticks, switch pads, creature
+      touches, boink bounces, heads, sparks, pyramids; the sample-level
+      output against a recording of the original's audio.
+- [x] Music: the player rebuilt (`sound/music`); tune 0 on the title and
+      menus, the map's tune on the cluster choice and map; both equal to
+      the original over 1,500 ticks (`musiccheck`).
+- [ ] Music still to place: tune 3 ($18958, after "Abandon") and tune 1
+      (not seen yet); the music after a world ($18A6A); the attract's tune
+      kept over a restart ($6F9 of the module); compare the sample output
+      with a recording of the original's audio.
 
 ### Enhancements (optional, off by default)
 
