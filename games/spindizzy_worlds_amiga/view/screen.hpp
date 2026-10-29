@@ -14,6 +14,7 @@ struct Screen : Canvas {
     std::array<data::Colour, 32> palette{}; // Amiga 12-bit colours
 
     Screen() : Canvas(320, 200) {}
+    Screen(int width, int height) : Canvas(width, height) {} // widescreen
     void put(int x, int y, std::uint8_t colour) {
         if (x >= 0 && y >= 0 && x < width && y < height) pixels[std::size_t(y * width + x)] = colour;
     }

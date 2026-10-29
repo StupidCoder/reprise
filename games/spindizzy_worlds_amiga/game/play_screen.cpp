@@ -1,4 +1,6 @@
 #include "spindizzy_worlds_amiga/game/play_screen.hpp"
+#include <cmath>
+#include <cstdlib>
 #include <utility>
 #include "spindizzy_worlds_amiga/view/panel.hpp"
 #include "spindizzy_worlds_amiga/view/playfield.hpp"
@@ -43,6 +45,8 @@ PlayScreen::PlayScreen(const data::Assets& assets, const play::SurfaceTable& sur
 
 void PlayScreen::start_level() {
     shown_.reset();
+    shown_view_.reset();
+    before_build_ = -1;
     play_ = std::make_unique<play::LevelPlay>(assets_, surfaces_, progress_);
     map_ = std::make_unique<view::TileMap>(view::TileMap::build(play_->level().grid, assets_.graphics));
     map_build_ = play_->build_count();
@@ -50,6 +54,8 @@ void PlayScreen::start_level() {
 
 void PlayScreen::frame(const PlayInput& input, bool slow, play::StickByte& stick) {
     if (outcome_ != Outcome::playing) return;
+    before_ = placement(1.0);
+    before_build_ = map_build_;
     if (input.key) key_waiting_ = true;
     // $109CC / $109E2 poll the key ($109B2 reads and clears $107A8) and
     // take the stick's fire bit.
@@ -173,30 +179,76 @@ void PlayScreen::open_overview(bool slow) {
     overview_ = shown;
 }
 
-void PlayScreen::draw_playfield(view::Screen& screen) const {
+void PlayScreen::draw_playfield(view::Screen& screen, const view::Canvas* playfield) const {
+    if (playfield) {
+        screen.paste(*playfield, 0, 0);
+        return;
+    }
     view::Canvas canvas(320, playfield_height);
     draw_view(canvas, play_->camera());
     screen.paste(canvas, 0, 0);
 }
 
+PlayScreen::Placement PlayScreen::placement(double fraction) const {
+    const auto& e = play_->explorer();
+    Placement now{play_->camera(), {e.x, e.y, e.z}, {}};
+    const auto& objects = play_->objects().objects();
+    now.objects.reserve(objects.size());
+    for (const auto& o : objects) now.objects.push_back({o.x, o.y, o.z});
+    if (fraction >= 1.0 || before_build_ != map_build_ || before_.objects.size() != now.objects.size()) return now;
+    // Smooth motion: back from where things are toward where the frame
+    // found them. A jump (a respawn, the view snapping, an object put
+    // somewhere new) is shown as it is.
+    const double back = 1.0 - fraction;
+    const auto between = [back](int from, int to) { return int(std::lround(double(to) - double(to - from) * back)); };
+    const auto near = [](const view::WorldPosition& a, const view::WorldPosition& b) {
+        return std::abs(a.x - b.x) <= 0x200 && std::abs(a.y - b.y) <= 0x200 && std::abs(a.z - b.z) <= 0x200;
+    };
+    const auto blend = [&](view::WorldPosition& to, const view::WorldPosition& from) {
+        if (near(from, to)) to = {between(from.x, to.x), between(from.y, to.y), between(from.z, to.z)};
+    };
+    if (std::abs(now.camera.scroll_x - before_.camera.scroll_x) <= 32 && std::abs(now.camera.scroll_y - before_.camera.scroll_y) <= 32) {
+        now.camera.scroll_x = between(before_.camera.scroll_x, now.camera.scroll_x);
+        now.camera.scroll_y = between(before_.camera.scroll_y, now.camera.scroll_y);
+    }
+    blend(now.explorer, before_.explorer);
+    for (std::size_t i = 0; i < now.objects.size(); ++i) blend(now.objects[i], before_.objects[i]);
+    return now;
+}
+
 void PlayScreen::draw_view(view::Canvas& canvas, const view::Camera& camera) const {
+    auto at = placement(1.0);
+    at.camera = camera;
+    draw_view(canvas, at);
+}
+
+void PlayScreen::draw_view(view::Canvas& canvas, const Placement& at) const {
     // The whole buffer width (the pillars cover its edges): column 0 is
-    // the map's $2570 − 16.
+    // the map's $2570 − 16. A wider canvas (widescreen) reaches `margin`
+    // further each side; the stars, fixed to the screen, repeat into it
+    // every 288 pixels (the width they are placed in).
     canvas.pixels.assign(canvas.pixels.size(), 0);
-    const int left = camera.left(), top = camera.top();
+    const int margin = (canvas.width - 320) / 2;
+    const int left = at.camera.left() - margin, top = at.camera.top();
     view::draw_playfield(canvas, *map_, assets_.graphics, left, top);
-    view::draw_stars(canvas, play_->stars());
+    view::draw_stars(canvas, play_->stars(), margin);
+    if (margin > 0) {
+        view::draw_stars(canvas, play_->stars(), margin - 0x120);
+        view::draw_stars(canvas, play_->stars(), margin + 0x120);
+    }
     const auto& objects = play_->objects().objects();
     auto sprites = view::start_sprites(play_->level(), play_->switches(), assets_.main, [&](std::size_t index) {
         view::ObjectState state;
         state.gone = true;
-        for (const auto& o : objects) {
+        for (std::size_t i = 0; i < objects.size(); ++i) {
+            const auto& o = objects[i];
             if (o.source != index) continue;
+            const auto& where = at.objects[i];
             state.gone = !o.alive;
             state.step = o.step;
-            state.z = o.z;
+            state.z = where.z;
             state.shown = o.byte20 != 0;
-            if (o.kind == world::ObjectKind::boink || o.kind == world::ObjectKind::pac || o.kind == world::ObjectKind::pyramid) { state.x = o.x; state.y = o.y; state.heading = o.heading & 3; state.popping = o.popping; }
+            if (o.kind == world::ObjectKind::boink || o.kind == world::ObjectKind::pac || o.kind == world::ObjectKind::pyramid) { state.x = where.x; state.y = where.y; state.heading = o.heading & 3; state.popping = o.popping; }
             if (o.kind == world::ObjectKind::pac && o.eaten) {
                 state.gone = !o.eaten_drawn;
                 state.eaten_picture = o.eaten_picture;
@@ -205,14 +257,18 @@ void PlayScreen::draw_view(view::Canvas& canvas, const view::Camera& camera) con
         }
         return state;
     });
-    const auto& e = play_->explorer();
-    const view::WorldPosition at{e.x, e.y, e.z};
     const view::ObjectSprite explorer{0, data::read_sprite_frame(assets_.main, explorer_frame_, 1, 16),
-                                      view::explorer_place(at), view::sort_value(at) + 0xC};
+                                      view::explorer_place(at.explorer), view::sort_value(at.explorer) + 0xC};
     view::draw_with_explorer(canvas, std::move(sprites), explorer, *map_, assets_.graphics, left, top);
 }
 
 void PlayScreen::draw(view::Screen& screen) const {
+    draw_base(screen, nullptr);
+    // The overview's picture was taken with the pillars on it.
+    if (!overview_) view::draw_pillars(screen, assets_.main, progress_.fuel_shown);
+}
+
+void PlayScreen::draw_base(view::Screen& screen, const view::Canvas* playfield) const {
     if (overview_) {
         screen = *overview_;
         return;
@@ -221,8 +277,53 @@ void PlayScreen::draw(view::Screen& screen) const {
         screen = *held_;
         return;
     }
-    draw_live(screen);
+    draw_live(screen, playfield);
     shown_ = screen;
+}
+
+view::Screen PlayScreen::draw_wide(int margin, double fraction) const {
+    const int width = 320 + 2 * margin;
+    view::Screen out(width, 200);
+    if (overview_) { // the overview stays as it was, in the middle
+        out.palette = overview_->palette;
+        out.paste(*overview_, margin, 0);
+        return out;
+    }
+    view::Canvas wide(width, playfield_height);
+    view::Screen centre;
+    if (held_) {
+        // A wait shows the picture of its start: the view it was drawn with.
+        if (shown_view_ && shown_view_->width == width) wide = *shown_view_;
+        else draw_view(wide, placement(1.0));
+        draw_base(centre, nullptr);
+    } else {
+        draw_view(wide, placement(fraction));
+        view::Canvas middle(320, playfield_height);
+        for (int y = 0; y < playfield_height; ++y)
+            for (int x = 0; x < 320; ++x) middle.pixels[std::size_t(y * 320 + x)] = wide.at(margin + x, y);
+        draw_base(centre, &middle);
+        shown_view_ = wide;
+    }
+    out.palette = centre.palette;
+    out.paste(wide, 0, 0);
+    out.paste(centre, margin, 0);
+    if (margin > 0) {
+        // The panel picture's ends are the elbows under the pillars: they
+        // move out with the pillars, and the pipe between (rows 171-180, a
+        // two-column pattern) runs on into the panel.
+        const int right = 304 + 2 * margin;
+        for (int y = playfield_height; y < 200; ++y) {
+            for (int x = 0; x < 16; ++x) {
+                out.put(x, y, centre.at(x, y));
+                out.put(right + x, y, centre.at(304 + x, y));
+            }
+            const bool pipe = y >= 171 && y <= 180;
+            for (int x = 16; x < margin + 16; ++x) out.put(x, y, pipe ? centre.at(14 + (x & 1), y) : 0);
+            for (int x = margin + 304; x < right; ++x) out.put(x, y, pipe ? centre.at(304 + ((x - right) & 1), y) : 0);
+        }
+    }
+    view::draw_pillars(out, assets_.main, progress_.fuel_shown, 2 * margin);
+    return out;
 }
 
 // The texts are printed once into the shown buffer ($379C: the picture
@@ -230,7 +331,7 @@ void PlayScreen::draw(view::Screen& screen) const {
 void PlayScreen::hold_picture(const std::function<void(view::Screen&)>& print) {
     view::Screen screen;
     if (shown_) screen = *shown_;
-    else draw_live(screen);
+    else draw_live(screen, nullptr);
     print(screen);
     held_ = std::move(screen);
 }
@@ -249,7 +350,7 @@ void PlayScreen::print_clue(view::Screen& screen) const {
     if (assets_.main.u8(at) == std::uint8_t(*clue_)) text.print(screen, at + 1);
 }
 
-void PlayScreen::draw_live(view::Screen& screen) const {
+void PlayScreen::draw_live(view::Screen& screen, const view::Canvas* playfield) const {
     screen.fill(0);
     view::set_level_palette(screen, assets_.graphics, play_->palette());
     if (paused_ && dimmed_) // $11074: each ST colour word less its ror by 1 & $777, then doubled
@@ -257,11 +358,10 @@ void PlayScreen::draw_live(view::Screen& screen) const {
             const int st = screen.palette[i] >> 1;
             screen.palette[i] = data::Colour((st - ((st >> 1) & 0x777)) * 2);
         }
-    draw_playfield(screen);
+    draw_playfield(screen, playfield);
     view::draw_panel(screen, assets_, progress_.world);
     view::draw_compass(screen, assets_.main, progress_.rotation);
     view::draw_clue(screen, assets_.main, progress_.clue_word);
-    view::draw_pillars(screen, assets_.main, progress_.fuel_shown);
     if (play_->dying()) { // $12D22: not over the overview map ($249E)
         view::TextPrinter text(assets_.main);
         text.print(screen, 0x12D68);

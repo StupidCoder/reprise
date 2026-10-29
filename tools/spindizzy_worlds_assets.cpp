@@ -778,7 +778,8 @@ int main(int argc, char** argv) {
             // drivefile <content> <out folder> <file>: BITS:FRAMES items from
             // a file; "!" saves a picture (shotNN.png), the last frame too;
             // "state:<file>" loads a saved state; "kNN" holds matrix key NN
-            // for one frame; "check" tests a quick save (above).
+            // for one frame; "check" tests a quick save (above); "opt:I=V",
+            // "canvas:WxH" and "frac:F" set the presentation options.
             auto module = spindizzy::game::start(platform::utf8_path(argv[2]));
             const auto out = platform::utf8_path(argv[3]);
             std::filesystem::create_directories(out);
@@ -836,6 +837,18 @@ int main(int argc, char** argv) {
                                 twin->write_state() == saved ? " (saved again: the same bytes)" : " (saved again: DIFFERENT)");
                     differed = false;
                     checked = 0;
+                    continue;
+                }
+                if (item.rfind("opt:", 0) == 0) { // opt:I=V: an option set (presentation previews)
+                    module->set_option(std::size_t(std::stoi(item.substr(4))), std::stoi(item.substr(item.find('=') + 1)));
+                    continue;
+                }
+                if (item.rfind("canvas:", 0) == 0) { // canvas:WxH: the window's drawing area
+                    module->set_canvas(std::stoi(item.substr(7)), std::stoi(item.substr(item.find('x') + 1)));
+                    continue;
+                }
+                if (item.rfind("frac:", 0) == 0) { // frac:F: the display's place between ticks (smooth motion)
+                    module->set_frame_fraction(std::stod(item.substr(5)));
                     continue;
                 }
                 if (item[0] == 'k') { // a key of the C64 matrix held for one frame

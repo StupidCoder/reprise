@@ -9,6 +9,8 @@
 #include "spindizzy_worlds_amiga/view/panel.hpp"
 #include "spindizzy_worlds_amiga/view/screen.hpp"
 #include "state/archive.hpp"
+#include "ui/vhs.hpp"
+#include <algorithm>
 #include <array>
 #include <memory>
 #include <span>
@@ -129,6 +131,39 @@ public:
         enter_map();
     }
     double pixel_aspect() const override { return 1.0; }
+
+    // The port's additions, all presentation only: the game, its sound and
+    // its saves are the same with any choice.
+    std::vector<app::GameOption> options() const override {
+        return {{"Widescreen", {"Off", "On"}, widescreen_ ? 1 : 0,
+                 "Fills the window to its edges, up to 21:9: the levels show more of the world left and right, "
+                 "the pillars stand at the new edges. The other screens stay in the middle. The game plays the same."},
+                {"Smooth motion", {"Off", "On"}, smooth_ ? 1 : 0,
+                 "The explorer, the moving objects and the view glide at the display's own rate instead of "
+                 "stepping 50 times a second. The game plays the same."},
+                app::screen_filter_option(vhs_)};
+    }
+    void set_option(std::size_t index, int value) override {
+        if (index == 0) {
+            widescreen_ = value != 0;
+            set_canvas(canvas_width_, canvas_height_);
+        }
+        if (index == 1) smooth_ = value != 0;
+        if (index == 2) vhs_ = std::clamp(value, 0, ui::vhs_levels - 1);
+    }
+    int vhs_level() const override { return vhs_; }
+    void set_frame_fraction(double fraction) override { fraction_ = std::clamp(fraction, 0.0, 1.0); }
+    // Widescreen: as wide as the window's shape allows, from 320 pixels up
+    // to 21:9 of the 200 rows.
+    void set_canvas(int width, int height) override {
+        canvas_width_ = width;
+        canvas_height_ = height;
+        margin_ = 0;
+        if (widescreen_ && width > 0 && height > 0) {
+            const double wide = std::clamp(200.0 * width / height, 320.0, 200.0 * 21 / 9);
+            margin_ = std::max(0, int(wide - 320) / 2);
+        }
+    }
 
     // The effects player runs from the CIA-B timer at 49.92 Hz ($10D5E:
     // $3782 E-clock ticks) while a level plays; the samples come from Paula.
@@ -375,6 +410,21 @@ public:
     }
 
     platform::Image picture() const override {
+        if (margin_ > 0 || smooth_) {
+            const double fraction = smooth_ ? fraction_ : 1.0;
+            if (stage_ == Stage::play) return play_->draw_wide(margin_, fraction).image();
+            if (stage_ == Stage::game_over && play_ && margin_ > 0) {
+                // The menu over the level: its box over the wide picture.
+                auto wide = play_->draw_wide(margin_, 1.0);
+                view::Screen shown;
+                menu_->draw(shown);
+                const auto& behind = menu_->behind();
+                for (int y = 0; y < shown.height; ++y)
+                    for (int x = 0; x < shown.width; ++x)
+                        if (shown.at(x, y) != behind.at(x, y)) wide.put(margin_ + x, y, shown.at(x, y));
+                return wide.image();
+            }
+        }
         view::Screen screen;
         switch (stage_) {
         case Stage::attract: attract_->draw(screen); break;
@@ -385,7 +435,11 @@ public:
         case Stage::play: play_->draw(screen); break;
         case Stage::statistics: screen = statistics_; break;
         }
-        return screen.image();
+        if (margin_ == 0) return screen.image();
+        view::Screen wide(320 + 2 * margin_, 200); // the other screens in the middle
+        wide.palette = screen.palette;
+        wide.paste(screen, margin_, 0);
+        return wide.image();
     }
 
 private:
@@ -484,6 +538,11 @@ private:
     std::array<int, 4> effects_volume_{0x40, 0x40, 0x40, 0x40};
     bool statistics_then_next_{};
     std::int32_t world_start_fuel_{}, world_start_reserve_{}; // what $16D44 restores for a retry
+    // The port's presentation options (not saved with the game).
+    bool widescreen_{}, smooth_{};
+    int vhs_{};
+    int canvas_width_{}, canvas_height_{}, margin_{};
+    double fraction_{1.0};
 };
 
 } // namespace

@@ -37,13 +37,11 @@ app::GameEntry entry() {
         .import = import::import_disk,
         .previews = previews,
         .start = game::start,
-        .progress = "Disk import (every file the game loads, checked; the 32 world files unscrambled) and decoded "
-                    "data: every level of the 30 worlds that have levels, built from the game's own command lists. "
-                    "Playable from the title: the attract pages, the menu, the Easy/Hard choice and the turning world "
-                    "map, then a world's levels with the panel, the pillars' fuel gauge, clues, and the objects the "
-                    "Tutorial needs (jewels, exits, lifts, push buttons, binary switches, heads, secret passages, "
-                    "timers, messages); the Tutorial can be finished. Replayed tick for tick against the original "
-                    "over the whole Tutorial. Aliens, pyramids, boinks and sparks do not move yet; no sound yet.",
+        .progress = "The whole game from the title to both endings: the attract pages, the menu, both clusters "
+                    "and their turning maps, every level of the 30 worlds with all their objects, clues, the panel and "
+                    "the fuel gauge, sound effects and music, the world's break-up, statistics and saves. Replayed "
+                    "tick for tick against the original over 13 recorded runs (the whole Tutorial among them). "
+                    "Options: widescreen up to 21:9, smooth motion and the VHS look.",
         .release_year = 1990,
         .description = "Guide a spinning explorer through a world of precarious platforms and geometric puzzles. Balance speed with precision as you negotiate narrow paths, ramps and the drops beyond their edges.",
         .history_title = "A world of geometric puzzles",

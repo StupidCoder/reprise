@@ -79,7 +79,7 @@ void draw_clue(Screen& screen, const data::Memory& main, std::uint16_t word) {
     }
 }
 
-void draw_pillars(Screen& screen, const data::Memory& main, int fuel_shown) {
+void draw_pillars(Screen& screen, const data::Memory& main, int fuel_shown, int right_shift) {
     // Source rows of the 168: 0-7 the top, 8-135 the gauge, 136-155 from
     // $1E840, 156-167 from $1E880 ($10FC6).
     auto source_row = [&](int y) -> std::uint32_t {
@@ -89,7 +89,7 @@ void draw_pillars(Screen& screen, const data::Memory& main, int fuel_shown) {
         return pillar_rows + 0x80 + std::uint32_t(y - 156) * 8;
     };
     for (int side = 0; side < 2; ++side) {
-        const int x = side == 0 ? left_pillar_x : right_pillar_x;
+        const int x = side == 0 ? left_pillar_x : right_pillar_x + right_shift;
         const int shown = side == 0 ? std::min(fuel_shown, 0x80) : std::max(fuel_shown - 0x80, 0);
         for (int y = 0; y < 168; ++y) {
             std::uint32_t at = source_row(y);

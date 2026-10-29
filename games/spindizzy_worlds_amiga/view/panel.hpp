@@ -28,8 +28,9 @@ void draw_clue(Screen&, const data::Memory& main, std::uint16_t word);
 // then 20 and 12 more); a pixel of colour 0 becomes sprite colour 24,
 // which the level sets to black ($189D6). The gauge shows `fuel_shown`
 // rows from the bottom of the left pillar's gauge, then the right's
-// ($10E96: $2072, 0-$100).
-void draw_pillars(Screen&, const data::Memory& main, int fuel_shown);
+// ($10E96: $2072, 0-$100). `right_shift` moves the right pillar further
+// right (widescreen: to the wider picture's edge).
+void draw_pillars(Screen&, const data::Memory& main, int fuel_shown, int right_shift = 0);
 
 // Sprite colours 16-31 as a level sets them ($189CA): palette 0 again,
 // colour 24 black.

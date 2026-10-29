@@ -45,6 +45,7 @@ public:
     // clears the byte when a menu opens ($17E5A).
     int frame(play::StickByte&);
     void draw(view::Screen&) const;
+    const view::Screen& behind() const { return behind_; }
     bool slow_mode{true};
     template <class A> void persist(A& ar) { ar(behind_, items_, header_, item_at_, chosen_, timeout_, counter_, slow_mode); }
 

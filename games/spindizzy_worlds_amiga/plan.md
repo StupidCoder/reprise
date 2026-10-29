@@ -178,9 +178,15 @@ rate apart from drawing.
 
 ### Enhancements (optional, off by default)
 
-- [ ] Widescreen: camera targets for wider views (the original's $88/$50
-      are for 288 pixels), stars over the wider view, pillars and panel.
-- [ ] 120 Hz smooth motion.
+- [x] Widescreen up to 21:9 (2026-10-29): the level's view wider, stars
+      repeated into it, pillars at the edges with the panel's pipes run
+      on; the other screens in the middle. The camera keeps the
+      original's targets (the explorer in the middle).
+- [x] Smooth motion (2026-10-29): explorer, objects and view drawn
+      between frames.
+- [x] The VHS look (the framework's screen filter).
+- [ ] Widescreen on the front-end screens (title, menus, maps): they are
+      centred on black.
 - [ ] Mod loading of world files.
 
 ## Known bugs and gaps in the port

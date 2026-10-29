@@ -798,7 +798,11 @@ is (object z + extra − explorer z) unsigned ≤ reach.
 - **Binary switch** ($16154, tick $161E0): colour → bit 8 >> colour of
   $3618; the explorer exactly at its z in its cell: the half of the cell
   along its facing (bit 0 swaps x/y, bit 1 inverts) sets the bit (≥ $80)
-  or clears it.
+  or clears it. It is where the explorer rests that counts, not the way
+  it came: crossing at right angles through the "on" half lights it.
+  Checked in the original (Tutorial 5, the middle switch at 15,18,
+  facing 2): with the explorer placed at x $F40 the word $3618 is 4 for
+  y $1210, $1280 and $12F0 alike, at x $FC0 it is 0.
 - **Heads** ($1594A, tick $159DC): facing byte (bit 7 rises, else sinks),
   type, condition. Each tick its offset +$2E moves 4 toward $200 while
   the condition holds, toward 0 otherwise; z = base + $300 ± offset. A
@@ -1348,6 +1352,33 @@ and their Paula channels. Version 1 saves (between worlds) still load.
 - `playcheck` says after a record what the port does next: Roller-ama 4
   (`play_w9_4`, 641 ticks, recorded until the original stopped ticking)
   ends in game over at the next tick, as the original does.
+
+## The port's presentation options
+
+All three are presentation only (the rules, the sound and the saves are
+the same with any choice); off by default.
+
+- **Widescreen** (up to 21:9 of the 200 rows: 466 pixels): in a level
+  the playfield reaches further each side, drawn from the map like the
+  rest (the camera is unchanged, so the explorer stays in the middle);
+  the stars, fixed to the screen, repeat every 288 pixels (the width
+  $15AFC places them in); the pillars stand at the new edges, the
+  panel's end pieces (the elbows under the pillars, columns 0-15 and
+  304-319 of SELECT.SWP) move with them and the pipe between (rows
+  171-180, a two-column pattern) runs on to the panel. The middle 288
+  columns are the same as the original's picture. The menu over a game
+  over is put over the wide picture; the other screens (title, menus,
+  maps, statistics, endings, the overview map) stay in the middle.
+- **Smooth motion**: the explorer, the objects' positions (creatures,
+  lifts, heads) and the view are drawn between where the frame found
+  them and where it left them, at the display's place in time; a jump of
+  more than two cells (or 32 view pixels) is shown as it is. Animation
+  frames still change at the game's rate.
+- **VHS look**: the framework's screen filter over the picture.
+
+The pillars are drawn when the picture is shown, over the held texts
+too (they are hardware sprites in the original, independent of the
+bitplanes the game holds while it waits).
 
 ## Not yet traced
 

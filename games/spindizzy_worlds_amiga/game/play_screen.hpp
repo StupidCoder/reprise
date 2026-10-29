@@ -51,6 +51,12 @@ public:
 
     // The whole screen (320 × 200): playfield, pillars, panel, a clue.
     void draw(view::Screen&) const;
+    // The same with the port's presentation additions (never part of the
+    // state): the playfield `margin` pixels wider on each side with the
+    // pillars at the new edges (widescreen), and the explorer, the moving
+    // objects and the view shown `fraction` of the way from where the last
+    // frame found them to where it left them (smooth motion; 1: as they are).
+    view::Screen draw_wide(int margin, double fraction) const;
 
     const play::LevelPlay& level() const { return *play_; }
     // After "Use reserve fuel": the same level goes on.
@@ -61,9 +67,20 @@ private:
     void finish_level();
     // $1135A: the 16 views squeezed into the box.
     void open_overview(bool slow);
+    // Where things are drawn: as the state has them, or between two frames.
+    struct Placement {
+        view::Camera camera;
+        view::WorldPosition explorer;
+        std::vector<view::WorldPosition> objects; // by the objects' list order
+    };
+    Placement placement(double fraction) const;
     void draw_view(view::Canvas&, const view::Camera&) const;
-    void draw_playfield(view::Screen&) const;
-    void draw_live(view::Screen&) const;
+    void draw_view(view::Canvas&, const Placement&) const;
+    // The picture without the pillars (hardware sprites, drawn over it when
+    // shown); `playfield` is a view already drawn, wider or not.
+    void draw_base(view::Screen&, const view::Canvas* playfield) const;
+    void draw_playfield(view::Screen&, const view::Canvas* playfield) const;
+    void draw_live(view::Screen&, const view::Canvas* playfield) const;
     void print_clue(view::Screen&) const;
     // A wait's picture: the one on screen with its text printed over it.
     void hold_picture(const std::function<void(view::Screen&)>& print);
@@ -84,6 +101,9 @@ private:
     std::optional<view::Screen> overview_; // m: until fire
     std::optional<view::Screen> held_;          // the picture while a text waits
     mutable std::optional<view::Screen> shown_; // the last picture drawn (not state)
+    mutable std::optional<view::Canvas> shown_view_; // its playfield, as wide as it was drawn (not state)
+    Placement before_;    // where the last frame found things (smooth motion, not state)
+    int before_build_{-1}; // the level map those were in
     int message_frames_{-1}; // "Reserve fuel collected": frames left ($109E2)
     bool key_waiting_{}; // a key in $107A8 not read yet
     int clue_frames_{};
