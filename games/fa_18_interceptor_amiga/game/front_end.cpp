@@ -279,8 +279,12 @@ std::optional<FlightStart> FrontEnd::tick(const FrontKeys& keys) {
             asking_aircraft_ = true;
             text_.clear();
             text_.queue(aircraft_block);
-        } else if (!asking_aircraft_ && (keys.digit == 4 || keys.digit == 5)) {
-            sounds_.refuse(); // the carrier's places: not rebuilt yet
+        } else if (!asking_aircraft_ && keys.digit == 4) {
+            // $102BB6: on the carrier there is no aircraft to choose.
+            text_.clear();
+            return FlightStart{3, 0x11};
+        } else if (!asking_aircraft_ && keys.digit == 5) {
+            sounds_.refuse(); // (place 5, record 15, is empty in free flight)
         } else if (asking_aircraft_ && (keys.digit == 1 || keys.digit == 2)) {
             text_.clear();
             return FlightStart{place_, keys.digit == 1 ? 0x11 : 0x10};
@@ -318,9 +322,10 @@ void FrontEnd::draw(IndexedImage& image, int margin) const {
         // drawn by the panel's number drawer ($127640: 4-pixel steps, the
         // digit 8 pixels on).
         const auto& font = assets_.small_font;
-        for (int p = 0; p < 3; ++p) {
+        for (int p = 0; p < 4; ++p) {
             if (asking_aircraft_ && p != place_) continue;
-            const auto at = place_position(assets_.program, p);
+            // (Place 4 is the carrier, record 14: its own position, $11FC44.)
+            const auto at = p == 3 ? carrier_ : place_position(assets_.program, p);
             const std::int32_t dx = (at[0] - 0x10800000) >> 14, dy = -0x3000000 >> 14, dz = (at[1] - 0x10C00000) >> 14;
             const int xc = (0xA8 * dx) >> 8, yc = (0xFC * dz) >> 8, zc = (-0x80 * dy) >> 8;
             const int sx = 159 - 0xA0 * xc / zc + margin, sy = 90 - 0x5A * yc / zc;

@@ -659,7 +659,7 @@ Captures `.analysis/fa_18_interceptor_amiga/work/ref/ff_select.png`, `ff_aircraf
 | Off | Meaning |
 |---|---|
 | +0 | flags: bit 4 of byte +0 = moves; $800 speed brake (key `\` / backspace toggles); $200 crashed; $400 hit; $8000 ... |
-| +2 | flags: $80 on the ground; $40 nose wheel down (set by $105BDE, cleared each frame by $10557C); $2000 full military power reached; $08 afterburner; $400 reverse thrust armed; $10 auto-level roll; $8000/$4000 wheel brakes (both = full braking) |
+| +2 | flags: $80 on the ground; $40 nose wheel down (set by $105BDE, cleared each frame by $10557C); $2000 full military power reached; $08 afterburner; $400 reverse thrust armed; $10 auto-level roll; $8000 the arresting hook down (key A), $4000 in the carrier's wire zone (both = full braking); $02 near another object (`$11AAE0`) |
 | +4 (byte) | bit 3 no rudder/roll input; bits 6-7 over a deck (ground height + word +$4E × 256) |
 | +6, +8 | coarse cell x, z (position >> 22) |
 | +C, +E | fine position x, z ((pos & $3FFFFF) >> 8); +$10 long: y >> 8 |
@@ -910,8 +910,8 @@ original (`work/ref/descent/q070-q100.png` against the port at the same
 frames: the same path and view); about 80 frames, 5 s.
 
 The aircraft is drawn with its vehicle shape: type 4 for the F/A-18
-(the object's +$62 = $11 is not the shape index; the F-16's is taken to
-be type 3, **hypothesis**), at the scenery's scale (half-span 25
+(the object's +$62 = $11 is not the shape index: `$10D58C` takes the
+type record at offset $50 for the F/A-18, $3C — type 3 — for the F-16), at the scenery's scale (half-span 25
 units), with its ground shadow (op `$10`, `$11392E`: a height limit,
 then polygons of the shape's points laid flat in colour 0). Port
 against `work/ref/out1.png` (front view on runway 1): the same picture but 3
@@ -1066,6 +1066,52 @@ nose down ($1E0-$3840) with sink × 16 ≥ height, or banked more than 15°
 3 blinks then steady) and beep $80, unless on the ground or already
 showing. Checked with the recordings in this document (message line equal in
 every frame).
+
+### The carrier (2026-10-29)
+
+Each mode has an object list (`$11DFB2`: per mode 4-byte entries
+(offset, `$13AB9A`) for three variants, then per progress level the
+list's start, `$11CF06`); free flight's (`$11E61C`) has one entry of 10
+bytes: the type record's offset ($A0: shape type 8, the carrier), the
+type byte +$62 ($20), the record (14, bit 15 set), a path ($42 into
+`$11DDC0`) and flags ($8000: no flight path). `$11D318` spawns it: the
+path's five words are the coarse cells x and z (<< 22), the offsets
+(<< 8) and the height (<< 8): x $11980000, z $10580000 — at rest,
+heading 0. Every object, the carrier too, goes through the same object
+step (`$116C4E`…, `$11A352`). The type's data block (record +16,
+`$12E340`) holds the deck height in its long at +2 (bit 31 a flag): 112.
+
+Start on the carrier (place 4, `$10D750`): the carrier's angles, its
+place plus (11, 0, 104) turned by its view matrix (products over 16),
+y = deck × 256 + $708, byte +4 |= $C8 (on the deck, no rudder or roll).
+No aircraft choice; "READY TO LAUNCH" (block 90). There is no
+catapult: the aircraft rolls along the deck at its own thrust
+(recording `work/ref/cv2.jsonl`, full power from the deck: the port's
+flight step equal in 198 of 199 frames; it leaves the bow after about
+60 frames and sinks to about 110 ft at 447 kt).
+
+The deck test (`$11B6AA`, the carrier part; each frame before the
+move, for the player and the other aircraft): byte +4's deck bits are
+cleared (`$11B6C0`), then for the aircraft's model points 0 (nose: bit
+$40) and 3 (under the tail: bit $80), turned by its body: when at or
+above the deck height and inside one of the deck's outlines, the bit
+is set and +$4E = the deck height. The outlines (from the first
+pointer of `$12E298`; `$12EF74` for the other ships): the carrier's
+model points by offset (6 bytes a point, the model's scale 2^−3), six
+convex outlines each ending with bit 15, $FFFF after them, reaching
+from z −688 to 960 and x −216 to 224. In the wires' zone
+(`$11BA3E`, only for the tail point and on the ground): between the
+lines through the points 54-56 (C, B and D = A + (A − C)/2 beyond A,
+parallel to A − C and to B − C) — x −76…96, z −580…−352, the deck's
+stern — and heading along the deck (the products of the two view
+matrices' third column ≥ $E000000), +2 bit 14 is set; with the hook
+down (bit 15) that is the full brake. Outside it bit 14 is cleared
+unless both are set. Below the deck height the hull's faces
+(`$12E314`, plane tests `$11BC3A`) make a collision (`$11C0B4`, d0 =
+$20; the damage routine). Key A (`$10E36A`, the F/A-18 only) turns
+the hook (+2 bit 15) with a click and "ARRESTOR HOOK DOWN" ($4023; up:
+**hypothesis** $4022). The place-4 marker on the map is the carrier's
+own position (`$11FC44`).
 
 ## 5 Sound
 

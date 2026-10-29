@@ -4,6 +4,7 @@
 #include "fa_18_interceptor_amiga/game/scene.hpp"
 #include "fa_18_interceptor_amiga/game/sounds.hpp"
 #include "fa_18_interceptor_amiga/game/text_screen.hpp"
+#include <array>
 #include <functional>
 #include <optional>
 
@@ -42,6 +43,8 @@ public:
              std::function<void()> write_pilot);
 
     void start_title();
+    // Where the carrier lies (32-bit x and z): place 4's marker.
+    void set_carrier(std::array<std::int32_t, 2> xz) { carrier_ = xz; }
     // $101A70: back to the main menu (Shift-Esc, the end of free flight).
     void to_menu();
     // Free flight's start map again (Esc in flight).
@@ -94,6 +97,7 @@ private:
     int palette_ = 0;             // which of the game's palettes shows
     data::Palette title_palette_{};
     int fade_ = 0;                // title fade steps done
+    std::array<std::int32_t, 2> carrier_{};
 };
 
 } // namespace interceptor::game

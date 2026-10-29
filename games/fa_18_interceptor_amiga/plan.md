@@ -60,11 +60,18 @@ from drawing, and must still respect the passes' model rule).
    (checked against a recording), and the view from above with its grid
    (V for the original's M, which Reprise keeps for mute), the start
    map's descent to the aircraft (`$13AAA6`, checked frame by frame) and
-   the camera's turning (`$10454A`). Left: looking up and down (keypad 7 / 1: no keys for them in Reprise yet),
-   which shape the F-16 uses.
-7. **Moving objects**: the carrier (free-flight places 4-5, the deck,
-   catapult and its thump, arrestor hook), other aircraft, missiles,
-   parachutes; their object records and flight paths.
+   the camera's turning (`$10454A`). Left: looking up and down (keypad 7
+   / 1: no keys for them in Reprise yet).
+7. **Moving objects** — done 2026-10-29 for free flight, whose only
+   object is the carrier: spawned from the game's object list, drawn,
+   place 4 on the map and the start on its deck ("READY TO LAUNCH"),
+   the deck test (six outlines), the wire zone and the hook (key A,
+   here B). Left: the hull's faces (the port crashes below the deck
+   inside its outline instead), the other ships' decks (`$12EF74`),
+   the object step for moving objects (`$11A352` for others, flight
+   paths `$38`, `$11DDC0`), other aircraft, missiles and parachutes
+   (they come with the modes that spawn them, tasks 10-11), collisions
+   between objects (`$11B6AA`'s first part, collision proximity).
 8. **Weapons**: gun (slot 10's sound), missiles, flares and chaff.
 9. **The F-16** (type $10) as the second aircraft.
 10. **Demo, training and qualification**: menu items 1, 3, 4 and 5
@@ -79,8 +86,7 @@ from drawing, and must still respect the passes' model rule).
 - A soft touch-down (and its tyre sound), the boom and the spin warning
   were never seen in a recording of the original; touch-down rules are
   ported from the code only.
-- The wheel brakes' second bit ($4000 of +2) and key A's role; the
-  throttle keys' timing between the original's key events and the port's
+- The throttle keys' timing between the original's key events and the port's
   held keys; the timer +$4C (stepped by 2 a tick).
 - The restart routine `$10D558` is taken as the free-flight start.
 - Which palette each briefing screen uses (previews use palette 0);
@@ -106,7 +112,6 @@ from drawing, and must still respect the passes' model rule).
   stops at opcodes `$5C` and `$9C` (some mid-distance levels).
 - The title stays 22 s (the original's loading time on the A500) but a key
   skips it; the original takes no key there.
-- The F-16 choice flies the F/A-18 (task 9).
 - Free flight does not yet update the pilot record's numbers (flight
   time, crashes; the crash adds 1 to config +$10, not decoded).
 - The panel's speed does not drop to 0 at a crash (state bit 15 is set
@@ -116,5 +121,5 @@ from drawing, and must still respect the passes' model rule).
 - The view's window of object cells is a square, not the original's
   octant lists; the fine water grid's window below height $9000 (by
   heading) draws all cells.
-- No look directions in the cockpit, no tower view; F/A-18 only; no
-  other objects.
+- The F-16 choice flies the F/A-18's flight model (task 9) with the
+  F-16's shape outside; no objects other than the carrier.

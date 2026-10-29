@@ -3,6 +3,7 @@
 #include "fa_18_interceptor_amiga/data/preview.hpp"
 #include "fa_18_interceptor_amiga/data/world.hpp"
 #include "fa_18_interceptor_amiga/game/aircraft.hpp"
+#include "fa_18_interceptor_amiga/game/carrier.hpp"
 #include "fa_18_interceptor_amiga/game/cockpit.hpp"
 #include "fa_18_interceptor_amiga/game/front_end.hpp"
 #include "fa_18_interceptor_amiga/game/pilot_record.hpp"
@@ -28,6 +29,8 @@ constexpr int flash_ticks = flash_blanks * ticks_per_second / 50;
 constexpr int aircraft_given = 5;     // free flight's aircraft ($10217A)
 constexpr int end_text_fa18 = 99;     // "HEY ROOKIE, F/A-18'S DON'T GROW ON TREES"
 constexpr int ready_text = 89;        // "READY FOR TAKEOFF"
+constexpr int launch_text = 90;       // "READY TO LAUNCH" (on the carrier, $102E10)
+constexpr int carrier_place = 3;      // place 4 ($137CF6's $800E: record 14)
 constexpr int menu_palette = 0;
 
 // Keys of the C64-style matrix the host gives (GameInput::c64_keys).
@@ -58,8 +61,9 @@ public:
         : content_(content), assets_(data::load_assets(content)), world_(data::read_world(assets_.program)),
           tables_(read_flight_tables(assets_.program)), scene_(assets_, world_), cockpit_(assets_),
           palette_(assets_.palettes.at(data::flight_palette)), messages_(assets_.program), driver_(assets_),
-          sounds_(driver_), pilot_(read_pilot(content)),
+          sounds_(driver_), carrier_(assets_.program), pilot_(read_pilot(content)),
           front_(assets_, scene_, sounds_, pilot_, [this] { write_pilot(content_, pilot_); }), text_(assets_) {
+        front_.set_carrier({carrier_.position[0], carrier_.position[2]});
         front_.start_title();
     }
 
@@ -174,8 +178,7 @@ public:
                 // The outside view ($13AA75): the scene down to row 167
                 // ($13AC74) with the aircraft in it, and its numbers below.
                 Vehicle self;
-                // The shape types: 4 the F/A-18, 3 the light single-fin
-                // jet for the F-16 (hypothesis, from the shapes' looks).
+                // The shape types ($10D58C): 4 the F/A-18, 3 the F-16.
                 self.type = aircraft_type_ == 0x10 ? 3 : 4;
                 const auto mix = [t](double a, double b) { return a + (b - a) * t; };
                 self.position = {mix(before_.x, aircraft_.x) / 256.0, mix(before_.y, aircraft_.y) / 256.0,
@@ -183,7 +186,7 @@ public:
                 self.body = aircraft_.body;
                 const int bottom = above_ ? 0xB3 : outside_bottom; // ($13AC74)
                 const auto view = outside_camera(t);
-                scene_.draw(frame, width / 2 - 1, bottom, view, {self});
+                scene_.draw(frame, width / 2 - 1, bottom, view, {self, carrier_vehicle()});
                 if (above_) grid(frame, view, width / 2 - 1, bottom);
                 // (No numbers while the camera comes down from the map: $126AB2
                 // needs `$13AAC9`.)
@@ -209,6 +212,7 @@ public:
                 v.body = aircraft_.body;
                 self.push_back(v);
             }
+            self.push_back(carrier_vehicle());
             scene_.draw(frame, width / 2 - 1, cockpit ? Cockpit::view_bottom : view_rows,
                         camera(before_, aircraft_, t, look_, zoom_), self);
             readings.hud = phase_ != Phase::ready && phase_ != Phase::to_ready; // ($13AA91, set as the flight starts)
@@ -249,6 +253,14 @@ public:
             return image;
         }
         return to_image(frame, image, *palette);
+    }
+
+    Vehicle carrier_vehicle() const {
+        Vehicle v;
+        v.type = carrier_.shape_type;
+        v.position = {carrier_.position[0] / 256.0, carrier_.position[1] / 256.0, carrier_.position[2] / 256.0};
+        v.body = carrier_.body;
+        return v;
     }
 
     static platform::Image to_image(const IndexedImage& frame, platform::Image& image, const data::Palette& palette) {
@@ -327,7 +339,7 @@ private:
         aircraft_type_ = start.aircraft;
         aircraft_left_ = aircraft_given;
         text_.clear();
-        text_.queue(ready_text);
+        text_.queue(place_ == carrier_place ? launch_text : ready_text);
         sounds_.set_active(true);
         restart();
         flying_ = false;
@@ -362,9 +374,13 @@ private:
 
     // $10D51E: the aircraft at the chosen start; the engine sound starts.
     void restart() {
-        aircraft_ = start_at_place(assets_.program, tables_, place_);
-        // The wheels' surface, as the first contact would find it.
-        aircraft_.surface = std::uint8_t(world_.on_runway(aircraft_.x / 256.0, aircraft_.z / 256.0) ? 4 : 0);
+        if (place_ == carrier_place) {
+            aircraft_ = carrier_.start_on_deck(assets_.program, tables_);
+        } else {
+            aircraft_ = start_at_place(assets_.program, tables_, place_);
+            // The wheels' surface, as the first contact would find it.
+            aircraft_.surface = std::uint8_t(world_.on_runway(aircraft_.x / 256.0, aircraft_.z / 256.0) ? 4 : 0);
+        }
         before_ = aircraft_;
         sounds_.event(EngineSound::start);
         messages_.clear();
@@ -500,10 +516,19 @@ private:
         }
         view_keys(input);
         if (pressed(key::backspace)) aircraft_.state ^= flag::speed_brake;   // the original's \\ or Backspace
-        if (pressed(key::b)) aircraft_.motion ^= 0x8000;                     // the original's A (wheel brake)
+        if (pressed(key::b) && aircraft_type_ == 0x11) {
+            // $10E36A (the original's A, the F/A-18 only): the arresting hook
+            // (+2 bit 15; with the wires' bit 14 the full brake), its message
+            // for a while. (Hook up's message: hypothesis.)
+            sounds_.refuse();
+            aircraft_.motion ^= 0x8000;
+            messages_.post((aircraft_.motion & 0x8000) ? 0x4023 : 0x4022);
+        }
         remember_keys(input);
 
         ground_warnings(aircraft_, messages_, sounds_);
+        // $11B6A2 (before this frame's move): the carrier's deck, wires and hull.
+        if (carrier_.touch(aircraft_, assets_.program)) aircraft_.state |= flag::crashed;
         FlightRules rules;
         rules.world = &world_;
         const auto events = fly(aircraft_, c, rules, tables_);
@@ -523,6 +548,7 @@ private:
         // (Touching down on water: the original's handling is not traced;
         // here it ends like a crash.)
         if (events.in_water) aircraft_.state |= flag::crashed;
+
         chase_camera();
         ++ticks_;
     }
@@ -938,6 +964,7 @@ private:
     Messages messages_;
     SoundDriver driver_;
     Sounds sounds_;
+    Carrier carrier_;
     PilotRecord pilot_;
     FrontEnd front_;
     TextRunner text_;             // "READY FOR TAKEOFF", the end text
