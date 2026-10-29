@@ -43,6 +43,15 @@ struct Vehicle {
     bool shadow = true;
 };
 
+// A projectile to draw over the scene ($1238AC: one pixel, colour 9 for
+// rounds), or the sparks where it hit and of chaff ($121570: three short
+// lines, +-3 world units about it, `$12163A`).
+struct Spark {
+    std::array<double, 3> position{};
+    int colour = 9;
+    bool burst = false;
+};
+
 class Scene {
 public:
     Scene(const data::Assets& assets, const data::World& world);
@@ -50,7 +59,7 @@ public:
     // Draws into rows [0, bottom] of `image`, the horizontal centre at
     // column `centre` (159 in the original's 320 columns).
     void draw(IndexedImage& image, int centre, int bottom, const Camera& camera,
-              const std::vector<Vehicle>& vehicles = {}) const;
+              const std::vector<Vehicle>& vehicles = {}, const std::vector<Spark>& sparks = {}) const;
 
     // Where a world point shows (column, row), or nothing behind the camera.
     static std::optional<std::array<int, 2>> project(const Camera& camera, const std::array<double, 3>& point,

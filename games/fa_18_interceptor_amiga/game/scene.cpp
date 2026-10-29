@@ -140,11 +140,12 @@ std::optional<std::array<int, 2>> Scene::project(const Camera& camera, const std
     const double x = m[0] * dx + m[1] * dy + m[2] * dz, y = m[3] * dx + m[4] * dy + m[5] * dz,
                  z = m[6] * dx + m[7] * dy + m[8] * dz;
     if (z < near_plane) return std::nullopt;
-    return std::array<int, 2>{int(centre - 160 * x / z), int(90 - 90 * y / z)};
+    // ($123894 truncates the quotients, then takes them from the centre.)
+    return std::array<int, 2>{centre - int(160 * x / z), 90 - int(90 * y / z)};
 }
 
 void Scene::draw(IndexedImage& image, int centre, int bottom, const Camera& camera,
-                 const std::vector<Vehicle>& vehicles) const {
+                 const std::vector<Vehicle>& vehicles, const std::vector<Spark>& sparks) const {
     Raster r(image, centre, bottom, camera);
     const auto& eye = camera.position;
     // Sky, then the land as a plane in colour 4 and the bay's water on it,
@@ -277,6 +278,16 @@ void Scene::draw(IndexedImage& image, int centre, int bottom, const Camera& came
         }
         for (const auto& line : chosen->lines) r.line(place(line.from), place(line.to), line.colour);
         for (const auto& dot : chosen->dots) r.dot(place(dot.at), dot.colour);
+    }
+    static constexpr int burst[3][6] = {{-3, 3, -3, 3, -3, 3}, {2, 1, -2, -2, -1, 2}, {-3, -3, -3, 3, 3, 3}};
+    for (const auto& s : sparks) {
+        const auto& p = s.position;
+        if (!s.burst) {
+            r.dot(p, s.colour);
+            continue;
+        }
+        for (const auto& b : burst)
+            r.line({p[0] + b[0], p[1] + b[1], p[2] + b[2]}, {p[0] + b[3], p[1] + b[4], p[2] + b[5]}, s.colour);
     }
 }
 

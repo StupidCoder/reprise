@@ -770,6 +770,14 @@ FlightEvents fly(Aircraft& a, const FlightControls& controls, const FlightRules&
     return events;
 }
 
+void coast(Aircraft& a, const FlightRules& rules, const FlightTables& t) {
+    FlightEvents events;
+    move(a, rules, t, events);
+    constexpr i32 edge = 0x1FFFFFFF;
+    a.x = std::clamp(a.x + a.vx, 0, edge);
+    a.z = std::clamp(a.z + a.vz, 0, edge);
+}
+
 std::array<std::int32_t, 2> place_position(const amiga::LoadedImage& m, int place) {
     const std::uint32_t at = 0x137CF6 + std::uint32_t(16 * place);
     const std::uint32_t pair = 0x110732 + std::uint32_t(4 * m.s16(at + 4));

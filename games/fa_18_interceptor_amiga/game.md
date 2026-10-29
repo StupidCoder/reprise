@@ -922,7 +922,7 @@ rows higher — the original's screen carried a leftover shake offset
 (`$109E46`), period $320 − 2t − t/2 − t/4 (t the throttle with the
 turn's share, as in the cockpit), volume a quarter less; events: start
 (period, volume), afterburner on (+$20, $3F), off (+$20, volume),
-catapult (the thump at $3F), boom (+$16, $3F); otherwise the glide
+missile launch (the thump at $3F), boom (+$16, $3F); otherwise the glide
 (`$109EFA`, 32 ticks). The volume (`$105354`, while the camera follows
 the aircraft, `$13AAA5`): by the position folded to 0-4 (4 − |position −
 4|… positions above 4 count as 8 − position): 0 and 1 → v/2 + v/8, 2 →
@@ -1067,6 +1067,116 @@ nose down ($1E0-$3840) with sink × 16 ≥ height, or banked more than 15°
 showing. Checked with the recordings in this document (message line equal in
 every frame).
 
+### Weapons (2026-10-29)
+
+Found in the code, checked against recordings of the original firing
+from the carrier's deck and in the air (`work/ref/wpm.jsonl`,
+`wpg.jsonl`, `wpa.jsonl`: `flightcap.py --objs`; screens
+`work/ref/wp/`). `fa_18_interceptor_assets weaponcheck` steps the
+missile records and projectile slots from each recorded frame and
+compares the next: all frames of the three recordings match (positions,
+velocities, speeds, lives).
+
+**Stores** (player record): +$5F holds the missiles, Sidewinders in the
+high nibble, AMRAAMs in the low; +$60 the rounds; `$13AB3D` flares,
+`$13AB3C` chaff. A new start (`$10F184`) gives 2 Sidewinders, 4
+AMRAAMs, 500 rounds, 16 flares, 16 chaff. +$63's high nibble is the
+weapon selected: 0 none (the start), $10 the gun, $20 Sidewinders, $30
+AMRAAMs. (The low nibble is another mode, 9/B/D, cycled by key R,
+`$10DF1C`: not traced.)
+
+**Keys** (`$10DAC8`, raw codes): Return ($44, `$10E90E`) steps the
+nibble down by $10 (0 → $30 → $20 → $10 → 0) with the refusing beep
+(`$127D82`) every time; space ($40, `$10F0AA`) fires: with the gun it
+sets `$13ABB6` bit 3 until the key's release ($C0, `$10F100`), with a
+missile it asks for a launch (`$13AAAA`); F ($23, `$10EE34`) a flare,
+C ($33, `$10EEC6`) chaff (Shift-F: the ejection, not ported). Flares and
+chaff count down first: with 1 left the key shows "NO FLARES
+REMAINING" / "NO CHAFF REMAINING" (records 39, 41), else "IR FLARE
+FIRED" / "CHAFF DISPENSED" (38, 40), sets `$13AB7B` (2 flare, 1 chaff)
+and a 30-frame timer (`$13AB3F`, `$13AB3E`; read by the missiles'
+decoy logic `$11A916`).
+
+**Missiles** (`$116C9E`-`$116D5C`, in the object step after the
+player): records 1-3 are the player's missiles. A free record with a
+launch asked for takes it (`$11764C`; the request goes even when the
+weapon has none left), then the record steps the same frame. The launch
+(`$1176D8`): the engine event $FB with `$13AA87` 8; the aircraft's
+record copied ($A4 bytes); type +$62 = 1 for AMRAAMs (log counter
+config +$3E), 0 for Sidewinders (+$42); the count's nibble down by 1;
+the station is the count left (Sidewinders 0-1, AMRAAMs 2-5) in a table
+of model offsets turned by the view matrix (+$92) / 64: `$117956` for
+the F/A-18 (wingtips (∓26, 0, 0), then (∓5, −2, 2), (∓15, −2, 1)),
+`$117932` for the F-16; life +$4C 150 (Sidewinder) or 200 (AMRAAM);
++$26 = $14; flags +0 |= $11C2 (bit 8: the object step skips its move on
+this first frame), +2 bit 7 (on the ground) cleared (and the height
+velocity with it), rates and sink cleared, +$2C = −1 (no target point).
+Each frame (`$117E4A`): life − 1, gone at 0; from 50 on the speed rises
+by $1E0 to $4200, and with no target (`$13ACB0` = −1; the copied +1 bit
+3 leads there) by another $240 toward $4200 (`$117E8E`); below 50 it
+moves by $240 toward $3000, below 12 it sets +0 bit 10. +$6C and +$6E
+both take it. The object step (`$11A352` → `$106B0E`) then turns the
+velocity toward the direction of flight a quarter at a time and moves
+the record, as for the player. In free flight (no locks) a missile flies
+straight on. Drawn as shape types 0 (Sidewinder) and 1 (AMRAAM), with
+their flames.
+
+**Projectiles** (`$1072DC`, after the flight, with the drawing): ten
+slots of $40 bytes, $80 apart, at `$13AF62` (+0/+4/+8 position, x and z
+within the cell at +$30/+$32, +$C-+$14 a frame's move, +$18-+$20 an
+eighth of it for the hit tests, +$24 moved once, +$26 flags: 1 in use,
+2 hit, $1000 chaff, $2000 flare; +$28 life). Each frame, for every
+slot: life − 1; while the trigger is held or a decoy is asked for, a
+free slot gets one (one a frame, a burst of 5 counted in +$7D's high
+nibble, only with rounds left - for flares and chaff too); a burst
+refills when no slot fired or waited (+$3B, 20 frames after a round).
+A round: the gun's sound (`$10A2F0(6, 22)`, 30 outside; the noise
+`$10A0DC(28, 48)` without slot 10), rounds − 3 (not below 0), config
++$3A + 3 (also for decoys). A decoy: the noise. Where it starts
+(`$1077D8`, model offsets × view matrix / 64): rounds (0, 0, $38)
+(F-16 (6, 1, $18)), life 20; flares (0, −8, −$38), life 60; chaff
+(0, −8, 0), life 30. Its direction: (0, lift, $400) × view / 16 for
+rounds, lift $43, $3D, $45, $40 by the frame counter's low bits; (0,
+−$40, 0) for decoys; its length (`$107AFE`, `$119D50`: the length
+routine with a first shift of 3, 32 times longer than `$119CB8`'s):
+rounds speed / 64 + $C6 + (0, $10, 0, −$10 by the frame), flares 5,
+chaff $D; the frame's move is 8 times that; decoys add the aircraft's
+velocity. Then (`$10754C`): gone below life 1; else (not yet hit) the
+hit tests and the move (`$11AE96`): rounds fall $100 a frame, chaff
+slows by 1/64 and falls $100, flares slow by a quarter in all three
+axes; the first frame only marks +$24. Below height 0 (`$10754C`) it
+is hit, life 2, put back along its move to height 0 (`$11B45A`: per
+whole unit of height, ratios in 16ths). Drawing: rounds a pixel of
+colour 9 (`$1238AC`); hits and chaff three short lines of colour 9 ±3
+units about it (`$121570`, table `$12163A`); flares `$121504`/`$12185E`
+(a burning blob: drawn as a dot here). Not ported: the hit tests
+against scenery (`$142A7C` lists) and objects (8 sub-steps), and their
+effects.
+
+**Readouts.** The head-up display's weapon line (`$12685C`, colour 13,
+row 129 from column 92, four pixels a character): "GUN" and the rounds
+in three digits (two leading zeros blank), or " SW" / " AM" with the
+count in one digit (0 blank). The panel's left display (`$1274A4`,
+`$1255FC`, redrawn when `$13AB33` / `$13AB34` count): "ARM" (or " NO"
+with none left) on row 176 and the name on row 184 from column 61; the
+gun's mark at (68, 163-164) red when selected; the stations
+(`$1255DE`: Sidewinders (85, 172), (51, 172); `$1255E8`: AMRAAMs (74,
+159), (62, 159), (81, 167), (55, 167)) as a 6-pixel line below the
+point with two fins: black when empty, red for the next to go of the
+selected weapon, else green.
+
+**The gun's aiming circle** (`$128734`, only at zoom 1, `$13AD32` $80):
+`$1288CE` keeps a point (0, $600, $4000) × view / 64 from the aircraft
+for two frames (`$13AA06`, `$13AA12`) and projects the older one from
+the aircraft's position now (`$123894`); the circle shows there the
+next frame (`$13AC2E`): `$12919C` mirrors the 20 points of a quarter
+(`$129548`) into the four quarters (the lower two one row up), colour
+10, inside columns $63-$DB and rows $39-$84, and a dot of colour 13 at
+the centre. With a target (`$13ACB0`) it follows the target instead
+(not in free flight). The port's projection now truncates the quotients
+before taking them from the centre, as `$123894` does (the circle sits
+on row 74 as the original's).
+
 ### The carrier (2026-10-29)
 
 Each mode has an object list (`$11DFB2`: per mode 4-byte entries
@@ -1205,7 +1315,8 @@ Routines (the names are the roles the code shows):
 | `$10A0DC(vol, ticks)` | noise on channel 2: vol falling to 0 over ticks, period $231E + 4 × 11 random bits |
 | `$10A18C(vol)` | tyres (texttre once, period $136 falling 2 a tick) |
 | `$10A1E6(vol)` / `$10A24C` | gear sound on channel 2 / stop it |
-| `$10A258(vol)` | slot 12's thump (the carrier's catapult, event $FB) |
+| `$10A258(vol)` | slot 12's thump: a missile's launch (event $FB, set only by `$1176F0`) |
+| `$10A2F0(a, b)` | a round of the gun: slot 10 on channel 2, its script's values a and b << 16 (6 and 22 in the cockpit, 30 outside) |
 | `$127D66`, `$127D6A`, `$127D82` | clicks: a typed character (300,2,…,1,1), a warning's (…,4,4), a refused key (…,2,2; locked by `$13AB7A`) |
 
 **The frame's update** `$104AA0` (after the flight and the messages):
@@ -1224,7 +1335,7 @@ Routines (the names are the roles the code shows):
    $310 − 2t − t/4. Events: $FE start ($109DB2, textegn with the
    afterburner), $FD afterburner lit (textegn, period+$23, 30), $FC out
    ($109DB2, period+$20), $FA boom (textegn, period+$16, 40), $FB
-   catapult, else a glide (`$109EBE`, 32 ticks; with the afterburner
+   a missile's launch (the thump; the engine restarts 8 frames on), else a glide (`$109EBE`, 32 ticks; with the afterburner
    3/8 volume). `$13AA87` counts frames to a restart event.
 
 **Events from the flight** (`$105ED4`, `$106B0E`): a throttle step from 0
@@ -1288,18 +1399,19 @@ Research files live in `.analysis/fa_18_interceptor_amiga/` (`harness/`,
   `F18_INDEX=file` writes colour numbers), `shot.sh` (window capture).
 - `flightcap.py` records the player object and globals each frame
   (`--sound` slots and channels, `--calls` the sound routines' calls,
-  `--shots`; steps for controls, keys, dives, control byte, pokes);
+  `--objs` the missile records 1-4 and the projectile slots, `--shots`; steps for controls, keys, dives, control byte, pokes);
   `flashcap.py` times the crash flash; `listsnap.py`, `viewgrab.py`,
   `modelbp.py`, `opbp.py`, `pointcheck.py`, `stepcheck.py`, `fps.py`.
 - `fa_18_interceptor_assets` (tools/): `import`, `export`, `viewcheck`,
   `flightcheck` (flight model against recordings: fc1-fc4 equal except
   key ticks), `soundcheck` (sound calls and message line: sd2, cr5,
-  td1-td3 equal in every frame), `fly` (headless module run from the title,
+  td1-td3 equal in every frame), `weaponcheck` (missiles and projectiles
+  against `--objs` recordings: wpm, wpg, wpa equal in every frame), `fly` (headless module run from the title,
   pictures and `!wav`; keys: digits, `*` Return, `~` Tab (Esc), `^`
   Ctrl+Tab (Shift-Esc), `_` space, capitals the letter keys, `@ [ ] { }`
   the keypad's 0 4 6 8 2).
 - `harness/proc.py`: the running original's screen procedure, frame
   countdown and text queue (the front end's traces).
-- Captures in `work/ref/`: `fc*.jsonl`, `sd2`, `cr5`, `td1-3`, flash
+- Captures in `work/ref/`: `fc*.jsonl`, `sd2`, `cr5`, `td1-3`, `wpm`, `wpg`, `wpa`, flash
   timing `flash_cr4.txt`, message bitplanes `msg7.idx`/`msg8.idx`,
   reference screenshots.

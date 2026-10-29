@@ -23,7 +23,7 @@ enum class EngineSound : std::int8_t {
     start = -2,          // the engine (re)starts: the textcpt pair ($FE)
     afterburner_on = -3, // $FD
     afterburner_off = -4,// $FC
-    catapult = -5,       // $FB (the carrier's)
+    missile = -5,        // $FB: a missile leaves ($1176F0, the only setter)
     boom = -6,           // $FA: past the speed of sound
 };
 
@@ -65,6 +65,10 @@ public:
     void stop_all();                               // $1015F6
     void noise(int volume, int ticks);             // $10A0DC: the crash
     void tyres(int volume);                        // $10A18C
+    // $107480: a round of the gun - slot 10's sound ($10A2F0: its script's
+    // two values, 22 in the cockpit, 30 outside) when the game has it
+    // (`$13AE48` bit 5), else the noise as for flares and chaff.
+    void gun(bool outside);
     void beep(int period1, int volume1, int ticks1, int period2, int volume2, int ticks2, int repeats,
               int groups, int pause);              // $10A042
     void click();                                  // $127D66: a typed character
@@ -111,7 +115,7 @@ private:
     }
 
     SoundDriver& driver_;
-    bool cockpit_engine_, outside_engine_, tyres_, wind_, gear_, noise_, thump_;
+    bool cockpit_engine_, outside_engine_, tyres_, wind_, gear_, noise_, thump_, gun_;
     EngineSound event_ = EngineSound::none;
     int restart_in_ = 0;          // $13AA87: frames to the engine's restart
     std::uint8_t frame_ = 0;      // $13AAB1

@@ -102,6 +102,10 @@ struct FlightEvents {
 FlightEvents fly(Aircraft& aircraft, const FlightControls& controls, const FlightRules& rules,
                  const FlightTables& tables);
 
+// One tick of an object that flies without controls (a missile): the
+// velocity and height step ($106B0E) and the position, as `fly` does them.
+void coast(Aircraft& aircraft, const FlightRules& rules, const FlightTables& tables);
+
 // A place of free flight's start table ($137CF6, 16 bytes each: coarse
 // cell x and z, slot, offsets x and z (x 1024), fine offsets x and z (x 16),
 // heading in degrees): its x and z, as $10D51E and the map's markers

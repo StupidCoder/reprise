@@ -3,19 +3,20 @@
 What remains for a complete, playable re-implementation, and the known
 bugs and differences. How the game works and what was learned: game.md.
 
-## Where it stands (2026-10-29, second milestone)
+## Where it stands (2026-10-29, weapons)
 
 Playable from the title: the title with its tune, credits, call-sign
 entry or welcome back, main menu, flight log, free flight's start map
-and aircraft choice, then free flight from the three runways in the
-cockpit view: the original's flight model tick for tick, the head-up
-display, the panel's numbers, the message line with the stall and fuel
-warnings, the 7.8 G warning, the original's sounds, the crash (noise,
-flash, five aircraft, end text, back to the menu); a first outside view.
-Options: widescreen, smooth motion up to 120 Hz, VHS, sound. Checked against the
-original: `flightcheck`, `soundcheck`, `viewcheck`, front-end screens
-and the map's markers (game.md sections 2 and 7). Nothing of this is
-committed.
+and aircraft choice, then free flight from the three runways or the
+carrier's deck: the original's flight model tick for tick, the head-up
+display, the panel's numbers, the message line with its warnings, the
+original's sounds, the crash (noise, flash, five aircraft, end text,
+back to the menu), the outside views and the view from above, the
+carrier's deck and wires, and the weapons (gun, missiles, flares, chaff
+with their readouts). Options: widescreen, smooth motion up to 120 Hz,
+VHS, sound. Checked against the original: `flightcheck`, `soundcheck`,
+`weaponcheck`, `viewcheck`, front-end screens and the map's markers
+(game.md sections 2 and 7). Committed and pushed step by step.
 
 Owner's design notes: widescreen and smooth motion stay (own renderer from
 game state, rules at 15 Hz); a planned option, off by default, always
@@ -72,7 +73,19 @@ from drawing, and must still respect the passes' model rule).
    paths `$38`, `$11DDC0`), other aircraft, missiles and parachutes
    (they come with the modes that spawn them, tasks 10-11), collisions
    between objects (`$11B6AA`'s first part, collision proximity).
-8. **Weapons**: gun (slot 10's sound), missiles, flares and chaff.
+8. **Weapons** — done 2026-10-29 for free flight: the stores, Return
+   for the next weapon, space to fire, F a flare, C chaff (with their
+   messages); the gun's bursts, rounds and sound, missiles launched from
+   their stations and flown on (no target in free flight), flares and
+   chaff, ground hits with sparks; the head-up display's weapon line, the
+   gun's aiming circle, the panel's stores display with ARM / NO and the
+   name. Checked frame by frame against the original (`weaponcheck`).
+   Left: the hit tests against scenery and objects (`$11AE96`'s
+   8 sub-steps, `$11B572` / `$11B4A8`) and what a hit does; missiles'
+   guidance with a radar lock (`$13ACB0`, `$1182F2`, task 11); the flare's
+   burning drawing (`$12185E`, a dot here); the log's counters (config
+   +$3A rounds, +$3E / +$42 missiles); Shift-F (the ejection); key R's
+   mode nibble (+$63 low).
 9. **The F-16** (type $10) as the second aircraft.
 10. **Demo, training and qualification**: menu items 1, 3, 4 and 5
     (carrier landing), the maneuver prompts.

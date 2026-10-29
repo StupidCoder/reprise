@@ -331,6 +331,7 @@ add_library(fa_18_interceptor_amiga
     games/fa_18_interceptor_amiga/game/aircraft.cpp
     games/fa_18_interceptor_amiga/game/attitude.cpp
     games/fa_18_interceptor_amiga/game/carrier.cpp
+    games/fa_18_interceptor_amiga/game/weapons.cpp
     games/fa_18_interceptor_amiga/game/cockpit.cpp
     games/fa_18_interceptor_amiga/game/flight_tables.cpp
     games/fa_18_interceptor_amiga/game/messages.cpp

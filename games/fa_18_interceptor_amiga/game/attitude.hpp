@@ -38,7 +38,9 @@ Angles rotate(const FlightTables& tables, const Matrix& body, std::int16_t pitch
               std::int16_t roll_rate);
 
 // A vector of the given length along (x, y, z), the sign of `length`
-// taken over ($119CB8 with the length estimate $1108C4).
-std::array<std::int16_t, 3> scaled_vector(const FlightTables& tables, std::int16_t length, std::int16_t x, std::int16_t y, std::int16_t z);
+// taken over ($119CB8 with the length estimate $1108C4). $119D50 is the
+// same with a first shift of 3 instead of 8: 32 times the length.
+std::array<std::int16_t, 3> scaled_vector(const FlightTables& tables, std::int16_t length, std::int16_t x, std::int16_t y, std::int16_t z,
+                                          int first_shift = 8);
 
 } // namespace interceptor::game

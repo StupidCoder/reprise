@@ -44,6 +44,7 @@
 #include "fa_18_interceptor_amiga/game/module.hpp"
 #include "fa_18_interceptor_amiga/game/sound_driver.hpp"
 #include "fa_18_interceptor_amiga/game/sounds.hpp"
+#include "fa_18_interceptor_amiga/game/weapons.hpp"
 #include "fa_18_interceptor_amiga/game/text_screen.hpp"
 #include "fa_18_interceptor_amiga/import/disk_import.hpp"
 #include "platform/files.hpp"
@@ -588,6 +589,122 @@ int sound_check(const std::filesystem::path& content, const std::filesystem::pat
     return matched == compared && message_matched == compared ? 0 : 1;
 }
 
+// --- weaponcheck ---------------------------------------------------------------
+
+// Research: steps the missile records (1-3) and the projectile slots of a
+// recording made with `flightcap.py --objs` one frame at a time from the
+// original's state, launching and firing where the original did, and
+// compares the next frame's positions, velocities and counters.
+int weapon_check(const std::filesystem::path& content, const std::filesystem::path& capture) {
+    using namespace interceptor;
+    const auto assets = data::load_assets(content);
+    const auto tables = game::read_flight_tables(assets.program);
+    const game::Weapons weapons(assets.program, tables);
+    struct Line {
+        Frame frame;
+        std::vector<std::uint8_t> objs, shots;
+    };
+    std::vector<Line> lines;
+    std::ifstream in(capture);
+    for (std::string text; std::getline(in, text);) {
+        if (text.empty()) continue;
+        Line l;
+        l.frame.number = std::stoi(text.substr(text.find("\"frame\": ") + 9));
+        l.frame.object = hex_field(text, "obj");
+        l.frame.globals = hex_field(text, "glob");
+        l.objs = hex_field(text, "objs");
+        l.shots = hex_field(text, "shots");
+        lines.push_back(std::move(l));
+    }
+    const auto record = [](const Line& l, int slot) {
+        return std::vector<std::uint8_t>(l.objs.begin() + slot * 0x200, l.objs.begin() + (slot + 1) * 0x200);
+    };
+    const auto missile_from = [&](const Line& l, int slot) {
+        Frame f{l.frame.number, record(l, slot), l.frame.globals};
+        const Record o{f.object};
+        game::Missile m;
+        m.body = aircraft_from(f);
+        m.type = o.u8(0x62);
+        m.life = o.s16(0x4C);
+        m.fading = o.u16(0) & 0x400;
+        return m;
+    };
+    const auto shot_from = [&](const Line& l, int slot) {
+        const std::vector<std::uint8_t> b(l.shots.begin() + slot * 0x80, l.shots.begin() + slot * 0x80 + 0x40);
+        const Record o{b};
+        game::Shot s;
+        const auto flags = o.u16(0x26);
+        s.kind = (flags & 0x2000) ? game::Shot::Kind::flare : (flags & 0x1000) ? game::Shot::Kind::chaff : game::Shot::Kind::round;
+        s.x = o.s16(0x30) * 0x400000 + o.s32(0);
+        s.y = o.s32(4);
+        s.z = o.s16(0x32) * 0x400000 + o.s32(8);
+        s.vx = o.s32(0xC); s.vy = o.s32(0x10); s.vz = o.s32(0x14);
+        s.life = o.s16(0x28);
+        s.moved = o.s16(0x24) != 0;
+        s.hit = flags & 2;
+        return std::pair{s, (flags & 1) != 0};
+    };
+    int compared = 0, matched = 0;
+    for (std::size_t k = 0; k + 1 < lines.size(); ++k) {
+        const auto& now = lines[k];
+        const auto& next = lines[k + 1];
+        if (next.frame.number != now.frame.number + 1) continue;
+        std::string diff;
+        const auto check = [&](const std::string& name, long got, long expected) {
+            if (got != expected) diff += " " + name + " " + std::to_string(got) + "/" + std::to_string(expected);
+        };
+        const auto player = aircraft_from(next.frame);
+        const Record before{now.frame.object}, after{next.frame.object};
+        int compared_here = 0;
+        for (int slot = 0; slot < 3; ++slot) {
+            const bool was = now.objs[std::size_t(slot * 0x200 + 1)] & 0x40, is = next.objs[std::size_t(slot * 0x200 + 1)] & 0x40;
+            if (!is) continue;
+            game::Missile m;
+            if (was) {
+                m = missile_from(now, slot);
+            } else {
+                const bool amraam = (before.u8(0x63) & 0xF0) == 0x30;
+                const int left = amraam ? (after.u8(0x5F) & 0xF) : (after.u8(0x5F) >> 4);
+                m = weapons.launched(player, amraam ? game::Weapon::amraam : game::Weapon::sidewinder, left);
+            }
+            game::FlightRules rules;
+            game::Weapons::fly_missile(m, rules, tables);
+            const auto want = missile_from(next, slot);
+            const std::string n = "m" + std::to_string(slot + 1) + (was ? "." : "+");
+            check(n + "x", m.body.x, want.body.x); check(n + "y", m.body.y, want.body.y); check(n + "z", m.body.z, want.body.z);
+            check(n + "vx", m.body.vx, want.body.vx); check(n + "vy", m.body.vy, want.body.vy); check(n + "vz", m.body.vz, want.body.vz);
+            check(n + "speed", m.body.speed, want.body.speed); check(n + "life", m.life, want.life);
+            check(n + "fading", m.fading, want.fading);
+            ++compared_here;
+        }
+        for (int slot = 0; slot < 10; ++slot) {
+            auto [was, was_on] = shot_from(now, slot);
+            const auto [want, is_on] = shot_from(next, slot);
+            if (!is_on || want.life < 1) continue;
+            game::Shot s;
+            if (was_on && was.life >= 1) {
+                s = was;
+                --s.life;
+            } else {
+                // (The spread reads the frame counter as the frame started.)
+                s = weapons.fired(want.kind, player, std::uint16_t(now.frame.number));
+            }
+            game::Weapons::fly_shot(s);
+            const std::string n = "s" + std::to_string(slot) + ((was_on && was.life >= 1) ? "." : "+");
+            check(n + "x", s.x, want.x); check(n + "y", s.y, want.y); check(n + "z", s.z, want.z);
+            check(n + "vx", s.vx, want.vx); check(n + "vy", s.vy, want.vy); check(n + "vz", s.vz, want.vz);
+            check(n + "life", s.life, want.life); check(n + "hit", s.hit, want.hit);
+            ++compared_here;
+        }
+        if (compared_here == 0) continue;
+        ++compared;
+        if (diff.empty()) ++matched;
+        else std::printf("frame %d:%s\n", next.frame.number, diff.c_str());
+    }
+    std::printf("%d of %d frames match\n", matched, compared);
+    return matched == compared ? 0 : 1;
+}
+
 int fly_script(const std::filesystem::path& content, const std::string& prefix, int argc, char** argv) {
     auto game = interceptor::game::start(content);
     std::map<int, std::string> steps;
@@ -735,6 +852,9 @@ int main(int argc, char** argv) {
         }
         if (command == "fly" && argc >= 5) {
             return fly_script(platform::utf8_path(argv[2]), argv[3], argc - 4, argv + 4);
+        }
+        if (command == "weaponcheck" && argc == 4) {
+            return weapon_check(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]));
         }
         if (command == "flightcheck" && argc == 4) {
             return flight_check(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]));

@@ -14,7 +14,7 @@ constexpr int glide_ticks = 0x20;
 
 Sounds::Sounds(SoundDriver& driver)
     : driver_(driver), cockpit_engine_(driver.has(1)), outside_engine_(driver.has(3)), tyres_(driver.has(5)),
-      wind_(driver.has(9)), gear_(driver.has(11)), noise_(driver.has(6)), thump_(driver.has(12)) {}
+      wind_(driver.has(9)), gear_(driver.has(11)), noise_(driver.has(6)), thump_(driver.has(12)), gun_(driver.has(10)) {}
 
 void Sounds::second() {
     if (gear_seconds_ != 0) {
@@ -98,7 +98,7 @@ void Sounds::update(const Aircraft& a) {
                     case EngineSound::start: engine_outside(period, volume); break;
                     case EngineSound::afterburner_on: engine_outside(period + 0x20, loud); break;
                     case EngineSound::afterburner_off: engine_outside(period + 0x20, volume); break;
-                    case EngineSound::catapult:
+                    case EngineSound::missile:
                         if (thump_) thump(loud);
                         else engine_outside(period + 0x16, loud);
                         break;
@@ -118,7 +118,7 @@ void Sounds::update(const Aircraft& a) {
                     break;
                 case EngineSound::afterburner_on: engine_outside(period + 0x23, full >> 1); break;
                 case EngineSound::afterburner_off: engine_cockpit(period + 0x20, volume); break;
-                case EngineSound::catapult:
+                case EngineSound::missile:
                     if (thump_) {
                         thump(full);
                         restart_in_ = 0;
@@ -267,6 +267,20 @@ void Sounds::noise(int volume, int ticks) {
     driver_.play(6, effects, 0);
 }
 
+void Sounds::gun(bool outside) {
+    if (!gun_) {
+        noise(0x1C, 0x30);
+        return;
+    }
+    const int pitch = outside ? 0x1E : 0x16;
+    record({0x10A2F0, 6, pitch});
+    driver_.stop(effects);
+    driver_.script_value(SoundDriver::gun_script, 0) = 6;
+    driver_.script_value(SoundDriver::gun_script, 1) = pitch << 16;
+    driver_.start_script(10, SoundDriver::gun_script);
+    driver_.play(10, effects, 0);
+}
+
 // The tyres at a touch-down: once, the pitch falling.
 void Sounds::tyres(int volume) {
     record({0x10A18C, volume});
@@ -278,7 +292,7 @@ void Sounds::tyres(int volume) {
     driver_.play(5, effects, volume);
 }
 
-// $10A258: the catapult's thump, with the slot's own script.
+// $10A258: a missile's launch (slot 12, its own script).
 void Sounds::thump(int volume) {
     record({0x10A258, volume});
     if (!thump_) return;

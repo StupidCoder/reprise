@@ -102,6 +102,67 @@ void Cockpit::hud(IndexedImage& image, int left, const CockpitReadings& r) const
     for (int y = 63; y <= 65; ++y) image.put(left + 159, y, glass);
     for (int x = 141; x <= 145; ++x) image.put(left + x, 90, marks);
     for (int x = 173; x <= 177; ++x) image.put(left + x, 90, marks);
+    // The weapon's line under the load factor ($12685C, from column 92 at
+    // four pixels a character): "GUN" and the rounds in three digits (up
+    // to two leading zeros blank), or " SW" / " AM" and the count in one
+    // (a 0 blank).
+    if (r.weapon == 1) {
+        text(image, left + 92, 129, "GUN", glass);
+        const auto t = std::to_string(std::clamp(r.weapon_count, 0, 999));
+        const std::string digits = std::string(3 - t.size(), ' ') + t;
+        text(image, left + 108, 129, digits, glass);
+    } else if (r.weapon >= 2) {
+        text(image, left + 92, 129, r.weapon == 2 ? " SW" : " AM", glass);
+        if (r.weapon_count > 0) text(image, left + 108, 129, std::to_string(r.weapon_count % 10), glass);
+    }
+    // The gun's aiming circle ($128734 with $12919C): a quarter circle's
+    // 20 points (`$129548`) mirrored into the four quarters, colour 10,
+    // and its centre's dot; only well inside the glass.
+    if (r.pipper) {
+        static constexpr int quarter[20][2] = {{0, 12}, {1, 12}, {2, 12}, {3, 12}, {4, 12}, {5, 11}, {6, 11},
+                                               {7, 11}, {8, 10}, {9, 10}, {10, 9},  {11, 8}, {12, 7}, {13, 6},
+                                               {13, 5}, {14, 4}, {14, 3}, {14, 2}, {14, 1}, {14, 0}};
+        const auto [cx, cy] = *r.pipper;
+        if (cx > 0) image.put(left + cx, cy, glass);
+        if (cx > 0x63 && cx < 0xDB && cy > 0x39 && cy < 0x84) {
+            for (const auto& p : quarter) {
+                image.put(left + cx + p[0], cy - p[1], marks);
+                image.put(left + cx + p[0], cy + p[1] - 1, marks);
+                image.put(left + cx - p[0], cy + p[1] - 1, marks);
+                image.put(left + cx - p[0], cy - p[1], marks);
+            }
+        }
+    }
+}
+
+// The stores ($1255FC and $1274A4, in the panel's left display): the gun's
+// mark at the nose, the missiles on their stations (empty ones black, the
+// one to go next red while its weapon is selected), "ARM" (or "NO" with
+// none left) and the weapon's name.
+void Cockpit::stores(IndexedImage& image, int left, const CockpitReadings& r) const {
+    constexpr int red = 1;
+    image.put(left + 68, 163, r.weapon == 1 ? red : black);
+    image.put(left + 68, 164, r.weapon == 1 ? red : display_green);
+    struct Stations {
+        std::array<std::array<int, 2>, 4> at;
+        int count, loaded, weapon;
+    };
+    // `$1255DE` (Sidewinders) and `$1255E8` (AMRAAMs).
+    const Stations lists[2] = {{{{{85, 172}, {51, 172}}}, 2, r.sidewinders, 2},
+                               {{{{74, 159}, {62, 159}, {81, 167}, {55, 167}}}, 4, r.amraams, 3}};
+    for (const auto& list : lists) {
+        for (int k = 0; k < list.count; ++k) {
+            int colour = black;
+            if (k < list.loaded) colour = (r.weapon == list.weapon && k == list.loaded - 1) ? red : display_green;
+            const auto [x, y] = list.at[std::size_t(k)];
+            for (int yy = y + 1; yy <= y + 6; ++yy) image.put(left + x, yy, colour);
+            image.put(left + x - 1, y + 6, colour);
+            image.put(left + x + 1, y + 6, colour);
+        }
+    }
+    if (r.weapon == 0) return;
+    text(image, left + 61, 176, r.weapon_count > 0 ? "ARM" : " NO", display_green);
+    text(image, left + 61, 184, r.weapon == 1 ? "GUN" : r.weapon == 2 ? " SW" : " AM", display_green);
 }
 
 void Cockpit::draw(IndexedImage& image, int left, const CockpitReadings& r) const {
@@ -202,6 +263,7 @@ void Cockpit::draw(IndexedImage& image, int left, const CockpitReadings& r) cons
     number(r.zoom, 243, 184, 1, display_green, black);
     number(r.fuel_pounds, 120, 183, 5, black, fuel_box);
     number(r.radar_miles, 152, 184, 2, display_green, black);
+    stores(image, left, r);
 
     // The message line ($127126, $127390): 26 characters four pixels apart
     // from column 108 on row 192, in the message's colour on the black box.

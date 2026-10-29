@@ -12,6 +12,7 @@
 #include "fa_18_interceptor_amiga/game/sound_driver.hpp"
 #include "fa_18_interceptor_amiga/game/sounds.hpp"
 #include "fa_18_interceptor_amiga/game/text_screen.hpp"
+#include "fa_18_interceptor_amiga/game/weapons.hpp"
 #include "ui/vhs.hpp"
 #include <optional>
 #include <algorithm>
@@ -36,7 +37,7 @@ constexpr int menu_palette = 0;
 // Keys of the C64-style matrix the host gives (GameInput::c64_keys).
 namespace key {
 constexpr int backspace = 0, return_key = 1, g = 26, b = 28, z = 12, minus = 43, period = 44, comma = 47,
-              equals = 53, tab = 63, v = 31;
+              equals = 53, tab = 63, v = 31, c = 20, f = 21;
 constexpr int digits[10] = {35, 56, 59, 8, 11, 16, 19, 24, 27, 32}; // 0 .. 9
 // The characters of the matrix's keys, for the call sign (0: none).
 constexpr char characters[64] = {
@@ -186,7 +187,10 @@ public:
                 self.body = aircraft_.body;
                 const int bottom = above_ ? 0xB3 : outside_bottom; // ($13AC74)
                 const auto view = outside_camera(t);
-                scene_.draw(frame, width / 2 - 1, bottom, view, {self, carrier_vehicle()});
+                std::vector<Vehicle> vehicles{self, carrier_vehicle()};
+                std::vector<Spark> sparks;
+                add_weapons(vehicles, sparks, t);
+                scene_.draw(frame, width / 2 - 1, bottom, view, vehicles, sparks);
                 if (above_) grid(frame, view, width / 2 - 1, bottom);
                 // (No numbers while the camera comes down from the map: $126AB2
                 // needs `$13AAC9`.)
@@ -213,9 +217,20 @@ public:
                 self.push_back(v);
             }
             self.push_back(carrier_vehicle());
+            std::vector<Spark> sparks;
+            add_weapons(self, sparks, t);
             scene_.draw(frame, width / 2 - 1, cockpit ? Cockpit::view_bottom : view_rows,
-                        camera(before_, aircraft_, t, look_, zoom_), self);
+                        camera(before_, aircraft_, t, look_, zoom_), self, sparks);
             readings.hud = phase_ != Phase::ready && phase_ != Phase::to_ready; // ($13AA91, set as the flight starts)
+            {
+                const auto& st = weapons_.stores();
+                readings.weapon = int(st.selected);
+                readings.weapon_count = weapons_.count();
+                readings.sidewinders = st.sidewinders;
+                readings.amraams = st.amraams;
+                // (Only at zoom 1, $13AD32 $80; and here only looking ahead.)
+                if (st.selected == Weapon::gun && zoom_ == 0x80 && look_ == 0) readings.pipper = pipper_;
+            }
             readings.message = messages_.shown();
             readings.message_colour = messages_.colour();
             if (!cockpit) {
@@ -253,6 +268,46 @@ public:
             return image;
         }
         return to_image(frame, image, *palette);
+    }
+
+    // $1288CE: the gun's lead point, ahead and above the aircraft along its
+    // view matrix ((0, $600, $4000) / 64), kept for two frames; where the
+    // older one now shows is where the circle goes next frame.
+    void lead_point() {
+        pipper_ = pipper_next_;
+        Camera c = camera(aircraft_, aircraft_, 1);
+        c.position = {aircraft_.x / 256.0, aircraft_.y / 256.0, aircraft_.z / 256.0};
+        const auto& old = lead_[1];
+        pipper_next_ = Scene::project(c, {old[0] / 256.0, old[1] / 256.0, old[2] / 256.0}, 159);
+        const auto& v = aircraft_.view;
+        lead_[1] = lead_[0];
+        lead_[0] = {aircraft_.x + ((v[1] * 0x600 + v[2] * 0x4000) >> 6),
+                    aircraft_.y + ((v[4] * 0x600 + v[5] * 0x4000) >> 6),
+                    aircraft_.z + ((v[7] * 0x600 + v[8] * 0x4000) >> 6)};
+    }
+
+    // The missiles and projectiles in flight, drawn back along their last
+    // move by the part of the tick not yet shown.
+    void add_weapons(std::vector<Vehicle>& vehicles, std::vector<Spark>& sparks, double t) const {
+        const double back = smooth_ ? 1 - t : 0;
+        for (const auto& slot : weapons_.missiles()) {
+            if (!slot) continue;
+            const auto& b = slot->body;
+            Vehicle v;
+            v.type = slot->type;
+            v.position = {(b.x - b.vx * back) / 256.0, (b.y - b.vy * back) / 256.0, (b.z - b.vz * back) / 256.0};
+            v.body = b.body;
+            vehicles.push_back(v);
+        }
+        for (const auto& slot : weapons_.shots()) {
+            if (!slot) continue;
+            const auto& s = *slot;
+            const double k = (s.moved && !s.hit) ? back : 0;
+            Spark p;
+            p.position = {(s.x - s.vx * k) / 256.0, (s.y - s.vy * k) / 256.0, (s.z - s.vz * k) / 256.0};
+            p.burst = s.hit || s.kind == Shot::Kind::chaff;
+            sparks.push_back(p);
+        }
     }
 
     Vehicle carrier_vehicle() const {
@@ -382,6 +437,10 @@ private:
             aircraft_.surface = std::uint8_t(world_.on_runway(aircraft_.x / 256.0, aircraft_.z / 256.0) ? 4 : 0);
         }
         before_ = aircraft_;
+        weapons_.reset();
+        lead_ = {};
+        pipper_.reset();
+        pipper_next_.reset();
         sounds_.event(EngineSound::start);
         messages_.clear();
         sounds_.clear_warnings();
@@ -524,6 +583,12 @@ private:
             aircraft_.motion ^= 0x8000;
             messages_.post((aircraft_.motion & 0x8000) ? 0x4023 : 0x4022);
         }
+        // The weapons: Return the next one ($10E90E), space fires
+        // ($10F0AA, its release $10F100), F a flare, C chaff.
+        if (pressed(key::return_key)) weapons_.select(sounds_);
+        if (input.fire != fire_was_) weapons_.trigger(input.fire);
+        if (pressed(key::f)) weapons_.flare(messages_);
+        if (pressed(key::c)) weapons_.chaff(messages_);
         remember_keys(input);
 
         ground_warnings(aircraft_, messages_, sounds_);
@@ -548,6 +613,11 @@ private:
         // (Touching down on water: the original's handling is not traced;
         // here it ends like a crash.)
         if (events.in_water) aircraft_.state |= flag::crashed;
+        // The object step's missile records, then (with the drawing) the
+        // projectiles and the gun's lead point.
+        weapons_.move_missiles(aircraft_, rules, sounds_);
+        weapons_.move_shots(aircraft_, outside_, std::uint16_t(ticks_), sounds_);
+        lead_point();
 
         chase_camera();
         ++ticks_;
@@ -965,6 +1035,11 @@ private:
     SoundDriver driver_;
     Sounds sounds_;
     Carrier carrier_;
+    Weapons weapons_{assets_.program, tables_};
+    // The gun's lead point ($1288CE): the newest two ($13AA06, $13AA12) and
+    // where the circle shows ($13AC2E: worked out a frame before it shows).
+    std::array<std::array<std::int32_t, 3>, 2> lead_{};
+    std::optional<std::array<int, 2>> pipper_, pipper_next_;
     PilotRecord pilot_;
     FrontEnd front_;
     TextRunner text_;             // "READY FOR TAKEOFF", the end text

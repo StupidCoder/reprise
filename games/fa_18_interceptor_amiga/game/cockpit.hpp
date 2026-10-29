@@ -23,6 +23,13 @@ struct CockpitReadings {
     // The panel's latitude and longitude in tenths of a degree ($126DCE, $126E5C).
     int north_tenths{}, west_tenths{};
     int gear{};            // the gear byte's high bits ($7C: 0 down .. $60 up)
+    // The weapons: the selected one (0 none, 1 the gun, 2 Sidewinders, 3
+    // AMRAAMs; +$63's high nibble / $10), its count (rounds or missiles),
+    // the missiles on their stations, and the gun's aiming circle (column,
+    // row of its centre; none without the gun or zoomed).
+    int weapon{}, weapon_count{};
+    int sidewinders{}, amraams{};
+    std::optional<std::array<int, 2>> pipper;
 };
 
 CockpitReadings read_cockpit(const Aircraft& aircraft);
@@ -44,6 +51,7 @@ public:
 private:
     void text(IndexedImage& image, int x, int y, const std::string& t, int colour) const;
     void hud(IndexedImage& image, int left, const CockpitReadings& r) const;
+    void stores(IndexedImage& image, int left, const CockpitReadings& r) const;
 
     const data::Font& font_;
     const std::vector<std::string>& messages_;

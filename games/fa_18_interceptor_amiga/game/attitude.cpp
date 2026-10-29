@@ -166,7 +166,7 @@ Angles rotate(const FlightTables& t, const Matrix& m, i16 pitch_rate, i16 yaw_ra
     return {i16(pitch * 8), i16(heading * 8), i16(roll * 8)};
 }
 
-std::array<i16, 3> scaled_vector(const FlightTables& t, i16 length, i16 x, i16 y, i16 z) {
+std::array<i16, 3> scaled_vector(const FlightTables& t, i16 length, i16 x, i16 y, i16 z, int first_shift) {
     if (length == 0) return {0, 0, 0};
     // The length of (x, y, z) from two ratio lookups ($1108C4).
     std::uint16_t big = std::uint16_t(std::abs(int(x))), small = std::uint16_t(std::abs(int(y)));
@@ -185,7 +185,7 @@ std::array<i16, 3> scaled_vector(const FlightTables& t, i16 length, i16 x, i16 y
 
     // Scale by |length| / estimate with as many bits as fit ($119CB8).
     i32 scale = std::abs(int(length));
-    int shift = 8;
+    int shift = first_shift;
     while (scale <= i32(estimate)) {
         scale <<= 2;
         shift += 2;
