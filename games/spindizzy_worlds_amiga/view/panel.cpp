@@ -49,6 +49,36 @@ void draw_compass(Screen& screen, const data::Memory& main, int rotation) {
     }
 }
 
+void draw_clue(Screen& screen, const data::Memory& main, std::uint16_t word) {
+    // The big box: 13 rows of a 32-pixel frame (mask long, four plane longs).
+    std::uint32_t frame = 0;
+    if (word & 0x2000) frame = 0x2C000 + ((word & 0x1000) ? 0 : 0x104) + std::uint32_t(word >> 8 & 7) * 0x208;
+    else if (word & 0x8000) frame = 0x25AD4;
+    for (int y = 0; y < 13; ++y)
+        for (int b = 0; b < 32; ++b) {
+            int colour = 0;
+            if (frame)
+                for (int p = 0; p < 4; ++p)
+                    colour |= int(main.u32(frame + std::uint32_t(y) * 20 + 4 + std::uint32_t(p) * 4) >> (31 - b) & 1) << p;
+            screen.put(32 + b, 180 + y, std::uint8_t(colour));
+        }
+    // The four small boxes.
+    const int bits = (word & 0x4000) ? word : 0;
+    int at = 0x1B12;
+    for (int box = 0; box < 4; ++box) {
+        at += std::int16_t(main.u16(0x164AE + std::uint32_t(box) * 4));
+        const int picture = std::int16_t(main.u16(0x164B0 + std::uint32_t(box) * 4));
+        const bool on = bits >> box & 1, lit = bits >> (box + 4) & 1;
+        const std::uint32_t source = 0x418F0 + std::uint32_t(picture) + (lit ? 0x40 : 0);
+        for (int y = 0; y < 8; ++y) {
+            const std::uint32_t row = source + std::uint32_t(y) * 8;
+            planar_row(screen, (at % 40) * 8, at / 40 + y, on ? main.u16(row) : 0, on ? main.u16(row + 2) : 0,
+                       on ? main.u16(row + 4) : 0, on ? main.u16(row + 6) : 0, 0);
+        }
+        at += 8 * 40;
+    }
+}
+
 void draw_pillars(Screen& screen, const data::Memory& main, int fuel_shown) {
     // Source rows of the 168: 0-7 the top, 8-135 the gauge, 136-155 from
     // $1E840, 156-167 from $1E880 ($10FC6).

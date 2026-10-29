@@ -88,10 +88,10 @@ namespace {
 // (16 × 16) and 0 (16 × 12) work out their occlusion every frame like the
 // explorer; mode −1 (32 × 24, $10124) keys one outer column nearer.
 ObjectSprite creature(const data::Memory& main, int kind, int set_byte, int heading, const WorldPosition& where,
-                      int step, int order_offset) {
+                      int step, int order_offset, bool popping = false) {
     const std::uint32_t set = creature_sets + std::uint32_t((set_byte & 0x1C) / 4) * 24;
     const int mode = std::int16_t(main.u16(set));
-    const std::uint32_t pair = creature_pairs + std::uint32_t(std::int16_t(main.u16(set + 2)));
+    const std::uint32_t pair = creature_pairs + std::uint32_t(std::int16_t(main.u16(set + (popping ? 0x10 : 2))));
     const int dx = std::int16_t(main.u16(pair)), dy = std::int16_t(main.u16(pair + 2));
     const std::uint32_t frame = main.u32(set + 4) + main.u16(set + 8 + std::uint32_t(heading & 3) * 2) +
                                 animation_offset(main, pair + 4, step);
@@ -217,7 +217,7 @@ std::vector<ObjectSprite> start_sprites(const world::Level& level, const world::
             // blocks add nothing, slopes are not rebuilt yet).
             const int heading = now.heading >= 0 ? now.heading : set; // the set byte + level rotation (0)
             const int offset = kind == world::ObjectKind::pac ? 0x10 : kind == world::ObjectKind::pyramid ? 0xC : 0;
-            sprites.push_back(creature(main, object.kind, set, heading, centre, now.step, offset)); // $156BE, $15918, $152CE
+            sprites.push_back(creature(main, object.kind, set, heading, centre, now.step, offset, now.popping)); // $156BE, $15918, $152CE
             break;
         }
         default:

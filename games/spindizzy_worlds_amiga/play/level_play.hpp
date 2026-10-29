@@ -41,6 +41,8 @@ struct Progress {
     int level{1};                     // $251E
     std::int32_t fuel{0x80 << 16};    // $2064, 16.16 ($100 fills both pillars)
     int fuel_shown{};                 // $2072: the gauge's rows, one step a frame toward the fuel
+    std::uint16_t clue_word{0xFF00};  // $36A2: the condition the panel's clue boxes show ($149A0 sets the high byte)
+    int clue_counter{};               // $36A0: the clue search every 16 frames ($1635E)
     std::int32_t fuel_change{};       // $206C, taken in once a frame
     std::int32_t drain{};             // $2068 per frame
     std::int32_t reserve{};           // $2074

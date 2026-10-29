@@ -41,6 +41,7 @@ void Progress::start_world(const data::Memory& main, int number, int difficulty_
     world = number;
     level = 1;
     fuel_shown = 0; // $11044, the pillars built empty ($10FC6 from $14980)
+    clue_word = 0xFF00; // $149A0
     level_jewels.fill(0x80000000); // $138E0: no level visited
     jewels_found = jewels_taken = 0;
     arrival_place = 0;
@@ -305,6 +306,24 @@ void LevelPlay::frame(bool slow) {
     const int whole = fuel >> 16;
     if (p.fuel_shown < whole) ++p.fuel_shown;
     else if (p.fuel_shown > whole) --p.fuel_shown;
+    // $1635E every 16 frames: the first object with a condition word within
+    // $380 of the explorer whose word is not the one shown shows it; none:
+    // the boxes are cleared (so a clue blinks while the explorer is near).
+    p.clue_counter = (p.clue_counter - 1) & 15;
+    if (p.clue_counter == 0) {
+        std::uint16_t found = 0;
+        for (const auto& o : objects_->objects()) {
+            using K = world::ObjectKind;
+            if (!o.alive || !o.word26) continue;
+            if (o.kind != K::lift && o.kind != K::exit_point && o.kind != K::heads && o.kind != K::spark_generator &&
+                o.kind != K::clue) continue;
+            if (std::uint16_t(o.x - e.x + 0x380) >= 0x700 || std::uint16_t(o.y - e.y + 0x380) >= 0x700) continue;
+            if (o.word26 == p.clue_word) continue;
+            found = o.word26;
+            break;
+        }
+        p.clue_word = found;
+    }
     objects_->frame(assets_.main, slow, camera_);
     // $102F6 / $101FE: a sprite drawn through a mask buffer at $2098 (the
     // explorer and every creature) whose corner is on a 16-pixel boundary

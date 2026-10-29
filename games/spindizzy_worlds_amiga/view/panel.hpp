@@ -17,6 +17,12 @@ void draw_panel(Screen&, const data::Assets&, int world);
 // level's rotation; frames at $41670, $A0 each.
 void draw_compass(Screen&, const data::Memory& main, int rotation);
 
+// $163BE: the clue boxes for a condition word: the big box (column 4,
+// row 180) shows a push button ($2C000, pressed unless "NOT pushed") for
+// bit 13, a jewel ($25AD4) for bit 15; the four small ones (from row 173,
+// byte 10; table $164AE) the binary mask bits, lit for the value bits.
+void draw_clue(Screen&, const data::Memory& main, std::uint16_t word);
+
 // The pillars ($10FC6): two pairs of attached hardware sprites, 16 × 168,
 // built from the 16-colour rows at $1E800 (8 top rows, the gauge's 128,
 // then 20 and 12 more); a pixel of colour 0 becomes sprite colour 24,

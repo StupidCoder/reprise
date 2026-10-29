@@ -64,8 +64,7 @@ rate apart from drawing.
 
 - [x] Boinks (2026-10-29): bouncing, animation, touch (clue 2, $30 fuel,
       popping); traced without a touch (MisDirection 4, Roller-ama 4).
-- [ ] A boink touch traced; the popping frames drawn (the view still
-      shows the moving list's frame at the pop list's step).
+- [ ] A boink touch traced (its popping frames are drawn now).
 - [x] Pac aliens rebuilt (walking, turns, the shared toggle, touch, eaten,
       popping, back at the start); the generator $112CA ($2094) kept in
       the game state, starfields draw from it at a level's start.
@@ -99,12 +98,14 @@ rate apart from drawing.
 - [ ] The disintegrating planet on the map after a world ($11838, kind −7,
       frames SELECT.SWP + $35C0, list $16B38) and the ending when every
       world is done ($17CBE).
-- [ ] Load / Save game state (sd_game.dat, $16D28/$16CBE), Wind back
-      world ($36B0 − 2), Create Data disk: decide what to keep (saves in
-      the shell's own format: the module's state is the Progress, the
-      worlds-done records, the cluster and $24AE). Not started.
-- [ ] The panel's clue boxes ($1635E/$163BE: the nearest object's
-      condition) and the message 24 boxes it refers to.
+- [x] Saves between worlds as the original keeps them (the cluster, worlds
+      done and their records, clues, slow mode) in the shell's format
+      (`write_state`/`read_state`); the menu's "Save game state", "Load
+      saved game" and "Save game" after a world use a slot in it; a load
+      goes back to the world map.
+- [ ] Wind back world ($36B0 − 2) and Create Data disk (decide whether to
+      keep them).
+- [x] The panel's clue boxes ($1635E/$163BE), equal in every record.
 - [x] The timer's seconds on screen ($153C4) and the locked-world message
       ($1180A).
 - [ ] Menu input: the original takes the joystick byte each pass; the
@@ -129,8 +130,11 @@ rate apart from drawing.
 - The front end's screens are checked by eye against reference screenshots
   and dumps, not pixel by pixel; the attract sprites' timing and the menu's
   flash rate are not compared.
-- The creatures' popping and the Pacs' eaten frames are not drawn yet
-  (the view keeps their walking frames).
+- The Pacs' eaten frames ($157DC: $25930 + ($24F6 − 1) × $50) are not
+  drawn yet (the view keeps their walking frames).
+- The clue search takes the objects in slot order; the original walks
+  them in drawing order ($358C), which differs only with two conditional
+  objects near the explorer at once.
 - The random generator starts at 0 at boot (the attract and menus draw
   no numbers in the code read); not checked against the original after
   a long front-end session.

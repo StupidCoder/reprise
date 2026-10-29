@@ -8,6 +8,9 @@
 #include "spindizzy_worlds_amiga/view/screen.hpp"
 #include <array>
 #include <memory>
+#include <span>
+#include <stdexcept>
+#include <vector>
 #include <optional>
 
 namespace spindizzy::game {
@@ -31,6 +34,49 @@ public:
     }
 
     double step_seconds() const override { return 1.0 / 50; } // PAL frames
+
+    // Saves keep what the original's sd_game.dat keeps: the game between
+    // worlds (the cluster, the worlds done and their records, the clues
+    // shown, slow mode); a load goes back to the world map. The state
+    // holds the game now and the menu's saved slot.
+    std::vector<std::uint8_t> write_state() override {
+        std::vector<std::uint8_t> out{'S', 'D', 'W', 1};
+        auto put = [&](std::int32_t v) { for (int i = 3; i >= 0; --i) out.push_back(std::uint8_t(v >> (8 * i))); };
+        auto game = [&](const Saved& g) {
+            put(g.cluster); put(std::int32_t(g.worlds_left)); put(g.worlds_done); put(std::int32_t(g.clues_left));
+            put(g.fuel); put(g.reserve); put(std::int32_t(g.records.size()));
+            for (const auto& r : g.records) { put(r.world); put(r.fuel); put(r.reserve); put(r.found); put(r.taken); }
+        };
+        game(current());
+        put(saved_ ? 1 : 0);
+        if (saved_) game(*saved_);
+        put(slow_ ? 1 : 0);
+        return out;
+    }
+    void read_state(std::span<const std::uint8_t> in) override {
+        std::size_t at = 0;
+        auto get = [&]() -> std::int32_t {
+            if (at + 4 > in.size()) throw std::runtime_error("Spindizzy Worlds: the save is cut short.");
+            std::int32_t v = 0;
+            for (int i = 0; i < 4; ++i) v = std::int32_t(std::uint32_t(v) << 8 | in[at++]);
+            return v;
+        };
+        if (in.size() < 4 || in[0] != 'S' || in[1] != 'D' || in[2] != 'W' || in[3] != 1)
+            throw std::runtime_error("Spindizzy Worlds: not a save of this version.");
+        at = 4;
+        auto game = [&]() {
+            Saved g;
+            g.cluster = get(); g.worlds_left = std::uint32_t(get()); g.worlds_done = get(); g.clues_left = std::uint32_t(get());
+            g.fuel = get(); g.reserve = get();
+            const int n = get();
+            for (int i = 0; i < n; ++i) { WorldRecord r; r.world = get(); r.fuel = get(); r.reserve = get(); r.found = get(); r.taken = get(); g.records.push_back(r); }
+            return g;
+        };
+        const Saved now = game();
+        if (get()) saved_ = game();
+        slow_ = get() != 0;
+        restore(now);
+    }
     double pixel_aspect() const override { return 1.0; }
 
     void tick(const app::GameInput& input) override {
@@ -53,12 +99,18 @@ public:
             } else if (item == 1) { // Start new game ($18AB4)
                 cluster_ = 0;
                 worlds_done_ = 0;
+                records_.clear();
                 progress_.clues_left = 0xFFFFFFFF;
                 open_map();
             } else if (item == 0 || item == 6) { // Continue / Slow Mode
                 open_map();
             } else if (item == 4) { // Check performance ($18AF6)
                 open_statistics(false);
+            } else if (item == 3) { // Save game state ($16CBE): the game between worlds
+                saved_ = current();
+                open_menu();
+            } else if (item == 2 && saved_) { // Load saved game ($16D28)
+                restore(*saved_);
             }
             break; // Load, Save, Check performance, Wind back world, Create Data disk: not rebuilt
         }
@@ -78,7 +130,9 @@ public:
                 break;
             }
             progress_.start_world(assets_.main, world, worlds_done_ * 2);
-            if (worlds_done_ == 0) { progress_.fuel = 0x80 << 16; progress_.reserve = 0; } // $16D48
+            // $16D48: the fuel and reserve of the last world done (a new game: $80, 0).
+            progress_.fuel = records_.empty() ? 0x80 << 16 : records_.back().fuel << 16;
+            progress_.reserve = records_.empty() ? 0 : records_.back().reserve << 16;
             world_start_fuel_ = progress_.fuel;
             world_start_reserve_ = progress_.reserve;
             play_ = std::make_unique<PlayScreen>(assets_, surfaces_, progress_);
@@ -131,9 +185,12 @@ public:
             fire_held_ = fire;
             break;
         }
-        case Stage::next_menu:
-            if (menu_->frame(joystick) >= 0) open_map(); // "Next world" (saving is not rebuilt)
+        case Stage::next_menu: {
+            const int item = menu_->frame(joystick);
+            if (item == 1) saved_ = current(); // "Save game"
+            if (item >= 0) open_map();
             break;
+        }
         case Stage::game_over: {
             int item = menu_->frame(joystick);
             if (item < 0) break;
@@ -178,6 +235,33 @@ private:
         menu_->slow_mode = slow_;
         stage_ = Stage::menu;
     }
+    struct Saved {
+        int cluster{};
+        std::uint32_t worlds_left{};
+        int worlds_done{};
+        std::uint32_t clues_left{0xFFFFFFFF};
+        std::int32_t fuel{0x80 << 16}, reserve{};
+        std::vector<WorldRecord> records;
+    };
+    Saved current() const {
+        // Between worlds: the fuel and reserve the next world starts with.
+        Saved g{cluster_, worlds_left_, worlds_done_, progress_.clues_left, 0x80 << 16, 0, records_};
+        if (!records_.empty()) { g.fuel = records_.back().fuel << 16; g.reserve = records_.back().reserve << 16; }
+        return g;
+    }
+    void restore(const Saved& g) {
+        cluster_ = g.cluster;
+        worlds_left_ = g.worlds_left;
+        worlds_done_ = g.worlds_done;
+        records_ = g.records;
+        progress_ = play::Progress{};
+        progress_.clues_left = g.clues_left;
+        progress_.fuel = g.fuel;
+        progress_.reserve = g.reserve;
+        play_.reset();
+        open_map();
+    }
+
     void open_statistics(bool then_next) {
         statistics_ = view::Screen();
         view::set_level_palette(statistics_, assets_.graphics); // $11066: palette 0
@@ -213,6 +297,7 @@ private:
     bool offers_reserve_{};
     std::vector<WorldRecord> records_; // $36B6 …
     view::Screen statistics_;
+    std::optional<Saved> saved_; // the menu's "Save game state" slot
     bool statistics_then_next_{}, fire_held_{};
     std::int32_t world_start_fuel_{}, world_start_reserve_{}; // what $16D44 restores for a retry
 };

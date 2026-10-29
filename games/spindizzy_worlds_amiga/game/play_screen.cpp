@@ -88,7 +88,7 @@ void PlayScreen::draw_playfield(view::Screen& screen) const {
             state.step = o.step;
             state.z = o.z;
             state.shown = o.byte20 != 0;
-            if (o.kind == world::ObjectKind::boink || o.kind == world::ObjectKind::pac || o.kind == world::ObjectKind::pyramid) { state.x = o.x; state.y = o.y; state.heading = o.heading & 3; }
+            if (o.kind == world::ObjectKind::boink || o.kind == world::ObjectKind::pac || o.kind == world::ObjectKind::pyramid) { state.x = o.x; state.y = o.y; state.heading = o.heading & 3; state.popping = o.popping; }
             break;
         }
         return state;
@@ -112,6 +112,7 @@ void PlayScreen::draw(view::Screen& screen) const {
     draw_playfield(screen);
     view::draw_panel(screen, assets_, progress_.world);
     view::draw_compass(screen, assets_.main, progress_.rotation);
+    view::draw_clue(screen, assets_.main, progress_.clue_word);
     view::draw_pillars(screen, assets_.main, progress_.fuel_shown);
     if (clue_) {
         // $15FC0: the clue's text over the playfield ($15F94 picks it from

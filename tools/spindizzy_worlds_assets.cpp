@@ -263,6 +263,7 @@ spindizzy::play::Progress progress_from(const Ram& m) {
     p.clues_left = std::uint32_t(m.s32(0x3610));
     p.rotation = m.u8(0x248B); p.arrival_place = std::uint16_t(m.u16(0x24C0));
     p.random = std::uint32_t(m.s32(0x2094));
+    p.clue_word = std::uint16_t(m.u16(0x36A2)); p.clue_counter = m.u16(0x36A0);
     TracedTick t;
     t.state.assign(0x80, 0);
     for (int i = 0; i < 0x68; ++i) t.state[std::size_t(i)] = std::uint8_t(m.u8(0x24B8 + i));
@@ -338,6 +339,7 @@ int play_check(const spindizzy::data::Assets& assets, const std::filesystem::pat
         fields.push_back({"timer", progress.timer, m.u16(0x360E)});
         fields.push_back({"random", long(progress.random), long(std::uint32_t(m.s32(0x2094)))});
         fields.push_back({"rotation", progress.rotation & 3, m.u8(0x248B) & 3});
+        fields.push_back({"clue word", progress.clue_word, m.u16(0x36A2)});
         {
             int differ = 0;
             for (int x = 0; x < 32; ++x)

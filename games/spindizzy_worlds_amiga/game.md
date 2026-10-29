@@ -809,10 +809,16 @@ ice for too long; 16/17 the timer level's notes; 24 "This is the switch
 state you need" (Tutorial 8); 26 falling off is not fatal; 31 "Well Done!
 The planet is disintegrating".
 
-$1635E (every 16 frames) looks for the first object slot with a word
-+$26 within $380 of the explorer and shows it in the panel's four small
-boxes ($163BE, pictures at $418F0/$41930): the condition the object waits
-for. Not rebuilt yet.
+$1635E (every 16 frames, counter $36A0) looks, in drawing order, for the
+first object with a word +$26 (lifts, exits, heads, sparks, clues) within
+$380 of the explorer that is not the word shown ($36A2) and shows it;
+finding none it clears the boxes, so a clue blinks while the explorer
+stays near. $163BE: the big box (column 4, row 180, 13 rows of a 32-pixel
+frame) shows a push button for bit 13 ($2C000 + value × $208, + $104
+unless "NOT pushed"), a jewel ($25AD4) for bit 15, else nothing; the four
+small boxes (from $1B12, offsets and pictures in the table at $164AE,
+pictures at $418F0, + $40 lit) show the binary mask bits 0-3, lit when
+the value bit (+4) is set. Rebuilt; equal in every record.
 
 ## After a world and at a game over
 
