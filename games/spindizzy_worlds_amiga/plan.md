@@ -66,7 +66,8 @@ rate apart from drawing.
 - [x] Pyramids: walking, reversing, touch; Pak Attack 2/3 equal (touches
       in `play_w2_2t`).
 - [ ] A Pac touch and a Pac eaten while the explorer flashes, traced.
-- [ ] Spark generators (Period, Proximity; clue 9).
+- [x] Spark generators (on/off by condition, touch: clue 9, $20 fuel a
+      tick); Spindizzy! 1/2 equal, a touch to game over in `play_w22_1s`.
 - [ ] Turning the level ("r"/"t": rotation, rebuild, objects' rotate
       handlers, compass): the builder's and the objects' turns differ by
       a cell ((32 − x) vs (31 − x)); trace before rebuilding.
@@ -76,7 +77,8 @@ rate apart from drawing.
       the original runs no more rules ticks (its frame handler $153EA runs
       the dying routine $12CE8 on the timer's own record); the port keeps
       the explorer's 200-tick dying phase. Read $12CE8 with a4 = timer.
-- [ ] Game over: the reserve-fuel offer ($18C14: use reserve / retry /
+- [ ] Game over (the dying kind after fuel runs out is traced, 200 ticks):
+      the reserve-fuel offer ($18C14: use reserve / retry /
       abandon the world), the dying kind's frames ($12D14 list, "Game
       over" text $12D68); the timer's "Die if elapse" frame ($153EA).
 - [ ] The exit's "Reserve fuel collected" message ($15186) (kind −9's
@@ -119,7 +121,6 @@ rate apart from drawing.
 - The front end's screens are checked by eye against reference screenshots
   and dumps, not pixel by pixel; the attract sprites' timing and the menu's
   flash rate are not compared.
-- Spark generators do not act yet (`playcheck` reports their slots).
 - The creatures' popping and the Pacs' eaten frames are not drawn yet
   (the view keeps their walking frames).
 - The star generator's running state at a level start is not traced (seed

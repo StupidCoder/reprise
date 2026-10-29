@@ -355,7 +355,12 @@ int play_check(const spindizzy::data::Assets& assets, const std::filesystem::pat
                 fields.push_back({n + " count", o.count, m.u8(r + 0x1E)});
                 fields.push_back({n + " step", o.step, m.u8(r + 0x1F)});
             }
-            if (o.kind == world::ObjectKind::exit_point) fields.push_back({n + " shown", o.byte20 != 0, m.u8(r + 0x20) != 0});
+            if (o.kind == world::ObjectKind::exit_point || o.kind == world::ObjectKind::spark_generator)
+                fields.push_back({n + " +20", o.byte20 != 0, m.u8(r + 0x20) != 0});
+            if (o.kind == world::ObjectKind::spark_generator && !o.byte20) {
+                fields.push_back({n + " count", o.count, m.u8(r + 0x1E)});
+                fields.push_back({n + " step", o.step, m.u8(r + 0x1F)});
+            }
             if (o.kind == world::ObjectKind::pac || o.kind == world::ObjectKind::pyramid) {
                 fields.push_back({n + " heading", o.heading, m.u16(r + 0x28)});
                 fields.push_back({n + " target", long(std::uint32_t(std::uint16_t(o.target_x)) << 16 | std::uint16_t(o.target_y)), long(std::uint32_t(m.s32(r + (o.kind == world::ObjectKind::pyramid ? 0x32 : 0x36))))});

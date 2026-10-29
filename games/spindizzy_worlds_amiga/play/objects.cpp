@@ -187,6 +187,13 @@ LevelObjects::LevelObjects(const world::Level& level, const data::Memory& main, 
             o.count = 1;
             break;
         }
+        case ObjectKind::spark_generator: // $15C10: condition, period (+$2C), direction (+$28)
+            o.word26 = parameter_word(placed, 0);
+            o.word2c = parameter(placed, 2);
+            o.heading = parameter(placed, 3);
+            o.word2e = std::uint16_t((parameter(placed, 3) << 4) & 0xFC);
+            o.count = 1;
+            break;
         case ObjectKind::clue: // $16340: a clue word for the panel; 0 takes $361C (not set: 0)
             o.word26 = parameter_word(placed, 0);
             break;
@@ -231,6 +238,7 @@ void LevelObjects::tick(ObjectWorld& w, ObjectEvents& events) {
         case ObjectKind::boink: tick_boink(o, w, events); break;
         case ObjectKind::pac: tick_pac(o, w, events); break;
         case ObjectKind::pyramid: tick_pyramid(o, w, events); break;
+        case ObjectKind::spark_generator: tick_spark(o, w, events); break;
         default: break;
         }
     }
@@ -598,6 +606,17 @@ void LevelObjects::tick_pyramid(LevelObject& o, ObjectWorld& w, ObjectEvents& ev
     o.step_y = sy[o.heading];
 }
 
+void LevelObjects::tick_spark(LevelObject& o, ObjectWorld& w, ObjectEvents& events) { // $15C70
+    // Off (+$20 set: not drawn) while its condition holds; else sparking:
+    // the explorer in its cell up to $180 below it loses $20 fuel a tick.
+    o.byte20 = 0xFF;
+    if (condition_holds(o.word26, w.switches, w.jewels)) return;
+    o.byte20 = 0;
+    if (!explorer_on(o, w.explorer, 0, 0x180)) return;
+    events.clue = 9; // "You need to disable sparks"
+    events.fuel_cost += 0x20;
+}
+
 void LevelObjects::tick_message(LevelObject& o, ObjectEvents& events) { // $16028
     if (--o.count < 0) {
         o.alive = false;
@@ -644,6 +663,10 @@ void LevelObjects::frame(const data::Memory& main, bool slow, const view::Camera
         } else if (o.kind == ObjectKind::exit_point && o.byte20) {
             list = exit_list;
             rows = 0x0E;
+            if (o.word2c == 2) place.y -= 8; // $14AAE's test, meant for jewels
+        } else if (o.kind == ObjectKind::spark_generator && !o.byte20) { // $15CAA
+            list = 0x15CBC;
+            rows = 0x0F;
             if (o.word2c == 2) place.y -= 8; // $14AAE's test, meant for jewels
         } else if (o.kind == ObjectKind::boink || o.kind == ObjectKind::pac || o.kind == ObjectKind::pyramid) {
             // $1467E: the set's (dx, dy) pair at +2 (moving) or +$10

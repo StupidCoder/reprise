@@ -124,6 +124,7 @@ private:
     void tick_boink(LevelObject&, ObjectWorld&, ObjectEvents&);
     void tick_pac(LevelObject&, ObjectWorld&, ObjectEvents&);
     void tick_pyramid(LevelObject&, ObjectWorld&, ObjectEvents&);
+    void tick_spark(LevelObject&, ObjectWorld&, ObjectEvents&);
     void start_pac(LevelObject&, const ObjectWorld&);
     bool touches(const LevelObject&, const Explorer&) const;
 

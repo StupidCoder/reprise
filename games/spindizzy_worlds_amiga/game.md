@@ -766,7 +766,14 @@ is (object z + extra − explorer z) unsigned ≤ reach.
   cell's block at its level has attribute bit 3 or the cell above it is
   filled; else it goes on (not moving that tick). Touch: clue 5, fuel
   $2062 + $10, it pops and is gone ($14800).
-- Spark generators: not read yet.
+- **Spark generator** ($15C10, tick $15C70): condition +$26 (p0 p1),
+  period p2 (+$2C, only the placement quirk reads it), direction p3
+  (+$28: frames $276E0, + $500 when bit 0 is clear). Each tick it is off
+  (+$20 set, not drawn) while its condition holds, the switches' way to
+  disable it; otherwise it sparks (a sound, its list $15CBC stepping on
+  screen) and the explorer in its cell up to $180 below it gets clue 9
+  ("You need to disable sparks") and loses $20 fuel every tick, which
+  empties the tank within a few ticks (then clue 1 and the dying kind).
 
 ## Clues and messages
 
