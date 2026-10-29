@@ -2,6 +2,7 @@
 #include "rock_n_roll_amiga/data/assets.hpp"
 #include "rock_n_roll_amiga/game/ball.hpp"
 #include "rock_n_roll_amiga/game/font.hpp"
+#include "rock_n_roll_amiga/game/overview_map.hpp"
 #include "rock_n_roll_amiga/game/level_map.hpp"
 #include <array>
 #include <cstdint>
@@ -36,6 +37,14 @@ struct PanelNumbers {
     int item_count{};                    // bombs, repair sets or rescues for items 6, 8, 10
 };
 
+// The eye's map in the view ($6B77A/$6B6FA), drawn over the cleared view
+// once its text has shown.
+struct OverviewView {
+    OverviewColours colours;
+    int cells_drawn{};  // row by row, as far as the drawing has got
+    bool marker{};      // the ball's place ($6B6FA, after the drawing)
+};
+
 class Screen {
 public:
     static constexpr int width = 304;
@@ -48,7 +57,8 @@ public:
     // with black and the texts, as the prompts and the results do ($6B8E6,
     // $6AE16).
     void draw(const LevelMap&, const Ball&, const PanelNumbers&, std::string_view level_name,
-              std::string_view bar_text, const std::vector<ScreenText>& view_text = {});
+              std::string_view bar_text, const std::vector<ScreenText>& view_text = {},
+              const OverviewView* overview = nullptr);
 
     const std::vector<std::uint8_t>& pixels() const { return pixels_; }
     // The colours of a picture line: the copper list ($73040) shows the
@@ -71,6 +81,7 @@ private:
     void glyph(int x, int y, int index, int lines);
     Canvas canvas() { return {pixels_.data(), width, height}; }
     void draw_pillars();
+    void draw_overview(const LevelMap&, const Ball&, const OverviewView&);
 
     const data::World* world_;
     std::vector<std::uint8_t> pixels_;

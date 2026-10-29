@@ -17,7 +17,17 @@ TileTable::TileTable() {
     }
 }
 
-TileAnimator::TileAnimator(const data::Program& program) {
+SlidePictures::SlidePictures(const data::Program& program) {
+    across = program.u32(0x6B194);
+    along = program.u32(0x6B198);
+    for (std::uint32_t d = 0; d < 5; ++d)
+        for (std::uint32_t f = 0; f < 8; ++f) {
+            leaving[d][f] = program.u32(0x6B1B2 + d * 32 + f * 4);
+            for (std::uint32_t k = 0; k < 2; ++k) entering[k][d][f] = program.u32(0x6B252 + k * 0x80 + d * 32 + f * 4);
+        }
+}
+
+TileAnimator::TileAnimator(const data::Program& program) : slide_pictures_(program) {
     for (int i = 0; i < slot_count; ++i) {
         const std::uint32_t at = program.u32(slot_table + std::uint32_t(i) * 4);
         TileAnimation a;

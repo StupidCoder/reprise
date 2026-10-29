@@ -416,6 +416,80 @@ void hit_wall(Ball& b, LevelMap& map, long index, int n, std::uint8_t becomes, b
     if (index >= 0 && index < long(map.cells.size())) map.cells[std::size_t(index)] = becomes;
 }
 
+// $6D984, for any of the four cells (no centre test): a block is pushed
+// when the ball touched it last update along the axis it moves fastest on
+// (the speeds kept at the previous test, at least $1000) and the next cell
+// that way is $24 (the block slides), $21 or $14 (it sinks; into $14 it
+// counts toward the secret warp). Its cell becomes $C1 and the next $C2
+// for the slide ($6B372). Sound $F is played even when the way is blocked.
+void push_block(Ball& b, LevelMap& map, long index) {
+    auto& k = map.block;
+    if (k.count != 0xFF || k.direction != 0) return;
+    const bool up = k.last_vy < 0, left = k.last_vx < 0;
+    const Fixed across = up ? -k.last_vy : k.last_vy, along = left ? -k.last_vx : k.last_vx;
+    k.last_vx = b.speed_x;
+    k.last_vy = b.speed_y;
+    long step = 0;
+    if (along - across >= 0) {
+        if (b.contact_columns == 0 || along < 0x1000) return;
+        k.direction = left ? 4 : 2;
+        step = left ? -1 : 1;
+    } else {
+        if (b.contact_rows == 0 || across < 0x1000) return;
+        k.direction = up ? 1 : 3;
+        step = up ? -long(map.columns) : long(map.columns);
+    }
+    k.from = index;
+    k.to = index + step;
+    const std::uint8_t target = map.cell(k.to);
+    if (target == 0x21 || target == 0x14) { // $6DBA6, $6DB6E
+        k.value = 0x24;
+        k.sinking = true;
+        k.counts_for_warp = target == 0x14;
+    } else if (target == 0x24) { // $6DB38
+        k.value = 0xC0;
+        k.sinking = false;
+        k.counts_for_warp = false;
+    } else {
+        k.direction = 0; // $6DA0C
+        return;
+    }
+    map.set(k.from, 0xC1);
+    map.set(k.to, 0xC2);
+}
+
+// $6B372, each update while a block slides: 28 updates, the pictures of
+// its two cells from the slide strips (a new frame every second update);
+// at the end the left cell is $24 and the entered one the block (or $24
+// after sinking), and a block that sank into $14 counts the secret warp's
+// countdown down. (At the 12th update the program writes the value into
+// whatever A1 holds, the contact test's scratch area, and plays sound $E
+// for a sinking block; nothing in the game reads it.)
+void slide_block(Ball& b, LevelMap& map) {
+    auto& k = map.block;
+    if (k.direction == 0) return;
+    if (k.count == 0xFF) k.count = 0;
+    const auto& p = map.animation.slide_pictures();
+    const auto d = std::size_t(k.direction);
+    const std::size_t frame = std::size_t((k.count >> 1) & 0xFC) / 4;
+    const std::uint32_t strip = k.direction & 1 ? p.along : p.across;
+    map.tiles.set(0xC1, strip + p.leaving[d][frame]);
+    const std::uint32_t entering = p.entering[k.sinking ? 1 : 0][d][frame];
+    if (entering == 0xFE) map.tiles.show_abyss(0xC2);
+    else map.tiles.set(0xC2, strip + entering);
+    k.count += 2;
+    if (k.count < 0x38) return;
+    map.set(k.from, 0x24);
+    map.set(k.to, k.value);
+    map.tiles.set(0xC2, 0xC9E);  // $24's picture
+    map.tiles.set(0xC1, 0x7096); // the block's
+    k.count = 0xFF;
+    k.direction = 0;
+    if (!k.counts_for_warp) return;
+    k.counts_for_warp = false;
+    if (map.warp_count != 0xFFFF && --map.warp_count == 0) b.secret_warp = true; // $69F8A
+}
+
 // One cell's rule ($6D114: the handler from table $733C4[v-1]); `index` is
 // the cell, `n` its place 1-4 in the block under the ball.
 void apply_cell(Ball& b, Pocket& pocket, LevelMap& map, long index, std::uint8_t v, int n) {
@@ -462,7 +536,7 @@ void apply_cell(Ball& b, Pocket& pocket, LevelMap& map, long index, std::uint8_t
     } else if (v == 0x0D || v == 0x0E) { // magic-map piece, two cells wide ($6EADE/$6EB00)
         if (centre) {
             map.clear(index + (v == 0x0D ? 1 : -1)); // the other half first ($6EC1C/$6EC3E)
-            ++pocket.map_pieces;
+            pocket.add_map_piece(); // $6EB22
             map.clear(index);
         }
     } else if (v >= 0x09 && v <= 0x0C) { // arrows $6E444 up, $6E582 right, $6E4AE down, $6E518 left
@@ -605,6 +679,8 @@ void apply_cell(Ball& b, Pocket& pocket, LevelMap& map, long index, std::uint8_t
             b.clock.drained = true;
             pocket.energy = std::uint16_t(pocket.energy - (0x140 >> (b.protective ? 1 : 0)));
         }
+    } else if (v == 0xC0) {
+        push_block(b, map, index);
     } else if (is_floor(v)) { // $6E39A → $6EAC0
         if (centre) step_on(b, pocket, map, index, 0);
     } else if (v == 0x14) { // $6D510: only the repair-set rule; each mend counts toward the secret warp
@@ -675,6 +751,7 @@ bool solid_at(const LevelMap& map, const data::World& world, long first_under_ba
     const bool under_ball = index == first_under_ball || index == first_under_ball + 1 ||
                             index == first_under_ball + map.columns || index == first_under_ball + map.columns + 1;
     if (under_ball && (v <= 0x50 || v == 0xEC)) return false;
+    if (map.tiles.shows_abyss(v)) return false;
     return world.bank.at(map.tiles.x(v) + x % 16, map.tiles.y(v) + y % 16) & 16;
 }
 
@@ -883,6 +960,7 @@ void update_ball(Ball& b, Pocket& pocket, LevelMap& map, const data::World& worl
     }
     touch(b, map, world);
     bounce(b);
+    slide_block(b, map); // $6B372
     clamp_speeds(b);
     // $6F7B6 (before drawing the ball): the continue point, while not
     // falling. The counter is only reset by continue, so after a lost ball

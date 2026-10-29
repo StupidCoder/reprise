@@ -47,8 +47,8 @@ app::GameEntry entry() {
         .progress = "Playable from the title: hall of fame and time records, name entry with the letter wheel and level "
                     "codes, then every level with the mouse (rolling, railings, ice, arrows, slopes, falls, pickups, locks, "
                     "shops, teleports, bridges, switches, items, the panel), matched to the original update for update; "
-                    "results with saved time records, game over with the hall of fame, the ending. Not yet: music and "
-                    "sounds, the overview map, pushable blocks.",
+                    "the overview map and pushable blocks; results with saved time records, game over with the hall of "
+                    "fame, the ending. Not yet: music and sounds, level rewards, some messages.",
     };
 }
 

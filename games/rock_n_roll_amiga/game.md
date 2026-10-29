@@ -458,7 +458,7 @@ friction +400 a frame) and rec3.
 | $01–$04 keys | | `$719EC`, `$719F8`, `$719F0`, `$719F4` +1 (up to 9), sound 3 |
 | $05–$08 finds | | `$719FC`, `$71A08`, `$71A00`, `$71A04`; score `$719BA` +30/+400/+150/+70 |
 | $11–$13 coins | | Money `$719C2` +100/+300/+500, at most 9,900 |
-| $0D/$0E map pieces | `$6EC1C`/`$6EC3E` | Clear the other half, `$6EB22` (overview map), then themselves |
+| $0D/$0E map pieces | `$6EC1C`/`$6EC3E` | Clear the other half, `$6EB22` (one more map range revealed), then themselves |
 | $10 bomb spot | `$6D722` | Remembered (`$6BE86`), floor otherwise |
 | $D1–$D8 locks | `$6E882`… | See "Locks" |
 | $22 / $23 teleports | `$6CBF2` / `$6CB6C` | See "Teleports" |
@@ -474,7 +474,7 @@ friction +400 a frame) and rec3.
 | $B9/$BC arcs | `$6D640` | Energy −$40 while `$71934` ≤ $100 |
 | $AE/$B1/$B5/$B6 arcs | `$6D680`… | Energy −$C0 while their counter ≤ $1100 |
 | $A2/$A5/$A9/$AA gates | `$6D738`… | Energy −$140 at counter 0 or $100; passage by the animated picture |
-| $C0 pushable block | `$6D984` | Moves into a neighbour $21/$14/$24 in the push direction (`$6DAF8`, cells $C1/$C2); in the abyss it counts toward the warp. Not rebuilt |
+| $C0 pushable block | `$6D984` | See "Pushable blocks" |
 | $51/$53/$66/$68 | `$6ACE6` | Listed by the drawer at `$77F40`; what `$6ACE6` does with them is open ($51's picture animates, see "Tile animations") |
 
 **Energy** is `$6F45A` (full $7FF); the panel shows `$6F458`.
@@ -637,9 +637,99 @@ friction +400 a frame) and rec3.
   - `$6BE8A`: at 90, 80, 60 and 30, the 3 × 3 cells become $DA (flames) and
     `$7164C` := $800.
   - At 0, the cells take the header's 9 bytes from +$1CA.
-- **Overview map** (`$6B77A`): one pixel per cell. Value ranges come from
-  the table at `$77E7D` (first value, count), and the colours from
-  `$77ECB`.
+
+### The overview map (item 2, `$6B67E`)
+
+- **Sequence:**
+  1. The panel's time is redrawn.
+  2. The view is cleared, and "CREATING MAP WITH DEPTH: nn" is printed
+     (1, 0 and 26, 0; nn = `$77E62`).
+  3. The program waits while the left button is held, then one delay
+     (`$6B66E`).
+  4. The map is drawn (`$6B77A`), then the ball's place (`$6B6FA`).
+  5. Colour 1 flashes (`$6B9F4`) until a press, then the program waits
+     for the release and the game goes on.
+- **Display:** the view is shown with fine scroll 0 (`$7313E` := $FF).
+- **The map** (origin `$6B884`): the view buffer + 4 + ((240 − columns) /
+  2) / 8 bytes + ((112 − rows) / 2) lines, then 8 lines down. One pixel
+  per cell, row by row.
+- **Colours:**
+  - The value ranges are at `$77E7D` (first value, count; 37 of them; $FF
+    ends). Each range's colour is at `$77ECA` (0 = not shown).
+  - The depth `$77E62` is 1 at a new game (`$6ADCC` clears the colours),
+    and the maximum `$77E64` is 33.
+  - A map piece (`$6EB22`) copies `$77EF2[i]` to `$77ECA[i]` for range i
+    = `$77F1A[depth − 1]`, then raises the depth while it is ≤ 33. So the
+    depth runs 1–34, and piece n reveals one range.
+  - The depth and colours lie outside `$719C6`–`$71A23`, so they last
+    across restarts and levels until the game ends.
+  - "MAGIC MAP" calls `$6EB22` 33 times: depth 34, every range shown.
+- **Two quirks in the drawing loop:**
+  - The depth is compared (`$6B7DA`) but the result is never used, so it
+    doesn't limit the drawing.
+  - At a cell's first matching range the plot code reuses D0, which held
+    the cell value, for the pixel's bit number (7 − column % 8). The scan
+    then goes on through the later ranges with that number. So a cell
+    normally gets its first range's colour only. Cells of the first range
+    (values 1–4) also get the second range's colour (5–8) in columns 0–2
+    of every eight.
+- **The ball's place:** one pixel in colour 1 (plane 0 set, planes 1–4
+  cleared). Its column is the camera's plus the view's whole tiles − 1,
+  its row the same sum.
+- **Speed:** every cell scans all ranges with a button test each time, so
+  drawing takes about the same time per cell. Measured in level 1: nine
+  rows of 70 a second, about 12.6 cells a frame. A press during drawing
+  stops it; the ball's place is still shown, and the flash ends at once.
+- *Checked:* MAGIC MAP in level 1, the original's view buffer read from
+  memory: all 4,900 map pixels equal the rule above, including the ball's
+  place.
+
+### Pushable blocks (`$6D984`, `$6B372`)
+
+- **The push test** (`$6D984`): the handler of $C0 for any of the four
+  cells under the ball, with no centre test. It does nothing while a slide
+  runs (`$6DAF4` ≠ $FF or `$6DAF8` ≠ 0).
+  - It takes the speeds kept at the previous test (`$6D978`/`$6D980`),
+    then keeps the current ones.
+  - The axis is the one where the kept speed is larger (x on a tie).
+  - It needs the previous update's contact along that axis (`$71A7E`
+    sideways, `$71A7A` vertical) and a kept speed of at least $1000.
+  - The direction comes from the kept speed's sign: 1 up, 2 right, 3 down,
+    4 left.
+  - Sound $F plays even when the way turns out to be blocked.
+- **The next cell decides:**
+  - $24: the block slides; it will stay a block ($6B1AC := $C0).
+  - $21: the block sinks, ending as $24.
+  - $14: the block sinks and counts toward the secret warp (`$69F88`).
+  - anything else: no move.
+
+  On a move, the block's cell becomes $C1 and the next one $C2 (both plain
+  floor).
+- **The slide** (`$6B372`, each update after the bounce):
+  - The count `$6DAF4` goes 0, 2 … to $38, so the slide takes 28 updates.
+  - The tile entries of $C1 and $C2 point into a strip: `$6B194` across
+    (directions 2, 4) or `$6B198` along (1, 3). The frame is (count >> 1)
+    & $FC, with offsets from `$6B1B2` ($C1) and `$6B252` ($C2; +$80 for
+    sinking, where $FE means the abyss pattern, the $14 entry).
+  - At the end: the left cell := $24, the entered cell := $C0 (or $24),
+    and the $C1/$C2 entries are set to the block's and $24's pictures.
+  - A block that sank into $14 counts the warp countdown `$6D80E` down
+    (unless $FFFF); at 0 comes the secret warp `$69F8A`.
+- **Unused effects:**
+  - At count $18 the program writes $6B1AC into wherever A1 points. That
+    is $37A70, just past the contact test's scratch rows (read at run
+    time), so the only effect is sound $E for a sinking block.
+  - `$6DBA4` is set by every push, but only the unreachable code at
+    `$6C9CE` reads it.
+- **State that is never reset:** the block's state sits in fixed places
+  the set-up doesn't touch. A slide running when the level ends would go
+  on in the next level; the port keeps it per level.
+- *Checked:* level 7 (via a level code):
+  - block1: a slide left, then a sink into $14 with the warp countdown
+    from 2 to 1, 178 updates;
+  - block2: the second block sinks and the secret warp follows on the same
+    update, 47 updates;
+  - block3: a slide with the whole map compared at the end, 89 updates.
 
 ## After a lost ball (`$6BB86`)
 
@@ -663,7 +753,7 @@ friction +400 a frame) and rec3.
   balls are reset to 2, `$719C6`–`$71A23` are cleared, the score and money
   are set to 0, and it goes back to the title (`$6867A`).
 - **Restart:** `$719C6`–`$71A23` are cleared (keys, finds, repair sets, shop
-  items, map pieces; the score and money stay). The level is set up again,
+  items; the score, money and the map's depth stay). The level is set up again,
   which reloads its file.
 - *Checked:* fall4 + cont4.
 
@@ -920,6 +1010,10 @@ The port keeps these, because they are part of how the game plays:
   record shows from the next level on.
 - **The continue screen offers "YES / NO" but reads only the left
   button.**
+- **The overview map ignores its depth while drawing**, and colours some
+  cells of the first value range with the second range's colour as well
+  (see "The overview map").
+- **A block push plays its sound even when the way is blocked.**
 - **Holding '0' as a level ends jumps to the ending** (a leftover test
   key).
 - **The first update after leaving a bridge accelerates like ice.**
@@ -932,6 +1026,9 @@ The port keeps these, because they are part of how the game plays:
   - `rnr.py boot` stops at $50000, makes the demo call return, stops at
     Main's entry and checks memory.
   - `play.py tolevel NAME` goes from the title through name entry.
+  - `play.py tocode CODE` starts the level a code gives. It enters the
+    name RAINBOW ARTS, then the twelve digits; for level 7 the code is
+    070000070070.
 - **The input patch** (research only): the game's absolute reads of JOY0DAT,
   POTGOR and CIA-A PRA (37 instructions) are pointed at `$7C100`/`$7C102`/
   `$7C105`. Keys are poked into `$70BD8`.
@@ -939,14 +1036,20 @@ The port keeps these, because they are part of how the game plays:
   [N:ADDR=HEX]` stops at each loop top, moves the mouse counters and logs
   the state.
   - COL,ROW places the ball first. A poke can follow, such as money.
-  - Newer recordings also save the original's map (`<run>.txt.map`).
+  - Newer recordings also save the original's map (`<run>.txt.map`). Since
+    block1 they also save the map at the last row (`<run>.txt.endmap`),
+    which the replay compares at the end.
+  - The block's state and the warp flag are logged too (`blkcount`,
+    `blkdir`, `blkvx`, `blkvy`, `blkfrom`, `blkto`, `blkvalue`, `blksink`,
+    `warpflag`).
 - **Replay:** `tools/rock_n_roll_replay ball <run>` replays a recording
   natively and compares every logged field. `harness/regress.sh` runs all
   of them.
-  - 25 runs: rail1, ice1, fall2, arrow3, slope1, fall3, finds2, lock2,
+  - 28 runs: rail1, ice1, fall2, arrow3, slope1, fall3, finds2, lock2,
     fall4+cont4, bridge1, beam2, shop3, shop4, clock1, mud1, glass1,
-    switch1, exit1, crumble1, lockcap1, gate1–3, flame1, arc1.
-  - 4,121 updates, all equal.
+    switch1, exit1, crumble1, lockcap1, gate1–3, flame1, arc1 (level 1),
+    block1–3 (level 7).
+  - 4,435 updates, all equal.
   - Since gate1, recordings also log the animation cursor and counters
     (`acur`, `ac0`–`ac17`). The replay starts from them, shows every
     slot's current frame (`TileAnimator::show_all`), and compares them
@@ -958,7 +1061,8 @@ The port keeps these, because they are part of how the game plays:
   - held keys `a-b:key=N` (a `GameInput::c64_keys` index);
   - pictures `@N=file.png`;
   - a ball placement `@N:place=cx,cy,vx,vy,sx,sy` (hex, as a recording's
-    first row).
+    first row);
+  - the fire button (`f` among the buttons), which types a space.
 - **Front end checks against FS-UAE captures (2026-10-29):**
   - the title;
   - the hall of fame and level 1's time records;
@@ -971,7 +1075,10 @@ The port keeps these, because they are part of how the game plays:
   - Disk loads at the title overwrite the harness's input words at
     `$7C100`. Set them to idle after reaching `$68FCA`, or the right
     button reads as held and name entry starts.
-  - A run that writes records changes `work/ref/rnr.adf`. Delete it
-    afterwards so the next start copies a clean disk.
+  - A run that writes records changes the disk. FS-UAE keeps the writes in
+    an overlay, `work/ref/fsuae-state/rnr.sdf`. Delete it and
+    `work/ref/rnr.adf` afterwards so the next start has a clean disk.
+  - In zsh, lists of steps kept in a variable must be split (`${=VAR}`).
+    Also, the same key in back-to-back frames counts as one press.
   - The start wait needs a big enough mouse move (`play.py start`).
   - After a fall, the game waits in its prompt.

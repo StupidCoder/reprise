@@ -23,9 +23,28 @@ public:
     void set(std::uint8_t v, std::uint32_t offset) { entries_[v] = offset; }
     int x(std::uint8_t v) const { return int(entries_[v] % data::GraphicsBank::row_bytes) * 8; }
     int y(std::uint8_t v) const { return int(entries_[v] / data::GraphicsBank::row_bytes); }
+    // The entry points at the abyss pattern, as $14's and $21's do (the
+    // drawer re-points those each update, $6C972); a sinking block's
+    // destination borrows it ($6B49E).
+    void show_abyss(std::uint8_t v) { entries_[v] = abyss; }
+    bool shows_abyss(std::uint8_t v) const { return entries_[v] == abyss; }
 
 private:
+    static constexpr std::uint32_t abyss = 0xFFFFFFFF;
     std::array<std::uint32_t, 241> entries_{};
+};
+
+// The pictures of a sliding block ($6B372): strips for horizontal and
+// vertical moves ($6B194, $6B198), and per direction 1-4 eight frame
+// offsets for the cell it leaves ($C1, table $6B1B2) and the one it enters
+// ($C2, $6B252; a second set at +$80 for a block sinking, where $FE means
+// "the abyss pattern").
+struct SlidePictures {
+    std::uint32_t across{}, along{};       // bank offsets: even directions (2, 4), odd (1, 3)
+    std::array<std::array<std::uint32_t, 8>, 5> leaving{};
+    std::array<std::array<std::array<std::uint32_t, 8>, 5>, 2> entering{}; // [sinking][direction][frame]
+    explicit SlidePictures(const data::Program&);
+    SlidePictures() = default;
 };
 
 // One animation ($715D4 …): a picture strip, a counter that a step is
@@ -67,11 +86,13 @@ public:
     std::uint16_t slot_counter(int slot) const { return slots_.at(std::size_t(slot)).counter; }
     void set_slot_counter(int slot, std::uint16_t value) { slots_.at(std::size_t(slot)).counter = value; }
     static constexpr int slots = 18;
+    const SlidePictures& slide_pictures() const { return slide_pictures_; }
 
 private:
     void show(const TileAnimation&, TileTable&) const;
     void follow(TileTable&) const;
     std::vector<TileAnimation> slots_; // 18
+    SlidePictures slide_pictures_;
     int cursor_{};                     // $6C08A
     bool slot17_on_{true};
     int world_{};

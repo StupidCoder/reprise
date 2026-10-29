@@ -14,8 +14,8 @@ A game runs from the title to the end:
 - "N BALLS REMAINING", game over with the hall of fame, the continue after
   game over, and the ending.
 
-The ball's rules match the original update for update in 25 recorded runs
-(4,121 updates, all in level 1; `.analysis/rock_n_roll_amiga/harness/regress.sh`).
+The ball's rules match the original update for update in 28 recorded runs
+(4,435 updates, in levels 1 and 7; `.analysis/rock_n_roll_amiga/harness/regress.sh`).
 There is no music or sound yet. Steering uses the captured mouse.
 
 Finished, in order:
@@ -39,17 +39,14 @@ Finished, in order:
     teleports animate, and their frames decide passage. The hazards drain
     energy by their counters. Checked in gate3, flame1, arc1 (25 runs,
     4,121 updates, all equal).
+12. The eye's overview map (with its drawing pace, the map pieces' depth
+    and MAGIC MAP; pixel-exact against the original) and pushable blocks
+    (push test, slide, sinking, the warp count; block1–3 in level 7).
 
 ## Remaining tasks
 
 ### In-level rules
 
-- [ ] **Overview map** (the eye, item 2): `$6B67E`. Includes map pieces
-  $0D/$0E (`$6EB22`) and the one-pixel-per-cell drawing (`$6B77A`,
-  colour ranges `$77E7D` → `$77ECB`). Using the eye is a no-op today.
-- [ ] **Pushable blocks** $C0 (`$6D984`, the moving-object code
-  `$6B372`). A block can move into $21, $14 or $24; one in the abyss counts
-  toward the secret warp (`$69F88` → `$6D80E`).
 - [ ] **Cells $51/$53/$66/$68**: the drawer records them at `$77F40` and
   `$6ACE6` acts on them (fans or magnets?). Not read yet. Their pictures
   ($51, and $52/$65/$66 following it) already animate.
@@ -70,8 +67,6 @@ Finished, in order:
 
 - [ ] **Jukebox** (the name COUNTRY, `$68CD4`): needs the music player.
   Today that name just asks for the name again.
-- [ ] **MAGIC MAP**: sets 33 map pieces, unverified, because the map-piece
-  routine `$6EB22` and the overview map are not rebuilt.
 - [ ] **The wheel's mouse read**: it can be gated by the grip flag `$70404`
   left from the last level (a read every 25th update). Check whether this
   shows in the original; the port always reads.
@@ -111,7 +106,10 @@ Finished, in order:
 - [ ] Recordings for the item uses (bomb, repair set, rescue, pause). They
   are rebuilt from the code only, because level 1 has no shops. Needs
   pokes or a later level.
-- [ ] Recordings outside level 1, among them:
+- [ ] A vertical block push (directions 1 and 3) and a block sinking into
+  $21: rebuilt from the code, not recorded (level 7 has only horizontal
+  tracks; levels 21 and 29 have others).
+- [ ] Recordings outside levels 1 and 7, among them:
   - the $23 teleport;
   - the $24/$26 countdowns and the warp;
   - speed shops and bought balls;
@@ -133,8 +131,6 @@ Finished, in order:
   speed (`records.cpp`, `results_flash_colour`). The original changes it
   many times a frame.
 - No sound or music (title songs, level songs, effects).
-- Using the eye item does nothing (the overview map is not rebuilt), and
-  pushable blocks don't move.
 - The panel's clock digits did not match the FS-UAE capture. Everything
   else in the panel matched. The likely cause is the lag above (the capture
   was taken mid-second); this has not been checked.

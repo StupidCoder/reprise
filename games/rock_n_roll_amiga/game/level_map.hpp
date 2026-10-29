@@ -78,6 +78,18 @@ struct LevelMap {
     TileTable tiles;
     TileAnimator animation;
 
+    // The pushable block ($6D984, $6B372): one slide at a time. Its state
+    // is the program's, kept in fixed places the set-up never resets.
+    struct BlockSlide {
+        int count{0xFF};             // $6DAF4: 0-$36 in steps of 2 while sliding, $FF idle
+        int direction{};             // $6DAF8: 1 up, 2 right, 3 down, 4 left; 0 none
+        Fixed last_vx{}, last_vy{};  // $6D978/$6D980: the speeds at the last push test
+        long from{}, to{};           // $6DAEC/$6DAF0: the block's cell and the one it enters
+        std::uint8_t value{0xC0};    // $6B1AC: what the entered cell becomes ($C0, or $24 when it sank)
+        bool sinking{};              // $6B1AE = $80: the sinking pictures
+        bool counts_for_warp{};      // $69F88: sank into a $14 cell
+    } block;
+
     // What a bomb leaves in the 3 x 3 cells around it (+$1CA, $6BF56).
     std::array<std::uint8_t, 9> after_bomb{};
 

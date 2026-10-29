@@ -83,7 +83,8 @@ std::vector<Row> read_recording(const std::string& path, bool& loop_left, std::v
                                 name == "protect" || name == "warpcount" || name == "rewardcount" ||
                                 name == "shopwait" || name == "carried" || name == "countdown" || name == "ticks" ||
                                 name == "drained" || name == "latch" || name == "frozen" || name == "done" ||
-                                name == "pending" || name == "crumblecount" || name.rfind("ac", 0) == 0
+                                name == "pending" || name == "crumblecount" || name.rfind("ac", 0) == 0 || name == "blkcount" || name == "blkdir" ||
+                                name == "blkvalue" || name == "warpflag"
                             ? std::int64_t(v)
                             : std::int64_t(std::int32_t(std::uint32_t(v)));
         }
@@ -307,6 +308,31 @@ int compare(const game::Ball& b, const Row& r, bool all, std::int64_t update) {
     return differing;
 }
 
+// The block's slide state, when the recording logs it.
+int compare_block(const game::LevelMap& map, const Row& r, std::int64_t update) {
+    if (!r.count("blkcount")) return 0;
+    const auto& k = map.block;
+    int differing = 0;
+    const auto check = [&](const char* name, std::int64_t native) {
+        if (r.at(name) == native) return;
+        std::printf("update %lld: %s native %llx original %llx\n", (long long)update, name, (unsigned long long)native,
+                    (unsigned long long)r.at(name));
+        ++differing;
+    };
+    check("blkcount", k.count);
+    check("blkdir", k.direction);
+    check("blkvx", k.last_vx);
+    check("blkvy", k.last_vy);
+    if (k.direction != 0 || r.at("blkdir") != 0) { // the cells only mean something during a slide
+        check("blkfrom", k.from + 0x73BA8);
+        check("blkto", k.to + 0x73BA8);
+        check("blkvalue", k.value);
+    }
+    check("warpflag", k.counts_for_warp ? 1 : 0);
+    check("warpcount", map.warp_count);
+    return differing;
+}
+
 // The tile animations' cursor and counters, when the recording logs them.
 int compare_animation(const game::TileAnimator& a, const Row& r, std::int64_t update) {
     if (!r.count("acur")) return 0;
@@ -364,6 +390,21 @@ int main(int argc, char** argv) {
                             map.animation.set_slot_counter(i, std::uint16_t(rows.front().at("ac" + std::to_string(i))));
                         map.animation.show_all(map.tiles);
                     }
+                    if (rows.front().count("blkcount")) { // the block as the original had it
+                        const auto& r = rows.front();
+                        map.warp_count = std::uint16_t(r.at("warpcount")); // earlier runs may have counted it down
+                        map.reward_count = std::uint16_t(r.at("rewardcount"));
+                        auto& k = map.block;
+                        k.count = int(r.at("blkcount"));
+                        k.direction = int(r.at("blkdir"));
+                        k.last_vx = game::Fixed(r.at("blkvx"));
+                        k.last_vy = game::Fixed(r.at("blkvy"));
+                        k.from = long(r.at("blkfrom")) - 0x73BA8;
+                        k.to = long(r.at("blkto")) - 0x73BA8;
+                        k.value = std::uint8_t(r.at("blkvalue"));
+                        k.sinking = r.at("blksink") == 0x80;
+                        k.counts_for_warp = r.at("warpflag") & 1;
+                    }
                 } else {
                     // A later recording starts at the loop top right after the
                     // prompt was answered with "continue": the native ball goes
@@ -392,25 +433,42 @@ int main(int argc, char** argv) {
                     ++checked;
                     if (compare(ball, rows[n + 1], all, rows[n].at("update")) +
                             compare_pocket(pocket, rows[n + 1], rows[n].at("update")) +
-                            compare_animation(map.animation, rows[n + 1], rows[n].at("update")) > 0) {
+                            compare_animation(map.animation, rows[n + 1], rows[n].at("update")) +
+                            compare_block(map, rows[n + 1], rows[n].at("update")) > 0) {
                         ++bad_updates;
                         if (!all) break;
                     }
-                    if (ball.mode == game::BallMode::lost) break; // the level loop ends here
+                    if (ball.mode == game::BallMode::lost || ball.mode == game::BallMode::warped) break; // the level loop ends here
                 }
-                if (loop_left && bad_updates == 0 && ball.mode != game::BallMode::lost) {
+                const auto left_loop = [&] { return ball.mode == game::BallMode::lost || ball.mode == game::BallMode::warped; };
+                if (loop_left && bad_updates == 0 && !left_loop()) {
                     const auto joy = std::uint16_t(rows.back().at("joy"));
                     game::update_ball(ball, pocket, map, world, {std::uint8_t(joy & 0xFF), std::uint8_t(joy >> 8)});
                     ++checked;
-                    if (ball.mode != game::BallMode::lost) {
+                    if (!left_loop()) {
                         std::printf("update %lld: the original left the level loop, the native ball is not lost\n",
                                     (long long)rows.back().at("update"));
                         ++bad_updates;
                     }
                 }
             }
+            // The map as the original left it at the last recording's last row.
+            if (const auto end = std::filesystem::path(recordings.back()).concat(".endmap");
+                bad_updates == 0 && std::filesystem::exists(end)) {
+                const auto cells = platform::read_file(end);
+                int differ = 0;
+                for (std::size_t i = 0; i < cells.size() && i < map.cells.size(); ++i)
+                    if (cells[i] != map.cells[i] && differ++ < 5)
+                        std::printf("map cell %zu,%zu: native %02x original %02x\n", i % std::size_t(map.columns),
+                                    i / std::size_t(map.columns), map.cells[i], cells[i]);
+                if (differ) {
+                    std::printf("%d map cells differ at the end\n", differ);
+                    ++bad_updates;
+                }
+            }
             std::printf("%zu updates checked, %d differ; %d unhandled cell visits%s\n", checked, bad_updates,
-                        ball.unhandled_cells, ball.mode == game::BallMode::lost ? "; ball lost" : "");
+                        ball.unhandled_cells,
+                        ball.mode == game::BallMode::lost ? "; ball lost" : ball.mode == game::BallMode::warped ? "; secret warp" : "");
             if (ball.unhandled_cells) {
                 std::printf("unhandled kinds:");
                 for (int v = 0; v < 256; ++v)
@@ -463,7 +521,7 @@ int main(int argc, char** argv) {
             return 0;
         }
         if (command == "play" && argc >= 5) {
-            // play <content> <updates> <out.png> [a-b:dx,dy[,l|r] …] [a-b:key=N …]
+            // play <content> <updates> <out.png> [a-b:dx,dy[,l|r|f] …] [a-b:key=N …]
             // [@N=shot.png …] [@N:place=cx,cy,vx,vy,sx,sy …]: runs the game
             // module headless with mouse moves, buttons and held keys
             // (GameInput::c64_keys index N) per update, saving pictures after
@@ -471,7 +529,7 @@ int main(int argc, char** argv) {
             // as a recording's first row: camera, view, speed).
             auto game = game::start(platform::utf8_path(argv[2]));
             const int updates = std::stoi(argv[3]);
-            struct Step { int a, b, dx, dy; bool l, r; int key; };
+            struct Step { int a, b, dx, dy; bool l, r, f; int key; };
             std::vector<Step> steps;
             std::vector<std::pair<int, std::string>> shots;
             struct Place { int at; std::uint32_t v[6]; };
@@ -499,11 +557,12 @@ int main(int argc, char** argv) {
                 if (std::sscanf(argv[i], "%d-%d:%d,%d,%3s", &st.a, &st.b, &st.dx, &st.dy, buttons) < 4) continue;
                 st.l = std::string(buttons).find('l') != std::string::npos;
                 st.r = std::string(buttons).find('r') != std::string::npos;
+                st.f = std::string(buttons).find('f') != std::string::npos; // fire (also the space bar)
                 steps.push_back(st);
             }
             app::GameInput input;
             for (int n = 0; n < updates; ++n) {
-                input.mouse_button = input.mouse_right = false;
+                input.mouse_button = input.mouse_right = input.fire = false;
                 input.mouse_dx = input.mouse_dy = 0;
                 input.c64_keys = {};
                 for (const auto& st : steps) {
@@ -516,6 +575,7 @@ int main(int argc, char** argv) {
                     input.mouse_dy += float(st.dy);
                     input.mouse_button = input.mouse_button || st.l;
                     input.mouse_right = input.mouse_right || st.r;
+                    input.fire = input.fire || st.f;
                 }
                 for (const auto& pl : places)
                     if (pl.at == n && !game::place_ball(*game, std::int32_t(pl.v[0]), std::int32_t(pl.v[1]), std::int32_t(pl.v[2]),

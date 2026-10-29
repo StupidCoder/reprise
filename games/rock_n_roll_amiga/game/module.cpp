@@ -5,6 +5,7 @@
 #include "rock_n_roll_amiga/game/ball.hpp"
 #include "rock_n_roll_amiga/game/front_end.hpp"
 #include "rock_n_roll_amiga/game/level_map.hpp"
+#include "rock_n_roll_amiga/game/overview_map.hpp"
 #include "rock_n_roll_amiga/game/records.hpp"
 #include "rock_n_roll_amiga/game/screen.hpp"
 #include <algorithm>
@@ -25,6 +26,7 @@ constexpr int bonus_level = 0x20;               // index of the 33rd level (reac
 // REMAINING" waits 8 of them ($68846), "GAME OVER" 15 ($6BCE8).
 constexpr int balls_message_frames = 8 * 655360 * 50 / 7093790;
 constexpr int game_over_frames = 15 * 655360 * 50 / 7093790;
+constexpr int map_delay_frames = 655360 * 50 / 7093790 + 1; // one delay before the map ($6B6E0)
 constexpr int scores_size = 6144;
 
 // The keyboard as the handler leaves keys in $70BD8 (table $70C9E): letters
@@ -124,7 +126,13 @@ public:
                 phase_ = Phase::paused;
                 pause_stage_ = 0;
                 break;
-            case ItemUse::overview: // $6B67E: the overview map (not rebuilt yet)
+            case ItemUse::overview: // $6B67E: the overview map
+                overview_ = OverviewView{OverviewColours(assets_.program, pocket_.map_depth), 0, false};
+                overview_texts_ = game::overview_texts(assets_.program, pocket_.map_depth);
+                wait_stage_ = 0;
+                wait_frames_ = 0;
+                phase_ = Phase::overview;
+                break;
             case ItemUse::none:
                 break;
             }
@@ -158,6 +166,32 @@ public:
                 else start_level(level_index_, true); // $69996 → $686E2
             }
             break;
+        case Phase::overview:
+            // $6B6D4: the text until the button is let go; a delay ($6B66E);
+            // the map, drawn row by row at the original's pace and cut short
+            // by a press ($6B7CC); the ball's place; then colour 1 flashes
+            // until a press ($6B9F4) and the game goes on after the release.
+            ++wait_frames_;
+            if (wait_stage_ == 0 && !left) {
+                wait_stage_ = 1;
+                wait_frames_ = 0;
+            } else if (wait_stage_ == 1 && wait_frames_ >= map_delay_frames) {
+                wait_stage_ = 2;
+                wait_frames_ = 0;
+            } else if (wait_stage_ == 2) {
+                const int cells = map_.rows * map_.columns;
+                overview_.cells_drawn = std::min(cells, int(wait_frames_ * overview_cells_per_frame));
+                if (left || overview_.cells_drawn == cells) {
+                    overview_.marker = true;
+                    wait_stage_ = left ? 4 : 3;
+                    wait_frames_ = 0;
+                }
+            } else if (wait_stage_ == 3 && left) {
+                wait_stage_ = 4;
+            } else if (wait_stage_ == 4 && !left) {
+                phase_ = Phase::playing;
+            }
+            break;
         case Phase::ending:
             if (left) game_over(); // $6C81E: until the left button; then the game ends as if out of balls
             break;
@@ -176,7 +210,8 @@ public:
             break;
         }
         const auto& level = assets_.levels.at(std::size_t(level_index_));
-        screen_->draw(map_, ball_, panel_numbers(), level.name, bar_text_, view_texts());
+        screen_->draw(map_, ball_, panel_numbers(), level.name, bar_text_, view_texts(),
+                      phase_ == Phase::overview ? &overview_ : nullptr);
         platform::Image image(Screen::width, Screen::height);
         const auto& pixels = screen_->pixels();
         // $6AB46: while the results wait, colours 1-7 of the view are $EE0
@@ -186,6 +221,7 @@ public:
             for (std::size_t i = 1; i <= 7; ++i) view_palette[i] = amiga::Rgb4(0xEE0);
             if (wait_stage_ == 1) view_palette[1] = amiga::Rgb4(results_flash_colour(wait_frames_));
         }
+        if (phase_ == Phase::overview && wait_stage_ == 3) view_palette[1] = amiga::Rgb4(results_flash_colour(wait_frames_));
         for (int y = 0; y < Screen::height; ++y) {
             const bool view = y >= Screen::bar_lines && y < Screen::bar_lines + Screen::view_lines;
             const auto& palette = view ? view_palette : screen_->palette(y);
@@ -210,7 +246,7 @@ public:
     }
 
 private:
-    enum class Phase { front_end, message, waiting, playing, paused, prompt, results, continue_offer, ending };
+    enum class Phase { front_end, message, waiting, playing, paused, prompt, results, continue_offer, ending, overview };
     enum class AfterMessage { start_wait, game_over };
 
     std::vector<ScreenText> view_texts() const {
@@ -218,6 +254,7 @@ private:
         case Phase::prompt: return prompt_;
         case Phase::message: return {message_};
         case Phase::results: return results_;
+        case Phase::overview: return overview_texts_;
         default: return {};
         }
     }
@@ -257,7 +294,8 @@ private:
         player_name_ = start.name;
         from_code_ = start.from_code;
         pocket_ = Pocket{};
-        if (start.magic_map) pocket_.map_pieces = 33; // $6ADBC calls $6EB22 33 times (the map is not rebuilt)
+        if (start.magic_map) // $6ADBC: 33 map pieces, the whole overview map
+            for (int i = 0; i < 33; ++i) pocket_.add_map_piece();
         balls_ = balls_at_start;
         set_balls_message();
         start_level(start.level_index == bonus_level ? 0 : start.level_index, false);
@@ -515,6 +553,8 @@ private:
     int message_frames_{};
     AfterMessage after_message_{};
     std::vector<ScreenText> results_;
+    OverviewView overview_;
+    std::vector<ScreenText> overview_texts_;
     data::ScoreTable::Time shown_record_{};
     int shown_high_score_{};
     int wait_stage_{}, wait_frames_{};

@@ -1,4 +1,5 @@
 #include "rock_n_roll_amiga/game/screen.hpp"
+#include "rock_n_roll_amiga/game/overview_map.hpp"
 #include <algorithm>
 
 namespace rocknroll::game {
@@ -99,7 +100,7 @@ void Screen::draw_view(const LevelMap& map, const Ball& b) {
     const int abyss_x = int(abyss % 200) * 8, abyss_y = int(abyss / 200);
     // Picture of one cell's tile at (tx, ty) inside it.
     const auto tile_pixel = [&](std::uint8_t cell, int tx, int ty) -> std::uint8_t {
-        if (data::is_abyss(cell)) return bank.at(abyss_x + tx, abyss_y + ty);
+        if (data::is_abyss(cell) || (cell <= 0xF0 && map.tiles.shows_abyss(cell))) return bank.at(abyss_x + tx, abyss_y + ty);
         if (cell == 0 || cell > 0xF0) return 0;
         return bank.at(map.tiles.x(cell) + tx, map.tiles.y(cell) + ty); // the tile table ($72CBE), animated
     };
@@ -264,12 +265,34 @@ void Screen::draw_pillars() {
     }
 }
 
+// $6B77A: one pixel per cell from the map's origin ($6B884), all five
+// planes from the cell's colour; $6B6FA: the ball's place in colour 1 (at
+// the camera's and view's whole tiles, one column left). The display shows
+// the buffer with fine scroll 0 ($7313E := $FF): display x = buffer x - 1.
+void Screen::draw_overview(const LevelMap& map, const Ball& b, const OverviewView& o) {
+    const auto origin = overview_origin(map.columns, map.rows);
+    const auto plot = [&](int buffer_x, int buffer_y, std::uint8_t colour) {
+        const int x = buffer_x - 1, y = bar_lines + buffer_y;
+        if (x < 0 || x >= width || y < bar_lines || y >= bar_lines + view_lines) return;
+        at(x, y) = colour;
+    };
+    for (int i = 0; i < o.cells_drawn && i < map.rows * map.columns; ++i) {
+        const int r = i / map.columns, c = i % map.columns;
+        const std::uint8_t colour = o.colours.colour(map.cell(i), c);
+        if (colour) plot(origin.x + c, origin.y + r, colour);
+    }
+    if (!o.marker) return;
+    const int column = int(std::uint32_t(b.camera_x) >> 16) + int(std::uint32_t(b.view_x) >> 16) - 1;
+    const int row = int(std::uint32_t(b.camera_y) >> 16) + int(std::uint32_t(b.view_y) >> 16);
+    plot(origin.x + column, origin.y + row, 1);
+}
+
 void Screen::draw(const LevelMap& map, const Ball& b, const PanelNumbers& numbers, std::string_view level_name,
-                  std::string_view bar_text, const std::vector<ScreenText>& view_text) {
+                  std::string_view bar_text, const std::vector<ScreenText>& view_text, const OverviewView* overview) {
     draw_bar(level_name, bar_text);
     const auto level = decimal(numbers.level);
     draw_digits(40, 4, std::span(level).subspan(2, 3)); // $2D235: bar row 4, byte 5
-    if (view_text.empty()) {
+    if (view_text.empty() && !overview) {
         draw_view(map, b);
     } else {
         // The prompts clear the view and print there ($6B8E6; $6AE54: the
@@ -277,8 +300,9 @@ void Screen::draw(const LevelMap& map, const Ball& b, const PanelNumbers& number
         // view's buffer x 32, line 8).
         for (int y = 0; y < view_lines; ++y)
             for (int x = 0; x < width; ++x) at(x, bar_lines + y) = 0;
-        const int fine_x = int(low_word(b.camera_x) >> 12) & 15;
+        const int fine_x = overview ? 0 : int(low_word(b.camera_x) >> 12) & 15; // the map sets fine scroll 0
         for (const auto& text : view_text) print_at(canvas(), world_->bank, 32 - 1 - fine_x, bar_lines + 8, text);
+        if (overview) draw_overview(map, b, *overview);
     }
     draw_panel(numbers);
     draw_pillars();

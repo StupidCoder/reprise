@@ -24,11 +24,20 @@ struct MouseCounters {
 // loop ends for the continue/restart prompt ($6FDEA).
 // What the player has collected; shown on the panel.
 struct Pocket {
+    // $6EB22: one magic-map piece.
+    void add_map_piece() {
+        if (map_depth <= 33) ++map_depth;
+    }
+
     std::array<int, 4> keys{};    // cells $01-$04: $719EC, $719F8, $719F0, $719F4 (at most 9 each)
     std::array<int, 4> finds{};   // cells $05-$08: $719FC, $71A08, $71A00, $71A04
     int score{};                  // $719BA: finds add to it
     int money{};                  // $719C2: coins $11-$13, at most 9,900 ($26AC); shops take it
-    int map_pieces{};             // cells $0D/$0E: pieces of the magic map ($6EB22, not rebuilt)
+    // $77E62, the overview map's depth: 1 at a new game ($6ADCC); each
+    // magic-map piece ($0D/$0E → $6EB22) reveals one more of its value
+    // ranges and adds one, up to 34. Kept from level to level and across
+    // restarts (it lies outside $719C6-$71A23).
+    int map_depth{1};
     int repair_sets{};            // $719C6: bought at $33 shops
     int bombs{};                  // $71A1C: bought at $0F/$31 shops; item 6 places one ($6BE9A)
     int energy{0x7FF};            // $6F45A: shops take twice the missing money from it; some cells drain it
@@ -36,12 +45,12 @@ struct Pocket {
     int rescues{};                // $719B2: bought at $46 shops, at most 9; item 10 saves a falling ball ($6C488)
     int continues{};              // $719B6: extra balls bought at $47 shops (a game over continues with one)
 
-    // Restarting a level clears $719C6-$71A23 (keys, finds, map pieces and
-    // more); score and money lie below that range and stay.
+    // Restarting a level clears $719C6-$71A23 (keys, finds, repair sets,
+    // bombs and more); score, money and the map's depth lie outside that
+    // range and stay.
     void clear_for_restart() {
         keys = {};
         finds = {};
-        map_pieces = 0;
         repair_sets = 0;
         bombs = 0;
     }

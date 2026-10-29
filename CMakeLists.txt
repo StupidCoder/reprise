@@ -278,6 +278,7 @@ add_library(rock_n_roll_amiga
     games/rock_n_roll_amiga/game/front_end.cpp
     games/rock_n_roll_amiga/game/level_map.cpp
     games/rock_n_roll_amiga/game/module.cpp
+    games/rock_n_roll_amiga/game/overview_map.cpp
     games/rock_n_roll_amiga/game/records.cpp
     games/rock_n_roll_amiga/game/screen.cpp
     games/rock_n_roll_amiga/game/tile_animation.cpp
