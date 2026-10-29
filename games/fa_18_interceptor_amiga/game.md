@@ -917,8 +917,24 @@ second 34 on at its left end. Checked against `work/ref/above.png`
 
 Below the view (row $A7 = 167, `$13AC74`) colour 3 with "HDG nnn" (three
 digits with zeros, $126AB2: heading (+$68 >> 3) / 10), "nnn KTS", "nnnnn
-FT" on row 184. Not rebuilt: the fly-in states (also the start map's
-descent), the look directions in the cockpit.
+FT" on row 184. **Look directions in the cockpit** (`$13AA97`, keys `$10E64C`…: keypad
+8 ahead (0), 2 back (6), 4 / 6 one step round (−1 / +1, wrapping 0-11),
+7 / 1 up / down (12, 13)): the view turned about the aircraft's own up
+axis by `$12249A`'s heading for the direction (1-11: 2256, 4800, 7200,
+… 24000, 26544 in 80ths of a degree, clockwise), 12 and 13 by pitches
+that depend on the aircraft's (`$122392`…). `$10E7B8` sets the view's
+bottom row (`$13AC74`: $90 for 0-2 and 10-11, $A7 for 3-4, 8-9, 12-13,
+$B3 for 5-7) and the cockpit's sideways shift `$13AC76` from `$10E828`
+(0, −7, −14, −21, −50, 50, 50, 50, 50, 21, 14, 7, 50, 50), × 16 pixels
+(`$13AC78`) for the head-up display and panel: the cockpit slides
+right as the pilot looks left; what it uncovers from row 140 down is
+colour 3. From 50 on there is no cockpit and the aircraft's own shape
+shows (no shadow: `$113984` draws it only outside). Checked against
+`work/ref/look/l1-l6.png` (directions 11 to 6 on runway 1): the
+cockpit's place and the view's extent equal.
+
+Not rebuilt: the fly-in states (also the start map's descent), looking
+up and down (keypad 7 and 1 do not exist in Reprise's key map).
 
 ### The view in the cockpit
 

@@ -40,6 +40,7 @@ struct Vehicle {
     int type{};
     std::array<double, 3> position{};
     std::array<std::int16_t, 9> body{};
+    bool shadow = true;
 };
 
 class Scene {

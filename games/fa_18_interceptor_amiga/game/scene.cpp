@@ -254,7 +254,7 @@ void Scene::draw(IndexedImage& image, int centre, int bottom, const Camera& came
                          v.position[1] + (b[1] * x + b[4] * y + b[7] * z) / 16384.0,
                          v.position[2] + (b[2] * x + b[5] * y + b[8] * z) / 16384.0};
         };
-        if (v.position[1] <= chosen->shadow_height) {
+        if (v.shadow && v.position[1] <= chosen->shadow_height) {
             for (const auto& shadow : chosen->shadows) {
                 corners.clear();
                 for (const auto& c : shadow) {

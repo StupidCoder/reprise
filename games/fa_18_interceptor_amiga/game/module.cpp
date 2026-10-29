@@ -186,11 +186,54 @@ public:
                 cockpit_.draw_outside(frame, margin_, readings, bottom + 1);
                 return to_image(frame, image, *palette);
             }
-            scene_.draw(frame, width / 2 - 1, Cockpit::view_bottom, camera(before_, aircraft_, t));
+            // $10E7B8: with a look direction the cockpit slides sideways by
+            // `$13AC76` x 16 pixels (table `$10E828`); from 50 on there is
+            // none, the view reaches row $A7 or $B3 and the aircraft itself
+            // shows (its tail and wings).
+            static constexpr int look_shift[12] = {0, -7, -14, -21, -50, 50, 50, 50, 50, 21, 14, 7};
+            const int shift = look_shift[look_];
+            const bool cockpit = std::abs(shift) < 21;
+            const int view_rows = cockpit ? Cockpit::view_bottom : (look_ >= 5 && look_ <= 7 ? 0xB3 : 0xA7);
+            std::vector<Vehicle> self;
+            if (std::abs(shift) >= 50) {
+                Vehicle v;
+                v.shadow = false; // (only from outside, $113984)
+                v.type = aircraft_type_ == 0x10 ? 3 : 4;
+                const auto mix = [t](double a, double b) { return a + (b - a) * t; };
+                v.position = {mix(before_.x, aircraft_.x) / 256.0, mix(before_.y, aircraft_.y) / 256.0,
+                              mix(before_.z, aircraft_.z) / 256.0};
+                v.body = aircraft_.body;
+                self.push_back(v);
+            }
+            scene_.draw(frame, width / 2 - 1, cockpit ? Cockpit::view_bottom : view_rows,
+                        camera(before_, aircraft_, t, look_), self);
             readings.hud = phase_ != Phase::ready; // ($13AA91, set as the flight starts)
             readings.message = messages_.shown();
             readings.message_colour = messages_.colour();
-            cockpit_.draw(frame, margin_, readings);
+            if (!cockpit) {
+                for (int y = view_rows + 1; y < frame.height; ++y)
+                    for (int x = 0; x < frame.width; ++x) frame.put(x, y, 3);
+                return to_image(frame, image, *palette);
+            }
+            if (shift != 0) {
+                // The cockpit drawn on its own and laid over the view, moved.
+                IndexedImage panel(width, screen_height);
+                std::fill(panel.pixels.begin(), panel.pixels.end(), std::uint8_t(0xFF));
+                cockpit_.draw(panel, margin_, readings);
+                // (What it uncovers below the glare shield's lower edge is
+                // colour 3, as on the original's screen.)
+                for (int y = 140; y < screen_height; ++y)
+                    for (int x = 0; x < width; ++x) frame.put(x, y, 3);
+                for (int y = 0; y < screen_height; ++y)
+                    for (int x = 0; x < width; ++x) {
+                        const int from = x - shift * 16;
+                        if (from < 0 || from >= width) continue;
+                        const auto c = panel.pixels[std::size_t(y * width + from)];
+                        if (c != 0xFF) frame.put(x, y, c);
+                    }
+            } else {
+                cockpit_.draw(frame, margin_, readings);
+            }
             if (phase_ == Phase::ready) text_.draw(frame, margin_);
             // The panel is a view port of its own with `pix/inst5`'s colour
             // map, whose colours 16-31 repeat 0-15 (the flight palette's
@@ -473,6 +516,7 @@ private:
             // $10E3B8 / $1041E8: the outside view starts in front of the
             // aircraft ($13ABA2 = 4) at the nearest distance ($13AA75 = -1).
             outside_ = !outside_;
+            look_ = 0; // ($1042AE)
             if (outside_) {
                 position_ = 4;
                 distance_ = -1;
@@ -484,7 +528,15 @@ private:
         bool nearer = edge(input.ctrl_keys[key::equals], pad_was_[5]);
         bool farther = edge(input.ctrl_keys[key::minus], pad_was_[6]);
         sounds_.set_view(outside_, position_, distance_);
-        if (!outside_) return;
+        if (!outside_) {
+            // In the cockpit ($10E684, $10E6B4, $10E668, $10E64C): keypad 4
+            // and 6 step the look direction round, 8 looks ahead, 2 back.
+            if (left) look_ = (look_ + 11) % 12;
+            if (right) look_ = (look_ + 1) % 12;
+            if (up) look_ = 0;
+            if (down) look_ = 6;
+            return;
+        }
         if (left) position_ = position_ >= 8 ? 1 : (position_ + 1) % 8;
         if (right) position_ = position_ >= 8 ? 7 : (position_ + 7) % 8;
         if (up) position_ = 8;
@@ -646,7 +698,7 @@ private:
     // The cockpit camera: the eye 5 up and 20 ahead of the aircraft's
     // centre along its view matrix ($10F49E), looking along the body
     // matrix, rows scaled as the original's view ($10D308, $122D84).
-    static Camera camera(const Aircraft& was, const Aircraft& now, double t) {
+    static Camera camera(const Aircraft& was, const Aircraft& now, double t, int look = 0) {
         Camera c;
         const auto mix = [t](double a, double b) { return a + (b - a) * t; };
         std::array<double, 9> body{};
@@ -658,6 +710,18 @@ private:
         const double eye[3] = {(20 * view[2] + 5 * view[1]), (20 * view[5] + 5 * view[4]), (20 * view[8] + 5 * view[7])};
         c.position = {mix(was.x, now.x) / 256.0 + eye[0], mix(was.y, now.y) / 256.0 + eye[1],
                       mix(was.z, now.z) / 256.0 + eye[2]};
+        // The look direction ($122340): the view turned about the
+        // aircraft's own up axis by the heading of `$12249A` (80 a degree,
+        // clockwise: 1 is 28.2 degrees right of the nose ... 11 as far left).
+        static constexpr int look_heading[12] = {0, 2256, 4800, 7200, 9600, 12000, 14400, 16800, 19200, 21600, 24000, 26544};
+        if (look > 0) {
+            const double a = look_heading[look] / 80.0 * 3.14159265358979 / 180, cs = std::cos(a), sn = std::sin(a);
+            for (std::size_t k = 0; k < 3; ++k) {
+                const double left = body[k], ahead = body[6 + k];
+                body[k] = cs * left + sn * ahead;
+                body[6 + k] = cs * ahead - sn * left;
+            }
+        }
         constexpr double rows[3] = {0xA8 / 256.0, 0xFC / 256.0, 0x80 / 256.0};
         for (std::size_t r = 0; r < 3; ++r)
             for (std::size_t k = 0; k < 3; ++k) c.matrix[3 * r + k] = body[3 * r + k] * rows[r];
@@ -691,6 +755,7 @@ private:
     bool chase_set_ = false;
     std::array<bool, 7> pad_was_{};
     bool above_ = false, v_was_ = false;      // $13AA9D: the view from above
+    int look_ = 0;                            // $13AA97: the cockpit's look direction
     double above_height_ = 0x3000000 / 256.0; // $13AF32 / $13A954
     static constexpr int outside_bottom = 0xA7;
     Phase phase_ = Phase::flying;

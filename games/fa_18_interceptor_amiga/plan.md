@@ -39,8 +39,8 @@ from drawing, and must still respect the passes' model rule).
    symbol, the radar's scan and own mark, the panel's own colours. Left:
    the GEAR box's lighting while the gear-speed warning blinks, the
    alert lights' colours (`$125D26`, from the alerts of task 7), the
-   radar contacts and the weapons' marks (tasks 7-8), the cockpit look
-   directions (`$13AA97`) and zoom keys (`$13AD32`).
+   radar contacts and the weapons' marks (tasks 7-8), the zoom keys
+   (`$13AD32`, keys `[` / `]` in the cockpit).
 4. **Warnings and messages** — partly done 2026-10-29: fuel low,
    critical and exhausted in the message line, the 7.8 G beep and the
    blackout counter (engine at half volume). Left: the radar and missile
@@ -60,8 +60,9 @@ from drawing, and must still respect the passes' model rule).
    (checked against a recording), and the view from above with its grid
    (V for the original's M, which Reprise keeps for mute). Left: the
    camera's fly-in states (`$13AAA6`, and the start map's descent to the
-   aircraft), the cockpit look directions (`$13AA97`), which shape the
-   F-16 uses.
+   aircraft), looking up and down (keypad 7 / 1: no keys for them in
+   Reprise yet), which shape the F-16 uses. Done since: the cockpit
+   look directions (keypad 4 / 6 / 8 / 2 in the cockpit).
 7. **Moving objects**: the carrier (free-flight places 4-5, the deck,
    catapult and its thump, arrestor hook), other aircraft, missiles,
    parachutes; their object records and flight paths.
