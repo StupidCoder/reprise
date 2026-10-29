@@ -870,12 +870,44 @@ for the F/A-18, `$11D7AC` for type $14; words x, y, z, 4 world units
 each), as it is at distance −1, 1.5 times at 1, then 2, 4, 8 times;
 turned by the aircraft's view matrix (`$10D486`) for positions 0 and 4,
 by a level matrix (`$13AEFE`, `$10D460`) for the others; at least 7
-units above the ground or deck. The camera's states (`$13AAA6`, table
-`$11D710`) fly it in from afar; then it moves half the way to its target
-each frame. It looks at the aircraft, level: checked on the running
-original (`harness/camstate.py`): position 4 at distance −1 on runway 1
-put the camera (0, 12, −72) from the aircraft turned by its heading, and
-the view matrix was the level look-at's (rows ×$A8, $FC, $80).
+units above the ground or deck (`$11D9AC`: the camera takes that place
+at once each frame). Its orientation has angles of its own (`$13AD84`
+pitch, looking down from 0 to $1C20; `$13AD86` heading): `$10454A` turns
+them each frame a quarter of the way towards the aircraft, at most $7D0
+(80ths of a degree), $230 during the descent below, at once (rate −1)
+when the view position changed (`$12222C`) or on the first frame.
+Checked on the running original (`harness/camstate.py`): position 4 at
+distance −1 on runway 1 put the camera (0, 12, −72) from the aircraft
+turned by its heading, the view matrix the look-at's (rows ×$A8, $FC,
+$80).
+
+**The descent from the start map** (`$102C6E` → `$102D58` with
+`$13AB9E` = 6, `$13AAA6` = 0): the camera starts at the map's place,
+looking straight down, aimed at a point 23,040 units behind the aircraft
+(`$10D44A`: offset (0, 0, $E980) turned by its view matrix, products
+over 16). Each frame (`$11D9B8`) the distance d = the largest of |dx|,
+|dy|, |dz| (32-bit) to the target picks, by state (table `$11D710`):
+- 0: exponent $D above $1C00000, $B above $D00000, else state 1 and a
+  way point (`$11DBEE`: m = (c + p)/2 of camera and aircraft, n = ((m +
+  c)/2 in x and z, m/2 in y), o = (n + m)/2, q = (o + m)/2, target (q +
+  o)/2);
+- 1: $B above $200000, $A above $60000, else state 2 and a way point;
+- 2: 9 above $60000, 7 above $30000 (a new way point each frame), else
+  state 3;
+- 3: the aircraft itself as target; 7 above $60000, 5 above $D000, 3
+  above $8000, else state 4 and the near offset (6, 4, 3) for positions
+  1 and 2, else (−6, 4, −9), turned as above;
+- 4: 2 above $2800, else state 5 and the offset (±6, 1, 6);
+- 5: 1.
+At d ≤ $240 (any state) state 6: five frames (`$13AB95`), then the view
+switches to the cockpit (`$13ABB6` bit 1) and `$13AB9E` = 0; `$102D58`
+waits five frames more and types "READY FOR TAKEOFF". The move
+(`$11DD2C`): the difference shifted down by 4 until below $4800, scaled
+to length 512 (`$119CAE`), shifted up by the exponent; the velocity
+`$13AF3A` goes half way to it (or takes it when 0); the camera adds it.
+No numbers under the view meanwhile. Checked against the running
+original (`work/ref/descent/q070-q100.png` against the port at the same
+frames: the same path and view); about 80 frames, 5 s.
 
 The aircraft is drawn with its vehicle shape: type 4 for the F/A-18
 (the object's +$62 = $11 is not the shape index; the F-16's is taken to
@@ -940,8 +972,7 @@ cockpit's place and the view's extent equal.
 of the view matrix, the readout ($1266C8) shows 1.0, 2.0 or 4.0 (the
 port stops at $20); `$13AACD` bit 7 is set at $80.
 
-Not rebuilt: the fly-in states (also the start map's descent), looking
-up and down (keypad 7 and 1 do not exist in Reprise's key map).
+Not rebuilt: looking up and down (keypad 7 and 1 do not exist in Reprise's key map).
 
 ### The view in the cockpit
 

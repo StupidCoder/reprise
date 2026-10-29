@@ -38,7 +38,8 @@ public:
 
     // The outside view's numbers on the black below it ($126AB2, $126B48,
     // $126C16): "HDG 357   0 KTS   195 FT".
-    void draw_outside(IndexedImage& image, int left, const CockpitReadings& readings, int top = 0xA8) const;
+    void draw_outside(IndexedImage& image, int left, const CockpitReadings& readings, int top = 0xA8,
+                      bool numbers = true) const;
 
 private:
     void text(IndexedImage& image, int x, int y, const std::string& t, int colour) const;

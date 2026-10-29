@@ -28,8 +28,7 @@ from drawing, and must still respect the passes' model rule).
    credits, call-sign entry / welcome back, main menu, flight log (with
    write and reset), the start map with its markers, the aircraft choice,
    "READY FOR TAKEOFF", Esc / Shift-Esc, the pilot record (`config`).
-   Left: the map's descent of the outside camera to the aircraft (cut
-   straight to the cockpit), the missions list (6) and the other items'
+   Left: the missions list (6) and the other items'
    screens (with their modes, tasks 10-11), the security check (skipped:
    copy protection), the log disk messages (the folder is always there).
 2. **Music** — done 2026-10-29: the title tune is the chain of sample
@@ -59,11 +58,10 @@ from drawing, and must still respect the passes' model rule).
    original's `[` / `]`) with the original's offsets, chase and level
    look-at, the F/A-18's shape and shadow, the outside sound rules
    (checked against a recording), and the view from above with its grid
-   (V for the original's M, which Reprise keeps for mute). Left: the
-   camera's fly-in states (`$13AAA6`, and the start map's descent to the
-   aircraft), looking up and down (keypad 7 / 1: no keys for them in
-   Reprise yet), which shape the F-16 uses. Done since: the cockpit
-   look directions (keypad 4 / 6 / 8 / 2 in the cockpit).
+   (V for the original's M, which Reprise keeps for mute), the start
+   map's descent to the aircraft (`$13AAA6`, checked frame by frame) and
+   the camera's turning (`$10454A`). Left: looking up and down (keypad 7 / 1: no keys for them in Reprise yet),
+   which shape the F-16 uses.
 7. **Moving objects**: the carrier (free-flight places 4-5, the deck,
    catapult and its thump, arrestor hook), other aircraft, missiles,
    parachutes; their object records and flight paths.
@@ -120,5 +118,3 @@ from drawing, and must still respect the passes' model rule).
   heading) draws all cells.
 - No look directions in the cockpit, no tower view; F/A-18 only; no
   other objects.
-- The map cuts straight to the cockpit (the original flies the outside
-  camera down to the aircraft).

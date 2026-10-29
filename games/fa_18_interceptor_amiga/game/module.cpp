@@ -127,7 +127,8 @@ public:
         --countdown_; // $13ADC6, every frame ($101748)
         run_procedure();
         messages_.clock();
-        if (phase_ == Phase::end_wait || phase_ == Phase::end_text || phase_ == Phase::ready) {
+        if (phase_ == Phase::end_wait || phase_ == Phase::end_text || phase_ == Phase::ready ||
+            phase_ == Phase::descent || phase_ == Phase::to_ready) {
             remember_keys(input);
             sounds_.update(aircraft_);
             return;
@@ -184,7 +185,9 @@ public:
                 const auto view = outside_camera(t);
                 scene_.draw(frame, width / 2 - 1, bottom, view, {self});
                 if (above_) grid(frame, view, width / 2 - 1, bottom);
-                cockpit_.draw_outside(frame, margin_, readings, bottom + 1);
+                // (No numbers while the camera comes down from the map: $126AB2
+                // needs `$13AAC9`.)
+                cockpit_.draw_outside(frame, margin_, readings, bottom + 1, phase_ != Phase::descent);
                 return to_image(frame, image, *palette);
             }
             // $10E7B8: with a look direction the cockpit slides sideways by
@@ -208,7 +211,7 @@ public:
             }
             scene_.draw(frame, width / 2 - 1, cockpit ? Cockpit::view_bottom : view_rows,
                         camera(before_, aircraft_, t, look_, zoom_), self);
-            readings.hud = phase_ != Phase::ready; // ($13AA91, set as the flight starts)
+            readings.hud = phase_ != Phase::ready && phase_ != Phase::to_ready; // ($13AA91, set as the flight starts)
             readings.message = messages_.shown();
             readings.message_colour = messages_.colour();
             if (!cockpit) {
@@ -299,6 +302,8 @@ public:
 
 private:
     enum class Phase {
+        descent,      // $102D58 with the outside camera's flight down (`$13AB9E` = 6)
+        to_ready,     // $102D58: five frames in the cockpit
         ready,        // $102E4E / $102EDA: "READY FOR TAKEOFF", then a beep
         flying,       // $102EFE (also while held after a restart)
         crashed,      // $1038D8: the first frame after the flash
@@ -327,7 +332,17 @@ private:
         restart();
         flying_ = false;
         ready_done_ = false;
-        phase_ = Phase::ready;
+        // The outside camera comes down from the map to the aircraft first
+        // ($102C6E: aimed 23,040 units behind it, $10D44A).
+        descent_ = Descent{};
+        descent_.target = plane_offset(0, 0, -0x1680);
+        outside_ = true;
+        above_ = false;
+        position_ = 0;
+        chase_ = chase_was_ = {descent_.camera[0] / 256.0, descent_.camera[1] / 256.0, descent_.camera[2] / 256.0};
+        chase_set_ = true;
+        cam_angles_ = cam_angles_was_ = {0x1C20, 0}; // straight down, as the map ($10D2B2)
+        phase_ = Phase::descent;
     }
 
     // Free flight ends (Esc, Shift-Esc, the end text): every sound stops.
@@ -362,6 +377,23 @@ private:
     // The screen procedure of this frame.
     void run_procedure() {
         switch (phase_) {
+        case Phase::descent:
+            descend();
+            chase_was_ = chase_;
+            chase_ = {descent_.camera[0] / 256.0, descent_.camera[1] / 256.0, descent_.camera[2] / 256.0};
+            aim_camera(0x230);
+            if (descent_.done) {
+                // $11DD1C: the view switches to the cockpit ($1041E8), the
+                // text follows five frames on ($102D58).
+                outside_ = false;
+                chase_set_ = false;
+                countdown_ = 5;
+                phase_ = Phase::to_ready;
+            }
+            break;
+        case Phase::to_ready:
+            if (countdown_ < 0) phase_ = Phase::ready;
+            break;
         case Phase::ready:
             // $102E4E: the text typed, then three frames and a beep.
             // (Typed a frame per vertical blank over the still view.)
@@ -559,7 +591,10 @@ private:
         sounds_.set_view(outside_, position_, distance_);
         // ($10E52E, $10E5BA: a view key asks for the engine's update now,
         // even when the view stays the same.)
-        if (left || right || up || down || nearer || farther) sounds_.event(EngineSound::update);
+        if (left || right || up || down || nearer || farther) {
+            sounds_.event(EngineSound::update);
+            aim_now_ = true; // ($12222C: a new view position turns the camera at once)
+        }
     }
 
     // $11D8F2 / $11DD2C: the outside camera's place: the offset of its
@@ -583,6 +618,38 @@ private:
         return p;
     }
 
+    // $10454A: the outside camera's angles turn a quarter of the way to the
+    // aircraft each frame, at most `rate` (80ths of a degree); a negative
+    // rate (a new view position, or the first frame) turns them at once.
+    void aim_camera(int rate) {
+        const double dx = aircraft_.x / 256.0 - chase_[0], dy = aircraft_.y / 256.0 - chase_[1],
+                     dz = aircraft_.z / 256.0 - chase_[2];
+        const auto angle = [](double r) {
+            int a = int(std::lround(r * 180 / 3.14159265358979 * 80)) % 0x7080;
+            return a < 0 ? a + 0x7080 : a;
+        };
+        const int want[2] = {angle(std::atan2(-dy, std::sqrt(dx * dx + dz * dz))), angle(std::atan2(-dx, dz))};
+        cam_angles_was_ = cam_angles_;
+        for (int i = 0; i < 2; ++i) {
+            int& a = cam_angles_[std::size_t(i)];
+            if (rate < 0) {
+                a = want[i];
+                continue;
+            }
+            int d = want[i] - a;
+            if (d < 0) {
+                if (d < -0x3840) a += std::min((d + 0x7080) >> 2, rate);
+                else a -= std::min((-d) >> 2, rate);
+            } else if (d <= 0x3840) {
+                a += std::min(d >> 2, rate);
+            } else {
+                a -= std::min((0x7080 - d) >> 2, rate);
+            }
+            a = ((a % 0x7080) + 0x7080) % 0x7080;
+        }
+        if (rate < 0) cam_angles_was_ = cam_angles_;
+    }
+
     void chase_camera() {
         if (!outside_) return;
         chase_was_ = chase_;
@@ -590,9 +657,135 @@ private:
         if (!chase_set_) {
             chase_ = chase_was_ = target;
             chase_set_ = true;
+            aim_camera(-1);
             return;
         }
-        for (std::size_t i = 0; i < 3; ++i) chase_[i] += (target[i] - chase_[i]) / 2;
+        chase_ = target; // ($11D9AC: the camera takes its place at once)
+        aim_camera(aim_now_ ? -1 : 0x7D0);
+        aim_now_ = false;
+    }
+
+    // The outside camera's flight down from the start map to the aircraft
+    // ($11D9B8 with `$13AB9E` = 6): states `$13AAA6` 0-6 (table `$11D710`),
+    // in 32-bit units. Each frame the target's distance (the largest of
+    // |dx|, |dy|, |dz|) picks the speed exponent or the next state; the
+    // velocity is the direction scaled to 512 and shifted by the exponent,
+    // half-way blended with the last one ($11DD2C); the camera adds it.
+    struct Descent {
+        int state = 0;
+        std::array<std::int64_t, 3> camera{0x10800000, 0x3000000, 0x10C00000}; // the map's camera ($10D3D8)
+        std::array<std::int64_t, 3> target{}, velocity{};
+        int countdown = 0; // $13AB95
+        bool done = false;
+    };
+
+    std::array<std::int64_t, 3> plane_offset(int ox, int oy, int oz) const {
+        // $10D486: the aircraft's place plus the offset turned by its view
+        // matrix, the products over 16.
+        const auto& m = aircraft_.view;
+        const std::int64_t o[3] = {ox, oy, oz};
+        std::array<std::int64_t, 3> p{aircraft_.x, aircraft_.y, aircraft_.z};
+        for (int r = 0; r < 3; ++r)
+            p[std::size_t(r)] += (m[std::size_t(3 * r)] * o[0] + m[std::size_t(3 * r + 1)] * o[1] + m[std::size_t(3 * r + 2)] * o[2]) >> 4;
+        return p;
+    }
+
+    // $11DBEE: a point on the way, from the camera and the aircraft.
+    std::array<std::int64_t, 3> way_point(const std::array<std::int64_t, 3>& c) const {
+        const std::array<std::int64_t, 3> p{aircraft_.x, aircraft_.y, aircraft_.z};
+        std::array<std::int64_t, 3> m, n, o, q, r;
+        for (int i = 0; i < 3; ++i) m[std::size_t(i)] = (c[std::size_t(i)] + p[std::size_t(i)]) >> 1;
+        n = {(m[0] + c[0]) >> 1, m[1] >> 1, (m[2] + c[2]) >> 1};
+        for (int i = 0; i < 3; ++i) o[std::size_t(i)] = (n[std::size_t(i)] + m[std::size_t(i)]) >> 1;
+        for (int i = 0; i < 3; ++i) q[std::size_t(i)] = (o[std::size_t(i)] + m[std::size_t(i)]) >> 1;
+        for (int i = 0; i < 3; ++i) r[std::size_t(i)] = (q[std::size_t(i)] + o[std::size_t(i)]) >> 1;
+        return r;
+    }
+
+    void descend() {
+        auto& d = descent_;
+        const auto distance = [&] {
+            std::int64_t m = 0;
+            for (int i = 0; i < 3; ++i) m = std::max(m, std::abs(d.target[std::size_t(i)] - d.camera[std::size_t(i)]));
+            return m;
+        };
+        if (d.state == 6) { // $11DD14
+            if (--d.countdown <= 0) d.done = true;
+            return;
+        }
+        const std::int64_t far = distance();
+        int exponent = 0;
+        const bool left_side = position_ == 1 || position_ == 2; // ($11DC96: the side of the near offsets)
+        switch (d.state) {
+        case 0:
+            exponent = 0xD;
+            if (far > 0x1C00000) break;
+            exponent = 0xB;
+            if (far > 0xD00000) break;
+            d.state = 1;
+            d.target = way_point(d.camera);
+            break;
+        case 1:
+            exponent = 0xB;
+            if (far > 0x200000) break;
+            exponent = 0xA;
+            if (far > 0x60000) break;
+            d.state = 2;
+            d.target = way_point(d.camera);
+            break;
+        case 2:
+            exponent = 9;
+            if (far > 0x60000) { d.target = way_point(d.camera); break; }
+            exponent = 7;
+            if (far > 0x30000) { d.target = way_point(d.camera); break; }
+            d.state = 3;
+            d.target = {aircraft_.x, aircraft_.y, aircraft_.z};
+            break;
+        case 3:
+            d.target = {aircraft_.x, aircraft_.y, aircraft_.z};
+            exponent = 7;
+            if (far > 0x60000) break;
+            exponent = 5;
+            if (far > 0xD000) break;
+            exponent = 3;
+            if (far > 0x8000) break;
+            d.state = 4;
+            d.target = left_side ? plane_offset(6, 4, 3) : plane_offset(-6, 4, -9);
+            break;
+        case 4:
+            exponent = 2;
+            if (far > 0x2800) break;
+            d.state = 5;
+            d.target = plane_offset(left_side ? 6 : -6, 1, 6);
+            break;
+        default:
+            exponent = 1;
+            break;
+        }
+        // $11DCEA: close enough: a few frames still, then the cockpit.
+        if (far <= 0x240) {
+            d.state = 6;
+            d.countdown = 4;
+            return;
+        }
+        std::array<std::int64_t, 3> delta;
+        for (int i = 0; i < 3; ++i) delta[std::size_t(i)] = d.target[std::size_t(i)] - d.camera[std::size_t(i)];
+        std::int64_t largest = far;
+        while (largest >= 0x4800) {
+            for (auto& v : delta) v >>= 2;
+            largest >>= 2;
+        }
+        const double length = std::sqrt(double(delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]));
+        std::array<std::int64_t, 3> wanted{};
+        if (length > 0)
+            for (int i = 0; i < 3; ++i)
+                wanted[std::size_t(i)] = std::int64_t(double(delta[std::size_t(i)]) * 512 / length) << exponent;
+        const bool still = d.velocity[0] == 0 && d.velocity[1] == 0 && d.velocity[2] == 0;
+        for (int i = 0; i < 3; ++i) {
+            auto& v = d.velocity[std::size_t(i)];
+            v = still ? wanted[std::size_t(i)] : v + ((wanted[std::size_t(i)] - v) >> 1);
+            d.camera[std::size_t(i)] += v;
+        }
     }
 
     // $11FD40: the view from above carries a grid of half degrees: 24
@@ -681,16 +874,17 @@ private:
             return c;
         }
         for (std::size_t i = 0; i < 3; ++i) c.position[i] = chase_was_[i] + (chase_[i] - chase_was_[i]) * t;
-        const double ax = (before_.x + (aircraft_.x - before_.x) * t) / 256.0;
-        const double ay = (before_.y + (aircraft_.y - before_.y) * t) / 256.0;
-        const double az = (before_.z + (aircraft_.z - before_.z) * t) / 256.0;
-        double f[3] = {ax - c.position[0], ay - c.position[1], az - c.position[2]};
-        const double n = std::sqrt(f[0] * f[0] + f[1] * f[1] + f[2] * f[2]);
-        if (n < 1e-6) return camera(before_, aircraft_, t);
-        for (auto& v : f) v /= n;
-        double x[3] = {f[2], 0, -f[0]}; // up x forward
-        const double xn = std::sqrt(x[0] * x[0] + x[2] * x[2]);
-        if (xn < 1e-6) { x[0] = 1; x[2] = 0; } else { x[0] /= xn; x[2] /= xn; }
+        // Its own angles ($13AD84 pitch, looking down from 0 to $1C20, and
+        // $13AD86 heading, clockwise), between the last two frames.
+        const auto between = [t](int a, int b) {
+            int d = b - a;
+            if (d > 0x3840) d -= 0x7080;
+            if (d < -0x3840) d += 0x7080;
+            return (a + d * t) / 80.0 * 3.14159265358979 / 180;
+        };
+        const double p = between(cam_angles_was_[0], cam_angles_[0]), h = between(cam_angles_was_[1], cam_angles_[1]);
+        const double f[3] = {-std::sin(h) * std::cos(p), -std::sin(p), std::cos(h) * std::cos(p)};
+        const double x[3] = {std::cos(h), 0, std::sin(h)};
         const double y[3] = {f[1] * x[2] - f[2] * x[1], f[2] * x[0] - f[0] * x[2], f[0] * x[1] - f[1] * x[0]};
         constexpr double rows[3] = {0xA8 / 256.0, 0xFC / 256.0, 0x80 / 256.0};
         for (int k = 0; k < 3; ++k) {
@@ -762,6 +956,9 @@ private:
     std::array<bool, 7> pad_was_{};
     bool above_ = false, v_was_ = false;      // $13AA9D: the view from above
     int look_ = 0;                            // $13AA97: the cockpit's look direction
+    Descent descent_;
+    std::array<int, 2> cam_angles_{}, cam_angles_was_{}; // $13AD84, $13AD86
+    bool aim_now_ = false;
     int zoom_ = 0x80;                         // $13AD32
     double above_height_ = 0x3000000 / 256.0; // $13AF32 / $13A954
     static constexpr int outside_bottom = 0xA7;

@@ -220,10 +220,11 @@ void Cockpit::draw(IndexedImage& image, int left, const CockpitReadings& r) cons
     }
 }
 
-void Cockpit::draw_outside(IndexedImage& image, int left, const CockpitReadings& r, int top) const {
+void Cockpit::draw_outside(IndexedImage& image, int left, const CockpitReadings& r, int top, bool numbers) const {
     constexpr int row = 184, grey = 13;
     for (int y = top; y < image.height; ++y)
         for (int x = 0; x < image.width; ++x) image.put(x, y, 3); // ($111, as on the original's screen)
+    if (!numbers) return;
     const auto right_aligned = [&](int value, const std::vector<int>& cells) {
         const auto t = std::to_string(std::max(0, value));
         for (std::size_t i = 0; i < t.size() && i < cells.size(); ++i)
