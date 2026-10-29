@@ -18,6 +18,7 @@ namespace rocknroll::game {
 // how far they moved since the last read.
 struct MouseCounters {
     std::uint8_t x{}, y{};
+    template <class A> void persist(A& ar) { ar(x, y); }
     std::uint16_t word() const { return std::uint16_t(y << 8 | x); }
 };
 
@@ -49,6 +50,10 @@ struct Pocket {
     // Restarting a level clears $719C6-$71A23 (keys, finds, repair sets,
     // bombs and more); score, money and the map's depth lie outside that
     // range and stay.
+    template <class A> void persist(A& ar) {
+        ar(keys, finds, score, money, map_depth, repair_sets, bombs, energy, shown_energy, rescues, continues);
+    }
+
     void clear_for_restart() {
         keys = {};
         finds = {};
@@ -72,6 +77,10 @@ struct Clock {
     int switch_latch{};               // $6DDF0: a switch was used (cleared every second)
     bool mouse_frozen{};              // $70408: the read sees no movement (the ball coasts out of time)
     bool out_of_time{};               // the ball stopped after the time ran out: lost
+
+    template <class A> void persist(A& ar) {
+        ar(hundredths, step, seconds, limit, countdown, ticks, drained, switch_latch, mouse_frozen, out_of_time);
+    }
 };
 
 enum class BallMode { rolling, falling, rescued, lost, warped };
@@ -180,6 +189,23 @@ struct Ball {
     std::array<bool, 256> unhandled_kinds{};
 
     static Ball at_start(const LevelMap&);
+
+    // Quick saves (the module's state archive): every field but the
+    // research counters and this update's sounds.
+    template <class A> void persist(A& ar) {
+        ar(camera_x, camera_y, view_x, view_y, speed_x, speed_y, camera_limit_x, camera_limit_y);
+        ar(max_speed_x, max_speed_y, min_speed_x, min_speed_y, friction);
+        ar(grip, updates_without_read, last_mouse, steered, hold_x, hold_y, slow, ice_push_x, ice_push_y,
+           last_push_x, last_push_y);
+        ar(collisions, high_cell, contact_rows, contact_columns, centre_cell, roll_x, roll_y);
+        ar(mode, energy_out, rescue_updates, repair_armed, bomb_timer, bomb_cell, bomb_spot, fall_cell,
+           fall_updates, mouse_ignored, falling_friction, extra_speed);
+        ar(kind, ice_proof, protective, kind_updates, kind_running, shop_wait, shop_spot, on_bridge);
+        ar(sound_delay, rescue_chosen, energy_sound_quiet, bridge_latch, bridge_end_sound, bridge_end_other,
+           bridge_along_y, carried, clock);
+        ar(remembered_cell, pending_value, level_done, hint_bought, secret_warp, reward_due, teleported);
+        ar(continue_camera_x, continue_camera_y, continue_view_x, continue_view_y);
+    }
 };
 
 // One update of the in-level loop ($68940), the parts rebuilt so far, in
@@ -207,6 +233,7 @@ void settle_energy(Ball&, Pocket&);
 // right button steps the choice ($6B4F8: from 2 on, past the last ($6B4F6)
 // back to 2), the left button uses it while held ($6B54E).
 struct Items {
+    template <class A> void persist(A& ar) { ar(selected, right_latch); }
     int selected{2};
     int last{10};
     bool right_latch{}; // $6B4F0

@@ -98,6 +98,14 @@ struct LevelMap {
     // What a bomb leaves in the 3 x 3 cells around it (+$1CA, $6BF56).
     std::array<std::uint8_t, 9> after_bomb{};
 
+    // Quick saves: what play changes; the rest comes from the level.
+    template <class A> void persist(A& ar) {
+        ar(cells, warp_count, reward_count, crumble_count, crumble_switched, left_behind, refill, magnets);
+        ar(block.count, block.direction, block.last_vx, block.last_vy, block.from, block.to, block.value,
+           block.sinking, block.counts_for_warp);
+        ar(tiles, animation);
+    }
+
     // The cell at a linear index (row * columns + column), as the original
     // addresses them; indices outside the map read as 0.
     std::uint8_t cell(long index) const {

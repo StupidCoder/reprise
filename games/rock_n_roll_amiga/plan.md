@@ -73,6 +73,10 @@ Finished, in order:
     energy step; the mouse read's gate carried into name entry and the
     start wait; the panel clock kept across a level start; the crumbling
     floor's sound only when a cell falls in.
+17. Host enhancements: touch input (swipes move the mouse counters, taps
+    click), widescreen up to 21:9, smooth motion between updates and
+    quick save, each checked headless (pictures after a load equal the
+    running game's).
 
 ## Remaining tasks
 
@@ -94,14 +98,10 @@ and the set-up's energy step are in.
 
 ### Host and enhancements (off by default unless noted)
 
-- [ ] Touch input: a swipe moves the mouse counters, like captured-mouse
-  movement.
-- [ ] Widescreen: the view is already a camera in map pixels. Draw wider
-  than 16 columns and keep the original's right-edge run into the next row
-  only in the original-width view.
-- [ ] Smooth motion up to 120 Hz: interpolate the camera and ball between
-  the 50 Hz updates (game state is kept apart from drawing).
-- [ ] Quick save, like the other Reprise games.
+Done: touch input, widescreen, smooth motion and quick save (game.md, "The
+port's additions"). Left:
+- [ ] Try them in the app on a touch device and at 120 Hz: they are checked
+  headless only (touch through the runner's finger steps).
 
 ### Verification
 

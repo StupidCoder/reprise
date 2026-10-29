@@ -9,7 +9,9 @@
 #include "rock_n_roll_amiga/game/records.hpp"
 #include "rock_n_roll_amiga/game/screen.hpp"
 #include "rock_n_roll_amiga/sound/game_sound.hpp"
+#include "state/archive.hpp"
 #include <algorithm>
+#include <cmath>
 #include <string>
 #include <utility>
 
@@ -108,13 +110,45 @@ public:
     std::vector<app::GameOption> options() const override {
         return {{"Mouse speed", {"Normal", "Slow", "Fast"}, mouse_speed_,
                  "Mouse counts per point the mouse moves: 1, 1/2 or 2. The ball pushes hardest from two "
-                 "counts an update on."}};
+                 "counts an update on."},
+                {"Widescreen", {"Off", "On"}, widescreen_ ? 1 : 0,
+                 "Fills the window to its edges, up to 21:9, and shows more of the level left and right. "
+                 "The game plays the same."},
+                {"Smooth motion", {"Off", "On"}, smooth_ ? 1 : 0,
+                 "The ball and the view glide at the display's own rate instead of stepping 50 times a "
+                 "second. The game plays the same."}};
     }
     void set_option(std::size_t index, int value) override {
         if (index == 0) mouse_speed_ = std::clamp(value, 0, 2);
+        if (index == 1) {
+            widescreen_ = value != 0;
+            set_canvas(canvas_width_, canvas_height_);
+        }
+        if (index == 2) smooth_ = value != 0;
+    }
+    void set_frame_fraction(double fraction) override { frame_fraction_ = std::clamp(fraction, 0.0, 1.0); }
+
+    // Widescreen: as wide as the window's shape allows, from the original's
+    // 304 pixels up to 21:9 (the other screens keep their own picture, in
+    // the middle of one of the same shape).
+    void set_canvas(int width, int height) override {
+        canvas_width_ = width;
+        canvas_height_ = height;
+        int margin = 0;
+        if (widescreen_ && width > 0 && height > 0) {
+            const double tall = Screen::height;
+            const double wide = std::clamp(tall * width / height, double(Screen::width), tall * 21 / 9);
+            margin = std::max(0, int(wide - Screen::width) / 2);
+        }
+        if (margin == margin_) return;
+        margin_ = margin;
+        if (screen_) screen_->set_margin(margin_);
     }
 
-    void tick(const app::GameInput& input) override {
+    void tick(const app::GameInput& raw) override {
+        app::GameInput input = raw;
+        apply_touch(input);
+        before_.valid = false; // (set again by an update of the ball)
         const auto [counts_x, counts_y] = mouse_counts(input);
         const bool left = input.mouse_button || input.fire, right = input.mouse_right || input.space;
         const bool left_pressed = left && !left_held_, right_pressed = right && !right_held_;
@@ -155,6 +189,7 @@ public:
             if (wait_for_start(ball_, mouse_)) phase_ = Phase::playing;
             break;
         case Phase::playing:
+            before_ = Place{ball_.camera_x, ball_.camera_y, ball_.view_x, ball_.view_y, level_index_, true};
             sound_->tick(); // $68940: the loop's first call
             move_counters(input, counts_x, counts_y);
             update_ball(ball_, pocket_, map_, world(), mouse_);
@@ -310,21 +345,22 @@ public:
     platform::Image picture() const override {
         switch (phase_) {
         case Phase::front_end:
-            return front_end_->picture();
+            return widened(front_end_->picture());
         case Phase::ending:
-            return ending_picture();
+            return widened(ending_picture());
         case Phase::continue_offer:
-            return continue_picture();
+            return widened(continue_picture());
         case Phase::notice:
-            if (notice_full_screen_) return hint_picture();
+            if (notice_full_screen_) return widened(hint_picture());
             break;
         default:
             break;
         }
         const auto& level = assets_.levels.at(std::size_t(level_index_));
-        screen_->draw(map_, ball_, panel_numbers(), level.name, bar_text_, view_texts(),
+        screen_->draw(map_, shown_ball(), panel_numbers(), level.name, bar_text_, view_texts(),
                       phase_ == Phase::overview ? &overview_ : nullptr);
-        platform::Image image(Screen::width, Screen::height);
+        const int width = screen_->picture_width();
+        platform::Image image(width, Screen::height);
         const auto& pixels = screen_->pixels();
         // $6AB46: while the results wait, colours 1-7 of the view are $EE0
         // and colour 1 (the new record) flashes.
@@ -338,12 +374,50 @@ public:
         for (int y = 0; y < Screen::height; ++y) {
             const bool view = y >= Screen::bar_lines && y < Screen::bar_lines + Screen::view_lines;
             const auto& palette = view ? view_palette : screen_->palette(y);
-            for (int x = 0; x < Screen::width; ++x) {
-                const auto i = std::size_t(y) * Screen::width + std::size_t(x);
+            for (int x = 0; x < width; ++x) {
+                const auto i = std::size_t(y) * std::size_t(width) + std::size_t(x);
                 image.pixels[i] = pixels[i] < palette.size() ? data::to_color(palette[pixels[i]]) : platform::Color{};
             }
         }
         return image;
+    }
+
+    // Smooth motion (an addition): the ball and the view where they are
+    // between the last update and the one before, at the display's place
+    // in time. Jumps (teleports, a new level, a continue) are shown as they
+    // are, and the game's state is never changed.
+    Ball shown_ball() const {
+        if (!smooth_ || !before_.valid || before_.level != level_index_ || phase_ != Phase::playing) return ball_;
+        const auto far = [](Fixed a, Fixed b) { return std::abs(std::int64_t(a) - std::int64_t(b)) > 0x20000; };
+        if (far(before_.camera_x, ball_.camera_x) || far(before_.camera_y, ball_.camera_y) || far(before_.view_x, ball_.view_x) ||
+            far(before_.view_y, ball_.view_y))
+            return ball_;
+        // The picture after an update shows the update's result at
+        // fraction 1: between the two places for fractions below.
+        const double back = 1.0 - frame_fraction_;
+        const auto between = [&](Fixed from, Fixed to) { return Fixed(std::llround(double(to) - double(to - from) * back)); };
+        Ball b = ball_;
+        b.camera_x = between(before_.camera_x, ball_.camera_x);
+        b.camera_y = between(before_.camera_y, ball_.camera_y);
+        b.view_x = between(before_.view_x, ball_.view_x);
+        b.view_y = between(before_.view_y, ball_.view_y);
+        return b;
+    }
+
+    // A whole-screen picture of the original's (the title, the ending …) in
+    // the middle of one of the play screen's widescreen shape.
+    platform::Image widened(platform::Image picture) const {
+        if (margin_ == 0) return picture;
+        const int width = int(double(picture.height) * (Screen::width + 2 * margin_) / Screen::height + 0.5);
+        if (width <= picture.width) return picture;
+        platform::Image out(width, picture.height);
+        for (auto& p : out.pixels) p = platform::Color{0, 0, 0, 255};
+        const int left = (width - picture.width) / 2;
+        for (int y = 0; y < picture.height; ++y)
+            for (int x = 0; x < picture.width; ++x)
+                out.pixels[std::size_t(y) * std::size_t(width) + std::size_t(left + x)] =
+                    picture.pixels[std::size_t(y) * std::size_t(picture.width) + std::size_t(x)];
+        return out;
     }
 
     bool place(Fixed camera_x, Fixed camera_y, Fixed view_x, Fixed view_y, Fixed speed_x, Fixed speed_y) {
@@ -357,6 +431,34 @@ public:
         phase_ = Phase::playing;
         return true;
     }
+    // Quick saves: a level in play or at its start wait (elsewhere the
+    // state is empty: not ready). Loading sets the level up as at its
+    // start, its music from the beginning, then takes the saved state.
+    std::vector<std::uint8_t> write_state() override {
+        if (phase_ != Phase::playing && phase_ != Phase::waiting) return {};
+        state::Writer ar;
+        persist(ar);
+        return std::move(ar.bytes);
+    }
+    void read_state(std::span<const std::uint8_t> bytes) override {
+        state::Reader ar(bytes);
+        persist(ar);
+        ar.finish();
+    }
+    bool save() override {
+        auto bytes = write_state();
+        if (bytes.empty()) return false;
+        saved_ = std::move(bytes);
+        return true;
+    }
+    bool load() override {
+        if (!saved_) return false;
+        const auto bytes = *saved_;
+        read_state(bytes);
+        return true;
+    }
+    bool has_save() const override { return saved_.has_value(); }
+
     bool set_money(int money) {
         if (phase_ != Phase::waiting && phase_ != Phase::playing) return false;
         pocket_.money = money;
@@ -375,6 +477,28 @@ public:
     }
 
 private:
+    template <class A> void persist(A& ar) {
+        std::uint32_t version = 1;
+        ar(version);
+        if (version != 1) A::fail();
+        const std::size_t area = load_area_.size();
+        ar(level_index_, load_area_, song_, player_name_, from_code_, balls_);
+        if constexpr (A::reading) {
+            if (level_index_ < 0 || level_index_ >= int(assets_.levels.size()) || load_area_.size() != area) A::fail();
+            start_level(level_index_, false);
+            set_balls_message();
+        }
+        ar(panel_seconds_, clock_seen_, zero_key_, mouse_, rest_x_, rest_y_, extra_drawn_, items_, view_flash_);
+        ar(left_held_, right_held_, ball_, pocket_, map_);
+        bool effects = sound_->effects_on();
+        bool playing = phase_ == Phase::playing;
+        ar(effects, playing);
+        if constexpr (A::reading) {
+            sound_->set_effects(effects);
+            phase_ = playing ? Phase::playing : Phase::waiting;
+        }
+    }
+
     enum class Phase {
         front_end, message, waiting, playing, paused, fall_pause, prompt, results, notice, continue_offer, ending, overview
     };
@@ -467,6 +591,7 @@ private:
         ball_.updates_without_read = skipped;
         clock_seen_ = ball_.clock.seconds; // (the panel keeps panel_seconds_)
         screen_ = std::make_unique<Screen>(assets_, world());
+        screen_->set_margin(margin_);
         // $686EA/$686F0 (and $6C69E's loads): the world's music, asked for;
         // it starts at the loop's first update after the start wait.
         // $68790: the panel's energy follows the energy (a refilled bar
@@ -805,6 +930,37 @@ private:
     // over). The counters are 8 bits and read as differences, so over 127
     // counts in one update would read as the opposite direction; the move
     // is limited to 100.
+    // Touch screens (an addition): a finger's movement moves the mouse
+    // counters, a short tap is a left click, a tap with two fingers a right
+    // click, and a finger held still is the left button held. While a finger
+    // touches, the host's mouse (which follows the first finger, its button
+    // held) is not used.
+    void apply_touch(app::GameInput& input) {
+        static constexpr float slop = 4.0f;    // picture pixels a tap may wander
+        static constexpr int tap_updates = 15; // longer and still: a held button
+        auto& t = touch_;
+        if (!input.fingers.empty()) {
+            const auto& f = input.fingers.front();
+            if (!t.down) t = Touch{true, f.x, f.y, f.x, f.y};
+            input.mouse_dx = (f.x - t.x) * touch_gain;
+            input.mouse_dy = (f.y - t.y) * touch_gain;
+            t.x = f.x;
+            t.y = f.y;
+            t.moved = t.moved || std::abs(f.x - t.start_x) > slop || std::abs(f.y - t.start_y) > slop;
+            t.fingers = std::max(t.fingers, int(input.fingers.size()));
+            ++t.updates;
+            input.mouse_button = !t.moved && t.fingers == 1 && t.updates >= tap_updates;
+            input.mouse_right = false;
+        } else if (t.down) {
+            if (!t.moved && t.updates < tap_updates) (t.fingers >= 2 ? tap_right_ : tap_left_) = 2;
+            t = Touch{};
+            input.mouse_dx = input.mouse_dy = 0;
+            input.mouse_button = input.mouse_right = false;
+        }
+        if (tap_left_ > 0) --tap_left_, input.mouse_button = true;
+        if (tap_right_ > 0) --tap_right_, input.mouse_right = true;
+    }
+
     std::pair<int, int> mouse_counts(const app::GameInput& input) {
         static constexpr float counts_per_point[3] = {1.0f, 0.5f, 2.0f};
         const float scale = counts_per_point[mouse_speed_];
@@ -898,6 +1054,23 @@ private:
     std::array<bool, 64> keys_held_{};
     bool space_held_{};
     bool f1_held_{}, f3_held_{};
+    std::optional<std::vector<std::uint8_t>> saved_; // the quick save in memory
+    bool widescreen_{}, smooth_{};
+    int margin_{}, canvas_width_{}, canvas_height_{};
+    double frame_fraction_{1.0};
+    struct Place {
+        Fixed camera_x{}, camera_y{}, view_x{}, view_y{};
+        int level{-1};
+        bool valid{};
+    } before_; // the ball's place before the last update (smooth motion)
+    struct Touch {
+        bool down{};
+        float x{}, y{}, start_x{}, start_y{};
+        bool moved{};
+        int fingers{}, updates{};
+    } touch_;
+    int tap_left_{}, tap_right_{};               // updates a tap still holds its button
+    static constexpr float touch_gain = 1.0f;    // mouse points per picture pixel of finger travel
 };
 
 } // namespace

@@ -28,6 +28,7 @@ public:
     // destination borrows it ($6B49E).
     void show_abyss(std::uint8_t v) { entries_[v] = abyss; }
     bool shows_abyss(std::uint8_t v) const { return entries_[v] == abyss; }
+    template <class A> void persist(A& ar) { ar(entries_); }
 
 private:
     static constexpr std::uint32_t abyss = 0xFFFFFFFF;
@@ -86,6 +87,12 @@ public:
     std::uint16_t slot_counter(int slot) const { return slots_.at(std::size_t(slot)).counter; }
     void set_slot_counter(int slot, std::uint16_t value) { slots_.at(std::size_t(slot)).counter = value; }
     static constexpr int slots = 18;
+    // Quick saves: what runs on (the counters, the turn, the world's
+    // switches); the strips and frames come from the program.
+    template <class A> void persist(A& ar) {
+        for (auto& slot : slots_) ar(slot.counter);
+        ar(magnet_pushes_, cursor_, slot17_on_, world_);
+    }
     const SlidePictures& slide_pictures() const { return slide_pictures_; }
     // $6AC56: the magnets' pushes, 9 rows (view row) of 8 pairs (view
     // column / 2) of signed bytes x, y. (Kept with the other tables the

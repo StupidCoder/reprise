@@ -47,7 +47,7 @@ struct OverviewView {
 
 class Screen {
 public:
-    static constexpr int width = 304;
+    static constexpr int width = 304; // the original's; drawing uses its coordinates
     static constexpr int bar_lines = 16, view_lines = 112, panel_lines = 64;
     static constexpr int height = bar_lines + view_lines + panel_lines;
 
@@ -60,6 +60,15 @@ public:
               std::string_view bar_text, const std::vector<ScreenText>& view_text = {},
               const OverviewView* overview = nullptr);
 
+    // Widescreen (an addition): `margin` more pixels on each side. The view
+    // shows more of the map there, the pillars move out to the new edges,
+    // and the name bar's and panel's pipes run on; the rest of the bar and
+    // the panel stay the original's, in the middle.
+    void set_margin(int margin);
+    int margin() const { return margin_; }
+    int picture_width() const { return width + 2 * margin_; }
+
+    // picture_width() x height colour indices.
     const std::vector<std::uint8_t>& pixels() const { return pixels_; }
     // The colours of a picture line: the copper list ($73040) shows the
     // view with the world's palette and the name bar and panel with the
@@ -69,7 +78,12 @@ public:
     }
 
 private:
-    std::uint8_t& at(int x, int y) { return pixels_[std::size_t(y) * width + std::size_t(x)]; }
+    // x from -margin_ to width + margin_ - 1 (the original's x 0 at margin_).
+    std::uint8_t& at(int x, int y) { return pixels_[std::size_t(y) * std::size_t(picture_width()) + std::size_t(x + margin_)]; }
+    bool inside(int x) const { return x >= -margin_ && x < width + margin_; }
+    // A side column (x < 0 or x >= width) as a repeat of the original's
+    // column `from`, for lines first..last.
+    void run_on(int first, int last, int from);
     void draw_bar(std::string_view level_name, std::string_view bar_text);
     void draw_view(const LevelMap&, const Ball&);
     void draw_panel(const PanelNumbers&);
@@ -79,11 +93,12 @@ private:
     void draw_digits(int x, int y, std::span<const int> values);
     // One font glyph (index from '$27') into colour bit 2, `lines` high.
     void glyph(int x, int y, int index, int lines);
-    Canvas canvas() { return {pixels_.data(), width, height}; }
+    Canvas canvas() { return {pixels_.data() + margin_, picture_width(), height}; }
     void draw_pillars();
     void draw_overview(const LevelMap&, const Ball&, const OverviewView&);
 
     const data::World* world_;
+    int margin_{};
     std::vector<std::uint8_t> pixels_;
     std::vector<amiga::Rgb4> frame_palette_; // the bar's and panel's 32 colours
     std::vector<std::uint8_t> sprite_even_, sprite_odd_; // 143 lines x (word A, word B)

@@ -13,6 +13,10 @@ constexpr int pillar_lines = 0x8F;
 constexpr std::uint32_t frame_colours = 0x73344; // 32 words: the bar's and panel's palette
 constexpr int pillar_first_line = 0x2E - 0x3D; // sprite line $2E, the display starts at $3D
 constexpr int pillar_x[4] = {-1, 15, 271, 287}; // HSTART $80, $90, $190, $1A0 (display x 0 = $81)
+// Widescreen: the plain columns whose pipes run on into the sides.
+constexpr int bar_pipe_column = 80;    // between the level number's box and the name's
+constexpr int panel_tube_column = 152; // the tube along the panel's top
+constexpr int panel_tube_lines = 6;
 
 std::uint32_t low_word(Fixed v) { return std::uint32_t(v) & 0xFFFF; }
 
@@ -81,10 +85,24 @@ void Screen::draw_digits(int x, int y, std::span<const int> values) {
     }
 }
 
+void Screen::set_margin(int margin) {
+    margin_ = std::max(margin, 0);
+    pixels_.assign(std::size_t(picture_width()) * height, 0);
+}
+
+void Screen::run_on(int first, int last, int from) {
+    for (int y = first; y <= last; ++y) {
+        const std::uint8_t v = at(from, y);
+        for (int x = -margin_; x < 0; ++x) at(x, y) = v;
+        for (int x = width; x < width + margin_; ++x) at(x, y) = v;
+    }
+}
+
 void Screen::draw_bar(std::string_view level_name, std::string_view bar_text) {
     const auto& bank = world_->bank;
     for (int y = 0; y < bar_lines; ++y)
         for (int x = 0; x < width; ++x) at(x, y) = bank.at(x, bar_row + y);
+    if (margin_ > 0) run_on(0, bar_lines - 1, bar_pipe_column);
     print(canvas(), world_->bank, 96, 4, level_name, 2);  // $6B110 → $6AE34: bar + row 4, byte 12
     print(canvas(), world_->bank, 248, 4, bar_text, 2);   // $6AE44: bar + row 4, byte 31
 }
@@ -107,13 +125,32 @@ void Screen::draw_view(const LevelMap& map, const Ball& b) {
     // The view buffer: buffer x 32-287 holds 16 tile columns from the
     // camera's cell (a byte pointer, so past the last column it runs on into
     // the next row), buffer row r tile row (fine_y + r) / 16.
-    std::vector<std::uint8_t> buffer(std::size_t(336) * view_lines, 0);
-    const auto buf = [&](int x, int y) -> std::uint8_t& { return buffer[std::size_t(y) * 336 + std::size_t(x)]; };
+    // In widescreen the buffer reaches margin_ further each side, and its
+    // columns are the map's own (beyond the map's edges, the abyss).
+    const int reach = margin_;
+    const int buffer_width = 336 + 2 * reach;
+    std::vector<std::uint8_t> buffer(std::size_t(buffer_width) * view_lines, 0);
+    const auto buf = [&](int x, int y) -> std::uint8_t& {
+        return buffer[std::size_t(y) * std::size_t(buffer_width) + std::size_t(x + reach)];
+    };
+    const auto in_buffer = [&](int x) { return x >= -reach && x < 336 + reach; };
+    const long camera_column = long(std::uint32_t(b.camera_x) >> 16), camera_row = long(std::uint32_t(b.camera_y) >> 16);
     for (int line = 0; line < view_lines; ++line) {
         const int r = fine_y + line;
-        for (int x = 32; x < 288; ++x) {
-            const long index = first + long(r / 16) * map.columns + (x - 32) / 16;
-            buf(x, line) = tile_pixel(map.cell(index), (x - 32) % 16, r % 16);
+        if (reach == 0) {
+            for (int x = 32; x < 288; ++x) {
+                const long index = first + long(r / 16) * map.columns + (x - 32) / 16;
+                buf(x, line) = tile_pixel(map.cell(index), (x - 32) % 16, r % 16);
+            }
+            continue;
+        }
+        for (int x = -reach; x < 336 + reach; ++x) {
+            const int offset = x - 32 + 16 * 64; // (kept positive for the division)
+            const long column = camera_column + offset / 16 - 64;
+            const long row = camera_row + r / 16;
+            const std::uint8_t cell = column < 0 || column >= map.columns ? std::uint8_t(0x21)
+                                                                          : map.cell(row * map.columns + column);
+            buf(x, line) = tile_pixel(cell, offset % 16, r % 16);
         }
     }
     // The ball ($6F7B6): cookie-cut through its mask, plane by plane, at
@@ -124,7 +161,7 @@ void Screen::draw_view(const LevelMap& map, const Ball& b) {
     for (int y = 0; y < 16; ++y) {
         for (int x = 0; x < 16; ++x) {
             const int bx = ball_x + x, by = ball_y + y;
-            if (bx < 0 || bx >= 336 || by < 0 || by >= view_lines) continue;
+            if (!in_buffer(bx) || by < 0 || by >= view_lines) continue;
             const std::uint8_t mask = bank.at(ball.mask.x + x, ball.mask.y + y);
             const std::uint8_t pic = bank.at(ball.picture.x + x, ball.picture.y + y);
             auto& p = buf(bx, by);
@@ -152,9 +189,9 @@ void Screen::draw_view(const LevelMap& map, const Ball& b) {
     // Display x p shows buffer x 1 + fine_x + p (fetch from word 1, BPLCON1
     // delay 15 - fine_x, $7313E).
     for (int line = 0; line < view_lines; ++line) {
-        for (int p = 0; p < width; ++p) {
+        for (int p = -margin_; p < width + margin_; ++p) {
             const int x = 1 + fine_x + p;
-            at(p, bar_lines + line) = x < 336 ? buf(x, line) : 0;
+            at(p, bar_lines + line) = in_buffer(x) ? buf(x, line) : 0;
         }
     }
 }
@@ -177,6 +214,12 @@ void Screen::draw_panel(const PanelNumbers& n) {
     const int top = bar_lines + view_lines;
     for (int y = 0; y < panel_lines; ++y)
         for (int x = 0; x < width; ++x) at(x, top + y) = bank.at(x, panel_row + y);
+    if (margin_ > 0) {
+        for (int y = 0; y < panel_lines; ++y)
+            for (int x = -margin_; x < width + margin_; ++x)
+                if (x < 0 || x >= width) at(x, top + y) = 0;
+        run_on(top, top + panel_tube_lines - 1, panel_tube_column);
+    }
     // Places: the destination's bank address, row - 344 and byte × 8.
     const auto time = [&](int y, int seconds, int hundredths) {
         const auto t = clock_digits(seconds);
@@ -253,10 +296,11 @@ void Screen::draw_pillars() {
         };
         const std::uint16_t a0 = word(sprite_even_, 0), b0 = word(sprite_even_, 2);
         const std::uint16_t a1 = word(sprite_odd_, 0), b1 = word(sprite_odd_, 2);
-        for (const int left : pillar_x) {
+        for (int p = 0; p < 4; ++p) {
+            const int left = pillar_x[p] + (p < 2 ? -margin_ : margin_); // in widescreen at the new edges
             for (int i = 0; i < 16; ++i) {
                 const int x = left + i;
-                if (x < 0 || x >= width) continue;
+                if (!inside(x)) continue;
                 const int bit = 15 - i;
                 const int value = (a0 >> bit & 1) | (b0 >> bit & 1) << 1 | (a1 >> bit & 1) << 2 | (b1 >> bit & 1) << 3;
                 if (value != 0 && (y >= bar_lines || at(x, y) == 0)) at(x, y) = std::uint8_t(16 + value);
@@ -273,7 +317,7 @@ void Screen::draw_overview(const LevelMap& map, const Ball& b, const OverviewVie
     const auto origin = overview_origin(map.columns, map.rows);
     const auto plot = [&](int buffer_x, int buffer_y, std::uint8_t colour) {
         const int x = buffer_x - 1, y = bar_lines + buffer_y;
-        if (x < 0 || x >= width || y < bar_lines || y >= bar_lines + view_lines) return;
+        if (!inside(x) || y < bar_lines || y >= bar_lines + view_lines) return;
         at(x, y) = colour;
     };
     for (int i = 0; i < o.cells_drawn && i < map.rows * map.columns; ++i) {
@@ -299,7 +343,7 @@ void Screen::draw(const LevelMap& map, const Ball& b, const PanelNumbers& number
         // first two bytes are the column (bytes) and row (8 lines) from the
         // view's buffer x 32, line 8).
         for (int y = 0; y < view_lines; ++y)
-            for (int x = 0; x < width; ++x) at(x, bar_lines + y) = 0;
+            for (int x = -margin_; x < width + margin_; ++x) at(x, bar_lines + y) = 0;
         const int fine_x = overview ? 0 : int(low_word(b.camera_x) >> 12) & 15; // the map sets fine scroll 0
         for (const auto& text : view_text) print_at(canvas(), world_->bank, 32 - 1 - fine_x, bar_lines + 8, text);
         if (overview) draw_overview(map, b, *overview);

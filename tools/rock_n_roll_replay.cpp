@@ -20,6 +20,7 @@
 #include "rock_n_roll_amiga/sound/game_sound.hpp"
 #include "platform/host.hpp"
 #include <cstdio>
+#include <cstring>
 #include <exception>
 #include <fstream>
 #include <map>
@@ -742,13 +743,24 @@ int main(int argc, char** argv) {
             // as a recording's first row: camera, view, speed)
             // [@N:money=HEX …] (the pocket's money before update N)
             // [@N:clock=SECONDS,HUNDREDTHS …] (hex, the level clock)
-            // [@N:energy=HEX …].
+            // [a-b:finger=X,Y,DX,DY …] (a finger on a touch screen at X,Y
+            // in picture pixels, moving by DX,DY an update) [a-b:fingers2=X,Y …]
+            // (two fingers) [option=INDEX,VALUE …] [canvas=W,H] [fraction=F] (the
+            // display's place between ticks for every picture, smooth motion)
+            // [@N:energy=HEX …] [check_save=N] (a quick save at update N
+            // read into a fresh game, both run on and their pictures
+            // compared every update).
             auto game = game::start(platform::utf8_path(argv[2]));
             const int updates = std::stoi(argv[3]);
             struct Step { int a, b, dx, dy; bool l, r, f; int key; };
             std::vector<Step> steps;
             std::vector<std::pair<int, std::string>> shots;
             std::string wav_out; // wav=FILE: the module's audio, 48 kHz stereo
+            int check_save = -1;
+            struct FingerStep { int a, b; float x, y, dx, dy; int count; };
+            std::vector<FingerStep> finger_steps;
+            std::unique_ptr<app::GameModule> twin;
+            int picture_differences = 0;
             struct Place { int at; std::uint32_t v[6]; };
             std::vector<Place> places;
             std::vector<std::pair<int, int>> money, energy;
@@ -759,6 +771,29 @@ int main(int argc, char** argv) {
                 st.key = -1;
                 char buttons[4] = {};
                 char shot[512] = {};
+                if (std::sscanf(argv[i], "check_save=%d", &check_save) == 1) continue;
+                if (int index = 0, value = 0; std::sscanf(argv[i], "option=%d,%d", &index, &value) == 2) {
+                    game->set_option(std::size_t(index), value);
+                    continue;
+                }
+                if (int w = 0, h = 0; std::sscanf(argv[i], "canvas=%d,%d", &w, &h) == 2) {
+                    game->set_canvas(w, h);
+                    continue;
+                }
+                if (double f = 0; std::sscanf(argv[i], "fraction=%lf", &f) == 1) {
+                    game->set_frame_fraction(f);
+                    continue;
+                }
+                if (FingerStep f{}; std::sscanf(argv[i], "%d-%d:finger=%f,%f,%f,%f", &f.a, &f.b, &f.x, &f.y, &f.dx, &f.dy) == 6) {
+                    f.count = 1;
+                    finger_steps.push_back(f);
+                    continue;
+                }
+                if (FingerStep f{}; std::sscanf(argv[i], "%d-%d:fingers2=%f,%f", &f.a, &f.b, &f.x, &f.y) == 4) {
+                    f.count = 2;
+                    finger_steps.push_back(f);
+                    continue;
+                }
                 if (std::string(argv[i]).rfind("wav=", 0) == 0) {
                     wav_out = std::string(argv[i]).substr(4);
                     continue;
@@ -818,6 +853,12 @@ int main(int argc, char** argv) {
                     if (pl.at == n && !game::place_ball(*game, std::int32_t(pl.v[0]), std::int32_t(pl.v[1]), std::int32_t(pl.v[2]),
                                                         std::int32_t(pl.v[3]), std::int32_t(pl.v[4]), std::int32_t(pl.v[5])))
                         std::fprintf(stderr, "update %d: no level to place the ball in\n", n);
+                input.fingers.clear();
+                for (const auto& f : finger_steps)
+                    if (n >= f.a && n <= f.b)
+                        for (int k = 0; k < f.count; ++k)
+                            input.fingers.push_back({std::uint64_t(k + 1), f.x + f.dx * float(n - f.a) + 20.0f * float(k),
+                                                     f.y + f.dy * float(n - f.a)});
                 for (const auto& c : clocks)
                     if (c.at == n && !game::set_clock(*game, int(c.seconds), int(c.hundredths)))
                         std::fprintf(stderr, "update %d: no level for the clock\n", n);
@@ -825,7 +866,23 @@ int main(int argc, char** argv) {
                     if (at == n && !game::set_energy(*game, e)) std::fprintf(stderr, "update %d: no level for the energy\n", n);
                 for (const auto& [at, m] : money)
                     if (at == n && !game::set_money(*game, m)) std::fprintf(stderr, "update %d: no level for the money\n", n);
+                if (n == check_save) {
+                    const auto state = game->write_state();
+                    if (state.empty()) {
+                        std::printf("update %d: no state to save here\n", n);
+                    } else {
+                        twin = game::start(platform::utf8_path(argv[2]));
+                        twin->read_state(state);
+                        std::printf("update %d: saved %zu bytes into a fresh game\n", n, state.size());
+                    }
+                }
                 game->tick(input);
+                if (twin) {
+                    twin->tick(input);
+                    const auto a = game->picture(), b = twin->picture();
+                    if ((a.width != b.width || a.height != b.height || std::memcmp(a.pixels.data(), b.pixels.data(), a.pixels.size() * sizeof(a.pixels[0])) != 0) && picture_differences++ < 3)
+                        std::printf("update %d: the loaded game's picture differs\n", n);
+                }
                 if (!wav_out.empty()) {
                     std::vector<float> frame(960 * 2);
                     game->audio(frame, 48000);
@@ -835,6 +892,10 @@ int main(int argc, char** argv) {
                     if (at == n) platform::save_png(game->picture(), platform::utf8_path(file));
             }
             platform::save_png(game->picture(), platform::utf8_path(argv[4]));
+            if (twin) {
+                platform::save_png(twin->picture(), platform::utf8_path(std::string(argv[4]) + ".loaded.png"));
+                std::printf("%d pictures differed after the load\n", picture_differences);
+            }
             if (!wav_out.empty()) {
                 save_wav16(platform::utf8_path(wav_out), audio_all, 48000);
                 // Loudness per second, to see where sound plays.

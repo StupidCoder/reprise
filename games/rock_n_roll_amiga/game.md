@@ -1321,6 +1321,45 @@ the drawing.
   fall). The recorder logs every `$70A9C` call ("# sound N in update U"),
   and the replay compares them with the port's.
 
+## The port's additions
+
+Off by default unless noted; none changes the rules (the recordings
+replay the same with any of them).
+
+- **Mouse speed:** mouse counts per point of mouse movement, 1, 1/2 or 2.
+- **Touch screens** (`Module::apply_touch`): a finger's movement moves the
+  mouse counters (one count per picture pixel), a short tap is a left
+  click, a two-finger tap a right click, and a finger held still for 15
+  updates is the left button held. While a finger touches, the host's
+  mouse (which follows the first finger with its button held) is ignored.
+- **Widescreen** (`Screen::set_margin`): the picture grows on both sides
+  up to 21:9 (at 16:9, 18 pixels a side; the original's 304 × 192 is
+  already about 1.6:1).
+  - The view draws the map's own columns there (beyond its edges, the
+    abyss); the original's 16 columns run on into the next row at the
+    right edge, which the original width never shows.
+  - The pillars move out to the new edges. The name bar's pipes (column
+    80) and the panel's top tube (column 152, six lines) run on. The rest
+    of the bar and the panel stay in the middle, with black beside the
+    panel.
+  - The title, the ending, the continue screen and the hints are shown in
+    the middle of a picture of the same shape.
+- **Smooth motion** (`Module::shown_ball`): pictures between updates show
+  the camera and the view between their places before and after the last
+  update, at the host's frame fraction (so a step behind). Jumps of more
+  than two cells (teleports, restarts, a continue) are shown as they are.
+  With the fraction at 1 the picture is the original's.
+- **Quick save** (`write_state`/`read_state`): in a level, in play or at its
+  start wait (elsewhere the state is empty: not ready). It keeps the ball,
+  the pocket, the map's changing parts (cells, countdowns, block, tile
+  table, animation counters), the items, the level load area and the
+  module's own counters. Loading sets the level up as at its start (the
+  world's music from the beginning) and then takes the saved state.
+  - *Checked:* `rock_n_roll_replay play … check_save=N` saves at update N
+    into a fresh game and runs both on: no picture differed after saves at
+    updates 95–640 in level 1, through rolling, a restart and an item's
+    use.
+
 ## Quirks and bugs of the original
 
 The port keeps these, because they are part of how the game plays:
@@ -1477,6 +1516,11 @@ The port keeps these, because they are part of how the game plays:
     first row), the money `@N:money=HEX`, the energy `@N:energy=HEX` and
     the clock `@N:clock=SECONDS,HUNDREDTHS` (hex);
   - the fire button (`f` among the buttons), which types a space;
+  - fingers `a-b:finger=X,Y,DX,DY` (one finger moving) and
+    `a-b:fingers2=X,Y` (two), in picture pixels;
+  - `option=INDEX,VALUE`, `canvas=W,H` and `fraction=F` (the pause menu's
+    options, the window's shape and the smooth-motion fraction);
+  - `check_save=N` (see "The port's additions");
   - `wav=FILE`: the module's audio, with the loudness per second printed.
 - **Front end checks against FS-UAE captures (2026-10-29):**
   - the title;
