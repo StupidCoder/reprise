@@ -79,6 +79,11 @@ ShapeFamily shape_family(const amiga::LoadedImage& program, int type);
 // Every type of a family that draws something (shared shapes once).
 std::vector<Shape> read_shapes(const amiga::LoadedImage& program, ShapeFamily family);
 
+// A ground shape is drawn only while the camera is lower than this (world
+// units): its routine returns at once above $380000 ($112D5C) or $800000
+// ($112D6A) in 32-bit units.
+double ground_ceiling(const amiga::LoadedImage& program, int type);
+
 // A ground shape (flat, on the ground).
 Shape read_ground_shape(const amiga::LoadedImage& program, int type);
 

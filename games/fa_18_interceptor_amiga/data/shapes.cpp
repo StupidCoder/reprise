@@ -126,6 +126,7 @@ public:
         : m_(program), shape_(shape), base_(base), model_(model), flat_((program.u8(model + 7) & 2) != 0) {
         const int flags = program.u8(model + 7);
         if ((flags & 8) && !(flags & 1)) generate_points();
+        if (flat_ && (flags & 4)) strip_points();
     }
 
     // The draw list's facing-test tree ($112650): every branch, polygon
@@ -183,6 +184,38 @@ private:
         }
         const auto at = model_ + 0xA + std::uint32_t(index * point_size);
         return {double(m_.s16(at)), double(m_.s16(at + 2)), double(m_.s16(at + 4))};
+    }
+
+    // Flag 4 with flat points ($112C36, the runways): after the main points
+    // blocks `n` (negative: the end), then n points each followed by
+    // itself plus the vector between the two points before the block
+    // (strips as wide as the first), then a word (negative: the end) and
+    // two points as they are, then the next block.
+    void strip_points() {
+        const int count = m_.u8(model_ + 8);
+        std::uint32_t a = model_ + 0xA + std::uint32_t(count * 4);
+        int slot = count;
+        const auto read = [&] {
+            const ShapePoint p{double(m_.s16(a)), 0, double(m_.s16(a + 2))};
+            a += 4;
+            return p;
+        };
+        for (int guard = 0; guard < 32; ++guard) {
+            const int n = m_.s16(a);
+            a += 2;
+            if (n < 0 || slot < 2) return;
+            const auto vector = point(slot - 1) - point(slot - 2);
+            for (int i = 0; i < n; ++i) {
+                const auto p = read();
+                points_[slot++] = p;
+                points_[slot++] = p + vector;
+            }
+            const int more = m_.s16(a);
+            a += 2;
+            if (more < 0) return;
+            points_[slot++] = read();
+            points_[slot++] = read();
+        }
     }
 
     // Flag 8 ($1124CC): chains of segments after the main points, each
@@ -773,6 +806,11 @@ ShapeFamily shape_family(const amiga::LoadedImage& program, int type) {
     case 0x112D5C: case 0x112D6A: return ShapeFamily::ground;
     default: return ShapeFamily::none;
     }
+}
+
+double ground_ceiling(const amiga::LoadedImage& program, int type) {
+    const auto routine = program.u32(type_table + std::uint32_t(type) * type_size);
+    return routine == 0x112D5C ? 0x380000 / 256.0 : 0x800000 / 256.0;
 }
 
 std::vector<Shape> read_shapes(const amiga::LoadedImage& program, ShapeFamily family) {

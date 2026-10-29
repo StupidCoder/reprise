@@ -601,15 +601,20 @@ ground lists.
 
 **The airfields' paving** is the runway types' own flat models (runway 1:
 type 46, model `$12C062`: scale 2^−2, flags 6, two main points), not a
-ground shape: its near list (`$12C02A`) is one `$44` quads op over 16
-points (buffer offsets up to `$5A`) with no band loading sub-points. The
-model's data after the two main points has words between the point
-pairs (3, 0, 3 before blocks of 3, 2 and 3 points; ×¼ they are the
-runway table's corners, `$137D8A`), so the point builder (`$112292`…,
-flag 2) must read them differently from the decoder: open. Flag 4 of a
-flat model sets the distance (`$170` instead of `$60`, shifted by the
-zoom) beyond which the object is left out while the camera is low
-(`$13AD68` ≥ −$20).
+ground shape. Flag 4 of a flat model (`$1123A6` → `$112C36`) builds
+strips after the main points: blocks of a count `n` (negative: the end)
+and `n` points, each followed by itself plus the vector between the two
+points before the block (so every strip is as wide as the first); after
+each block a word (negative: the end) and two points taken as they are.
+Runway 1: 2 + 6 + 2 + 6 = 16 points, drawn by one `$44` quads op. (×¼
+the points are the runway table's corners, `$137D8A`.) The same flag
+makes a flat object skip itself while the camera is low (`$13AD68` ≥
+−$20) beyond `$170` (else `$60`), shifted by the zoom (`$1122A4`): not
+rebuilt.
+
+**Ground shapes at height:** their draw routines return at once above a
+ceiling: `$112D5C` above $380000 (32-bit units, 14,336 world units),
+`$112D6A` above $800000 (32,768): no city blocks on the start map.
 
 **The view** (`$123894`): camera space = the matrix `$13AEC8` (rows
 x, y, z, 1.0 = 256, rows scaled by the field of view: about 167, 251,

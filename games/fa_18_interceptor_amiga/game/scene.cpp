@@ -198,6 +198,7 @@ void Scene::draw(IndexedImage& image, int centre, int bottom, const Camera& came
             const data::Shape* chosen = nullptr;
             const double distance = std::sqrt(dx * dx + eye[1] * eye[1] + dz * dz);
             if (const auto g = ground_.find(object.type); g != ground_.end()) {
+                if (eye[1] > data::ground_ceiling(program_, object.type)) continue;
                 for (const auto& level : g->second) {
                     if (distance >= level.nearer_than) continue;
                     if (level.shape) chosen = &*level.shape;

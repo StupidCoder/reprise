@@ -103,16 +103,9 @@ from drawing, and must still respect the passes' model rule).
 
 ## Known bugs and differences in the port
 
-- The airfields' paving is missing around the runways (grass right of
-  runway 1 where the original paves it): the runway types' flat models
-  (type 46 for runway 1) do not decode yet (game.md "World", ground
-  shapes); the scenery decoder still stops at opcodes `$5C` and `$9C`.
-- Ditching in water ends like a crash (the original's rule is not
-  traced).
-- The start map shows the city blocks of San Francisco (ground types
-  39-42, 99, 100, drawn at any distance) and some trees the original
-  leaves out at that height: the builder's object lists by height and
-  heading (`$136464`) are not rebuilt.
+- The start map misses the carrier's marker (4) and shows a dark speck
+  west of the coast the original does not; the scenery decoder still
+  stops at opcodes `$5C` and `$9C` (some mid-distance levels).
 - The title stays 22 s (the original's loading time on the A500) but a key
   skips it; the original takes no key there.
 - The F-16 choice flies the F/A-18 (task 9).
