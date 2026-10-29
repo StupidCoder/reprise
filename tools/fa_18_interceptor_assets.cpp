@@ -40,6 +40,7 @@
 #include "fa_18_interceptor_amiga/data/shapes.hpp"
 #include "fa_18_interceptor_amiga/data/world.hpp"
 #include "fa_18_interceptor_amiga/game/aircraft.hpp"
+#include "fa_18_interceptor_amiga/game/cockpit.hpp"
 #include "fa_18_interceptor_amiga/game/messages.hpp"
 #include "fa_18_interceptor_amiga/game/module.hpp"
 #include "fa_18_interceptor_amiga/game/sound_driver.hpp"
@@ -705,6 +706,45 @@ int weapon_check(const std::filesystem::path& content, const std::filesystem::pa
     return matched == compared ? 0 : 1;
 }
 
+// --- hudcheck ------------------------------------------------------------------
+
+// Research: draws the cockpit for given readings and compares the head-up
+// display's glass (colours 10 and 13, rows 40-135, columns 86-232) with a
+// colour-number dump of the original's screen (`screen.py` F18_INDEX, two
+// hex digits a low-res pixel, rows 1 apart).
+int hud_check(const std::filesystem::path& content, const std::filesystem::path& dump, int feet, int knots,
+              int heading80, int g_display, bool f16, int weapon = 0, int count = 0,
+              std::optional<std::array<int, 2>> pipper = {}) {
+    using namespace interceptor;
+    const auto assets = data::load_assets(content);
+    game::Cockpit cockpit(assets);
+    game::IndexedImage image(320, 200);
+    game::CockpitReadings r;
+    r.feet = feet; r.knots = knots; r.heading80 = heading80; r.g_display = g_display; r.f16 = f16;
+    r.weapon = weapon; r.weapon_count = count; r.pipper = pipper;
+    cockpit.draw(image, 0, r);
+    std::ifstream in(dump);
+    std::vector<std::string> rows;
+    for (std::string line; std::getline(in, line);) rows.push_back(line);
+    int differ = 0;
+    for (int y = 40; y <= 135; ++y) {
+        std::string port, original;
+        for (int x = 86; x <= 232; ++x) {
+            const int ours = image.pixels[std::size_t(y * 320 + x)];
+            const int theirs = std::stoi(rows[std::size_t(y)].substr(std::size_t(2 * x), 2), nullptr, 16);
+            const auto mark = [](int c) { return c == 13 ? 'd' : c == 10 ? 'a' : '.'; };
+            port += mark(ours);
+            original += mark(theirs);
+        }
+        if (port != original) {
+            for (std::size_t i = 0; i < port.size(); ++i) differ += port[i] != original[i];
+            std::printf("%3d port %s\n    orig %s\n", y, port.c_str(), original.c_str());
+        }
+    }
+    std::printf("%d pixels differ\n", differ);
+    return differ == 0 ? 0 : 1;
+}
+
 int fly_script(const std::filesystem::path& content, const std::string& prefix, int argc, char** argv) {
     auto game = interceptor::game::start(content);
     std::map<int, std::string> steps;
@@ -852,6 +892,14 @@ int main(int argc, char** argv) {
         }
         if (command == "fly" && argc >= 5) {
             return fly_script(platform::utf8_path(argv[2]), argv[3], argc - 4, argv + 4);
+        }
+        if (command == "hudcheck" && (argc == 9 || argc == 13)) {
+            // (feet knots heading80 g f16 [weapon count pipper_x pipper_y])
+            std::optional<std::array<int, 2>> pipper;
+            if (argc == 13) pipper = std::array<int, 2>{std::stoi(argv[11]), std::stoi(argv[12])};
+            return hud_check(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]), std::stoi(argv[4]),
+                             std::stoi(argv[5]), std::stoi(argv[6]), std::stoi(argv[7]), std::stoi(argv[8]) != 0,
+                             argc == 13 ? std::stoi(argv[9]) : 0, argc == 13 ? std::stoi(argv[10]) : 0, pipper);
         }
         if (command == "weaponcheck" && argc == 4) {
             return weapon_check(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]));

@@ -19,6 +19,23 @@ void blit(IndexedImage& image, const amiga::IlbmPicture& picture, int left, int 
     }
 }
 
+// `value` in `count` digits, up to `blank` leading zeros as spaces (the
+// original's BCD strings).
+std::string digits(int value, int count, int blank) {
+    std::string t(std::size_t(count), '0');
+    value = std::max(0, value);
+    for (int i = count - 1; i >= 0; --i, value /= 10) t[std::size_t(i)] = char('0' + value % 10);
+    for (int i = 0; i < blank && t[std::size_t(i)] == '0'; ++i) t[std::size_t(i)] = ' ';
+    return t;
+}
+
+// A character position table: pairs of a byte offset and a blitter shift.
+std::vector<int> positions(const amiga::LoadedImage& m, std::uint32_t at, int count) {
+    std::vector<int> xs;
+    for (int i = 0; i < count; ++i) xs.push_back(m.s16(at + std::uint32_t(4 * i)) * 8 + (m.u16(at + std::uint32_t(4 * i + 2)) >> 12));
+    return xs;
+}
+
 } // namespace
 
 CockpitReadings read_cockpit(const Aircraft& a) {
@@ -29,16 +46,32 @@ CockpitReadings read_cockpit(const Aircraft& a) {
     r.fuel_pounds = int(a.fuel >> 8);                     // $126D26
     r.heading80 = a.attitude.heading;
     r.gear = a.gear & 0x7F;
-    // $126960: (pitch rate + 1/8 of it) / 8, from 1 G; the bank turn's
-    // share ($13AC36) is left out.
-    const int pull = (a.pitch_rate + (a.pitch_rate >> 3)) >> 3;
-    r.g_tenths = -(pull - 10);
+    // $126960: (pitch rate + 1/8 of it + the bank turn's share) / 8, from 1 G.
+    int pull = a.pitch_rate + (a.pitch_rate >> 3);
+    if (std::abs(int(a.bank_pitch)) > 1) pull += a.bank_pitch;
+    pull >>= 3;
+    // ($1043F2: inverted when one of pitch and roll is past 90 degrees.)
+    const auto past = [](int a80) { const int t = (a80 & 0xFFFF) >> 3; return t >= 900 && t < 2700; };
+    r.inverted = past(a.attitude.pitch) != past(a.attitude.roll);
+    r.g_display = r.inverted ? pull + 10 : pull - 10;
+    r.f16 = a.type == 0x10;
     r.north_tenths = ((a.z - 0x10000000) >> 8) / 0x7000 + 0x177; // $126DCE
     r.west_tenths = ((a.x - 0x0F000000) >> 8) / 0x5999 + 0x4C4;  // $126E5C
     return r;
 }
 
 Cockpit::Cockpit(const data::Assets& assets) : font_(assets.small_font), messages_(assets.messages) {
+    const auto& m = assets.program;
+    positions_ = {positions(m, 0x127E6C, 6), positions(m, 0x127E88, 2), positions(m, 0x127E90, 4),
+                  positions(m, 0x127EA4, 2), positions(m, 0x126514, 1), positions(m, 0x126508, 3),
+                  positions(m, 0x1264FC, 3), positions(m, 0x127E54, 3), positions(m, 0x127E60, 3), {}};
+    // `$128612`: the heading labels' two characters for offsets -22 .. 22
+    // (first characters, then second ones).
+    for (int k = 0; k < 2; ++k)
+        for (int p = -22; p <= 22; ++p) {
+            const std::uint32_t at = 0x128612 + std::uint32_t(8 * p + 4 * k);
+            positions_.heading.push_back(m.s16(at) * 8 + (m.u16(at + 2) >> 12));
+        }
     for (std::size_t k = 0; k < gear_images_.size(); ++k) {
         const std::uint32_t at = assets.program.u32(0x12591E + std::uint32_t(4 * k)); // $125998's table
         for (std::uint32_t i = 0; i < gear_images_[k].size(); ++i) gear_images_[k][i] = assets.program.u8(at + i);
@@ -61,47 +94,121 @@ void Cockpit::text(IndexedImage& image, int x, int y, const std::string& t, int 
     }
 }
 
-// The head-up display ($127EB8): speed and height with their labels, the
-// load factor, the heading tape with its index, the waterline marks
-// ($128D42). Rules from the code, positions from the original's screen
-// (`work/ref/cap/009.png`).
+// The head-up display ($127EB8): speed and height (as numbers, or as the
+// F-16's tapes), the load factor, the heading tape with its index, the
+// waterline marks ($128D42). The numbers' characters sit where the
+// original's tables put them (`positions_`).
 void Cockpit::hud(IndexedImage& image, int left, const CockpitReadings& r) const {
     constexpr int glass = 13, marks = 10;
-    const auto digits_at = [&](int value, const int* xs, int count, int y) {
-        const auto t = std::to_string(std::max(0, value));
-        for (int i = 0; i < count && i < int(t.size()); ++i)
-            text(image, left + xs[count - 1 - i], y, std::string(1, t[t.size() - 1 - std::size_t(i)]), glass);
+    // $1276A0: characters at a table's positions from column `x0`.
+    const auto cells = [&](int x0, int y, const std::vector<int>& xs, const std::string& t) {
+        for (std::size_t i = 0; i < t.size() && i < xs.size(); ++i)
+            if (t[i] != ' ') text(image, left + x0 + xs[i], y, std::string(1, t[i]), glass);
     };
-    static constexpr int speed_x[4] = {90, 94, 98, 102};             // table $127E90
-    static constexpr int height_x[6] = {205, 209, 213, 219, 223, 227}; // table $127E6C (a gap at the thousands)
-    digits_at(r.knots, speed_x, 4, 84);
-    text(image, left + 96, 91, "KT", glass);
-    digits_at(r.feet, height_x, 6, 84);
-    text(image, left + 226, 91, "FT", glass);
-    // "1.4 G" (a minus sign when pushed over).
-    const int g = std::abs(r.g_tenths);
-    std::string load = std::to_string(g / 10) + "." + std::to_string(g % 10) + " G";
-    if (r.g_tenths < 0) load = "-" + load;
-    text(image, left + 98 - 4 * int(load.size() - 3), 121, load, glass);
-    // The heading tape: a tick every 5 degrees 2 pixels apart (every 10
-    // degrees two rows tall, with its tens of degrees above it), the index
-    // under the middle.
-    for (int k = -8; k <= 8; ++k) {
-        const int step = r.heading80 / 400 + k;            // 5-degree steps
-        const int x = 159 - (r.heading80 - step * 400) * 2 / 80;
-        if (x < 126 || x > 185) continue;
-        const int deg = ((step * 5) % 360 + 360) % 360;
-        image.put(left + x, 61, glass);
-        if (deg % 10 == 0) {
-            image.put(left + x, 60, glass);
-            const int tens = deg / 10;
-            char label[3] = {char('0' + tens / 10), char('0' + tens % 10), 0};
-            text(image, left + x + 3, 53, label, glass);
+    const auto dot = [&](int x, int y) { image.put(left + x, y, glass); };
+    // The load factor ($126960): (pitch rate + 1/8) / 8 from 1 G (the other
+    // way round when inverted), its tenths in two digits (one leading zero
+    // blank) after a sign, the point a dot of its own.
+    {
+        const std::string load = std::string(r.g_display >= 0 ? "-" : " ") + digits(std::abs(r.g_display), 2, 1);
+        if (r.f16) {
+            cells(96, 61, positions_.g_f16, load);
+            dot(0x72, 0x41);
+        } else {
+            cells(80, 121, positions_.g_letter, "G");
+            dot(0x64, 0x7D);
+            cells(80, 121, positions_.g_fa18, load);
+        }
+    }
+    if (!r.f16) {
+        // $127FB8, $1281DA: feet in six digits, knots in four.
+        cells(192, 84, positions_.feet, digits(r.feet, 6, 5));
+        cells(208, 91, positions_.feet_label, "FT");
+        cells(80, 84, positions_.knots, digits(r.knots, 4, 3));
+        cells(96, 91, positions_.knots_label, "KT");
+    } else {
+        // $128016 / $128240: the F-16's tapes - height in tens of feet on
+        // the right, knots on the left: a label every 50 (500 feet / 50
+        // knots), 15 rows apart, the nearest one on the row for the value
+        // (a third of a row a unit), dots every 3 rows between.
+        const auto tape = [&](int value, bool height) {
+            const int last = value % 100;
+            int label = (value - last) / 10, below = last; // label in tenths of a hundred
+            if (last > 70) {
+                label += 10;
+                below -= 100;
+            } else if (last > 20) {
+                label += 5;
+                below -= 50;
+            }
+            const int row = 0x5B + below / 3;       // the label's index row ($13AC7C)
+            const int text_x = height ? 208 : 80, top = row - 2;
+            const auto& xs = height ? positions_.height_tape : positions_.speed_tape;
+            const auto show = [&](int l, int y) {
+                // (Heights keep their zeros and get a point; speeds blank up to two.)
+                cells(text_x, y, xs, height ? digits(l, 3, 0) : digits(l, 3, 2));
+                if (height) dot(0xDF, y + 4);
+            };
+            show(label, top);
+            for (int k = 1; top - 15 * k >= 70; ++k) show(label + 5 * k, top - 15 * k);
+            for (int k = 1, l = label; l != 0 && top + 15 * k <= 110; ++k) show(l -= 5, top + 15 * k);
+            // $128BB0: the scale's dots, long ones at the labels.
+            const int x = height ? 0xD4 : 0x69, longer = height ? 1 : 0;
+            const auto mark = [&](int y, bool long_mark) {
+                if (long_mark) {
+                    dot(x + longer - 1, y);
+                    dot(x + longer, y);
+                } else {
+                    dot(x, y);
+                }
+            };
+            mark(row, true);
+            for (int k = 0, y = row - 3; y > 0x47; ++k, y -= 3) mark(y, k == 4 || k == 9);
+            for (int k = 0, y = row + 3; y < 0x70; ++k, y += 3) mark(y, k == 4 || k == 9);
+            // The index ($1286D2, $128702): five pixels on row 91.
+            for (int i = 0; i < 5; ++i) dot((height ? 0xCE : 0x6B) + i, 91);
+        };
+        tape(r.feet / 10, true);
+        tape(r.knots, false);
+        // $12838A: the bracket by the speed's index.
+        for (const auto& [x, y] : {std::pair{109, 86}, {110, 86}, {108, 87}, {108, 88}, {109, 89}, {110, 89}}) dot(x, y);
+    }
+    // The heading tape ($1283F8): tens of degrees every 20 pixels on row 53
+    // (both digits, from the table `$128612` by the label's offset), the
+    // nearest label 1/5 pixel a tenth of a degree from the middle (the next
+    // ten from 4.1 degrees on); ticks every 10 pixels on row 61 between
+    // columns 133 and 185, two rows tall at the labels ($128C62).
+    {
+        const int tenths = (r.heading80 & 0xFFFF) >> 3;
+        int label = tenths / 100 * 10, past = tenths % 100;
+        if (past > 40) {
+            label += 10;
+            past -= 100;
+        }
+        if (label >= 360) label = 0;
+        const int shift = -(past / 5), centre = 0x9F + shift;
+        const auto show = [&](int value, int p) {
+            const std::string t = digits(value / 10, 2, 0);
+            text(image, left + 128 + positions_.heading[std::size_t(p + 22)], 53, t.substr(0, 1), glass);
+            text(image, left + 128 + positions_.heading[std::size_t(p + 22) + 45], 53, t.substr(1, 1), glass);
+        };
+        show(label, shift);
+        for (int p = shift + 20, l = label; p <= 22; p += 20) show(l = (l + 10) % 360, p);
+        for (int p = shift - 20, l = label; p >= -22; p -= 20) show(l = (l <= 0 ? 360 : l) - 10, p);
+        dot(centre, 61);
+        dot(centre, 60);
+        for (int k = 0, x = centre + 10; x < 0xB9; ++k, x += 10) {
+            dot(x, 61);
+            if (k == 1 || k == 3) dot(x, 60);
+        }
+        for (int k = 0, x = centre - 10; x > 0x85; ++k, x -= 10) {
+            dot(x, 61);
+            if (k == 1 || k == 3) dot(x, 60);
         }
     }
     for (int y = 63; y <= 65; ++y) image.put(left + 159, y, glass);
-    for (int x = 141; x <= 145; ++x) image.put(left + x, 90, marks);
-    for (int x = 173; x <= 177; ++x) image.put(left + x, 90, marks);
+    for (int x = 141; x <= 145; ++x) image.put(left + x, 91, marks);
+    for (int x = 173; x <= 177; ++x) image.put(left + x, 91, marks);
     // The weapon's line under the load factor ($12685C, from column 92 at
     // four pixels a character): "GUN" and the rounds in three digits (up
     // to two leading zeros blank), or " SW" / " AM" and the count in one

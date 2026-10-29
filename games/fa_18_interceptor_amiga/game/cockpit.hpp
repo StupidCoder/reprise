@@ -4,6 +4,7 @@
 #include "fa_18_interceptor_amiga/game/scene.hpp"
 #include <array>
 #include <optional>
+#include <vector>
 
 // The cockpit view's frame around the outside view: the head-up display's
 // glass outline, the glare shield (`pix/frnt5`) and the instrument panel
@@ -19,7 +20,11 @@ struct CockpitReadings {
     // The head-up display ($127EB8, with $13AA91 set once the flight runs).
     bool hud = true;
     int heading80{};       // heading, 80 per degree ($68)
-    int g_tenths{10};      // load factor in tenths ($126960), negative: pushed over
+    // The load factor's number ($126960): (pitch rate + 1/8) / 8 - 10 (+ 10
+    // inverted); shown as its size in tenths, with a minus sign from 0 up.
+    int g_display{-10};
+    bool inverted{};       // $13ABBA bit 1
+    bool f16{};            // the F-16's head-up display (tapes)
     // The panel's latitude and longitude in tenths of a degree ($126DCE, $126E5C).
     int north_tenths{}, west_tenths{};
     int gear{};            // the gear byte's high bits ($7C: 0 down .. $60 up)
@@ -57,6 +62,10 @@ private:
     const std::vector<std::string>& messages_;
     std::optional<std::array<std::uint8_t, 7 * 12>> strip_; // the compass strip ($132D9C)
     std::array<std::array<std::uint8_t, 7 * 4>, 4> gear_images_{}; // $132D0C, $132CF0, $132CD4, $132CB8
+    // The original's character position tables (x within the field).
+    struct Positions {
+        std::vector<int> feet, feet_label, knots, knots_label, g_letter, g_fa18, g_f16, height_tape, speed_tape, heading;
+    } positions_;
     const amiga::IlbmPicture* panel_{};
     const amiga::IlbmPicture* shield_{};
 };

@@ -3,7 +3,7 @@
 What remains for a complete, playable re-implementation, and the known
 bugs and differences. How the game works and what was learned: game.md.
 
-## Where it stands (2026-10-29, weapons)
+## Where it stands (2026-10-29, the F-16)
 
 Playable from the title: the title with its tune, credits, call-sign
 entry or welcome back, main menu, flight log, free flight's start map
@@ -12,10 +12,10 @@ carrier's deck: the original's flight model tick for tick, the head-up
 display, the panel's numbers, the message line with its warnings, the
 original's sounds, the crash (noise, flash, five aircraft, end text,
 back to the menu), the outside views and the view from above, the
-carrier's deck and wires, and the weapons (gun, missiles, flares, chaff
-with their readouts). Options: widescreen, smooth motion up to 120 Hz,
+carrier's deck and wires, the weapons (gun, missiles, flares, chaff
+with their readouts), and either aircraft (F/A-18 or F-16). Options: widescreen, smooth motion up to 120 Hz,
 VHS, sound. Checked against the original: `flightcheck`, `soundcheck`,
-`weaponcheck`, `viewcheck`, front-end screens and the map's markers
+`weaponcheck`, `hudcheck`, `viewcheck`, front-end screens and the map's markers
 (game.md sections 2 and 7). Committed and pushed step by step.
 
 Owner's design notes: widescreen and smooth motion stay (own renderer from
@@ -86,7 +86,11 @@ from drawing, and must still respect the passes' model rule).
    burning drawing (`$12185E`, a dot here); the log's counters (config
    +$3A rounds, +$3E / +$42 missiles); Shift-F (the ejection); key R's
    mode nibble (+$63 low).
-9. **The F-16** (type $10) as the second aircraft.
+9. **The F-16** — done 2026-10-29: the type byte, its head-up display
+   (tapes, load factor), eye point, outside camera, end text; flight and
+   sound checked against a recording of the original (f16a, all frames),
+   the head-up display pixel for pixel (`hudcheck`). The F/A-18's HUD
+   positions were corrected at the same time (from the original's tables).
 10. **Demo, training and qualification**: menu items 1, 3, 4 and 5
     (carrier landing), the maneuver prompts.
 11. **Missions**: the six selectable missions and the advanced mission
@@ -134,5 +138,5 @@ from drawing, and must still respect the passes' model rule).
 - The view's window of object cells is a square, not the original's
   octant lists; the fine water grid's window below height $9000 (by
   heading) draws all cells.
-- The F-16 choice flies the F/A-18's flight model (task 9) with the
-  F-16's shape outside; no objects other than the carrier.
+- No objects other than the carrier in free flight (as the original's
+  free flight; others come with the modes, tasks 10-11).

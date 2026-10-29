@@ -29,6 +29,7 @@ constexpr int flash_blanks = 80;
 constexpr int flash_ticks = flash_blanks * ticks_per_second / 50;
 constexpr int aircraft_given = 5;     // free flight's aircraft ($10217A)
 constexpr int end_text_fa18 = 99;     // "HEY ROOKIE, F/A-18'S DON'T GROW ON TREES"
+constexpr int end_text_f16 = 98;      // the same for the F-16 ($103A06)
 constexpr int ready_text = 89;        // "READY FOR TAKEOFF"
 constexpr int launch_text = 90;       // "READY TO LAUNCH" (on the carrier, $102E10)
 constexpr int carrier_place = 3;      // place 4 ($137CF6's $800E: record 14)
@@ -433,6 +434,7 @@ private:
             aircraft_ = carrier_.start_on_deck(assets_.program, tables_);
         } else {
             aircraft_ = start_at_place(assets_.program, tables_, place_);
+            aircraft_.type = std::uint8_t(aircraft_type_); // ($10D5A8: $13AB39 into +$62)
             // The wheels' surface, as the first contact would find it.
             aircraft_.surface = std::uint8_t(world_.on_runway(aircraft_.x / 256.0, aircraft_.z / 256.0) ? 4 : 0);
         }
@@ -526,7 +528,7 @@ private:
             // $1039F0: the menu palette and the end text, typed from this
             // frame on.
             text_.clear();
-            text_.queue(end_text_fa18);
+            text_.queue(aircraft_type_ == 0x10 ? end_text_f16 : end_text_fa18);
             phase_ = Phase::end_text;
             [[fallthrough]];
         case Phase::end_text:
@@ -694,14 +696,15 @@ private:
     }
 
     // $11D8F2 / $11DD2C: the outside camera's place: the offset of its
-    // position ($11D770 for the F/A-18, words x, y, z, 4 world units each)
+    // position ($11D770 for the F/A-18, $11D734 for the F-16; words x, y, z,
+    // 4 world units each)
     // scaled by the distance (1: 1.5 times, then doubling), turned by the
     // aircraft's view matrix for the views from behind and ahead and by its
     // heading alone for the others, at least 7 units above the ground; the
     // camera goes half the way there each frame.
     std::array<double, 3> chase_target() const {
         const auto& m = assets_.program;
-        const std::uint32_t at = 0x11D770 + std::uint32_t(6 * position_);
+        const std::uint32_t at = (aircraft_type_ == 0x11 ? 0x11D770 : 0x11D734) + std::uint32_t(6 * position_);
         double off[3] = {double(m.s16(at)), double(m.s16(at + 2)), double(m.s16(at + 4))};
         const double scale = distance_ < 0 ? 1 : distance_ == 1 ? 1.5 : double(1 << (distance_ - 1));
         for (auto& o : off) o *= 4 * scale;
@@ -1003,7 +1006,10 @@ private:
             body[i] = mix(was.body[i], now.body[i]) / 16384.0;
             view[i] = mix(was.view[i], now.view[i]) / 16384.0;
         }
-        const double eye[3] = {(20 * view[2] + 5 * view[1]), (20 * view[5] + 5 * view[4]), (20 * view[8] + 5 * view[7])};
+        // The pilot's eye ($10F49E): (0, 5, 20) in the F/A-18, (0, 4, 18) in the F-16.
+        const double up = now.type == 0x11 ? 5 : 4, ahead = now.type == 0x11 ? 20 : 18;
+        const double eye[3] = {(ahead * view[2] + up * view[1]), (ahead * view[5] + up * view[4]),
+                               (ahead * view[8] + up * view[7])};
         c.position = {mix(was.x, now.x) / 256.0 + eye[0], mix(was.y, now.y) / 256.0 + eye[1],
                       mix(was.z, now.z) / 256.0 + eye[2]};
         // The look direction ($122340): the view turned about the
@@ -1048,7 +1054,7 @@ private:
     Aircraft aircraft_, before_;
     std::array<bool, 64> keys_was_{};
     bool fire_was_ = false, ctrl_tab_was_ = false, ctrl_two_was_ = false;
-    int aircraft_type_ = 0x11;    // $13AB39 (the F-16, $10, flies as the F/A-18 for now)
+    int aircraft_type_ = 0x11;    // $13AB39: $11 the F/A-18, $10 the F-16
     // The outside view ($13AA75 distance 1-4, 0 the cockpit; $13ABA2 the
     // camera's position around the aircraft) and its chasing camera.
     bool outside_ = false;

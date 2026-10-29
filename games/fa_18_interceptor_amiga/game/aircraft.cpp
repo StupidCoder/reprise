@@ -513,6 +513,7 @@ void turn(Aircraft& a, const FlightRules& rules, const FlightTables& t) {
     const i16 roll_rate = a.roll_rate;
     if (rules.bank_turns) {
         const auto extra = bank_turn(a, t);
+        a.bank_pitch = extra[0];
         pitch_rate = i16(pitch_rate + extra[0]);
         yaw_rate = i16(yaw_rate + extra[1]);
     }

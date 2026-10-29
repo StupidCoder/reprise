@@ -59,6 +59,7 @@ struct Aircraft {
     std::int16_t bank_sine{}, bank_cosine{};
     std::int16_t bank_side{}, bank_side_was{}, bank_turn{}; // the bank turn's memory
     std::int16_t bank_turn_limit{};
+    std::int16_t bank_pitch{};       // $13AC36: the bank turn's share of this tick's pitch (the G reading)
     std::uint8_t gear{};             // high nibble: 0 down .. $60 up, bit 7 the handle up
     std::int16_t deck_height{};      // over a deck: its height / 256
     Matrix body{}, view{};

@@ -777,19 +777,48 @@ height's `$127E6C` leaves a gap after the thousands).
 - Fuel bar ($125514): `$13ABE6` & $7FFF >> 10 lit rows of 22, columns
   112 and 114 from row 180 up, colour 4 (unlit 0).
 - Head-up display ($127EB8, cockpit view only, readouts once `$13AA91`
-  is set as the flight starts): speed +$6E / 12 kt (0 when crashed) and
-  height (y >> 10) × 5 ft as digits with "KT" / "FT" (`$127F6C`,
-  `$1281B2`; with type +$62 = $10 tapes instead), load factor "1.4 G"
-  (`$126960`: (pitch rate + pitch rate / 8 + the bank turn's `$13AC36`) /
-  8, from 1 G: shown 10 − that in tenths, "-" when below 0), the fixed
-  marks of `$128D42` (the index under the heading tape, the waterline
-  marks at rows 90, x 141-145 and 173-177, colour $A). Colour 13.
-  Positions measured on `work/ref/cap/009.png`: speed digits at 90, 94,
-  98, 102 row 84, "KT" 96 row 91; height digits at 205, 209, 213, 219,
-  223, 227 row 84, "FT" 226 row 91; "x.x G" from 90 row 121; heading
-  tape: a tick every 5° 2 px apart on row 61 (every 10° also row 60,
-  with its tens of degrees 3 px right of it on rows 53-57), the index at
-  159 rows 63-65, ticks shown from x 126 to 185.
+  is set as the flight starts; colour 13). Characters go where the
+  original's position tables put them (`$1276A0`: pairs of a byte offset
+  and a blitter shift, from the field's start column; checked pixel for
+  pixel with `hudcheck` against both aircraft's screens, 2026-10-29):
+  - F/A-18 ($11): height (y >> 10) × 5 ft in six digits (up to five
+    leading zeros blank) from column 192 row 84 (`$127E6C`: +12, 16, 20,
+    26, 30, 34), "FT" from 208 row 91 (`$127E88`: +14, 18); speed +$6E /
+    12 kt (0 when crashed) in four digits from 80 row 84 (`$127E90`: +12,
+    18, 22, 26), "KT" from 96 row 91 (`$127EA4`: +6, 10).
+  - F-16 ($10): tapes (`$128016` height in tens of feet on the right,
+    `$128240` knots on the left). A label every 50 (500 ft, 50 kt): the
+    value's last two digits up to 20 round down, 21-70 to 50, above 70 up
+    (`$13AE12` in BCD); the label's row is 91 + (last two digits − its
+    own) / 3, the text 2 rows above it; more labels 15 rows apart from
+    row 70 to 110 (+5 up, −5 down, not below 0). Heights: three digits
+    (zeros kept) from 208 (`$127E54`: +7, 11, 17) with the point a pixel
+    at (223, row + 2); knots: three digits (two zeros blank) from 80
+    (`$127E60`: +12, 16, 20). Dots every 3 rows on columns 212 / 105
+    between rows 72 and 111, two pixels wide (213 / 104-105) at the
+    labels' rows; the indexes are five pixels on row 91 from 206 / 107;
+    a bracket by the speed's index at (109-110, 86), (108, 87-88),
+    (109-110, 89). No "FT" / "KT".
+  - Load factor (`$126960`): (pitch rate + pitch rate / 8 + the bank
+    turn's share `$13AC36` when beyond ±1) / 8, minus 10 (plus 10 when
+    inverted, `$13ABBA` bit 1: `$1043F2` sets it when exactly one of the
+    view's pitch and roll is between 90° and 270°); its size in tenths in
+    two digits (one leading zero blank) after "-" (from 0 up) or a blank;
+    the point a pixel. F/A-18: from 80 row 121 (`$126508`: +12, 16, 22),
+    point (100, 125), "G" at 108 (`$126514`); F-16: from 96 row 61
+    (`$1264FC`: +10, 14, 21), point (114, 65), no "G".
+  - Heading tape (both, `$1283F8`): the heading in tenths of a degree;
+    the nearest label (tens of degrees, two digits, zeros kept; from 4.1°
+    past a ten the next one) sits −(tenths past it) / 5 pixels from 159;
+    labels 20 pixels apart within ±22 on row 53, their characters from
+    `$128612` (8 bytes an offset, two characters) from column 128. Ticks
+    (`$128C62`) on row 61 at the label's column and every 10 pixels
+    between 133 and 185, also on row 60 at the label and every second
+    one. The index at 159 rows 63-65.
+  - The marks of `$128D42`: the waterline marks on row 91 (x 141-145 and
+    173-177, colour $A). (The port had these one row up and the
+    F/A-18's speed and height a few pixels off until the tables were
+    read.)
 - The compass strip ($125B74): chip hunk 62 at `$132D9C`, 7 rows of 12
   bytes (96 px): a blank row, "W N E S W N E S" (a letter every 12 px,
   dots between them on the third glyph row), a blank row: 7.5° a pixel.
@@ -1005,6 +1034,7 @@ missing from the original.
 | `fc2.jsonl` | afterburner, ceiling, rolls, rudder, throttle to reverse, speed brake, stall | 258/259 (the G key's tick) |
 | `fc3.jsonl` | ground roll, nose rotation and settling, speed brake and wheel brake bit on the ground | 196/198 (key ticks) |
 | `fc4.jsonl` | brakes off, lift-off, afterburner climb | 238/239 (key tick) |
+| `f16a.jsonl` | the F-16: take-off at full power, pull, rolls, rudder (also `soundcheck`) | 328/328 |
 
 Not recorded yet: a soft touch-down from the air, water (a hard one is
 the crash below).
@@ -1176,6 +1206,22 @@ the centre. With a target (`$13ACB0`) it follows the target instead
 (not in free flight). The port's projection now truncates the quotients
 before taking them from the centre, as `$123894` does (the circle sits
 on row 74 as the original's).
+
+### The F-16 (2026-10-29)
+
+The aircraft choice ($10E9DA: key 1 → $11, 2 → $10, `$13AB39`) goes
+into the record's type +$62 at the start (`$10D5A8`). The flight model
+has no per-type data: everything that differs is a test of +$62 (the
+type's high nibble $10 is "aircraft" for both). A recording of the
+original flying the F-16 (`work/ref/f16a.jsonl`: take-off, pull, rolls,
+rudder) matches the port's flight and sound in all 328 frames. What
+differs: the shape (type 3, `$10D58C`'s offset $3C), the head-up
+display's tapes and load factor (above), the pilot's eye (`$10F49E`:
+(0, 4, 18) × view matrix / 64 instead of (0, 5, 20)), the outside
+camera's offsets (`$11D734` instead of `$11D770`), the missile stations
+(`$117932`) and the gun's muzzle ((6, 1, $18)), no arresting hook
+(`$10E372`), the end text 98 instead of 99 (`$103A06`). The carrier
+(place 4) always takes the F/A-18.
 
 ### The carrier (2026-10-29)
 
@@ -1406,7 +1452,10 @@ Research files live in `.analysis/fa_18_interceptor_amiga/` (`harness/`,
   `flightcheck` (flight model against recordings: fc1-fc4 equal except
   key ticks), `soundcheck` (sound calls and message line: sd2, cr5,
   td1-td3 equal in every frame), `weaponcheck` (missiles and projectiles
-  against `--objs` recordings: wpm, wpg, wpa equal in every frame), `fly` (headless module run from the title,
+  against `--objs` recordings: wpm, wpg, wpa equal in every frame),
+  `hudcheck` (the head-up display for given readings against a
+  `screen.py` colour dump: `wp/gun.idx` F/A-18, `f16b.idx` F-16, no pixel
+  differs), `fly` (headless module run from the title,
   pictures and `!wav`; keys: digits, `*` Return, `~` Tab (Esc), `^`
   Ctrl+Tab (Shift-Esc), `_` space, capitals the letter keys, `@ [ ] { }`
   the keypad's 0 4 6 8 2).
