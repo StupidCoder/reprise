@@ -75,7 +75,10 @@ rate apart from drawing.
    ending the waits, texts held over the picture on screen, +$18 and the
    clue search in drawing order (equal in all 13 records), the eaten
    Pac's score picture, palette objects (kind 16), the deadly timer after
-   "Use reserve fuel", "Wind back world".
+   "Use reserve fuel", "Wind back world". Fixed after a report: buttons,
+   switches, exits and sparks no longer take the jewels' "type 2: 8 up"
+   placement (the blue type-2 button sat 8 pixels too high and covered
+   an explorer behind it); Tutorial 4 and 6 dumps 0 pixels different.
 
 ## Remaining tasks
 
@@ -193,7 +196,8 @@ rate apart from drawing.
 - Not compared yet: the "lost" tops, the ice timeout, the brake, a lift
   top without its lift, the clue boxes; of the Tutorial, levels 6, 7 and
   14 played through (their buttons, lifts, gates) and level 5's
-  switches (only played natively).
+  switches (only played natively; levels 4 and 6 compared as single
+  pictures with the explorer placed by hand).
 - The texts held over the picture on screen use the last picture the
   shell asked for; a host that skips drawing a frame would hold an older
   one (the original's shown buffer is always the last frame).

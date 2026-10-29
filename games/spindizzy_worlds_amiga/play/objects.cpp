@@ -820,11 +820,9 @@ void LevelObjects::frame(const data::Memory& main, bool slow, const view::Camera
         } else if (o.kind == ObjectKind::exit_point && o.byte20) {
             list = exit_list;
             rows = 0x0E;
-            if (o.word2c == 2) place.y -= 8; // $14AAE's test, meant for jewels
         } else if (o.kind == ObjectKind::spark_generator && !o.byte20) { // $15CAA
             list = 0x15CBC;
             rows = 0x0F;
-            if (o.word2c == 2) place.y -= 8; // $14AAE's test, meant for jewels
         } else if (o.kind == ObjectKind::boink || o.kind == ObjectKind::pac || o.kind == ObjectKind::pyramid) {
             // $1467E: the set's (dx, dy) pair at +2 (moving) or +$10
             // (popping, $147E2) from $146F8, its list after it.

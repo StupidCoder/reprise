@@ -378,7 +378,13 @@ skipped.
 - **1 Jewel** ($14A18/$14BCA): type = param0 & $E; frames $25AC0 + list
   offset ($14C44 + word[type]); rows $14C24[type] + 1 (16, 16, 24, 10, 10,
   10, 10, 24); place = projection − (16, 16) for types 4/$E, − (16, 8) type
-  2, − (16, 0) else; first countdown ((slot) & 7 + 1) × 4.
+  2, − (16, 0) else; first countdown ((slot) & 7 + 1) × 4. The "type 2:
+  8 up" test ($14AA4) is the jewels' own: buttons ($1608C), switches,
+  sparks (both through $1607E) and exits ($15026) branch to $14AAE after
+  it, so they are placed at projection − (16, 0) whatever their +$2C.
+  (The port first applied the test to them too, which put the type-2 blue
+  button 8 pixels too high and over an explorer standing behind it;
+  checked against the original's picture in Tutorial 4 and 6.)
 - **2 Lift** ($14CBC/$14EF6): params words +$2C, +$2E, +$26, byte flags
   (+$32: type & 7, bit 6 tall, bit 7 column), byte base z (& 7) << 8;
   frames $285E0 + type × $140 (16 rows) or $2A7A0 + type × $1E0 (24 rows);
@@ -1192,10 +1198,6 @@ Kept in the port's original mode unless noted.
   with −(v >> 1), and corners push out to $A5 where edges use $A6.
 - **Camera never closes the last pixels left/up:** a negative step is
   rounded one smaller, so up to 7 pixels left or up remain.
-- **Placement quirk:** buttons, switches, exits and sparks share $1607E →
-  $14AAE, which moves the sprite 8 up when the record word +$2C is 2 (meant
-  for jewels of type 2). Hit by button type 2, switch colour 2, spark
-  period 2, and an exit with flags 0 and second byte 2.
 - **32-pixel creature masks are misaligned:** they AND their per-column
   mask with the frame before shifting it ($101FE), so occlusion lands x &
   15 pixels left of its pixels (EasyDizzy 6: 16 pixels wrong without the

@@ -43,12 +43,11 @@ SpritePlace banded(SpritePlace place, int mask_top, int row = 0) {
     return place;
 }
 
-// The shared placement of buttons, switches, exits and sparks ($1607E →
-// $14AAE): 16 pixels left, and 8 up when the record's word +$2C happens to
-// be 2 (a test meant for jewels of type 2; kept).
-SpritePlace placed(const SpritePlace& at, int word_2c) {
-    SpritePlace place{at.x - 16, at.y, at.key};
-    if (word_2c == 2) place.y -= 8;
+// The shared placement of buttons, switches, exits and sparks ($1607E,
+// $15022 → $14AAE): 16 pixels left. They enter past the jewels' "type 2:
+// 8 up" test at $14AA4.
+SpritePlace placed(const SpritePlace& at) {
+    const SpritePlace place{at.x - 16, at.y, at.key};
     return banded(place, place.y);
 }
 
@@ -142,7 +141,7 @@ std::vector<ObjectSprite> start_sprites(const world::Level& level, const world::
             if (!now.shown || (parameter(object, 0) & 0x80)) break;
             const std::uint32_t frame = exit_frames + animation_offset(main, exit_list, now.step);
             sprites.push_back({object.kind, data::read_sprite_frame(main, frame, 2, 15),
-                               placed(at, parameter(object, 0) << 8 | parameter(object, 1)), order});
+                               placed(at), order});
             break;
         }
         case world::ObjectKind::push_button: { // $16048, $16112
@@ -152,7 +151,7 @@ std::vector<ObjectSprite> start_sprites(const world::Level& level, const world::
             else if (type & 4) pressed = ((type & 3) + 1) == switches.primary;
             else pressed = type == switches.secondary;
             const std::uint32_t frame = button_frames + std::uint32_t(type) * 0x208 + (pressed ? 0x104 : 0);
-            sprites.push_back({object.kind, data::read_sprite_frame(main, frame, 2, 13), placed(at, type), order});
+            sprites.push_back({object.kind, data::read_sprite_frame(main, frame, 2, 13), placed(at), order});
             break;
         }
         case world::ObjectKind::binary_switch: { // $16154, $16240
@@ -160,7 +159,7 @@ std::vector<ObjectSprite> start_sprites(const world::Level& level, const world::
             const int facing = parameter(object, 1) & 3; // minus the level's rotation, 0 for levels as built
             const bool on = switches.binary & (8 >> colour);
             const std::uint32_t frame = switch_frames + std::uint32_t(colour * 8 + facing) * 0xDC + (on ? 0 : 0x370);
-            sprites.push_back({object.kind, data::read_sprite_frame(main, frame, 2, 11), placed(at, 8 >> colour), order});
+            sprites.push_back({object.kind, data::read_sprite_frame(main, frame, 2, 11), placed(at), order});
             break;
         }
         case world::ObjectKind::spark_generator: { // $15C10, $15CAA: hidden once it has fired (+$20)
@@ -169,7 +168,7 @@ std::vector<ObjectSprite> start_sprites(const world::Level& level, const world::
             const int direction = parameter(object, 3);
             const std::uint32_t frame = spark_frames + ((direction & 1) ? 0 : 0x500) +
                                         animation_offset(main, spark_list, now.step);
-            sprites.push_back({object.kind, data::read_sprite_frame(main, frame, 2, 16), placed(at, period), order});
+            sprites.push_back({object.kind, data::read_sprite_frame(main, frame, 2, 16), placed(at), order});
             break;
         }
         case world::ObjectKind::lift: { // $14CBC, $14EF6
