@@ -111,9 +111,10 @@ slots to work/clusters/; the importer unscrambles natively.
    "Select a cluster with joystick": hold a direction, press and release
    fire ($11EBC; $36B4(a5) = 1 easy, 2 hard).
 5. A world map ("Tutorial" highlighted among planets) → fire.
-6. In game: isometric scrolling playfield between two pillars (fuel gauge
-   on the right, hypothesis), panel below: Clue, four small boxes, world
-   name, "Spindizzy", an arrow (compass, hypothesis).
+6. In game: isometric scrolling playfield between two pillars (the fuel
+   gauge runs up the left pillar, then the right: "Panel and pillars"),
+   panel below: Clue, four small boxes (the clue boxes, $1635E), world
+   name, "Spindizzy", the compass (the level's rotation, $149C6).
 
 ## Code map
 
@@ -141,8 +142,22 @@ slots to work/clusters/; the importer unscrambles natively.
 | $14138 / $14202 | camera follow / snap |
 | $14390, $143B6, $1440E | objects tick, draw, sort |
 | $144BE / $148C2 | object create by kind / kind table |
+| $10E1E / $10E96 | fuel costs per difficulty / fuel and gauge each frame |
+| $10FC6 | pillars (sprites) and gauge |
+| $112F6 | level loop (keys, ticks, camera, fuel, drawing, rebuilds) |
+| $116F0 / $11E52 | world map / Easy-Hard choice |
+| $12714 / $12724 | explorer placement from the header or a place word |
+| $138F6 / $13910 | level jewel long / a jewel's index and presence |
+| $14980 | panel, labels, world name, pillars, compass |
+| $14A18 … $16350 | object kinds (see "Objects' rules") |
+| $15FC0 / $15F94 | show a clue once / its text (list $15CDA) |
 | $16266 / $162D8 / $162FE | conditions: test, record, re-test and rebuild |
-| $17694 | title picture |
+| $16704 / $16756 | world map: angles, projection |
+| $16D44 | a world's start values |
+| $17694 / $1771C | title picture / attract sequence |
+| $17E46 | menu |
+| $18518 / $18582 | text printer / boxes |
+| $18950 | main loop |
 | $3400 / $432A8 | effects player module / music player module |
 
 ## Data formats
@@ -179,7 +194,7 @@ $24AE(a5) = the other worlds done; world $1F tests bits 23–28).
 
 | Offset | Size | Meaning |
 | --- | --- | --- |
-| +0 | word | the explorer's start cell: x bits 8–12, y bits 3–7, at the cell centre (Tutorial 1 $0B79 → $0B80/$0F80, Gargoyle 1 $1078 → $1080/$0F80); bits 0–2 taken as the start level (hypothesis) |
+| +0 | word | the explorer's start cell: x bits 8–12, y bits 3–7, at the cell centre (Tutorial 1 $0B79 → $0B80/$0F80, Gargoyle 1 $1078 → $1080/$0F80); bits 0–2 the level, z = level × 256 + $80 ($12724; Tutorial 1 starts at z $180 in the traces) |
 | +2 | word | ? |
 | +4 | word | flags → $24B8(a5); bit 15 required by $12018 and fixes the camera across; bit 12 tested at $11FE4; bit 11 turns the ice timeout off ("Ice timeout off"); bit 12 "Add reserve fuel"; bit 13 "NO fuel use"; bit 14 "Disable Mapper" (the m key) |
 | +6 | word | ? |
@@ -343,8 +358,9 @@ skipped.
 - **The explorer** (slot 1): frames $21240, 16 × 16, four spin steps of
   $A0 (step = bits 2–3 of its counter +$1E, $1490A); flashing ($2510 set)
   alternates with +$280 (+$21 bit 0 toggled by bchg); states $24F5/$24F2 >
-  0 use +$C80. Arriving at a level it runs $12B04 (kind −3) with the list
-  $12AF2 (frames +$A00/$AA0/$B40, then +$BE0 for $B frames). Sort offset
+  0 use +$C80. Respawning after a loss it runs $12B04 (kind −3) with the
+  list $12AF2 (frames +$A00/$AA0/$B40, then +$BE0 for $B frames); a level
+  start makes the playing kind −4 at once. Sort offset
   +$C ($12DFE).
 - **1 Jewel** ($14A18/$14BCA): type = param0 & $E; frames $25AC0 + list
   offset ($14C44 + word[type]); rows $14C24[type] + 1 (16, 16, 24, 10, 10,
@@ -378,7 +394,7 @@ skipped.
   the explorer's), mode −1 32 × 24 ($10124; the first map column keyed
   $200 nearer for odd headings, the third for even). Sort offsets: Pac
   +$10 ($156BE), Pyramid +$C ($15918), Boink 0 ($152CE). Touching the
-  explorer ($156D8/$156EC): clue 5, energy $2062, flash ticks +15, leaves
+  explorer ($156D8/$156EC): clue 5, fuel cost $2062, flash ticks +15, leaves
   $2504 = $FFFF. Tutorial/EasyDizzy: Pacs use sets 7 and 3, Pyramids set 3,
   Boinks set 4.
 - **7 Timer** ($1530C/$153C4): seconds in $360E(a5), printed as text at
@@ -386,8 +402,8 @@ skipped.
 - **11 Heads** ($1594A/$15A98): facing = param0 − rotation, type = param1 &
   3, condition word; frames $28EA0 + word[$159A4 + 2 (type × 4 + facing)],
   40 rows; z starts at the object's height and moves up when the condition
-  holds ("Move UP"); occlusion like the lift's. Heads block the explorer
-  (seen in Tutorial 1; not yet traced).
+  holds ("Move UP"); occlusion like the lift's. Its rules (a solid block
+  the explorer bounces off) are under "Objects' rules"; traced in Tutorial 1.
 - **12 Spark generator** ($15C10/$15CAA): condition word, period,
   direction; frames $276E0 (+$500 when direction bit 0 is clear), list
   $15CBC, 16 rows; hidden once fired (+$20).
@@ -480,7 +496,7 @@ routine from the table, every $40 a copy):
 | $1349A | 20 21 E1 | base | ice (clues 7 and 10: "trapped on Ice", "On Ice for too long"): not after a lift tick; 250 ticks ($2514) unless level flag bit 11 (clue 10); flags $8200; standing still (both rounded speeds 0) kills (clue 7) |
 | $13504 | 03 43 83 C3 | base | bouncy: flags $0180; falling faster than 8 reverses vz (effect $24) |
 | $1354C | 24-27 | base | conveyor: vx, vy high words += table $13570 (2 per tick by orientation), land |
-| $13584 | 34-37 … | base | deadly: flags 0, clue 8, kind −2, no energy cost |
+| $13584 | 34-37 … | base | deadly: flags 0, clue 8, kind −2, no fuel cost |
 | $1359C | 3C 7C BC FC | base | lift top (the lift object's platform block): not after a lift tick; flag $0002, no landing; the second tick in a row kills (clue 6) |
 
 ### Walls ($135D2)
@@ -498,7 +514,7 @@ with −(v >> 1).
 
 ### Deaths and respawn
 
-$131F4 takes $2060(a5) from the energy $206C(a5), clears the flags, shows
+$131F4 takes the death cost $2060(a5) from the fuel change $206C(a5), clears the flags, shows
 the clue once ($15FC0, bit n of $3610) and turns the explorer into kind −2.
 The tick goes on after a death (the routines return into it).
 
@@ -908,7 +924,7 @@ Native checks and tools (`spindizzy_worlds_assets`):
 
 | Trace | Ticks | Exercised |
 | --- | --- | --- |
-| t1_a (Tutorial 1) | 343 | flat, 18 wall pushes; then the Heads object blocks the explorer (object rule, not yet rebuilt) |
+| t1_a (Tutorial 1) | 343 | flat, 18 wall pushes; then the Heads object blocks the explorer (physcheck stops there; playcheck, which runs the objects, matches it) |
 | w31_5, w6_4 | 333, 749 | slopes, 16 falls out of the world (clue 3) |
 | w22_2, w7_1_1320e | 1199, 499 | flat, 43 wall/corner pushes, an alien's touch |
 | w22_2_1327e | 499 | slippery 497 ticks |

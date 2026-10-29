@@ -45,8 +45,10 @@ rate apart from drawing.
      object slot included: Tutorial 1 → 4 → 1 (2,700 ticks) and the whole
      Tutorial from its start to its end, 12,849 ticks over 11 level visits
      (see game.md, "Evidence"); `drivefile` plays it through the module
-     from the title to "Next world". The
-     route (`route` tool) takes all four level-1 jewels, levels 4-8 and 15.
+     from the title to "Next world". The route (`route` tool) takes the
+     four level-1 jewels (entering levels 4-7 and leaving them at once),
+     then levels 8 and 15; level 4's jewel is covered by the shorter
+     route1 record.
 
 ## Remaining tasks
 
@@ -79,8 +81,8 @@ rate apart from drawing.
 - [ ] The panel's clue boxes ($1635E/$163BE: the nearest object's
       condition) and the message 24 boxes it refers to.
 - [ ] The timer's seconds on screen ($153C4, $18826).
-- [ ] The world map's "?" world gating message ($1180A) and level 15 of
-      a world entered by the harness.
+- [ ] The world map's gating message ($1180A) for the locked worlds $16
+      and $1F (the port refuses them silently).
 - [ ] Menu input: the original takes the joystick byte each pass; the
       port acts on presses. Its pass rate (not frame-locked) is guessed
       as one a frame.
@@ -110,7 +112,12 @@ rate apart from drawing.
 - Sprite colour 24 and the pillars' screen columns (−1 and 303) follow
   the hardware registers; not checked against a window capture.
 - Not compared yet: the "lost" tops, the ice timeout, the brake, a lift
-  top without its lift, the clue boxes.
+  top without its lift, the clue boxes; of the Tutorial, levels 6, 7 and
+  14 played through (their buttons, lifts, gates) and level 5's
+  switches (only played natively).
+- The bonus notice and clue texts are drawn over the live picture; the
+  original prints them once into the shown buffer (the same picture
+  while the game waits).
 
 ## Open research items
 
