@@ -85,24 +85,6 @@ void FrontEnd::snapshot() {
     undo_ready_ = true;
 }
 
-Flow FrontEnd::edit_field(LineEditor& e) {
-    e.cursor = int(e.text.size());
-    for (;;) {
-        draw_editor(e);
-        const int end_x = screen_.cursor.x;
-        co_await next_frame();
-        const int key = in_.key;
-        if (e.digits && key >= 0x20 && (key < '0' || key > '9')) continue;
-        if (!edit_key(e, key, end_x)) break;
-        if (in_.left && !previous_.left) {
-            if (in_.x >= e.box_x0 && in_.x < e.box_x1 && in_.y >= e.box_y0 && in_.y < e.box_y1) edit_click(e, in_.x);
-            else break;
-        }
-    }
-    draw_editor(e, false); // $12304 once more, the cursor gone
-    co_await wait_release();
-}
-
 // --- the screen -----------------------------------------------------------
 
 void FrontEnd::designer_screen() {
@@ -223,13 +205,7 @@ void FrontEnd::designer_edit(bool left) {
 
 // --- the designer's loop ---------------------------------------------------
 
-Flow FrontEnd::designer() {
-    if (!std::exchange(resume_designer_, false)) mark(Mark::designer); // (a load comes back in here)
-    struct Back {
-        bool& in;
-        ~Back() { in = false; }
-    } back{in_designer_};
-    in_designer_ = true;
+void FrontEnd::designer_start() {
     fast_fades_ = true;
     screen_.clear();
     screen_.copper = CopperMode::split;
@@ -293,22 +269,38 @@ Flow FrontEnd::designer() {
     }
     designer_screen();
     designer_views();
-    Menu menu(assets_.program, designer_areas);
-    bool exit = false;
-    bool wait = true;
-    while (!exit) {
-        if (wait) co_await wait_release(); // $E400
-        wait = true;
-        int choice = -1;
-        for (;;) {
-            co_await next_frame();
+}
+
+FrontEnd::Go FrontEnd::run(tasks::Designer& t) {
+    // $E386: the menus, the floor boxes, the palette and the view window.
+    using enum tasks::Designer::At;
+    for (;;) switch (t.at) {
+        case start:
+            designer_start();
+            t.menu = Menu(assets_.program, designer_areas);
+            t.at = top;
+            continue;
+        case top:
+            if (t.exit) {
+                t.at = leave;
+                continue;
+            }
+            t.at = look;
+            if (t.wait) return call(tasks::WaitRelease{}); // $E400
+            continue;
+        case look:
+            t.wait = true;
+            t.choice = -1;
+            t.at = looking;
+            return Go::wait;
+        case looking: {
             const int x = in_.pointer ? in_.x : 0x1F40, y = in_.pointer ? in_.y : 0x8000;
-            menu.hover(screen_, x, y);
-            choice = menu.at(x, y);
+            t.menu.hover(screen_, x, y);
+            t.choice = t.menu.at(x, y);
             // $10D9E: the view window's cell under the pointer, and the cursor on it.
             screen_.marker.reset();
             hover_x_ = hover_y_ = 8;
-            if (choice == 10) {
+            if (t.choice == 10) {
                 const int x0 = 9 - 3 * floor_;
                 const int cx = x - x0, cy = y - 12 - x0;
                 if (cx >= 0 && cy >= 0 && cx / 14 < 8 && cy / 14 < 8) {
@@ -317,61 +309,69 @@ Flow FrontEnd::designer() {
                     screen_.marker = std::array<int, 2>{x0 + 14 * hover_x_, 12 + x0 + 14 * hover_y_};
                 }
             }
-            if (choice < 0) continue;
-            if (choice == 10) {
-                if ((in_.left || in_.right) && hover_x_ < 8 && hover_y_ < 8) break;
-            } else if (in_.left) {
-                break;
-            }
-        }
-        menu.unhover(screen_);
-        screen_.marker.reset();
-        switch (choice) {
-        case 0:
-            co_await designer_file(exit);
-            break;
-        case 1:
-            co_await designer_options();
-            break;
-        case 2:
-            co_await designer_toolbox();
-            break;
-        case 3:
-            co_await designer_extras();
-            break;
-        case 4: case 5: case 6: case 7:
-            floor_ = choice - 4;
-            break;
-        case 8: { // the palette: a slot, or the same slot again for its next kind
-            const int col = (in_.x - 0x84) / 24, row = (in_.y - 0x2A) / 24;
-            const int s = row * 8 + col;
-            if (in_.x < 0x84 || in_.y < 0x2A || s >= 24) break;
-            screen_.frame(0x84 + 24 * (slot_ & 7), 0x2A + 24 * (slot_ >> 3), 0x94 + 24 * (slot_ & 7), 0x3A + 24 * (slot_ >> 3), 0);
-            if (s == slot_) {
-                int k = palette_[std::size_t(s)] + 1;
-                if (k > int(assets_.program.u8(palette_max + std::uint32_t(s)))) k = assets_.program.u8(palette_min + std::uint32_t(s));
-                palette_[std::size_t(s)] = std::int8_t(k);
-                draw_palette_icon(s);
-            }
-            slot_ = s;
-            draw_palette_cursor();
-            continue; // (redraws only the cursor)
-        }
-        case 9:
-            designer_message(0x2D);
-            wait = false;
+            if (t.choice < 0) return Go::wait;
+            if (t.choice == 10 ? !((in_.left || in_.right) && hover_x_ < 8 && hover_y_ < 8) : !in_.left) return Go::wait;
+            t.at = chosen;
             continue;
-        case 10:
-            // While floor is being painted the button may stay down ($E0E bit 7).
-            designer_edit(in_.left);
-            wait = !std::exchange(painting_, false);
-            break;
-        default:
-            break;
         }
-        designer_views();
-    }
-    fast_fades_ = false;
+        case chosen:
+            t.menu.unhover(screen_);
+            screen_.marker.reset();
+            t.at = views;
+            switch (t.choice) {
+            case 0:
+                t.at = filed;
+                return call(tasks::DesignerFile{});
+            case 1: return call(tasks::DesignerOptions{});
+            case 2: return call(tasks::DesignerToolbox{});
+            case 3: return call(tasks::DesignerExtras{});
+            case 4: case 5: case 6: case 7:
+                floor_ = t.choice - 4;
+                continue;
+            case 8: { // the palette: a slot, or the same slot again for its next kind
+                t.at = top; // (redraws only the cursor)
+                const int col = (in_.x - 0x84) / 24, row = (in_.y - 0x2A) / 24;
+                const int s = row * 8 + col;
+                if (in_.x < 0x84 || in_.y < 0x2A || s >= 24) {
+                    t.at = views;
+                    continue;
+                }
+                screen_.frame(0x84 + 24 * (slot_ & 7), 0x2A + 24 * (slot_ >> 3), 0x94 + 24 * (slot_ & 7), 0x3A + 24 * (slot_ >> 3), 0);
+                if (s == slot_) {
+                    int k = palette_[std::size_t(s)] + 1;
+                    if (k > int(assets_.program.u8(palette_max + std::uint32_t(s)))) k = assets_.program.u8(palette_min + std::uint32_t(s));
+                    palette_[std::size_t(s)] = std::int8_t(k);
+                    draw_palette_icon(s);
+                }
+                slot_ = s;
+                draw_palette_cursor();
+                continue;
+            }
+            case 9:
+                designer_message(0x2D);
+                t.wait = false;
+                t.at = top;
+                continue;
+            case 10:
+                // While floor is being painted the button may stay down ($E0E bit 7).
+                designer_edit(in_.left);
+                t.wait = !std::exchange(painting_, false);
+                continue;
+            default:
+                continue;
+            }
+        case filed:
+            t.exit = result_;
+            t.at = views;
+            continue;
+        case views:
+            designer_views();
+            t.at = top;
+            continue;
+        case leave:
+            fast_fades_ = false;
+            return Go::end;
+        }
 }
 
 // --- File ---------------------------------------------------------------
@@ -397,810 +397,1073 @@ void FrontEnd::tower_name_window(int slot) {
     screen_.text(name);
 }
 
-Flow FrontEnd::choose_slot(int title_x0, int y0, int y1, std::uint32_t title, std::uint32_t areas, std::uint32_t question,
-                           int& slot) {
+FrontEnd::Go FrontEnd::run(tasks::ChooseSlot& t) {
     // Get / Put / Swap Tower: a letter, its name below, then Yes/No.
-    (void)title_x0;
-    screen_.open_window(0, y0, 0x67, y1, 0);
-    letter_grid(y0 + 0x1A);
-    screen_.text_at(title);
-    slot = -1;
-    for (;;) {
-        int c = 0;
-        co_await select(areas, c);
-        if (c == 0) break;
-        tower_name_window(c - 1);
-        auto q = screen_.string_at(question);
-        q.back() = char('A' + c - 1);
-        bool yes = false;
-        {
+    using enum tasks::ChooseSlot::At;
+    for (;;) switch (t.at) {
+        case start:
+            screen_.open_window(0, t.y0, 0x67, t.y1, 0);
+            letter_grid(t.y0 + 0x1A);
+            screen_.text_at(t.title);
+            t.at = choose;
+            continue;
+        case choose:
+            t.at = chosen;
+            return call(select(t.areas));
+        case chosen: {
+            t.choice = result_;
+            if (t.choice == 0) return end(-1);
+            tower_name_window(t.choice - 1);
             // $110D2 with the letter put into the question.
-            co_await wait_release();
-            screen_.open_window(0x4C, 0x48, 0xF3, 0x7D, 0);
-            screen_.text(q);
-            screen_.text_at(var(0x6409));
-            screen_.frame(0x8F, 0x6B, 0xB1, 0x78, 13);
-            int choice = 0;
-            co_await select(var(0x4526), choice);
-            screen_.close_window();
-            co_await wait_release();
-            yes = choice == 0;
+            auto q = screen_.string_at(t.question);
+            q.back() = char('A' + t.choice - 1);
+            t.at = answered;
+            return call(tasks::Confirm{q});
         }
-        if (!yes) {
+        case answered:
+            if (result_) return end(t.choice - 1);
             screen_.close_window();
+            t.at = choose;
             continue;
         }
-        slot = c - 1;
+}
+
+FrontEnd::Go FrontEnd::run(tasks::TowerUnlocked& t) {
+    // $EBD2: a locked tower asks for its password.
+    using enum tasks::TowerUnlocked::At;
+    switch (t.at) {
+    case start: {
+        const auto d = design::TowerDesign::from_record(t.record);
+        if (d.flags[3]) return end(true);
+        screen_.open_window(0x24, 0x54, 0xBF, 0x9D, 0);
+        auto s = screen_.string_at(locked_text);
+        const auto at = s.find("Tower A");
+        if (at != std::string::npos) s[at + 6] = char('A' + std::max(t.letter, 0));
+        screen_.text(s);
+        t.at = typed;
+        return call(tasks::EditField{{0x34, 0x7A, 8, 0xBE, 0x24, 0x54, 0xBF, 0x9D, {}, 0, false}});
+    }
+    case typed: {
+        const auto d = design::TowerDesign::from_record(t.record);
+        const auto password = design::TowerDesign::text(d.password).substr(0, 8);
+        t.allowed = edited_.substr(0, 8) == password;
+        screen_.text_at(t.allowed ? correct_text : incorrect_text);
+        t.at = shown;
+        return call(tasks::WaitFrames{50});
+    }
+    case shown:
         break;
     }
-}
-
-Flow FrontEnd::tower_unlocked(const std::array<std::uint8_t, data::tower_record_size>& record, int letter, bool& allowed) {
-    // $EBD2: a locked tower asks for its password.
-    const auto t = design::TowerDesign::from_record(record);
-    allowed = true;
-    if (t.flags[3]) co_return;
-    screen_.open_window(0x24, 0x54, 0xBF, 0x9D, 0);
-    auto s = screen_.string_at(locked_text);
-    const auto at = s.find("Tower A");
-    if (at != std::string::npos) s[at + 6] = char('A' + std::max(letter, 0));
-    screen_.text(s);
-    LineEditor e{0x34, 0x7A, 8, 0xBE, 0x24, 0x54, 0xBF, 0x9D, {}, 0, false};
-    co_await edit_field(e);
-    const auto password = design::TowerDesign::text(t.password).substr(0, 8);
-    allowed = e.text.substr(0, 8) == password;
-    screen_.text_at(allowed ? correct_text : incorrect_text);
-    co_await wait_frames(50);
     screen_.close_window();
+    return end(t.allowed);
 }
 
-Flow FrontEnd::designer_file(bool& exit) {
-    screen_.open_window(0, 0, 0x5F, 0xB4, 0);
-    screen_.text_at(file_text);
-    for (;;) {
-        int c = 0;
-        co_await select(file_areas, c);
-        co_await wait_release();
-        bool close = true;
-        switch (c) {
-        case 0:
-            break;
-        case 1: { // Get Tower
-            int s = -1;
-            co_await choose_slot(0, 0x18, 0x79, get_text, get_areas, get_question, s);
-            if (s >= 0) {
-                bool ok = false;
-                co_await tower_unlocked(designer_group_[std::size_t(s)], s, ok);
-                if (ok) {
-                    snapshot();
-                    unpack_design(designer_group_[std::size_t(s)]);
-                }
+FrontEnd::Go FrontEnd::run(tasks::DesignerFile& t) {
+    using enum tasks::DesignerFile::At;
+    const auto slot_record = [this](int s) { return designer_group_[std::size_t(s)]; };
+    for (;;) switch (t.at) {
+        case start:
+            screen_.open_window(0, 0, 0x5F, 0xB4, 0);
+            screen_.text_at(file_text);
+            t.at = choose;
+            continue;
+        case choose:
+            t.at = chosen;
+            return call(select(file_areas), tasks::WaitRelease{});
+        case chosen:
+            t.command = result_;
+            t.close = true;
+            t.at = next;
+            switch (t.command) {
+            case 0:
+                continue;
+            case 1: // Get Tower
+                t.at = get_chosen;
+                return call(tasks::ChooseSlot{0x18, 0x79, get_text, get_areas, get_question});
+            case 2: // Put Tower
+                t.at = put_chosen;
+                return call(tasks::ChooseSlot{0x24, 0x85, put_text, put_areas, put_question});
+            case 3: // Swap Tower
+                t.at = swap_chosen;
+                return call(tasks::ChooseSlot{0x24, 0x91, swap_text, swap_areas, swap_question});
+            case 4: // Lock Tower
+                screen_.open_window(0, 0x3C, 0xAB, 0x6D, 0);
+                screen_.text_at(lock_text);
+                t.at = locked;
+                return call(tasks::EditField{{0x14, 0x62, 8, 0x140, 0, 0x3C, 0xAB, 0x6D, {}, 0, false}});
+            case 5: // Unlock Tower
+                design_.flags[3] = true;
+                continue;
+            // The disk commands: the File menu stays.
+            case 6:
+                t.close = false;
+                return call(tasks::Requester{FileKind::group, load_group_title, DiskAction::load_group});
+            case 7:
+                t.close = false;
+                return call(tasks::Requester{FileKind::group, save_group_title, DiskAction::save_group});
+            case 8:
+                t.close = false;
+                t.at = tower_loaded;
+                return call(tasks::Requester{FileKind::tower, load_tower_title, DiskAction::load_tower});
+            case 9:
+                t.close = false;
+                return call(tasks::Requester{FileKind::tower, save_tower_title, DiskAction::save_tower});
+            case 10:
+                t.close = false;
+                return call(tasks::Requester{FileKind::group, delete_group_title, DiskAction::delete_group});
+            case 11:
+                t.close = false;
+                return call(tasks::Requester{FileKind::tower, delete_tower_title, DiskAction::delete_tower});
+            case 12: // Prepare Disk
+                t.close = false;
+                screen_.open_window(0x50, 0x30, 0xEF, 0x92, 0);
+                screen_.text_at(prepare_text);
+                screen_.text_at(prepare_ok);
+                screen_.frame(0x8B, 0x83, 0xB4, 0x90, 13);
+                t.at = prepare_chosen;
+                return call(select(ok_areas));
+            case 13: // Exit Designer
+                t.at = exit_confirmed;
+                return call(tasks::Confirm{exit_question});
+            default:
+                t.close = false;
+                continue;
+            }
+        case get_chosen:
+            t.slot = result_;
+            if (t.slot < 0) {
                 screen_.close_window();
+                t.at = next;
+                continue;
+            }
+            t.at = get_unlocked;
+            return call(tasks::TowerUnlocked{slot_record(t.slot), t.slot});
+        case get_unlocked:
+            if (result_) {
+                snapshot();
+                unpack_design(slot_record(t.slot));
             }
             screen_.close_window();
-            break;
-        }
-        case 2: { // Put Tower
-            int s = -1;
-            co_await choose_slot(0, 0x24, 0x85, put_text, put_areas, put_question, s);
-            if (s >= 0) {
+            screen_.close_window();
+            t.at = next;
+            continue;
+        case put_chosen:
+            t.slot = result_;
+            if (t.slot >= 0) {
                 design_.update_spiders();
-                designer_group_[std::size_t(s)] = pack_design();
+                designer_group_[std::size_t(t.slot)] = pack_design();
                 screen_.close_window();
             }
             screen_.close_window();
-            break;
-        }
-        case 3: { // Swap Tower
-            int s = -1;
-            co_await choose_slot(0, 0x24, 0x91, swap_text, swap_areas, swap_question, s);
-            if (s >= 0) {
-                bool ok = false;
-                co_await tower_unlocked(designer_group_[std::size_t(s)], s, ok);
-                if (ok) {
-                    design_.update_spiders();
-                    const auto here = pack_design();
-                    unpack_design(designer_group_[std::size_t(s)]);
-                    designer_group_[std::size_t(s)] = here;
-                }
+            t.at = next;
+            continue;
+        case swap_chosen:
+            t.slot = result_;
+            if (t.slot < 0) {
                 screen_.close_window();
+                t.at = next;
+                continue;
+            }
+            t.at = swap_unlocked;
+            return call(tasks::TowerUnlocked{slot_record(t.slot), t.slot});
+        case swap_unlocked:
+            if (result_) {
+                design_.update_spiders();
+                const auto here = pack_design();
+                unpack_design(slot_record(t.slot));
+                designer_group_[std::size_t(t.slot)] = here;
             }
             screen_.close_window();
-            break;
-        }
-        case 4: { // Lock Tower
-            screen_.open_window(0, 0x3C, 0xAB, 0x6D, 0);
-            screen_.text_at(lock_text);
-            LineEditor e{0x14, 0x62, 8, 0x140, 0, 0x3C, 0xAB, 0x6D, {}, 0, false};
-            co_await edit_field(e);
-            if (!e.text.empty()) {
-                design::TowerDesign::set_text(design_.password, e.text);
+            screen_.close_window();
+            t.at = next;
+            continue;
+        case locked:
+            if (!edited_.empty()) {
+                design::TowerDesign::set_text(design_.password, edited_);
                 design_.flags[3] = false;
             }
-            co_await wait_frames(25);
+            t.at = lock_shown;
+            return call(tasks::WaitFrames{25});
+        case lock_shown:
             screen_.close_window();
-            break;
-        }
-        case 5: // Unlock Tower
-            design_.flags[3] = true;
-            break;
-        case 6: // Load Group (the File menu stays, as with the other disk commands)
-            close = false;
-            co_await requester(FileKind::group, load_group_title, [&](const std::string& n, bool) {
-                const auto f = disk_.read(FileKind::group, n);
-                if (!f) return 6;
-                if (f->size() < 9 * data::tower_record_size) return 0xB;
-                for (std::size_t i = 0; i < 9; ++i) std::copy_n(f->begin() + long(i * data::tower_record_size), data::tower_record_size, designer_group_[i].begin());
-                return 0;
-            });
-            break;
-        case 7: // Save Group
-            close = false;
-            co_await requester(FileKind::group, save_group_title, [&](const std::string& n, bool replace) {
-                if (!replace && confirm_replace_ && disk_.exists(FileKind::group, n)) return -1;
-                std::vector<std::uint8_t> bytes;
-                for (const auto& r : designer_group_) bytes.insert(bytes.end(), r.begin(), r.end());
-                return disk_.write(FileKind::group, n, bytes) ? 0 : 8;
-            });
-            break;
-        case 8: { // Load Tower
-            close = false;
-            std::array<std::uint8_t, data::tower_record_size> loaded{};
-            bool got = false;
-            co_await requester(FileKind::tower, load_tower_title, [&](const std::string& n, bool) {
-                const auto f = disk_.read(FileKind::tower, n);
-                if (!f) return 6;
-                if (f->size() < data::tower_record_size) return 0xB;
-                std::copy_n(f->begin(), data::tower_record_size, loaded.begin());
-                got = true;
-                return 0;
-            });
-            if (got) {
-                bool ok = false;
-                co_await tower_unlocked(loaded, 0, ok);
-                if (ok) {
-                    snapshot();
-                    unpack_design(loaded);
-                }
+            t.at = next;
+            continue;
+        case tower_loaded:
+            t.at = next;
+            if (result_) {
+                t.at = tower_unlocked;
+                return call(tasks::TowerUnlocked{loaded_tower_, 0});
             }
-            break;
-        }
-        case 9: // Save Tower
-            close = false;
-            co_await requester(FileKind::tower, save_tower_title, [&](const std::string& n, bool replace) {
-                if (!replace && confirm_replace_ && disk_.exists(FileKind::tower, n)) return -1;
-                design_.update_spiders();
-                const auto r = pack_design();
-                return disk_.write(FileKind::tower, n, {r.begin(), r.end()}) ? 0 : 8;
-            });
-            break;
-        case 10:
-        case 11: { // Delete Group / Delete Tower
-            close = false;
-            const auto kind = c == 10 ? FileKind::group : FileKind::tower;
-            co_await requester(kind, c == 10 ? delete_group_title : delete_tower_title, [&](const std::string& n, bool) {
-                return disk_.remove(kind, n) ? 0 : 6;
-            });
-            break;
-        }
-        case 12: { // Prepare Disk
-            close = false;
-            screen_.open_window(0x50, 0x30, 0xEF, 0x92, 0);
-            screen_.text_at(prepare_text);
-            screen_.text_at(prepare_ok);
-            screen_.frame(0x8B, 0x83, 0xB4, 0x90, 13);
-            int ok = 0;
-            co_await select(ok_areas, ok);
-            if (ok != 0) {
-                bool yes = false;
-                co_await confirm(erase_question, yes);
-                if (yes) {
-                    screen_.fill(0x51, 0x48, 0xEE, 0x91, 0);
-                    screen_.text_at(writing_text);
-                    disk_.erase();
-                    screen_.text_at(ready_text);
-                    screen_.text_at(prepare_ok);
-                    screen_.frame(0x8B, 0x83, 0xB4, 0x90, 13);
-                    co_await select(ok_areas, ok);
-                }
+            continue;
+        case tower_unlocked:
+            if (result_) {
+                snapshot();
+                unpack_design(loaded_tower_);
+            }
+            t.at = next;
+            continue;
+        case prepare_chosen:
+            if (result_ != 0) {
+                t.at = prepare_confirmed;
+                return call(tasks::Confirm{erase_question});
             }
             screen_.close_window();
-            break;
+            t.at = next;
+            continue;
+        case prepare_confirmed:
+            if (result_) {
+                screen_.fill(0x51, 0x48, 0xEE, 0x91, 0);
+                screen_.text_at(writing_text);
+                disk_.erase();
+                screen_.text_at(ready_text);
+                screen_.text_at(prepare_ok);
+                screen_.frame(0x8B, 0x83, 0xB4, 0x90, 13);
+                t.at = prepared;
+                return call(select(ok_areas));
+            }
+            screen_.close_window();
+            t.at = next;
+            continue;
+        case prepared:
+            screen_.close_window();
+            t.at = next;
+            continue;
+        case exit_confirmed:
+            t.exit = result_;
+            t.at = next;
+            continue;
+        case next:
+            if (!t.close) {
+                t.at = choose;
+                continue;
+            }
+            screen_.close_window();
+            return end(t.exit);
         }
-        case 13: { // Exit Designer
-            bool yes = false;
-            co_await confirm(exit_question, yes);
-            exit = yes;
-            break;
-        }
-        default:
-            close = false;
-            break;
-        }
-        if (close) break;
-    }
-    screen_.close_window();
 }
 
 // --- Options -----------------------------------------------------------------
 
-Flow FrontEnd::designer_options() {
-    screen_.open_window(0x50, 0, 0xDF, 0x60, 0);
-    screen_.text_at(options_text);
-    for (;;) {
-        co_await wait_release();
-        int c = 0;
-        co_await select(options_areas, c);
-        if (c == 0) break;
-        if (c == 1) co_await effects_page();
-        else if (c == 2) co_await behaviour_page();
-        else if (c == 3) co_await finishing_page();
-        else if (c == 4) {
-            LineEditor e{0x14, 0x56, 0x3C, 0x132, 4, 0x3C, 0x13B, 0x6C, design::TowerDesign::text(design_.name), 0, false};
-            co_await text_page(0x3C, name_text, e);
-            design::TowerDesign::set_text(design_.name, e.text);
-        } else if (c == 5) {
-            LineEditor e{0x14, 0x62, 0x3C, 0x132, 4, 0x48, 0x13B, 0x78, design::TowerDesign::text(design_.author), 0, false};
-            co_await text_page(0x48, author_text, e);
-            design::TowerDesign::set_text(design_.author, e.text);
-        } else if (c == 6) {
-            screen_.close_window();
-            co_await test_design();
-            co_return;
-        }
-        // (the menu stays open behind its pages)
-    }
-    screen_.close_window();
-}
-
-Flow FrontEnd::text_page(int y0, std::uint32_t title, LineEditor& e) {
-    screen_.open_window(4, y0, 0x13B, y0 + 0x30, 0);
-    screen_.text_at(title);
-    co_await edit_field(e);
-    co_await wait_frames(25);
-    screen_.close_window();
-}
-
-Flow FrontEnd::effects_page() {
-    screen_.open_window(0x46, 0x18, 0x117, 0xC0, 0);
-    screen_.text_at(effects_text);
-    for (;;) {
-        auto& d = design_;
-        screen_.radio(var(0x47D6), d.stars);
-        screen_.radio(var(0x47E8), d.flags[6] ? 1 : 0);
-        screen_.radio(var(0x47F2), d.flags[7] ? 1 : 0);
-        screen_.radio(var(0x47FC), d.sky_type);
-        screen_.radio(var(0x480A), d.pattern);
-        int c = 0;
-        co_await select(effects_areas, c);
-        if (c == 0) break;
-        if (c == 1) co_await sound_page();
-        else if (c == 2) co_await moon_page();
-        else if (c <= 6) d.stars = c - 3;
-        else if (c <= 8) d.flags[6] = c == 8;
-        else if (c <= 10) d.flags[7] = c == 10;
-        else if (c <= 13) d.sky_type = c - 11;
-        else d.pattern = c - 14;
-    }
-    screen_.close_window();
-}
-
-Flow FrontEnd::sound_page() {
-    screen_.open_window(0x28, 0x30, 0x137, 0x90, 0);
-    screen_.text_at(sound_text);
-    for (;;) {
-        screen_.radio(var(0x4608), design_.background);
-        screen_.radio(var(0x461A), design_.no_footsteps ? 1 : 0);
-        screen_.radio(var(0x4624), design_.no_effects ? 1 : 0);
-        int c = 0;
-        co_await select(sound_areas, c);
-        if (c == 0) break;
-        if (c <= 4) design_.background = c - 1;
-        else if (c <= 6) design_.no_footsteps = c == 6;
-        else design_.no_effects = c == 8;
-    }
-    screen_.close_window();
-}
-
-Flow FrontEnd::moon_page() {
-    screen_.open_window(0x40, 0x3C, 0x107, 0xB4, 0);
-    screen_.text_at(moon_text);
-    const auto draw_sky = [&] {
-        screen_.fill(0xA0, 0x6E, 0xE5, 0x89, 13);
-        screen_.line(0xA0, 0x7C, 0xE5, 0x7C, 14);
-        if (design_.moon_heading != 4) screen_.dot(0xA0 + design_.moon_x * 4, 0x6E + design_.moon_y / 4, 2);
-    };
-    draw_sky();
-    for (;;) {
-        screen_.radio(var(0x462E), design_.moon_heading);
-        screen_.radio(var(0x4644), design_.moon_type);
-        screen_.radio(var(0x465E), design_.moon_rotation);
-        int c = 0;
-        co_await select(moon_areas, c);
-        if (c == 0) break;
-        if (c <= 5) {
-            design_.moon_heading = c - 1;
-            draw_sky();
-        } else if (c == 6) {
-            const int dx = in_.x - 0xA0, dy = in_.y - 0x6E;
-            if (design_.moon_heading != 4 && dx >= 0 && dx < 0x47 && dy >= 0 && dy < 0x0E) {
-                design_.moon_x = dx / 4;
-                design_.moon_y = dy * 4;
-                draw_sky();
+FrontEnd::Go FrontEnd::run(tasks::DesignerOptions& t) {
+    using enum tasks::DesignerOptions::At;
+    for (;;) switch (t.at) {
+        case start:
+            screen_.open_window(0x50, 0, 0xDF, 0x60, 0);
+            screen_.text_at(options_text);
+            t.at = choose;
+            continue;
+        case choose:
+            t.at = chosen;
+            return call(tasks::WaitRelease{}, select(options_areas));
+        case chosen:
+            t.at = choose; // (the menu stays open behind its pages)
+            switch (result_) {
+            case 0:
+                screen_.close_window();
+                return Go::end;
+            case 1: return call(tasks::EffectsPage{});
+            case 2: return call(tasks::BehaviourPage{});
+            case 3: return call(tasks::FinishingPage{});
+            case 4:
+                t.at = named;
+                return call(tasks::TextPage{0x3C, name_text,
+                                            {0x14, 0x56, 0x3C, 0x132, 4, 0x3C, 0x13B, 0x6C, design::TowerDesign::text(design_.name), 0, false}});
+            case 5:
+                t.at = authored;
+                return call(tasks::TextPage{0x48, author_text,
+                                            {0x14, 0x62, 0x3C, 0x132, 4, 0x48, 0x13B, 0x78, design::TowerDesign::text(design_.author), 0, false}});
+            case 6:
+                screen_.close_window();
+                t.at = tested;
+                return call(tasks::TestDesign{});
+            default:
+                continue;
             }
-        } else if (c <= 12) {
-            design_.moon_type = c - 7;
-        } else {
-            design_.moon_rotation = c - 13;
+        case named:
+            design::TowerDesign::set_text(design_.name, edited_);
+            t.at = choose;
+            continue;
+        case authored:
+            design::TowerDesign::set_text(design_.author, edited_);
+            t.at = choose;
+            continue;
+        case tested:
+            return Go::end;
         }
-    }
-    screen_.close_window();
 }
 
-Flow FrontEnd::behaviour_page() {
-    screen_.open_window(0x48, 0x24, 0xE7, 0x84, 0);
-    screen_.text_at(behaviour_text);
-    for (;;) {
-        co_await wait_release();
-        screen_.radio(var(0x476E), design_.flags[4] ? 1 : 0);
-        screen_.radio(var(0x4778), design_.flags[8] ? 1 : 0);
-        screen_.radio(var(0x4782), design_.bomb_speed);
-        int c = 0;
-        co_await select(behaviour_areas, c);
-        if (c == 0) break;
-        if (c <= 2) design_.flags[4] = c == 2;
-        else if (c <= 4) design_.flags[8] = c == 4;
-        else design_.bomb_speed = c - 5;
+FrontEnd::Go FrontEnd::run(tasks::TextPage& t) {
+    using enum tasks::TextPage::At;
+    switch (t.at) {
+    case start:
+        screen_.open_window(4, t.y0, 0x13B, t.y0 + 0x30, 0);
+        screen_.text_at(t.title);
+        t.at = edited;
+        return call(tasks::EditField{t.editor});
+    case edited:
+        t.text = edited_;
+        t.at = shown;
+        return call(tasks::WaitFrames{25});
+    case shown:
+        break;
     }
     screen_.close_window();
+    edited_ = t.text;
+    return Go::end;
 }
 
-Flow FrontEnd::finishing_page() {
-    screen_.open_window(0x40, 0x30, 0x127, 0xA8, 0);
-    screen_.text_at(finishing_text);
-    for (;;) {
-        auto& d = design_;
-        d.update_spiders();
-        // The status line ($F0CE).
-        int klondikes = 0, others = 0;
-        for (const auto k : d.objects)
-            if (k >= 7 && k < 0x28) (k == design::klondike ? klondikes : others)++;
-        int status = 0x3E;
-        if (d.klondikes + d.destroy == 0) status = 0x3F;
-        else if (klondikes < d.klondikes) status = 0x40;
-        else if (others < d.destroy) status = 0x41;
-        else if (d.klondikes && d.flags[2]) status = 0x42;
-        else if (d.destroy && d.flags[0]) status = 0x43;
-        screen_.cursor.x = 0x48;
-        screen_.cursor.y = 0x9E;
-        screen_.message(status);
-        screen_.fill(screen_.cursor.x, 0x9E, 0xD0, 0xA5, 0);
-        screen_.radio(var(0x4790), d.flags[5] ? 1 : 0);
-        screen_.cursor.x = 0xAC;
-        screen_.cursor.y = 0x56;
-        if (d.flags[5]) screen_.text_at(no_limit_text);
-        else screen_.text(time_text_);
-        screen_.fill(screen_.cursor.x, 0x56, 0xD0, 0x5D, 0);
-        screen_.radio(var(0x479A), d.klondikes);
-        screen_.radio(var(0x47B8), d.destroy);
-        int c = 0;
-        co_await select(finishing_areas, c);
-        if (c == 0) break;
-        if (c <= 2) {
-            d.flags[5] = c == 2;
-        } else if (c == 3) {
-            if (!d.flags[5]) {
-                LineEditor e{0xAC, 0x56, 4, 0xD4, 0x48, 0x54, 0xC8, 0x61, time_text_, 0, true};
-                co_await edit_field(e);
-                time_text_ = e.text;
-                if (e.text.empty()) d.flags[5] = true;
+FrontEnd::Go FrontEnd::run(tasks::EffectsPage& t) {
+    using enum tasks::EffectsPage::At;
+    auto& d = design_;
+    for (;;) switch (t.at) {
+        case start:
+            screen_.open_window(0x46, 0x18, 0x117, 0xC0, 0);
+            screen_.text_at(effects_text);
+            t.at = choose;
+            continue;
+        case choose:
+            screen_.radio(var(0x47D6), d.stars);
+            screen_.radio(var(0x47E8), d.flags[6] ? 1 : 0);
+            screen_.radio(var(0x47F2), d.flags[7] ? 1 : 0);
+            screen_.radio(var(0x47FC), d.sky_type);
+            screen_.radio(var(0x480A), d.pattern);
+            t.at = chosen;
+            return call(select(effects_areas));
+        case chosen: {
+            const int c = result_;
+            t.at = choose;
+            if (c == 0) {
+                screen_.close_window();
+                return Go::end;
             }
-        } else if (c <= 10) {
-            d.klondikes = c - 4;
-        } else {
-            d.destroy = c - 11;
+            if (c == 1) return call(tasks::SoundPage{});
+            if (c == 2) return call(tasks::MoonPage{});
+            if (c <= 6) d.stars = c - 3;
+            else if (c <= 8) d.flags[6] = c == 8;
+            else if (c <= 10) d.flags[7] = c == 10;
+            else if (c <= 13) d.sky_type = c - 11;
+            else d.pattern = c - 14;
+            continue;
         }
-    }
-    screen_.close_window();
+        }
 }
 
-Flow FrontEnd::test_design() {
+FrontEnd::Go FrontEnd::run(tasks::SoundPage& t) {
+    using enum tasks::SoundPage::At;
+    for (;;) switch (t.at) {
+        case start:
+            screen_.open_window(0x28, 0x30, 0x137, 0x90, 0);
+            screen_.text_at(sound_text);
+            t.at = choose;
+            continue;
+        case choose:
+            screen_.radio(var(0x4608), design_.background);
+            screen_.radio(var(0x461A), design_.no_footsteps ? 1 : 0);
+            screen_.radio(var(0x4624), design_.no_effects ? 1 : 0);
+            t.at = chosen;
+            return call(select(sound_areas));
+        case chosen: {
+            const int c = result_;
+            if (c == 0) {
+                screen_.close_window();
+                return Go::end;
+            }
+            if (c <= 4) design_.background = c - 1;
+            else if (c <= 6) design_.no_footsteps = c == 6;
+            else design_.no_effects = c == 8;
+            t.at = choose;
+            continue;
+        }
+        }
+}
+
+void FrontEnd::draw_moon_sky() {
+    screen_.fill(0xA0, 0x6E, 0xE5, 0x89, 13);
+    screen_.line(0xA0, 0x7C, 0xE5, 0x7C, 14);
+    if (design_.moon_heading != 4) screen_.dot(0xA0 + design_.moon_x * 4, 0x6E + design_.moon_y / 4, 2);
+}
+
+FrontEnd::Go FrontEnd::run(tasks::MoonPage& t) {
+    using enum tasks::MoonPage::At;
+    for (;;) switch (t.at) {
+        case start:
+            screen_.open_window(0x40, 0x3C, 0x107, 0xB4, 0);
+            screen_.text_at(moon_text);
+            draw_moon_sky();
+            t.at = choose;
+            continue;
+        case choose:
+            screen_.radio(var(0x462E), design_.moon_heading);
+            screen_.radio(var(0x4644), design_.moon_type);
+            screen_.radio(var(0x465E), design_.moon_rotation);
+            t.at = chosen;
+            return call(select(moon_areas));
+        case chosen: {
+            const int c = result_;
+            if (c == 0) {
+                screen_.close_window();
+                return Go::end;
+            }
+            if (c <= 5) {
+                design_.moon_heading = c - 1;
+                draw_moon_sky();
+            } else if (c == 6) {
+                const int dx = in_.x - 0xA0, dy = in_.y - 0x6E;
+                if (design_.moon_heading != 4 && dx >= 0 && dx < 0x47 && dy >= 0 && dy < 0x0E) {
+                    design_.moon_x = dx / 4;
+                    design_.moon_y = dy * 4;
+                    draw_moon_sky();
+                }
+            } else if (c <= 12) {
+                design_.moon_type = c - 7;
+            } else {
+                design_.moon_rotation = c - 13;
+            }
+            t.at = choose;
+            continue;
+        }
+        }
+}
+
+FrontEnd::Go FrontEnd::run(tasks::BehaviourPage& t) {
+    using enum tasks::BehaviourPage::At;
+    for (;;) switch (t.at) {
+        case start:
+            screen_.open_window(0x48, 0x24, 0xE7, 0x84, 0);
+            screen_.text_at(behaviour_text);
+            t.at = choose;
+            return call(tasks::WaitRelease{});
+        case choose:
+            screen_.radio(var(0x476E), design_.flags[4] ? 1 : 0);
+            screen_.radio(var(0x4778), design_.flags[8] ? 1 : 0);
+            screen_.radio(var(0x4782), design_.bomb_speed);
+            t.at = chosen;
+            return call(select(behaviour_areas));
+        case chosen: {
+            const int c = result_;
+            if (c == 0) {
+                screen_.close_window();
+                return Go::end;
+            }
+            if (c <= 2) design_.flags[4] = c == 2;
+            else if (c <= 4) design_.flags[8] = c == 4;
+            else design_.bomb_speed = c - 5;
+            t.at = choose;
+            return call(tasks::WaitRelease{});
+        }
+        }
+}
+
+void FrontEnd::draw_finishing_status() {
+    auto& d = design_;
+    d.update_spiders();
+    // The status line ($F0CE).
+    int klondikes = 0, others = 0;
+    for (const auto k : d.objects)
+        if (k >= 7 && k < 0x28) (k == design::klondike ? klondikes : others)++;
+    int status = 0x3E;
+    if (d.klondikes + d.destroy == 0) status = 0x3F;
+    else if (klondikes < d.klondikes) status = 0x40;
+    else if (others < d.destroy) status = 0x41;
+    else if (d.klondikes && d.flags[2]) status = 0x42;
+    else if (d.destroy && d.flags[0]) status = 0x43;
+    screen_.cursor.x = 0x48;
+    screen_.cursor.y = 0x9E;
+    screen_.message(status);
+    screen_.fill(screen_.cursor.x, 0x9E, 0xD0, 0xA5, 0);
+    screen_.radio(var(0x4790), d.flags[5] ? 1 : 0);
+    screen_.cursor.x = 0xAC;
+    screen_.cursor.y = 0x56;
+    if (d.flags[5]) screen_.text_at(no_limit_text);
+    else screen_.text(time_text_);
+    screen_.fill(screen_.cursor.x, 0x56, 0xD0, 0x5D, 0);
+    screen_.radio(var(0x479A), d.klondikes);
+    screen_.radio(var(0x47B8), d.destroy);
+}
+
+FrontEnd::Go FrontEnd::run(tasks::FinishingPage& t) {
+    using enum tasks::FinishingPage::At;
+    auto& d = design_;
+    for (;;) switch (t.at) {
+        case start:
+            screen_.open_window(0x40, 0x30, 0x127, 0xA8, 0);
+            screen_.text_at(finishing_text);
+            t.at = choose;
+            continue;
+        case choose:
+            draw_finishing_status();
+            t.at = chosen;
+            return call(select(finishing_areas));
+        case chosen: {
+            const int c = result_;
+            t.at = choose;
+            if (c == 0) {
+                screen_.close_window();
+                return Go::end;
+            }
+            if (c <= 2) {
+                d.flags[5] = c == 2;
+            } else if (c == 3) {
+                if (!d.flags[5]) {
+                    t.at = timed;
+                    return call(tasks::EditField{{0xAC, 0x56, 4, 0xD4, 0x48, 0x54, 0xC8, 0x61, time_text_, 0, true}});
+                }
+            } else if (c <= 10) {
+                d.klondikes = c - 4;
+            } else {
+                d.destroy = c - 11;
+            }
+            continue;
+        }
+        case timed:
+            time_text_ = edited_;
+            if (edited_.empty()) d.flags[5] = true;
+            t.at = choose;
+            continue;
+        }
+}
+
+FrontEnd::Go FrontEnd::run(tasks::TestDesign& t) {
     // $F2DE: the tower as it would be packed, played (game type 3) or, with
     // enemy movement off, only looked at; then the designer again.
-    design_.update_spiders();
-    const auto record = pack_design();
-    const auto tower = data::decode_tower(record);
-    fast_fades_ = false;
-    int reason = 0;
-    co_await play_tower(tower, 3, reason, !enemy_movement_);
+    using enum tasks::TestDesign::At;
+    if (t.at == start) {
+        design_.update_spiders();
+        fast_fades_ = false;
+        t.at = played;
+        return call(tasks::PlayTower{data::decode_tower(pack_design()), 3, !enemy_movement_});
+    }
     fast_fades_ = true;
     screen_.clear();
     screen_.copper = CopperMode::split;
     designer_screen();
+    return Go::end;
 }
 
 // --- Toolbox -----------------------------------------------------------------
 
-Flow FrontEnd::designer_toolbox() {
-    screen_.open_window(0xA0, 0, 0x12F, 0x6C, 0);
-    screen_.text_at(toolbox_text);
+FrontEnd::Go FrontEnd::run(tasks::DesignerToolbox& t) {
     // The menu closes once a command has done something ($E0E bit 3).
-    for (bool done = false; !done;) {
-        co_await wait_release();
-        int c = 0;
-        co_await select(toolbox_areas, c);
-        switch (c) {
-        case 0:
-            done = true;
-            break;
-        case 1:
-            screen_.close_window();
-            co_await colours_page();
-            co_return; // (the screen was drawn again)
-        case 2:
-        case 3:
-            co_await scroll_page(c == 3, done);
-            break;
-        case 4:
-        case 5:
-            co_await level_page(c == 5, done);
-            break;
-        case 6: {
-            bool yes = false;
-            co_await confirm(clear_level_question, yes);
-            if (yes) {
+    using enum tasks::DesignerToolbox::At;
+    for (;;) switch (t.at) {
+        case start:
+            screen_.open_window(0xA0, 0, 0x12F, 0x6C, 0);
+            screen_.text_at(toolbox_text);
+            t.at = choose;
+            continue;
+        case choose:
+            if (t.done) {
+                screen_.close_window();
+                return Go::end;
+            }
+            t.at = chosen;
+            return call(tasks::WaitRelease{}, select(toolbox_areas));
+        case chosen:
+            t.at = choose;
+            switch (result_) {
+            case 0:
+                t.done = true;
+                continue;
+            case 1:
+                screen_.close_window();
+                t.at = coloured;
+                return call(tasks::ColoursPage{});
+            case 2:
+            case 3:
+                t.at = paged;
+                return call(tasks::ScrollPage{result_ == 3});
+            case 4:
+            case 5:
+                t.at = paged;
+                return call(tasks::LevelPage{result_ == 5});
+            case 6:
+                t.at = cleared_level;
+                return call(tasks::Confirm{clear_level_question});
+            case 7:
+                t.at = cleared_all;
+                return call(tasks::Confirm{clear_all_question});
+            default:
+                continue;
+            }
+        case coloured:
+            return Go::end; // (the screen was drawn again)
+        case paged:
+            t.done = t.done || result_;
+            t.at = choose;
+            continue;
+        case cleared_level:
+            if (result_) {
                 snapshot();
                 design_.clear_level(floor_);
-                done = true;
+                t.done = true;
             }
-            break;
-        }
-        case 7: {
-            bool yes = false;
-            co_await confirm(clear_all_question, yes);
-            if (yes) {
+            t.at = choose;
+            continue;
+        case cleared_all:
+            if (result_) {
                 snapshot();
                 design_.clear_all();
                 time_text_.clear();
-                done = true;
+                t.done = true;
             }
-            break;
-        }
-        default:
-            break;
-        }
-    }
-    screen_.close_window();
-}
-
-Flow FrontEnd::scroll_page(bool rotate, bool& done) {
-    const int y0 = rotate ? 0x30 : 0x30;
-    screen_.open_window(0x98, y0, 0x12F, 0x84, 0);
-    screen_.text_at(rotate ? rotate_text : scroll_text);
-    screen_.glyph('1' + floor_);
-    for (;;) {
-        screen_.radio(rotate ? var(0x45FE) : var(0x45F4), whole_tower_ ? 0 : 1);
-        co_await wait_release();
-        int c = 0;
-        co_await select(rotate ? rotate_areas : scroll_areas, c);
-        if (c == 0) break;
-        if (c <= 2) {
-            whole_tower_ = c == 1;
+            t.at = choose;
             continue;
         }
-        snapshot();
-        const int level = whole_tower_ ? -1 : floor_;
-        if (rotate) {
-            static constexpr int turns[3] = {3, 1, 2}; // clockwise, anticlockwise, 180 degrees
-            for (int i = 0; i < turns[c - 3]; ++i) design_.rotate(level);
-        } else {
-            static constexpr int dx[4] = {-1, 1, 0, 0}, dz[4] = {0, 0, 1, -1}; // left, right, up, down
-            design_.scroll(level, dx[c - 3], dz[c - 3]);
-        }
-        done = true;
-        break;
-    }
-    screen_.close_window();
 }
 
-Flow FrontEnd::level_page(bool swap, bool& done) {
-    const int y0 = swap ? 0x48 : 0x3C;
-    screen_.open_window(0x98, y0, 0x12F, swap ? 0x90 : 0x84, 0);
-    screen_.text_at(swap ? swap_level_text : copy_text);
-    screen_.glyph('1' + floor_);
-    screen_.text_at(swap ? swap_with : copy_to);
-    for (int i = 0; i < 3; ++i) {
-        screen_.cursor.x = 0xEB;
-        screen_.cursor.y = (swap ? 0x6E : 0x62) + 12 * i;
-        screen_.glyph('1' + (i < floor_ ? i : i + 1));
+FrontEnd::Go FrontEnd::run(tasks::ScrollPage& t) {
+    using enum tasks::ScrollPage::At;
+    for (;;) switch (t.at) {
+        case start:
+            screen_.open_window(0x98, 0x30, 0x12F, 0x84, 0);
+            screen_.text_at(t.rotate ? rotate_text : scroll_text);
+            screen_.glyph('1' + floor_);
+            t.at = choose;
+            continue;
+        case choose:
+            screen_.radio(t.rotate ? var(0x45FE) : var(0x45F4), whole_tower_ ? 0 : 1);
+            t.at = chosen;
+            return call(tasks::WaitRelease{}, select(t.rotate ? rotate_areas : scroll_areas));
+        case chosen: {
+            const int c = result_;
+            if (c == 0) {
+                screen_.close_window();
+                return end(false);
+            }
+            if (c <= 2) {
+                whole_tower_ = c == 1;
+                t.at = choose;
+                continue;
+            }
+            snapshot();
+            const int level = whole_tower_ ? -1 : floor_;
+            if (t.rotate) {
+                static constexpr int turns[3] = {3, 1, 2}; // clockwise, anticlockwise, 180 degrees
+                for (int i = 0; i < turns[c - 3]; ++i) design_.rotate(level);
+            } else {
+                static constexpr int dx[4] = {-1, 1, 0, 0}, dz[4] = {0, 0, 1, -1}; // left, right, up, down
+                design_.scroll(level, dx[c - 3], dz[c - 3]);
+            }
+            screen_.close_window();
+            return end(true);
+        }
+        }
+}
+
+FrontEnd::Go FrontEnd::run(tasks::LevelPage& t) {
+    using enum tasks::LevelPage::At;
+    if (t.at == start) {
+        const int y0 = t.swap ? 0x48 : 0x3C;
+        screen_.open_window(0x98, y0, 0x12F, t.swap ? 0x90 : 0x84, 0);
+        screen_.text_at(t.swap ? swap_level_text : copy_text);
+        screen_.glyph('1' + floor_);
+        screen_.text_at(t.swap ? swap_with : copy_to);
+        for (int i = 0; i < 3; ++i) {
+            screen_.cursor.x = 0xEB;
+            screen_.cursor.y = (t.swap ? 0x6E : 0x62) + 12 * i;
+            screen_.glyph('1' + (i < floor_ ? i : i + 1));
+        }
+        t.at = chosen;
+        return call(select(t.swap ? swap_level_areas : copy_areas));
     }
-    int c = 0;
-    co_await select(swap ? swap_level_areas : copy_areas, c);
+    const int c = result_;
     if (c > 0) {
         const int other = c - 1 < floor_ ? c - 1 : c;
         snapshot();
-        if (swap) design_.swap_levels(floor_, other);
+        if (t.swap) design_.swap_levels(floor_, other);
         else design_.copy_level(floor_, other);
-        done = true;
     }
     screen_.close_window();
+    return end(c > 0);
 }
 
-Flow FrontEnd::colours_page() {
+void FrontEnd::draw_colours_page() {
+    screen_.clear();
+    screen_.copper = CopperMode::split;
+    for (std::size_t i = 0; i < 15; ++i) current_[33 + i] = assets_.program.u16(var(0x23F2) + std::uint32_t(i) * 2);
+    for (std::size_t i = 0; i < 18; ++i) current_[i] = design_.colours[i];
+    screen_.palette = current_;
+    screen_.title_bar();
+    screen_.text_at(colours_text);
+    screen_.frame(0x1E, 0x1E, 0x11F, 0x42, 13);
+    screen_.frame(0x1E, 0x46, 0x11F, 0x6A, 13);
+    screen_.frame(6, 0x90, 0x13A, 0xC3, 13);
+    screen_.line(0x36, 0x90, 0x36, 0xC3, 13);
+    for (int k = 0; k < 9; ++k) {
+        const int x = 0x23 + 28 * k;
+        const int lower = assets_.program.u16(0xF914 + std::uint32_t(k + 9) * 2), upper = assets_.program.u16(0xF914 + std::uint32_t(k) * 2);
+        screen_.fill(x, 0x5A, x + 0x17, 0x5A + 0x0B, lower);
+        screen_.fill(x, 0x32, x + 0x17, 0x32 + 0x0B, upper);
+        screen_.cursor.x = 0x2B + 28 * k;
+        screen_.cursor.y = 0x26;
+        screen_.number(k, 1 + 0);
+        screen_.cursor.x = 0x2B + 28 * k - (k + 9 >= 10 ? 4 : 0);
+        screen_.cursor.y = 0x4E;
+        if (k + 9 >= 10) screen_.number(k + 9, 2);
+        else screen_.glyph(0x8A + k + 9);
+    }
+    for (int i = 0; i < 16; ++i)
+        for (int r = 0; r < 3; ++r) {
+            screen_.cursor.x = assets_.program.u16(0xF938 + std::uint32_t(i) * 4);
+            screen_.cursor.y = 0x96 + 16 * r;
+            screen_.glyph(assets_.program.u16(0xF93A + std::uint32_t(i) * 4));
+        }
+}
+
+void FrontEnd::draw_chosen_colour() {
+    // The chosen colour: number, name, frames, RGB, the boxes.
+    screen_.cursor.x = 0x78;
+    screen_.cursor.y = 0x6E;
+    screen_.number(colour_, 2);
+    screen_.fill(0x78, 0x86, 0x120, 0x8D, 0);
+    screen_.cursor.x = 0x78;
+    screen_.cursor.y = 0x86;
+    screen_.message(colour_ + 0x45);
+    for (int k = 0; k < 9; ++k) {
+        screen_.frame(0x21 + 28 * k, 0x30, 0x21 + 28 * k + 0x1B, 0x30 + 0x0F, k == colour_ ? 15 : 0);
+        screen_.frame(0x21 + 28 * k, 0x58, 0x21 + 28 * k + 0x1B, 0x58 + 0x0F, k + 9 == colour_ ? 15 : 0);
+    }
+    for (std::size_t i = 0; i < 18; ++i) current_[i] = design_.colours[i];
+    screen_.palette = current_;
+    const auto c = design_.colours[std::size_t(colour_)];
+    screen_.cursor.x = 0x78;
+    screen_.cursor.y = 0x7A;
+    screen_.number(c >> 8 & 15, 2);
+    screen_.glyph('/');
+    screen_.number(c >> 4 & 15, 2);
+    screen_.glyph('/');
+    screen_.number(c & 15, 2);
+    for (int comp = 0; comp < 3; ++comp) {
+        const int value = c >> (4 * comp) & 15, y = 0xB2 - 16 * comp;
+        for (int i = 0; i < 16; ++i) screen_.frame(0x38 + 16 * i, y, 0x38 + 16 * i + 0x0F, y + 0x0F, i == value ? 15 : 0);
+    }
+}
+
+void FrontEnd::step_colours(int st) {
+    if (st < 3) { // swap two components of every colour ($1247A)
+        for (auto& col : design_.colours) {
+            int r = col >> 8 & 15, g = col >> 4 & 15, b = col & 15;
+            if (st == 0) std::swap(r, g);
+            if (st == 1) std::swap(r, b);
+            if (st == 2) std::swap(g, b);
+            col = data::Colour(r << 8 | g << 4 | b);
+        }
+    } else if (st < 11) { // one step up or down ($12420)
+        static constexpr int steps[8][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {1, 1, 1},
+                                            {-1, 0, 0}, {0, -1, 0}, {0, 0, -1}, {-1, -1, -1}};
+        const auto& s = steps[st - 3];
+        for (std::size_t i = 0; i < 18; ++i) {
+            if (!(steppable >> i & 1)) continue;
+            auto& col = design_.colours[i];
+            const int r = std::clamp((col >> 8 & 15) + s[0], 0, 15), g = std::clamp((col >> 4 & 15) + s[1], 0, 15),
+                      b = std::clamp((col & 15) + s[2], 0, 15);
+            col = data::Colour(r << 8 | g << 4 | b);
+        }
+    }
+    for (std::size_t i = 0; i < 18; ++i) current_[i] = design_.colours[i];
+    screen_.palette = current_;
+}
+
+FrontEnd::Go FrontEnd::run(tasks::ColoursPage& t) {
     // $F38E: a page of its own: the 18 colours, the chosen one's name, its
     // R, G and B in 16 steps; presets, steps and swaps; a test of the tower.
-    for (;;) {
-        screen_.clear();
-        screen_.copper = CopperMode::split;
-        for (std::size_t i = 0; i < 15; ++i) current_[33 + i] = assets_.program.u16(var(0x23F2) + std::uint32_t(i) * 2);
-        for (std::size_t i = 0; i < 18; ++i) current_[i] = design_.colours[i];
-        screen_.palette = current_;
-        screen_.title_bar();
-        screen_.text_at(colours_text);
-        screen_.frame(0x1E, 0x1E, 0x11F, 0x42, 13);
-        screen_.frame(0x1E, 0x46, 0x11F, 0x6A, 13);
-        screen_.frame(6, 0x90, 0x13A, 0xC3, 13);
-        screen_.line(0x36, 0x90, 0x36, 0xC3, 13);
-        for (int k = 0; k < 9; ++k) {
-            const int x = 0x23 + 28 * k;
-            const int lower = assets_.program.u16(0xF914 + std::uint32_t(k + 9) * 2), upper = assets_.program.u16(0xF914 + std::uint32_t(k) * 2);
-            screen_.fill(x, 0x5A, x + 0x17, 0x5A + 0x0B, lower);
-            screen_.fill(x, 0x32, x + 0x17, 0x32 + 0x0B, upper);
-            screen_.cursor.x = 0x2B + 28 * k;
-            screen_.cursor.y = 0x26;
-            screen_.number(k, 1 + 0);
-            screen_.cursor.x = 0x2B + 28 * k - (k + 9 >= 10 ? 4 : 0);
-            screen_.cursor.y = 0x4E;
-            if (k + 9 >= 10) screen_.number(k + 9, 2);
-            else screen_.glyph(0x8A + k + 9);
-        }
-        for (int i = 0; i < 16; ++i)
-            for (int r = 0; r < 3; ++r) {
-                screen_.cursor.x = assets_.program.u16(0xF938 + std::uint32_t(i) * 4);
-                screen_.cursor.y = 0x96 + 16 * r;
-                screen_.glyph(assets_.program.u16(0xF93A + std::uint32_t(i) * 4));
+    using enum tasks::ColoursPage::At;
+    for (;;) switch (t.at) {
+        case start:
+            draw_colours_page();
+            t.leave = t.test = false;
+            t.at = choose;
+            continue;
+        case choose:
+            if (t.leave || t.test) {
+                t.at = after;
+                continue;
             }
-        bool leave = false, test = false;
-        while (!leave && !test) {
-            // The chosen colour: number, name, frames, RGB, the boxes.
-            screen_.cursor.x = 0x78;
-            screen_.cursor.y = 0x6E;
-            screen_.number(colour_, 2);
-            screen_.fill(0x78, 0x86, 0x120, 0x8D, 0);
-            screen_.cursor.x = 0x78;
-            screen_.cursor.y = 0x86;
-            screen_.message(colour_ + 0x45);
-            for (int k = 0; k < 9; ++k) {
-                screen_.frame(0x21 + 28 * k, 0x30, 0x21 + 28 * k + 0x1B, 0x30 + 0x0F, k == colour_ ? 15 : 0);
-                screen_.frame(0x21 + 28 * k, 0x58, 0x21 + 28 * k + 0x1B, 0x58 + 0x0F, k + 9 == colour_ ? 15 : 0);
-            }
-            for (std::size_t i = 0; i < 18; ++i) current_[i] = design_.colours[i];
-            screen_.palette = current_;
-            const auto c = design_.colours[std::size_t(colour_)];
-            screen_.cursor.x = 0x78;
-            screen_.cursor.y = 0x7A;
-            screen_.number(c >> 8 & 15, 2);
-            screen_.glyph('/');
-            screen_.number(c >> 4 & 15, 2);
-            screen_.glyph('/');
-            screen_.number(c & 15, 2);
-            for (int comp = 0; comp < 3; ++comp) {
-                const int value = c >> (4 * comp) & 15, y = 0xB2 - 16 * comp;
-                for (int i = 0; i < 16; ++i) screen_.frame(0x38 + 16 * i, y, 0x38 + 16 * i + 0x0F, y + 0x0F, i == value ? 15 : 0);
-            }
-            co_await wait_release();
-            int choice = 0;
-            co_await select(colours_areas, choice);
-            if (choice == 0) { // presets
+            draw_chosen_colour();
+            t.at = chosen;
+            return call(tasks::WaitRelease{}, select(colours_areas));
+        case chosen:
+            t.at = choose;
+            if (result_ == 0) { // presets
                 screen_.open_window(0, 0, 0x7F, 0xC0, 0);
                 screen_.text_at(presets_text);
-                int p = 0;
-                co_await select(presets_areas, p);
-                if (p == 1) { // Step/Swap Colours
-                    screen_.open_window(0, 0x18, 0x8F, 0xB4, 0);
-                    screen_.text_at(step_text);
-                    for (;;) {
-                        co_await wait_release();
-                        int st = 0;
-                        co_await select(step_areas, st);
-                        if (--st < 0) break;
-                        if (st < 3) { // swap two components of every colour ($1247A)
-                            for (auto& col : design_.colours) {
-                                int r = col >> 8 & 15, g = col >> 4 & 15, b = col & 15;
-                                if (st == 0) std::swap(r, g);
-                                if (st == 1) std::swap(r, b);
-                                if (st == 2) std::swap(g, b);
-                                col = data::Colour(r << 8 | g << 4 | b);
-                            }
-                        } else if (st < 11) { // one step up or down ($12420)
-                            static constexpr int steps[8][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {1, 1, 1},
-                                                                {-1, 0, 0}, {0, -1, 0}, {0, 0, -1}, {-1, -1, -1}};
-                            const auto& s = steps[st - 3];
-                            for (std::size_t i = 0; i < 18; ++i) {
-                                if (!(steppable >> i & 1)) continue;
-                                auto& col = design_.colours[i];
-                                const int r = std::clamp((col >> 8 & 15) + s[0], 0, 15), g = std::clamp((col >> 4 & 15) + s[1], 0, 15),
-                                          b = std::clamp((col & 15) + s[2], 0, 15);
-                                col = data::Colour(r << 8 | g << 4 | b);
-                            }
-                        }
-                        for (std::size_t i = 0; i < 18; ++i) current_[i] = design_.colours[i];
-                        screen_.palette = current_;
-                    }
-                    screen_.close_window();
-                } else if (p >= 2 && p < 14) { // a preset, the old colours kept for Restore
-                    previous_colours_ = design_.colours;
-                    for (std::size_t i = 0; i < 18; ++i)
-                        design_.colours[i] = assets_.program.u16(presets + std::uint32_t(p - 2) * 0x24 + std::uint32_t(i) * 2);
-                } else if (p == 14) {
-                    std::swap(previous_colours_, design_.colours);
-                }
-                screen_.close_window();
-            } else if (choice == 1) {
-                test = true;
-            } else if (choice == 2) {
-                leave = true;
-            } else if (choice == 3 || choice == 4) {
+                t.at = preset_chosen;
+                return call(select(presets_areas));
+            } else if (result_ == 1) {
+                t.test = true;
+            } else if (result_ == 2) {
+                t.leave = true;
+            } else if (result_ == 3 || result_ == 4) {
                 const int k = (in_.x - 0x21) / 0x1C;
-                if (in_.x >= 0x21 && k < 9) colour_ = k + (choice == 4 ? 9 : 0);
-            } else if (choice == 5) {
+                if (in_.x >= 0x21 && k < 9) colour_ = k + (result_ == 4 ? 9 : 0);
+            } else if (result_ == 5) {
                 if (!(fixed_colours << colour_ & 0x80000000u)) {
                     const int value = ((in_.x - 0x38) >> 4) & 15, shift = ((0xC1 - in_.y) >> 2) & 0xC;
                     auto& col = design_.colours[std::size_t(colour_)];
                     col = data::Colour((col & ~(15 << shift)) | value << shift);
                 }
             }
-        }
-        if (test) {
-            co_await test_design();
+            continue;
+        case preset_chosen: {
+            const int p = result_;
+            t.at = choose;
+            if (p == 1) { // Step/Swap Colours
+                screen_.open_window(0, 0x18, 0x8F, 0xB4, 0);
+                screen_.text_at(step_text);
+                t.at = step_choose;
+                continue;
+            }
+            if (p >= 2 && p < 14) { // a preset, the old colours kept for Restore
+                previous_colours_ = design_.colours;
+                for (std::size_t i = 0; i < 18; ++i)
+                    design_.colours[i] = assets_.program.u16(presets + std::uint32_t(p - 2) * 0x24 + std::uint32_t(i) * 2);
+            } else if (p == 14) {
+                std::swap(previous_colours_, design_.colours);
+            }
+            screen_.close_window();
             continue;
         }
-        break;
-    }
-    screen_.clear();
-    screen_.copper = CopperMode::split;
-    designer_screen();
+        case step_choose:
+            t.at = step_chosen;
+            return call(tasks::WaitRelease{}, select(step_areas));
+        case step_chosen:
+            if (result_ - 1 < 0) {
+                screen_.close_window();
+                screen_.close_window();
+                t.at = choose;
+                continue;
+            }
+            step_colours(result_ - 1);
+            t.at = step_choose;
+            continue;
+        case after:
+            if (t.test) {
+                t.at = tested;
+                return call(tasks::TestDesign{});
+            }
+            screen_.clear();
+            screen_.copper = CopperMode::split;
+            designer_screen();
+            return Go::end;
+        case tested:
+            t.at = start;
+            continue;
+        }
 }
 
 // --- Extras ------------------------------------------------------------------
 
-Flow FrontEnd::designer_extras() {
-    screen_.open_window(0xC8, 0, 0x13F, 0x6C, 0);
-    screen_.text_at(extras_text);
-    for (bool done = false; !done;) {
-        co_await wait_release();
-        int c = 0;
-        co_await select(extras_areas, c);
-        switch (c) {
-        case 0: done = true; break;
-        case 1: co_await designer_setup(); done = true; break;
-        case 2: co_await statistics_page(); break;
-        case 3: co_await support_page(); break;
-        case 4: co_await path_page(); break;
-        case 5: // Undo: the copy and the tower change places
-            if (undo_ready_) {
-                const auto here = pack_design();
-                unpack_design(undo_);
-                undo_ = here;
-                done = true;
+FrontEnd::Go FrontEnd::run(tasks::DesignerExtras& t) {
+    using enum tasks::DesignerExtras::At;
+    for (;;) switch (t.at) {
+        case start:
+            screen_.open_window(0xC8, 0, 0x13F, 0x6C, 0);
+            screen_.text_at(extras_text);
+            t.at = choose;
+            continue;
+        case choose:
+            if (t.done) {
+                screen_.close_window();
+                return Go::end;
             }
-            break;
-        case 6: co_await mouse_page(false); break;
-        case 7: co_await mouse_page(true); break;
-        default: break;
-        }
-    }
-    screen_.close_window();
-}
-
-Flow FrontEnd::designer_setup() {
-    screen_.open_window(0xC0, 0x18, 0x13F, 0xAA, 0);
-    screen_.text_at(setup_text);
-    for (;;) {
-        screen_.radio(var(0x4820), depth_cue_ ? 0 : 1);
-        screen_.radio(var(0x482A), enemy_movement_ ? 0 : 1);
-        screen_.radio(var(0x4834), auto_repeat_ ? 0 : 1);
-        screen_.radio(var(0x483E), confirm_replace_ ? 0 : 1);
-        screen_.radio(var(0x4848), bright_ ? 0 : 1);
-        co_await wait_release();
-        int c = 0;
-        co_await select(setup_areas, c);
-        if (c == 0) break;
-        const bool on = (c & 1) != 0;
-        if (c <= 2) depth_cue_ = on;
-        else if (c <= 4) enemy_movement_ = on;
-        else if (c <= 6) auto_repeat_ = on;
-        else if (c <= 8) confirm_replace_ = on;
-        else {
-            bright_ = on;
-            current_[10] = data::Colour(0x555 + (bright_ ? 0x222 : 0)); // $10368
-            screen_.palette = current_;
-        }
-    }
-    screen_.close_window();
-}
-
-Flow FrontEnd::statistics_page() {
-    screen_.open_window(0xB0, 0x24, 0x13F, 0x84, 0);
-    screen_.text_at(statistics_text);
-    const auto s = design_.statistics();
-    const int values[6] = {s.percent_used, s.zappers, s.pushers, s.klondikes, s.others, s.total};
-    for (int i = 0; i < 6; ++i) {
-        screen_.cursor.x = 0x11C;
-        screen_.cursor.y = 0x3E + 12 * i;
-        screen_.number(values[i], 3);
-        if (i == 0) screen_.glyph('%');
-    }
-    int c = 0;
-    co_await select(statistics_areas, c);
-    screen_.close_window();
-}
-
-Flow FrontEnd::support_page() {
-    screen_.open_window(0xC0, 0x30, 0x13F, 0x60, 0);
-    screen_.text_at(support_text);
-    const auto cursor = screen_.cursor;
-    std::vector<int> reached;
-    const bool passed = design_.support_check(reached);
-    for (const int i : reached) {
-        const int x = i & 7, z = i >> 3 & 7, f = i >> 6;
-        const int c = design_.cells[std::size_t(i)];
-        const int shift = (c == design::block || c == design::lift_top) ? 1 : 0;
-        screen_.icon8(assets_.main, support_mark, 0x10 + 8 * x + 0x50 * f - shift, 0xC0 - 8 * z - shift);
-        co_await wait_frames(3); // $126AC: 6 timer ticks a cell
-    }
-    screen_.cursor = cursor;
-    screen_.message(passed ? 0x3A : 0x39);
-    int c = 0;
-    co_await select(support_areas, c);
-    screen_.close_window();
-    draw_plans();
-}
-
-Flow FrontEnd::path_page() {
-    screen_.open_window(0x80, 0x18, 0x10F, 0x78, 0);
-    screen_.text_at(path_text);
-    std::array<int, 256> marks{};
-    for (int s = 0; s < 3; ++s) {
-        screen_.message(0x3B + s);
-        co_await wait_frames(25);
-        std::vector<int> reached;
-        bool placed = false;
-        const bool passed = design_.path_check(s, reached, placed);
-        if (!placed) {
-            screen_.text_at(not_found);
-        } else {
-            for (const int i : reached) {
-                marks[std::size_t(i)] |= 1 << s;
-                const int x = i & 7, z = i >> 3 & 7, f = i >> 6;
-                const int shift = design_.objects[std::size_t(i)] == 0x19 ? 1 : 0;
-                screen_.icon8(assets_.main, path_marks + std::uint32_t(marks[std::size_t(i)]) * 0x28, 0x10 + 8 * x + 0x50 * f - shift,
-                              0xC0 - 8 * z - shift);
-                co_await wait_frames(3);
+            t.at = chosen;
+            return call(tasks::WaitRelease{}, select(extras_areas));
+        case chosen:
+            t.at = choose;
+            switch (result_) {
+            case 0:
+                t.done = true;
+                continue;
+            case 1:
+                t.at = set_up;
+                return call(tasks::DesignerSetup{});
+            case 2: return call(tasks::StatisticsPage{});
+            case 3: return call(tasks::SupportPage{});
+            case 4: return call(tasks::PathPage{});
+            case 5: // Undo: the copy and the tower change places
+                if (undo_ready_) {
+                    const auto here = pack_design();
+                    unpack_design(undo_);
+                    undo_ = here;
+                    t.done = true;
+                }
+                continue;
+            case 6: return call(tasks::MousePage{false});
+            case 7: return call(tasks::MousePage{true});
+            default: continue;
             }
-            screen_.message(passed ? 0x3A : 0x39);
+        case set_up:
+            t.done = true;
+            t.at = choose;
+            continue;
         }
-        co_await wait_frames(25);
-    }
-    int c = 0;
-    co_await select(path_areas, c);
-    screen_.close_window();
-    draw_plans();
 }
 
-Flow FrontEnd::mouse_page(bool style) {
-    screen_.open_window(style ? 0xC0 : 0xA8, style ? 0x60 : 0x54, 0x13F, style ? 0x84 : 0x78, 0);
-    screen_.text_at(style ? style_text : scaling_text);
-    for (;;) {
-        screen_.radio(style ? var(0x451C) : var(0x4852), style ? mouse_style_ : mouse_scaling_);
-        co_await wait_release();
-        int c = 0;
-        co_await select(style ? style_areas : scaling_areas, c);
-        if (c == 0) break;
-        (style ? mouse_style_ : mouse_scaling_) = c - 1;
-        screen_.mouse_style = mouse_style_; // $11320: the sprites' colours
+FrontEnd::Go FrontEnd::run(tasks::DesignerSetup& t) {
+    using enum tasks::DesignerSetup::At;
+    for (;;) switch (t.at) {
+        case start:
+            screen_.open_window(0xC0, 0x18, 0x13F, 0xAA, 0);
+            screen_.text_at(setup_text);
+            t.at = choose;
+            continue;
+        case choose:
+            screen_.radio(var(0x4820), depth_cue_ ? 0 : 1);
+            screen_.radio(var(0x482A), enemy_movement_ ? 0 : 1);
+            screen_.radio(var(0x4834), auto_repeat_ ? 0 : 1);
+            screen_.radio(var(0x483E), confirm_replace_ ? 0 : 1);
+            screen_.radio(var(0x4848), bright_ ? 0 : 1);
+            t.at = chosen;
+            return call(tasks::WaitRelease{}, select(setup_areas));
+        case chosen: {
+            const int c = result_;
+            if (c == 0) {
+                screen_.close_window();
+                return Go::end;
+            }
+            const bool on = (c & 1) != 0;
+            if (c <= 2) depth_cue_ = on;
+            else if (c <= 4) enemy_movement_ = on;
+            else if (c <= 6) auto_repeat_ = on;
+            else if (c <= 8) confirm_replace_ = on;
+            else {
+                bright_ = on;
+                current_[10] = data::Colour(0x555 + (bright_ ? 0x222 : 0)); // $10368
+                screen_.palette = current_;
+            }
+            t.at = choose;
+            continue;
+        }
+        }
+}
+
+FrontEnd::Go FrontEnd::run(tasks::StatisticsPage& t) {
+    using enum tasks::StatisticsPage::At;
+    if (t.at == start) {
+        screen_.open_window(0xB0, 0x24, 0x13F, 0x84, 0);
+        screen_.text_at(statistics_text);
+        const auto s = design_.statistics();
+        const int values[6] = {s.percent_used, s.zappers, s.pushers, s.klondikes, s.others, s.total};
+        for (int i = 0; i < 6; ++i) {
+            screen_.cursor.x = 0x11C;
+            screen_.cursor.y = 0x3E + 12 * i;
+            screen_.number(values[i], 3);
+            if (i == 0) screen_.glyph('%');
+        }
+        t.at = chosen;
+        return call(select(statistics_areas));
     }
     screen_.close_window();
+    return Go::end;
+}
+
+FrontEnd::Go FrontEnd::run(tasks::SupportPage& t) {
+    using enum tasks::SupportPage::At;
+    for (;;) switch (t.at) {
+        case start:
+            screen_.open_window(0xC0, 0x30, 0x13F, 0x60, 0);
+            screen_.text_at(support_text);
+            t.cursor = screen_.cursor;
+            t.passed = design_.support_check(t.reached);
+            t.at = mark;
+            continue;
+        case mark: {
+            if (t.next == t.reached.size()) {
+                screen_.cursor = t.cursor;
+                screen_.message(t.passed ? 0x3A : 0x39);
+                t.at = chosen;
+                return call(select(support_areas));
+            }
+            const int i = t.reached[t.next++];
+            const int x = i & 7, z = i >> 3 & 7, f = i >> 6;
+            const int c = design_.cells[std::size_t(i)];
+            const int shift = (c == design::block || c == design::lift_top) ? 1 : 0;
+            screen_.icon8(assets_.main, support_mark, 0x10 + 8 * x + 0x50 * f - shift, 0xC0 - 8 * z - shift);
+            return call(tasks::WaitFrames{3}); // $126AC: 6 timer ticks a cell
+        }
+        case chosen:
+            screen_.close_window();
+            draw_plans();
+            return Go::end;
+        }
+}
+
+FrontEnd::Go FrontEnd::run(tasks::PathPage& t) {
+    using enum tasks::PathPage::At;
+    for (;;) switch (t.at) {
+        case start:
+            screen_.open_window(0x80, 0x18, 0x10F, 0x78, 0);
+            screen_.text_at(path_text);
+            t.at = spider;
+            continue;
+        case spider:
+            if (t.spider == 3) {
+                t.at = chosen;
+                return call(select(path_areas));
+            }
+            screen_.message(0x3B + t.spider);
+            t.at = spider_waited;
+            return call(tasks::WaitFrames{25});
+        case spider_waited: {
+            t.reached.clear();
+            t.next = 0;
+            bool placed = false;
+            t.passed = design_.path_check(t.spider, t.reached, placed);
+            if (!placed) {
+                screen_.text_at(not_found);
+                t.at = spider_done;
+                return call(tasks::WaitFrames{25});
+            }
+            t.at = mark;
+            continue;
+        }
+        case mark: {
+            if (t.next == t.reached.size()) {
+                screen_.message(t.passed ? 0x3A : 0x39);
+                t.at = spider_done;
+                return call(tasks::WaitFrames{25});
+            }
+            const int i = t.reached[t.next++];
+            t.marks[std::size_t(i)] |= 1 << t.spider;
+            const int x = i & 7, z = i >> 3 & 7, f = i >> 6;
+            const int shift = design_.objects[std::size_t(i)] == 0x19 ? 1 : 0;
+            screen_.icon8(assets_.main, path_marks + std::uint32_t(t.marks[std::size_t(i)]) * 0x28, 0x10 + 8 * x + 0x50 * f - shift,
+                          0xC0 - 8 * z - shift);
+            return call(tasks::WaitFrames{3});
+        }
+        case spider_done:
+            ++t.spider;
+            t.at = spider;
+            continue;
+        case chosen:
+            screen_.close_window();
+            draw_plans();
+            return Go::end;
+        }
+}
+
+FrontEnd::Go FrontEnd::run(tasks::MousePage& t) {
+    using enum tasks::MousePage::At;
+    for (;;) switch (t.at) {
+        case start:
+            screen_.open_window(t.style ? 0xC0 : 0xA8, t.style ? 0x60 : 0x54, 0x13F, t.style ? 0x84 : 0x78, 0);
+            screen_.text_at(t.style ? style_text : scaling_text);
+            t.at = choose;
+            continue;
+        case choose:
+            screen_.radio(t.style ? var(0x451C) : var(0x4852), t.style ? mouse_style_ : mouse_scaling_);
+            t.at = chosen;
+            return call(tasks::WaitRelease{}, select(t.style ? style_areas : scaling_areas));
+        case chosen:
+            if (result_ == 0) {
+                screen_.close_window();
+                return Go::end;
+            }
+            (t.style ? mouse_style_ : mouse_scaling_) = result_ - 1;
+            screen_.mouse_style = mouse_style_; // $11320: the sprites' colours
+            t.at = choose;
+            continue;
+        }
 }
 
 } // namespace babel::front

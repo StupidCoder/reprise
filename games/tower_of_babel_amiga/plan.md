@@ -34,7 +34,6 @@ The original is complete, and both planned enhancements are in. What is left are
 - **Keys:** Escape (the Setup page's reset of the screen position, the editors' clear) is Reprise's own menu key, and the host reports A and D as left and right, so the editors' cursor keys (codes 1-4) aren't offered.
 - **Mouse Scaling and Mouse Style** are kept without effect, as the host draws the pointer. Mouse Style still colours the designer's cursor.
 - **Widescreen:** clicks in the view's widened sides select nothing.
-- **Quick saves:** run tests/persistence.cpp's `--record` / `--restore` with the whole shell once it links again (on 2026-10-29 another game's work in progress broke the link; the same checks passed run against this module alone).
 
 ## Not yet covered by a check
 
@@ -61,7 +60,6 @@ These run in native code but have not been compared with the original yet:
 
 ## Known bugs
 
-- **Quick saves:** a load replays the time since the last mark, so after a long stretch without one it takes longer: a demonstration left running (about a second for ten minutes) or a designer session that opens its own test plays (they are replayed with their 3D frames).
 
 - **Widescreen:** the stars beyond the original's columns repeat its field (the original has no stars there to show).
 

@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <random>
 #include <sstream>
+#include <type_traits>
+#include <utility>
 
 namespace babel::front {
 namespace {
@@ -70,8 +72,7 @@ FrontEnd::FrontEnd(const data::Assets& assets, std::filesystem::path saves)
         scores_.push_back({assets.program.text(at, 0x1E), long(assets.program.u32(at + 0x1E))});
     }
     custom_towers_ = assets.groups.at(15).towers;
-    runner_.start(run());
-    mark(Mark::start);
+    tasks_.emplace_back(tasks::Game{});
 }
 
 view::Canvas FrontEnd::wide_picture(int margin, double alpha) const {
@@ -96,8 +97,8 @@ view::Canvas FrontEnd::wide_picture(int margin, double alpha) const {
             }
         }
     }
-    if (active_play_->shows_view()) {
-        active_play_->redraw(canvas, margin, alpha);
+    if (active_play()->shows_view()) {
+        active_play()->redraw(canvas, margin, alpha);
         if (margin > 0) {
             const auto colour = base.at(15, 15);
             for (int x = 15; x <= w - 16; ++x) canvas.set(x, 15, colour), canvas.set(x, 128, colour);
@@ -108,7 +109,7 @@ view::Canvas FrontEnd::wide_picture(int margin, double alpha) const {
 }
 
 platform::Image FrontEnd::picture(int margin, bool smooth, double fraction) const {
-    const bool live = active_play_ && screen_.copper == CopperMode::game;
+    const bool live = active_play() && screen_.copper == CopperMode::game;
     if (margin == 0 && (!smooth || !live || play_paused_)) return screen_.image();
     const int w = Screen::width + 2 * margin;
     const auto& base = screen_.canvas();
@@ -140,17 +141,9 @@ platform::Image FrontEnd::picture(int margin, bool smooth, double fraction) cons
 }
 
 void FrontEnd::vblank(const Input& raw) {
+    previous_ = in_;
     Input input = raw;
     input.x -= margin_; // the game's own picture is in the middle
-    // The journal: this blank's input (a mark during it starts it afresh).
-    const auto word = input.packed();
-    if (!journal_.empty() && journal_.back().first == word) ++journal_.back().second;
-    else journal_.push_back({word, 1});
-    step(input);
-}
-
-void FrontEnd::step(const Input& input) {
-    previous_ = in_;
     in_ = input;
     if (in_.left && !previous_.left) {
         clicked_ = true;
@@ -159,170 +152,236 @@ void FrontEnd::step(const Input& input) {
     }
     ticks_ += ticks_per_vblank;
     if (piece_frames_ > 0) --piece_frames_;
-    runner_.resume();
+    run_tasks();
 }
 
-// --- waiting ---------------------------------------------------------------
+const Play* FrontEnd::active_play() const {
+    for (auto it = tasks_.rbegin(); it != tasks_.rend(); ++it)
+        if (const auto* t = std::get_if<tasks::PlayTower>(&*it); t && t->play) return &*t->play;
+    return interlude_.get();
+}
+
+// --- the tasks -------------------------------------------------------------
+
+void FrontEnd::run_tasks() {
+    // The task last called goes on; one that ends hands its result to the
+    // one below, which goes on in the same blank.
+    while (!tasks_.empty()) {
+        const Go go = std::visit([this](auto& task) { return run(task); }, tasks_.back());
+        if (go == Go::wait) return;
+        if (go == Go::end) tasks_.pop_back();
+    }
+}
 
 void FrontEnd::sound_frame(const Play& play) {
     sounds_.push_back({SoundEvent::Kind::frame, play.sound_frame(), 0, play.volume_offset()});
 }
 
-Flow FrontEnd::wait_frames(int n) {
-    for (int i = 0; i < n; ++i) co_await next_frame();
+FrontEnd::Go FrontEnd::run(tasks::WaitFrames& t) {
+    if (t.left-- <= 0) return Go::end;
+    return Go::wait;
 }
 
-Flow FrontEnd::wait_release() {
-    while (in_.left || in_.right) co_await next_frame();
+FrontEnd::Go FrontEnd::run(tasks::WaitRelease&) {
+    return in_.left || in_.right ? Go::wait : Go::end;
 }
 
-Flow FrontEnd::select(std::uint32_t areas, int& choice) {
+FrontEnd::Go FrontEnd::run(tasks::Select& t) {
     // $112EA: the vertical blank keeps the area under the pointer lit; a
     // press of the left button over one chooses it.
     // The choice starts as none ($E00 = -1) until a vertical blank has looked.
-    Menu menu(assets_.program, areas);
-    for (;;) {
-        co_await next_frame();
-        const int x = in_.pointer ? in_.x : 0x1F40, y = in_.pointer ? in_.y : 0x8000;
-        menu.hover(screen_, x, y);
-        choice = menu.at(x, y);
-        if (in_.left && choice >= 0) break;
+    if (!std::exchange(t.looking, true)) {
+        t.menu = Menu(assets_.program, t.areas);
+        return Go::wait;
     }
-    menu.unhover(screen_);
+    const int x = in_.pointer ? in_.x : 0x1F40, y = in_.pointer ? in_.y : 0x8000;
+    t.menu.hover(screen_, x, y);
+    const int choice = t.menu.at(x, y);
+    if (!in_.left || choice < 0) return Go::wait;
+    t.menu.unhover(screen_);
+    return end(choice);
 }
 
-Flow FrontEnd::game_frame_wait() {
+FrontEnd::Go FrontEnd::run(tasks::GameFrameWait&) {
     // $87EE: the frame ends once the timer has counted 14 since the last.
-    while (ticks_ < 14) co_await next_frame();
+    if (ticks_ < 14) return Go::wait;
     ticks_ -= 14;
+    return Go::end;
 }
 
-Flow FrontEnd::fade(const std::array<data::Colour, 48>& target, int first, int count) {
-    if (fast_fades_) { // $12628: at once, then two frames
-        for (int i = first; i < first + count; ++i) current_[std::size_t(i)] = target[std::size_t(i)];
-        screen_.palette = current_;
-        co_await next_frame();
-        co_await next_frame();
-        co_return;
-    }
-    // $125B2 / $1255C: each component in 16 steps of (target - start) / 16,
-    // from start * 16 + 7, one step a frame.
-    std::array<std::array<int, 3>, 48> value{}, step{};
-    for (std::size_t i = 0; i < 48; ++i)
-        for (int k = 0; k < 3; ++k) {
-            const int shift = 8 - 4 * k;
-            const int from = current_[i] >> shift & 15, to = target[i] >> shift & 15;
-            value[i][std::size_t(k)] = from * 16 + 7;
-            step[i][std::size_t(k)] = to - from;
-        }
-    for (int s = 0; s < 16; ++s) {
-        for (int i = first; i < first + count; ++i) {
-            auto& v = value[std::size_t(i)];
-            data::Colour c = 0;
-            for (int k = 0; k < 3; ++k) {
-                v[std::size_t(k)] += step[std::size_t(i)][std::size_t(k)];
-                c = data::Colour(c << 4 | (v[std::size_t(k)] >> 4 & 15));
-            }
-            current_[std::size_t(i)] = c;
-        }
-        screen_.palette = current_;
-        co_await next_frame();
-    }
+tasks::Fade FrontEnd::fade(const std::array<data::Colour, 48>& target, int first, int count) const {
+    tasks::Fade f;
+    f.target = target;
+    f.first = first;
+    f.count = count;
+    return f;
 }
 
-Flow FrontEnd::fade_out() {
+tasks::Fade FrontEnd::fade_out() const {
     std::array<data::Colour, 48> black{};
     for (std::size_t i = 0; i < 48; ++i) black[i] = assets_.program.u16(black_palette + std::uint32_t(i) * 2);
-    co_await fade(black);
+    return fade(black);
 }
 
-Flow FrontEnd::fade_in_program(std::uint32_t palette) {
+tasks::Fade FrontEnd::fade_in_program(std::uint32_t palette) const {
     std::array<data::Colour, 48> target{};
     for (std::size_t i = 0; i < 48; ++i) target[i] = assets_.program.u16(palette + std::uint32_t(i) * 2);
-    co_await fade(target);
+    return fade(target);
+}
+
+FrontEnd::Go FrontEnd::run(tasks::Fade& t) {
+    if (!std::exchange(t.started, true)) {
+        t.fast = fast_fades_;
+        if (t.fast) { // $12628: at once, then two frames
+            for (int i = t.first; i < t.first + t.count; ++i) current_[std::size_t(i)] = t.target[std::size_t(i)];
+            screen_.palette = current_;
+            return Go::wait;
+        }
+        // $125B2 / $1255C: each component in 16 steps of (target - start) / 16,
+        // from start * 16 + 7, one step a frame.
+        for (std::size_t i = 0; i < 48; ++i)
+            for (int k = 0; k < 3; ++k) {
+                const int shift = 8 - 4 * k;
+                const int from = current_[i] >> shift & 15, to = t.target[i] >> shift & 15;
+                t.value[i][std::size_t(k)] = from * 16 + 7;
+                t.step[i][std::size_t(k)] = to - from;
+            }
+    }
+    if (t.fast) return t.steps++ == 0 ? Go::wait : Go::end;
+    if (t.steps == 16) return Go::end;
+    for (int i = t.first; i < t.first + t.count; ++i) {
+        auto& v = t.value[std::size_t(i)];
+        data::Colour c = 0;
+        for (int k = 0; k < 3; ++k) {
+            v[std::size_t(k)] += t.step[std::size_t(i)][std::size_t(k)];
+            c = data::Colour(c << 4 | (v[std::size_t(k)] >> 4 & 15));
+        }
+        current_[std::size_t(i)] = c;
+    }
+    screen_.palette = current_;
+    ++t.steps;
+    return Go::wait;
 }
 
 // --- the game ---------------------------------------------------------------
 
-Flow FrontEnd::run() {
-    co_await title();
-    co_await credits();
-    for (;;) {
-        co_await name_entry();
-        co_await main_menu(); // returns for Restart Game
+FrontEnd::Go FrontEnd::run(tasks::Game& t) {
+    using enum tasks::Game::At;
+    if (t.at == start) {
+        t.at = player;
+        return call(tasks::Title{}, tasks::Credits{});
     }
+    return call(tasks::NameEntry{}, tasks::MainMenu{}); // the main menu ends for Restart Game
 }
 
-Flow FrontEnd::resumed() {
-    // As run() goes on from the main menu.
-    co_await main_menu();
-    for (;;) {
-        co_await name_entry();
-        co_await main_menu();
+FrontEnd::Go FrontEnd::run(tasks::Title& t) {
+    using enum tasks::Title::At;
+    if (t.at == start) {
+        // $7EF6: the logo and the globe in the title's three colour bands, the
+        // title music; the program then loads its main data (left out here).
+        screen_.copper = CopperMode::title;
+        screen_.clear();
+        piece_ = 0;
+        piece_frames_ = int(assets_.pieces.at(0).samples.size() * 50 / (3546895 / std::max(assets_.pieces.at(0).period, 1))) + 1;
+        screen_.picture(assets_.title_memory, logo_at, 0, 10, 20, 35);
+        screen_.picture(assets_.title_memory, globe_at, 80, 61, 10, 133);
+        t.at = music;
+        return call(fade_in_program(title_palette));
     }
+    return piece_frames_ > 0 ? Go::wait : Go::end; // until the music ends
 }
 
-Flow FrontEnd::title() {
-    // $7EF6: the logo and the globe in the title's three colour bands, the
-    // title music; the program then loads its main data (left out here).
-    screen_.copper = CopperMode::title;
-    screen_.clear();
-    piece_ = 0;
-    piece_frames_ = int(assets_.pieces.at(0).samples.size() * 50 / (3546895 / std::max(assets_.pieces.at(0).period, 1))) + 1;
-    screen_.picture(assets_.title_memory, logo_at, 0, 10, 20, 35);
-    screen_.picture(assets_.title_memory, globe_at, 80, 61, 10, 133);
-    co_await fade_in_program(title_palette);
-    while (piece_frames_ > 0) co_await next_frame(); // until the music ends
-}
-
-Flow FrontEnd::credits() {
+FrontEnd::Go FrontEnd::run(tasks::Credits& t) {
     // $15A2E: the lower bands alternate between the credits and the globe
     // (about ten seconds each) until Space is pressed.
-    std::array<data::Colour, 48> black{}, credits_colours{}, title_colours{};
-    for (std::size_t i = 0; i < 48; ++i) {
-        black[i] = assets_.program.u16(black_palette + std::uint32_t(i) * 2);
-        credits_colours[i] = assets_.program.u16(credits_palette + std::uint32_t(i) * 2);
-        title_colours[i] = assets_.program.u16(title_palette + std::uint32_t(i) * 2);
-    }
-    co_await fade(black, 16, 32);
-    screen_.copper = CopperMode::title;
-    const auto wait = [this]() -> Flow {
-        // 100 waits of 11 timer ticks, watching for Space (or a click).
-        for (int i = 0; i < 100; ++i) {
-            const double start = ticks_;
-            while (ticks_ - start <= 10) {
-                if (in_.key == ' ' || (in_.left && !previous_.left)) co_return;
-                co_await next_frame();
-            }
-        }
+    using enum tasks::Credits::At;
+    const auto colours = [this](std::uint32_t palette) {
+        std::array<data::Colour, 48> c{};
+        for (std::size_t i = 0; i < 48; ++i) c[i] = assets_.program.u16(palette + std::uint32_t(i) * 2);
+        return c;
     };
-    for (bool done = false; !done;) {
-        screen_.fill(0, 0x3A, 0x13F, 0xC7, 0);
-        screen_.text_at(credits_text);
-        co_await fade(credits_colours, 16, 32);
-        co_await wait();
-        if (in_.key == ' ' || in_.left) break;
-        co_await fade(black, 16, 32);
-        screen_.fill(0, 0x3A, 0x13F, 0xC7, 0);
-        screen_.picture(assets_.title_memory, globe_at, 80, 61, 10, 133);
-        co_await fade(title_colours, 16, 32);
-        co_await wait();
-        if (in_.key == ' ' || in_.left) break;
-        co_await fade(black, 16, 32);
-    }
-    co_await fade_out();
-    screen_.copper = CopperMode::plain;
+    const auto stop = [this] { return in_.key == ' ' || in_.left; };
+    for (;;) switch (t.at) {
+        case start:
+            t.at = faded;
+            return call(fade(colours(black_palette), 16, 32));
+        case faded:
+            screen_.copper = CopperMode::title;
+            t.at = show_credits;
+            continue;
+        case show_credits:
+            screen_.fill(0, 0x3A, 0x13F, 0xC7, 0);
+            screen_.text_at(credits_text);
+            t.at = credits_wait;
+            return call(fade(colours(credits_palette), 16, 32), tasks::CreditsWait{});
+        case credits_wait:
+            if (stop()) {
+                t.at = leave;
+                continue;
+            }
+            t.at = credits_shown;
+            return call(fade(colours(black_palette), 16, 32));
+        case credits_shown:
+            screen_.fill(0, 0x3A, 0x13F, 0xC7, 0);
+            screen_.picture(assets_.title_memory, globe_at, 80, 61, 10, 133);
+            t.at = globe_wait;
+            return call(fade(colours(title_palette), 16, 32), tasks::CreditsWait{});
+        case globe_wait:
+            if (stop()) {
+                t.at = leave;
+                continue;
+            }
+            t.at = globe_shown;
+            return call(fade(colours(black_palette), 16, 32));
+        case globe_shown:
+            t.at = show_credits;
+            continue;
+        case leave:
+            t.at = left;
+            return call(fade_out());
+        case left:
+            screen_.copper = CopperMode::plain;
+            return Go::end;
+        }
 }
 
-Flow FrontEnd::name_entry() {
-    co_await fade_out();
-    screen_.copper = CopperMode::plain;
-    screen_.clear();
-    screen_.title_bar();
-    screen_.frame(0x36, 0x4C, 0x109, 0x80, 13);
-    screen_.text_at(name_text);
-    co_await fade_in_program(menu_palette);
-    co_await edit_name();
+FrontEnd::Go FrontEnd::run(tasks::CreditsWait& t) {
+    // 100 waits of 11 timer ticks, watching for Space (or a click).
+    for (;;) {
+        if (!t.timing) {
+            if (t.count == 100) return Go::end;
+            t.start = ticks_;
+            t.timing = true;
+        }
+        if (ticks_ - t.start <= 10) {
+            if (in_.key == ' ' || (in_.left && !previous_.left)) return Go::end;
+            return Go::wait;
+        }
+        ++t.count;
+        t.timing = false;
+    }
+}
+
+FrontEnd::Go FrontEnd::run(tasks::NameEntry& t) {
+    using enum tasks::NameEntry::At;
+    switch (t.at) {
+    case start:
+        t.at = faded;
+        return call(fade_out());
+    case faded:
+        screen_.copper = CopperMode::plain;
+        screen_.clear();
+        screen_.title_bar();
+        screen_.frame(0x36, 0x4C, 0x109, 0x80, 13);
+        screen_.text_at(name_text);
+        t.at = shown;
+        // The name record ($E46): 28 characters at (82, 110) short of x 260; a
+        // click in the box (54, 76)-(265, 128) moves the cursor, outside it ends.
+        return call(fade_in_program(menu_palette), tasks::EditField{{0x52, 0x6E, 0x1C, 0x104, 0x36, 0x4C, 0x109, 0x80, {}, 0, false}});
+    case shown:
+        break;
+    }
+    name_ = edited_;
     if (name_.empty()) {
         // $8C90: one of eight names for a player who gives none.
         random_ = std::uint16_t(random_ * 0x5E5 + 0x29);
@@ -336,6 +395,41 @@ Flow FrontEnd::name_entry() {
     group_ = 0;
     all_done_ = false;
     score_ = 0;
+    return Go::end;
+}
+
+FrontEnd::Go FrontEnd::run(tasks::EditField& t) {
+    // $12096 until Return or a click outside the box; the text in edited_.
+    using enum tasks::EditField::At;
+    auto& e = t.editor;
+    for (;;) switch (t.at) {
+        case start:
+            e.cursor = int(e.text.size());
+            t.at = draw;
+            continue;
+        case draw:
+            draw_editor(e);
+            t.end_x = screen_.cursor.x;
+            t.at = typed;
+            return Go::wait;
+        case typed: {
+            const int key = in_.key;
+            t.at = draw;
+            if (e.digits && key >= 0x20 && (key < '0' || key > '9')) continue;
+            bool finished = !edit_key(e, key, t.end_x);
+            if (!finished && in_.left && !previous_.left) {
+                if (in_.x >= e.box_x0 && in_.x < e.box_x1 && in_.y >= e.box_y0 && in_.y < e.box_y1) edit_click(e, in_.x);
+                else finished = true;
+            }
+            if (!finished) continue;
+            draw_editor(e, false); // $12304 once more, the cursor gone
+            t.at = released;
+            return call(tasks::WaitRelease{});
+        }
+        case released:
+            edited_ = e.text;
+            return Go::end;
+        }
 }
 
 void FrontEnd::draw_editor(const LineEditor& e, bool with_cursor) {
@@ -380,149 +474,250 @@ void FrontEnd::edit_click(LineEditor& e, int x) {
     e.cursor = i;
 }
 
-Flow FrontEnd::edit_name() {
-    // The name record ($E46): 28 characters at (82, 110) short of x 260; a
-    // click in the box (54, 76)-(265, 128) moves the cursor, outside it ends.
-    LineEditor e{0x52, 0x6E, 0x1C, 0x104, 0x36, 0x4C, 0x109, 0x80, {}, 0};
-    for (;;) {
-        draw_editor(e);
-        const int end_x = screen_.cursor.x;
-        co_await next_frame();
-        if (!edit_key(e, in_.key, end_x)) break;
-        if (in_.left && !previous_.left) {
-            if (in_.x >= e.box_x0 && in_.x < e.box_x1 && in_.y >= e.box_y0 && in_.y < e.box_y1) edit_click(e, in_.x);
-            else break;
-        }
+FrontEnd::Go FrontEnd::run(tasks::DiskError& t) {
+    using enum tasks::DiskError::At;
+    switch (t.at) {
+    case start: {
+        screen_.open_window(0x1C, 0x88, 0x124, 0xB8, 0);
+        screen_.text_at(disk_error_text);
+        screen_.number(t.code, 2);
+        screen_.glyph(')');
+        screen_.cursor.ink = 9;
+        const auto message = screen_.message_text(0x80 + (t.code & 15));
+        screen_.centre(message);
+        screen_.cursor.y = 0xA2;
+        screen_.text(message);
+        screen_.cursor.ink = 15;
+        t.at = chosen;
+        return call(tasks::WaitFrames{50}, select(error_areas)); // $12654 twice: 50 timer ticks each
     }
-    draw_editor(e, false);
-    name_ = e.text;
-    co_await wait_release();
+    case chosen:
+        break;
+    }
+    screen_.close_window();
+    return Go::end;
 }
 
-Flow FrontEnd::disk_error(int code) {
-    screen_.open_window(0x1C, 0x88, 0x124, 0xB8, 0);
-    screen_.text_at(disk_error_text);
-    screen_.number(code, 2);
-    screen_.glyph(')');
+FrontEnd::Go FrontEnd::run(tasks::ReplaceFile& t) {
+    using enum tasks::ReplaceFile::At;
+    switch (t.at) {
+    case start:
+        t.at = released;
+        return call(tasks::WaitRelease{});
+    case released:
+        screen_.open_window(0x4C, 0x48, 0xF3, 0x7D, 0);
+        screen_.text_at(replace_text);
+        screen_.frame(0x8F, 0x6B, 0xB1, 0x78, 13);
+        t.at = chosen;
+        return call(select(replace_areas));
+    case chosen:
+        t.yes = result_ == 1;
+        screen_.close_window();
+        t.at = answered;
+        return call(tasks::WaitRelease{});
+    case answered:
+        break;
+    }
+    return end(t.yes);
+}
+
+void FrontEnd::draw_requester_page(const tasks::Requester& t) {
+    // $1297A: the page number, then up to ten names.
+    screen_.cursor.x = 0x97;
+    screen_.cursor.y = 0x38;
     screen_.cursor.ink = 9;
-    const auto message = screen_.message_text(0x80 + (code & 15));
-    screen_.centre(message);
-    screen_.cursor.y = 0xA2;
-    screen_.text(message);
+    screen_.number(t.page + 1, 2);
     screen_.cursor.ink = 15;
-    co_await wait_frames(50); // $12654 twice: 50 timer ticks each
-    int choice = 0;
-    co_await select(error_areas, choice);
-    screen_.close_window();
+    screen_.fill(0x48, 0x4A, 0x90, 0xBE, 0);
+    for (int i = 0; i < 10 && t.page * 10 + i < int(t.names.size()); ++i) {
+        screen_.cursor.x = 0x48;
+        screen_.cursor.y = 0x4A + 12 * i;
+        screen_.text(t.names[std::size_t(t.page * 10 + i)].substr(0, 8));
+    }
 }
 
-Flow FrontEnd::replace_file(bool& yes) {
-    co_await wait_release();
-    screen_.open_window(0x4C, 0x48, 0xF3, 0x7D, 0);
-    screen_.text_at(replace_text);
-    screen_.frame(0x8F, 0x6B, 0xB1, 0x78, 13);
-    int choice = 0;
-    co_await select(replace_areas, choice);
-    screen_.close_window();
-    co_await wait_release();
-    yes = choice == 1;
+void FrontEnd::read_directory(tasks::Requester& t) {
+    // $12A10 / $12AFA: the files of this kind, the room left, the pages.
+    t.names = disk_.names(t.kind);
+    t.page = 0;
+    screen_.cursor.ink = 9;
+    screen_.cursor.x = 0x55;
+    screen_.cursor.y = 0x2C;
+    screen_.number(long(t.names.size()), 3);
+    screen_.cursor.x = 0xDB;
+    screen_.number(DataDisk::entries - disk_.files(), 3);
+    screen_.cursor.x = 0xBC;
+    screen_.cursor.y = 0x38;
+    screen_.number((std::max<int>(int(t.names.size()), 1) - 1) / 10 + 1, 2);
+    screen_.cursor.ink = 15;
+    draw_requester_page(t);
 }
 
-Flow FrontEnd::requester(FileKind kind, std::uint32_t title, std::function<int(const std::string&, bool)> action) {
-    screen_.open_window(0x40, 0x18, 0xFF, 0xC2, 0);
-    screen_.frame(0x45, 0x47, 0x93, 0xC0, 13);
-    screen_.frame(0x9D, 0x47, 0xC9, 0x54, 13);
-    screen_.frame(0x9D, 0xB3, 0xC9, 0xC0, 13);
-    screen_.frame(0x9D, 0x83, 0xF1, 0x90, 13);
-    screen_.frame(0x9D, 0x9B, 0xF1, 0xA8, 13);
-    screen_.text_at(title);
-    screen_.text_at(requester_text);
-    int page = 0, error = 0;
-    std::vector<std::string> names;
-    const auto draw_page = [&] {
-        // $1297A: the page number, then up to ten names.
-        screen_.cursor.x = 0x97;
-        screen_.cursor.y = 0x38;
-        screen_.cursor.ink = 9;
-        screen_.number(page + 1, 2);
-        screen_.cursor.ink = 15;
-        screen_.fill(0x48, 0x4A, 0x90, 0xBE, 0);
-        for (int i = 0; i < 10 && page * 10 + i < int(names.size()); ++i) {
-            screen_.cursor.x = 0x48;
-            screen_.cursor.y = 0x4A + 12 * i;
-            screen_.text(names[std::size_t(page * 10 + i)].substr(0, 8));
-        }
-    };
-    const auto read_directory = [&] {
-        // $12A10 / $12AFA: the files of this kind, the room left, the pages.
-        names = disk_.names(kind);
-        page = 0;
-        screen_.cursor.ink = 9;
-        screen_.cursor.x = 0x55;
-        screen_.cursor.y = 0x2C;
-        screen_.number(long(names.size()), 3);
-        screen_.cursor.x = 0xDB;
-        screen_.number(DataDisk::entries - disk_.files(), 3);
-        screen_.cursor.x = 0xBC;
-        screen_.cursor.y = 0x38;
-        screen_.number((std::max<int>(int(names.size()), 1) - 1) / 10 + 1, 2);
-        screen_.cursor.ink = 15;
-        draw_page();
-    };
-    read_directory();
+FrontEnd::Go FrontEnd::run(tasks::Requester& t) {
+    // $126C0: a window listing the files of one kind ten to a page, a name
+    // to type or pick, the action and Change Disk.
+    using enum tasks::Requester::At;
     auto& e = file_name_;
-    e.cursor = int(e.text.size());
-    Menu menu(assets_.program, requester_areas);
-    co_await wait_release();
-    bool ok = false;
-    for (;;) {
-        draw_editor(e);
-        const int end_x = screen_.cursor.x;
-        co_await next_frame();
-        const int x = in_.pointer ? in_.x : 0x1F40, y = in_.pointer ? in_.y : 0x8000;
-        menu.hover(screen_, x, y);
-        const int key = in_.key;
-        if (key != 0 && key != '.' && key != ' ') {
-            if (!edit_key(e, key, end_x)) {
-                ok = true;
-                break;
-            }
-            continue;
-        }
-        const int choice = menu.at(x, y);
-        if (!in_.left || choice < 0) continue;
-        if (choice == 5) {
-            edit_click(e, in_.x);
-            continue;
-        }
-        if (choice < 2) {
-            ok = choice == 1;
-            break;
-        }
-        if (choice == 2 && page > 0) {
-            --page;
-            draw_page();
-        } else if (choice == 3 && (page + 1) * 10 < int(names.size())) {
-            ++page;
-            draw_page();
-        } else if (choice == 4) {
-            read_directory();
-        } else if (choice >= 6 && page * 10 + choice - 6 < int(names.size())) {
-            e.text = names[std::size_t(page * 10 + choice - 6)];
+    for (;;) switch (t.at) {
+        case start:
+            screen_.open_window(0x40, 0x18, 0xFF, 0xC2, 0);
+            screen_.frame(0x45, 0x47, 0x93, 0xC0, 13);
+            screen_.frame(0x9D, 0x47, 0xC9, 0x54, 13);
+            screen_.frame(0x9D, 0xB3, 0xC9, 0xC0, 13);
+            screen_.frame(0x9D, 0x83, 0xF1, 0x90, 13);
+            screen_.frame(0x9D, 0x9B, 0xF1, 0xA8, 13);
+            screen_.text_at(t.title);
+            screen_.text_at(requester_text);
+            read_directory(t);
             e.cursor = int(e.text.size());
+            t.menu = Menu(assets_.program, requester_areas);
+            t.at = draw;
+            return call(tasks::WaitRelease{});
+        case draw:
+            draw_editor(e);
+            t.end_x = screen_.cursor.x;
+            t.at = typed;
+            return Go::wait;
+        case typed: {
+            t.at = draw;
+            const int x = in_.pointer ? in_.x : 0x1F40, y = in_.pointer ? in_.y : 0x8000;
+            t.menu.hover(screen_, x, y);
+            const int key = in_.key;
+            if (key != 0 && key != '.' && key != ' ') {
+                if (!edit_key(e, key, t.end_x)) {
+                    t.ok = true;
+                    t.at = act;
+                }
+                continue;
+            }
+            const int choice = t.menu.at(x, y);
+            if (!in_.left || choice < 0) continue;
+            if (choice == 5) {
+                edit_click(e, in_.x);
+                continue;
+            }
+            if (choice < 2) {
+                t.ok = choice == 1;
+                t.at = act;
+                continue;
+            }
+            if (choice == 2 && t.page > 0) {
+                --t.page;
+                draw_requester_page(t);
+            } else if (choice == 3 && (t.page + 1) * 10 < int(t.names.size())) {
+                ++t.page;
+                draw_requester_page(t);
+            } else if (choice == 4) {
+                read_directory(t);
+            } else if (choice >= 6 && t.page * 10 + choice - 6 < int(t.names.size())) {
+                e.text = t.names[std::size_t(t.page * 10 + choice - 6)];
+                e.cursor = int(e.text.size());
+            }
+            return call(tasks::WaitRelease{});
         }
-        co_await wait_release();
+        case act:
+            t.menu.unhover(screen_);
+            if (t.ok && !e.text.empty()) {
+                t.error = disk_action(t.action, e.text, false);
+                t.done = t.error == 0;
+            }
+            if (t.error == -1) { // the file exists: replace it?
+                t.at = replace_answered;
+                return call(tasks::ReplaceFile{});
+            }
+            t.at = error_shown;
+            continue;
+        case replace_answered:
+            t.error = result_ ? disk_action(t.action, e.text, true) : 0;
+            t.done = result_ && t.error == 0;
+            t.at = error_shown;
+            continue;
+        case error_shown:
+            t.at = closed;
+            if (t.error > 0) return call(tasks::DiskError{t.error});
+            continue;
+        case closed:
+            screen_.close_window();
+            t.at = finished;
+            return call(tasks::WaitRelease{});
+        case finished:
+            return end(t.done);
+        }
+}
+
+int FrontEnd::disk_action(DiskAction action, const std::string& n, bool replace) {
+    switch (action) {
+    case DiskAction::load_position: {
+        const auto file = disk_.read(FileKind::position, n);
+        if (!file) return 6;                   // File Not Found
+        if (!load_position(*file)) return 0xB; // Invalid File
+        return 0;
     }
-    menu.unhover(screen_);
-    if (ok && !e.text.empty()) error = action(e.text, false);
-    if (error == -1) { // the file exists: replace it?
-        bool yes = false;
-        co_await replace_file(yes);
-        error = yes ? action(e.text, true) : 0;
+    case DiskAction::save_position:
+        if (!replace && disk_.exists(FileKind::position, n)) return -1;
+        return disk_.write(FileKind::position, n, position()) ? 0 : 8; // Unable To Write to Disk
+    case DiskAction::update_scores: {
+        // $A8D4: merged with the table in the file (the higher score for a
+        // name, new names added), the best ten kept and written back.
+        if (const auto file = disk_.read(FileKind::scores, n)) {
+            std::istringstream in(std::string(file->begin(), file->end()));
+            long v = 0;
+            std::string name;
+            while (in >> v && std::getline(in, name)) {
+                if (!name.empty() && name[0] == ' ') name.erase(0, 1);
+                auto it = std::find_if(scores_.begin(), scores_.end(), [&](const Score& e) { return e.name == name; });
+                if (it == scores_.end()) scores_.push_back({name, v});
+                else if (v >= it->score) it->score = v;
+            }
+            sort_scores();
+            scores_.resize(10);
+        }
+        std::string t;
+        for (const auto& e : scores_) t += std::to_string(e.score) + " " + e.name + "\n";
+        return disk_.write(FileKind::scores, n, {t.begin(), t.end()}) ? 0 : 8;
     }
-    if (error > 0) co_await disk_error(error);
-    screen_.close_window();
-    co_await wait_release();
+    case DiskAction::load_custom_group: { // $9144: a group from the data disk becomes the custom group
+        const auto file = disk_.read(FileKind::group, n);
+        if (!file) return 6;
+        if (file->size() < 9 * data::tower_record_size) return 0xB;
+        for (std::size_t i = 0; i < 9; ++i)
+            custom_towers_[i] = data::decode_tower(std::span<const std::uint8_t>(*file).subspan(i * data::tower_record_size, data::tower_record_size));
+        custom_progress_.fill(0);
+        return 0;
+    }
+    case DiskAction::load_group: {
+        const auto f = disk_.read(FileKind::group, n);
+        if (!f) return 6;
+        if (f->size() < 9 * data::tower_record_size) return 0xB;
+        for (std::size_t i = 0; i < 9; ++i)
+            std::copy_n(f->begin() + long(i * data::tower_record_size), data::tower_record_size, designer_group_[i].begin());
+        return 0;
+    }
+    case DiskAction::save_group: {
+        if (!replace && confirm_replace_ && disk_.exists(FileKind::group, n)) return -1;
+        std::vector<std::uint8_t> bytes;
+        for (const auto& r : designer_group_) bytes.insert(bytes.end(), r.begin(), r.end());
+        return disk_.write(FileKind::group, n, bytes) ? 0 : 8;
+    }
+    case DiskAction::load_tower: {
+        const auto f = disk_.read(FileKind::tower, n);
+        if (!f) return 6;
+        if (f->size() < data::tower_record_size) return 0xB;
+        std::copy_n(f->begin(), data::tower_record_size, loaded_tower_.begin());
+        return 0;
+    }
+    case DiskAction::save_tower: {
+        if (!replace && confirm_replace_ && disk_.exists(FileKind::tower, n)) return -1;
+        design_.update_spiders();
+        const auto r = pack_design();
+        return disk_.write(FileKind::tower, n, {r.begin(), r.end()}) ? 0 : 8;
+    }
+    case DiskAction::delete_group:
+        return disk_.remove(FileKind::group, n) ? 0 : 6;
+    case DiskAction::delete_tower:
+        return disk_.remove(FileKind::tower, n) ? 0 : 6;
+    }
+    return 0;
 }
 
 // --- saved positions and high scores ----------------------------------------
@@ -619,81 +814,72 @@ void FrontEnd::update_scores() {
     sort_scores();
 }
 
-Flow FrontEnd::save_load() {
-    co_await fade_out();
-    screen_.clear();
-    screen_.title_bar();
-    menu_boxes(0x1C);
-    screen_.text_at(save_load_text);
-    co_await fade_in_program(menu_palette);
-    for (;;) {
-        co_await wait_release();
-        int choice = 0;
-        co_await select(save_load_areas, choice);
-        if (choice == 2) co_return;
-        bool loaded = false;
-        if (choice == 0) {
-            co_await requester(FileKind::position, load_title, [&](const std::string& n, bool) {
-                const auto file = disk_.read(FileKind::position, n);
-                if (!file) return 6;               // File Not Found
-                if (!load_position(*file)) return 0xB; // Invalid File
-                loaded = true;
-                return 0;
-            });
-        } else {
-            co_await requester(FileKind::position, save_title, [&](const std::string& n, bool replace) {
-                if (!replace && disk_.exists(FileKind::position, n)) return -1;
-                return disk_.write(FileKind::position, n, position()) ? 0 : 8; // Unable To Write to Disk
-            });
+FrontEnd::Go FrontEnd::run(tasks::SaveLoad& t) {
+    using enum tasks::SaveLoad::At;
+    for (;;) switch (t.at) {
+        case start:
+            t.at = drawn;
+            return call(fade_out());
+        case drawn:
+            screen_.clear();
+            screen_.title_bar();
+            menu_boxes(0x1C);
+            screen_.text_at(save_load_text);
+            t.at = choose;
+            return call(fade_in_program(menu_palette));
+        case choose:
+            t.at = chosen;
+            return call(tasks::WaitRelease{}, select(save_load_areas));
+        case chosen:
+            t.choice = result_;
+            if (t.choice == 2) return Go::end;
+            t.at = done;
+            if (t.choice == 0) return call(tasks::Requester{FileKind::position, load_title, DiskAction::load_position});
+            return call(tasks::Requester{FileKind::position, save_title, DiskAction::save_position});
+        case done:
+            if (t.choice == 0 && result_) return Go::end; // back to the main menu with the loaded name and score
+            t.at = choose;
+            continue;
         }
-        if (loaded) co_return; // back to the main menu with the loaded name and score
-    }
 }
 
-Flow FrontEnd::high_scores() {
-    co_await fade_out();
-    screen_.clear();
-    screen_.title_bar();
-    menu_boxes(0x60);
-    screen_.text_at(high_score_text);
-    for (;;) {
-        screen_.bevel_box(0, 0x16, 0x13F, 0x91, 13);
-        screen_.cursor.paper = 13;
-        screen_.cursor.ink = 15;
-        for (std::size_t i = 0; i < 10 && i < scores_.size(); ++i) {
-            screen_.cursor.y = 0x1A + 12 * int(i);
-            screen_.cursor.x = 0x10C;
-            screen_.number(scores_[i].score, 6);
-            screen_.cursor.x = 4;
-            screen_.text(scores_[i].name);
-        }
-        screen_.cursor.paper = 0;
-        screen_.cursor.ink = 15;
-        co_await fade_in_program(menu_palette);
-        int choice = 0;
-        co_await select(high_score_areas, choice);
-        if (choice == 0) co_return;
-        // $A8D4: merged with the table in the file (the higher score for a
-        // name, new names added), the best ten kept and written back.
-        co_await requester(FileKind::scores, update_title, [&](const std::string& n, bool) {
-            if (const auto file = disk_.read(FileKind::scores, n)) {
-                std::istringstream in(std::string(file->begin(), file->end()));
-                long v = 0;
-                std::string name;
-                while (in >> v && std::getline(in, name)) {
-                    if (!name.empty() && name[0] == ' ') name.erase(0, 1);
-                    auto it = std::find_if(scores_.begin(), scores_.end(), [&](const Score& e) { return e.name == name; });
-                    if (it == scores_.end()) scores_.push_back({name, v});
-                    else if (v >= it->score) it->score = v;
-                }
-                sort_scores();
-                scores_.resize(10);
-            }
-            std::string t;
-            for (const auto& e : scores_) t += std::to_string(e.score) + " " + e.name + "\n";
-            return disk_.write(FileKind::scores, n, {t.begin(), t.end()}) ? 0 : 8;
-        });
+void FrontEnd::draw_high_scores() {
+    screen_.bevel_box(0, 0x16, 0x13F, 0x91, 13);
+    screen_.cursor.paper = 13;
+    screen_.cursor.ink = 15;
+    for (std::size_t i = 0; i < 10 && i < scores_.size(); ++i) {
+        screen_.cursor.y = 0x1A + 12 * int(i);
+        screen_.cursor.x = 0x10C;
+        screen_.number(scores_[i].score, 6);
+        screen_.cursor.x = 4;
+        screen_.text(scores_[i].name);
     }
+    screen_.cursor.paper = 0;
+    screen_.cursor.ink = 15;
+}
+
+FrontEnd::Go FrontEnd::run(tasks::HighScores& t) {
+    using enum tasks::HighScores::At;
+    switch (t.at) {
+    case start:
+        t.at = faded;
+        return call(fade_out());
+    case faded:
+        screen_.clear();
+        screen_.title_bar();
+        menu_boxes(0x60);
+        screen_.text_at(high_score_text);
+        [[fallthrough]];
+    case updated:
+        draw_high_scores();
+        t.at = chosen;
+        return call(fade_in_program(menu_palette), select(high_score_areas));
+    case chosen:
+        if (result_ == 0) return Go::end;
+        t.at = updated;
+        return call(tasks::Requester{FileKind::scores, update_title, DiskAction::update_scores});
+    }
+    return Go::end;
 }
 
 void FrontEnd::header() {
@@ -714,96 +900,105 @@ void FrontEnd::menu_boxes(int rows) {
         if (rows & 1) screen_.frame(0x47, y, 0xF8, y + 13, 13);
 }
 
-Flow FrontEnd::confirm(std::uint32_t title_text, bool& yes) {
-    co_await wait_release();
-    screen_.open_window(0x4C, 0x48, 0xF3, 0x7D, 0);
-    screen_.text_at(title_text);
-    screen_.text_at(sure_text);
-    screen_.frame(0x8F, 0x6B, 0xB1, 0x78, 13);
-    int choice = 0;
-    co_await select(yes_areas, choice);
-    screen_.close_window();
-    co_await wait_release();
-    yes = choice == 0;
+FrontEnd::Go FrontEnd::run(tasks::Confirm& t) {
+    // $110D2 (with its own question: the designer's letters).
+    using enum tasks::Confirm::At;
+    switch (t.at) {
+    case start:
+        t.at = released;
+        return call(tasks::WaitRelease{});
+    case released:
+        screen_.open_window(0x4C, 0x48, 0xF3, 0x7D, 0);
+        if (t.question.empty()) screen_.text_at(t.title);
+        else screen_.text(t.question);
+        screen_.text_at(sure_text);
+        screen_.frame(0x8F, 0x6B, 0xB1, 0x78, 13);
+        t.at = chosen;
+        return call(select(yes_areas));
+    case chosen:
+        t.yes = result_ == 0;
+        screen_.close_window();
+        t.at = answered;
+        return call(tasks::WaitRelease{});
+    case answered:
+        break;
+    }
+    return end(t.yes);
 }
 
-Flow FrontEnd::main_menu() {
-    // After a quick load (read_state) straight back to where it was taken
-    // up: the tower (in its game type's loop, then back here as from Play
-    // Game), the designer, or this menu's loop.
-    const bool resuming = resume_menu_ || resume_designer_ || resume_tower_;
-    if (!resuming) update_scores(); // $8D28
-    if (resume_tower_) {
-        if (playing_type_ == 0) co_await standard_game();
-        else if (playing_type_ == 1) co_await custom_game();
-        else co_await tutorial_game();
-    } else if (resume_designer_) {
-        co_await designer();
-    }
-    for (bool marked = std::exchange(resume_menu_, false);;) {
-        if (!std::exchange(marked, false)) mark(Mark::menu);
-        co_await fade_out();
-        screen_.clear();
-        screen_.title_bar();
-        menu_boxes(0x7E);
-        screen_.text_at(main_text);
-        header();
-        co_await fade_in_program(menu_palette);
-        co_await wait_release();
-        for (bool redraw = false; !redraw;) {
-            int choice = 0;
-            co_await select(main_menu_areas, choice);
-            switch (choice) {
-            case 0:
-                co_await play_game();
-                redraw = true;
-                break;
-            case 1:
-                co_await save_load();
-                redraw = true;
-                break;
-            case 2:
-                co_await high_scores();
-                redraw = true;
-                break;
-            case 4:
-                co_await demo_sequence();
-                redraw = true;
-                break;
-            case 5: {
-                bool yes = false;
-                co_await confirm(restart_title, yes);
-                if (yes) co_return;
-                break;
-            }
-            case 3:
-                co_await designer();
-                redraw = true;
-                break;
+FrontEnd::Go FrontEnd::run(tasks::MainMenu& t) {
+    using enum tasks::MainMenu::At;
+    for (;;) switch (t.at) {
+        case start:
+            update_scores(); // $8D28
+            t.at = redraw;
+            continue;
+        case redraw:
+            t.at = drawn;
+            return call(fade_out());
+        case drawn:
+            screen_.clear();
+            screen_.title_bar();
+            menu_boxes(0x7E);
+            screen_.text_at(main_text);
+            header();
+            t.at = choose;
+            return call(fade_in_program(menu_palette), tasks::WaitRelease{});
+        case choose:
+            t.at = chosen;
+            return call(select(main_menu_areas));
+        case chosen:
+            t.at = redraw;
+            switch (result_) {
+            case 0: return call(tasks::PlayGame{});
+            case 1: return call(tasks::SaveLoad{});
+            case 2: return call(tasks::HighScores{});
+            case 3: return call(tasks::Designer{});
+            case 4: return call(tasks::DemoSequence{});
+            case 5:
+                t.at = restart;
+                return call(tasks::Confirm{restart_title});
             default:
-                break;
+                t.at = choose;
+                continue;
             }
+        case restart:
+            if (result_) return Go::end; // Restart Game
+            t.at = choose;
+            continue;
         }
-    }
 }
 
-Flow FrontEnd::play_game() {
-    co_await fade_out();
-    screen_.clear();
-    screen_.title_bar();
-    screen_.text_at(game_type_text);
-    menu_boxes(0x1E);
-    header();
-    co_await fade_in_program(menu_palette);
-    for (;;) {
-        int choice = 0;
-        co_await select(game_type_areas, choice);
-        if (choice == 0 && all_done_) continue; // nothing left to play in the standard game
-        if (choice == 0) co_await standard_game();
-        else if (choice == 1) co_await custom_game();
-        else if (choice == 2) co_await tutorial_game();
-        co_return;
-    }
+FrontEnd::Go FrontEnd::run(tasks::PlayGame& t) {
+    using enum tasks::PlayGame::At;
+    for (;;) switch (t.at) {
+        case start:
+            t.at = drawn;
+            return call(fade_out());
+        case drawn:
+            screen_.clear();
+            screen_.title_bar();
+            screen_.text_at(game_type_text);
+            menu_boxes(0x1E);
+            header();
+            t.at = choose;
+            return call(fade_in_program(menu_palette));
+        case choose:
+            t.at = chosen;
+            return call(select(game_type_areas));
+        case chosen:
+            if (result_ == 0 && all_done_) { // nothing left to play in the standard game
+                t.at = choose;
+                continue;
+            }
+            t.at = played;
+            if (result_ == 0) return call(tasks::StandardGame{});
+            if (result_ == 1) return call(tasks::CustomGame{});
+            if (result_ == 2) return call(tasks::TutorialGame{});
+            return Go::end;
+        case played:
+            return Go::end;
+        }
 }
 
 const data::Tower& FrontEnd::tower_in(int game_type, int index) const {
@@ -868,63 +1063,6 @@ void FrontEnd::draw_towers(int game_type, int completed, int available) {
     }
 }
 
-Flow FrontEnd::choose_tower(int game_type, int& choice) {
-    int completed = completed_mask(game_type, completed_count_);
-    int available = 0x1FF;
-    if (game_type == 0) {
-        available = 0;
-        for (int i = 0; i < 9; ++i)
-            if (completed >> i & 1) available |= assets_.program.u16(neighbours + std::uint32_t(i) * 2);
-        available &= ~completed;
-        if (completed == 0) available = 7;
-    } else if (game_type == 1) {
-        available = ~completed & 0x1FF;
-    }
-    if (selected_ >= 9) selected_ = -1;
-    co_await fade_out();
-    screen_.clear();
-    screen_.title_bar();
-    screen_.text_at(chooser_text);
-    screen_.bevel_box(4, 0x9A, 0x13B, 0xA9, 13);
-    screen_.frame(0x6F, 0xB3, 0x9E, 0xC0, 13);
-    screen_.frame(0xA3, 0xB3, 0xD0, 0xC0, 13);
-    header();
-    if (game_type == 0) {
-        screen_.text_at(group_text);
-        screen_.number(group_, 2);
-        screen_.text_at(percent_text);
-        const int solved = int(std::count(standard_progress_.begin(), standard_progress_.end(), 0xFF));
-        int percent = solved * 100 / 117;
-        if (percent != 99 && solved * 100 % 117 != 0) ++percent;
-        screen_.number(percent, 3);
-    }
-    draw_towers(game_type, completed, available);
-    co_await fade_in_program(menu_palette);
-    co_await wait_release();
-    for (;;) {
-        int c = 0;
-        co_await select(chooser_areas, c);
-        if (c == 12) {
-            choice = -1;
-            co_return;
-        }
-        if (c == 11) {
-            if (selected_ < 0) continue;
-            choice = selected_;
-            co_return;
-        }
-        if (c == 9 || c == 10) {
-            if (game_type != 0) continue;
-            if (c == 9 && group_ == 0) continue;
-            if (c == 10 && (completed_count_ < 7 || group_ >= 12)) continue;
-        } else if (!(available >> c & 1)) {
-            continue;
-        }
-        selected_ = c;
-        draw_towers(game_type, completed, available);
-    }
-}
-
 void FrontEnd::objective(const data::Tower& tower) {
     // $A12A: the tower's task in up to three centred lines.
     const auto line = [this](const std::string& s) {
@@ -962,82 +1100,165 @@ void FrontEnd::objective(const data::Tower& tower) {
     }
 }
 
-Flow FrontEnd::information(const data::Tower& tower, int letter, bool& play) {
-    screen_.copper = CopperMode::plain;
-    screen_.clear();
-    screen_.title_bar();
-    screen_.frame(0x6F, 0xB3, 0x9E, 0xC0, 13);
-    screen_.frame(0xA3, 0xB3, 0xD0, 0xC0, 13);
-    screen_.bevel_box(6, 0x1C, 0x139, 0x37, 13);
-    screen_.bevel_box(6, 0x3A, 0x139, 0x55, 13);
-    screen_.bevel_box(6, 0x58, 0x139, 0x73, 13);
-    screen_.bevel_box(6, 0x76, 0x139, 0xA9, 13);
-    screen_.text_at(information_text);
-    screen_.glyph('A' + letter);
-    screen_.cursor.paper = 13;
-    screen_.cursor.ink = 15;
-    const auto centred = [this](int y, const std::string& s) {
-        screen_.cursor.y = y;
-        screen_.centre(s);
-        screen_.text(s);
-    };
-    centred(0x2C, tower.name.empty() ? assets_.program.text(not_named) : tower.name);
-    centred(0x4A, tower.author.empty() ? assets_.program.text(anonymous) : tower.author);
-    // "Zapper, Pusher and Grabber".
-    int present = 0;
-    for (int s = 0; s < 3; ++s) present += tower.spider_available(s);
-    std::string spiders;
-    if (present == 0) {
-        spiders = assets_.program.text(no_spiders);
-    } else {
-        const std::uint32_t names[3] = {zapper_name, pusher_name, grabber_name};
-        int left = present;
-        for (int s = 0; s < 3 && left > 0; ++s) {
-            if (!tower.spider_available(s)) continue;
-            spiders += assets_.program.text(names[s]);
-            if (--left > 0) spiders += assets_.program.text(left == 2 ? comma : and_text);
-        }
-    }
-    centred(0x68, spiders);
-    screen_.cursor.y = 0x86;
-    objective(tower);
-    screen_.cursor.paper = 0;
-    screen_.cursor.ink = 15;
-    co_await fade_in_program(menu_palette);
-    co_await wait_release();
-    int choice = 0;
-    co_await select(information_areas, choice);
-    co_await fade_out();
-    play = choice == 0;
-}
-
-Flow FrontEnd::standard_game() {
-    if (!resume_tower_) selected_ = -1;
-    for (;;) {
-        int choice = -1;
-        const auto resume = std::exchange(resume_tower_, std::nullopt);
-        if (resume) choice = *resume;
-        else co_await choose_tower(0, choice);
-        if (choice < 0) co_return;
-        if (choice >= 9) {
-            group_ += choice == 10 ? 1 : -1;
-            selected_ = -1;
+FrontEnd::Go FrontEnd::run(tasks::ChooseTower& t) {
+    using enum tasks::ChooseTower::At;
+    for (;;) switch (t.at) {
+        case start:
+            t.completed = completed_mask(t.game_type, completed_count_);
+            t.available = 0x1FF;
+            if (t.game_type == 0) {
+                t.available = 0;
+                for (int i = 0; i < 9; ++i)
+                    if (t.completed >> i & 1) t.available |= assets_.program.u16(neighbours + std::uint32_t(i) * 2);
+                t.available &= ~t.completed;
+                if (t.completed == 0) t.available = 7;
+            } else if (t.game_type == 1) {
+                t.available = ~t.completed & 0x1FF;
+            }
+            if (selected_ >= 9) selected_ = -1;
+            t.at = faded;
+            return call(fade_out());
+        case faded:
+            screen_.clear();
+            screen_.title_bar();
+            screen_.text_at(chooser_text);
+            screen_.bevel_box(4, 0x9A, 0x13B, 0xA9, 13);
+            screen_.frame(0x6F, 0xB3, 0x9E, 0xC0, 13);
+            screen_.frame(0xA3, 0xB3, 0xD0, 0xC0, 13);
+            header();
+            if (t.game_type == 0) {
+                screen_.text_at(group_text);
+                screen_.number(group_, 2);
+                screen_.text_at(percent_text);
+                const int solved = int(std::count(standard_progress_.begin(), standard_progress_.end(), 0xFF));
+                int percent = solved * 100 / 117;
+                if (percent != 99 && solved * 100 % 117 != 0) ++percent;
+                screen_.number(percent, 3);
+            }
+            draw_towers(t.game_type, t.completed, t.available);
+            t.at = choose;
+            return call(fade_in_program(menu_palette), tasks::WaitRelease{});
+        case choose:
+            t.at = chosen;
+            return call(select(chooser_areas));
+        case chosen: {
+            const int c = result_;
+            t.at = choose;
+            if (c == 12) return end(-1);
+            if (c == 11) {
+                if (selected_ < 0) continue;
+                return end(selected_);
+            }
+            if (c == 9 || c == 10) {
+                if (t.game_type != 0) continue;
+                if (c == 9 && group_ == 0) continue;
+                if (c == 10 && (completed_count_ < 7 || group_ >= 12)) continue;
+            } else if (!(t.available >> c & 1)) {
+                continue;
+            }
+            selected_ = c;
+            draw_towers(t.game_type, t.completed, t.available);
             continue;
         }
-        const auto& tower = tower_in(0, choice);
-        bool go = resume.has_value();
-        if (!go) co_await information(tower, choice, go);
-        if (!go) continue;
-        int reason = 0;
-        co_await play_tower(tower, 0, reason);
-        if (reason == 1) {
-            co_await won_screen(choice, progress(0, choice));
-        } else {
-            co_await end_screen(0, reason);
         }
-        update_scores(); // $94C6
+}
+
+FrontEnd::Go FrontEnd::run(tasks::Information& t) {
+    using enum tasks::Information::At;
+    switch (t.at) {
+    case start: {
+        const auto& tower = tower_in(t.game_type, t.letter);
         screen_.copper = CopperMode::plain;
-        if (std::all_of(standard_progress_.begin(), standard_progress_.end(), [](std::uint8_t b) { return b == 0xFF; })) {
+        screen_.clear();
+        screen_.title_bar();
+        screen_.frame(0x6F, 0xB3, 0x9E, 0xC0, 13);
+        screen_.frame(0xA3, 0xB3, 0xD0, 0xC0, 13);
+        screen_.bevel_box(6, 0x1C, 0x139, 0x37, 13);
+        screen_.bevel_box(6, 0x3A, 0x139, 0x55, 13);
+        screen_.bevel_box(6, 0x58, 0x139, 0x73, 13);
+        screen_.bevel_box(6, 0x76, 0x139, 0xA9, 13);
+        screen_.text_at(information_text);
+        screen_.glyph('A' + t.letter);
+        screen_.cursor.paper = 13;
+        screen_.cursor.ink = 15;
+        const auto centred = [this](int y, const std::string& s) {
+            screen_.cursor.y = y;
+            screen_.centre(s);
+            screen_.text(s);
+        };
+        centred(0x2C, tower.name.empty() ? assets_.program.text(not_named) : tower.name);
+        centred(0x4A, tower.author.empty() ? assets_.program.text(anonymous) : tower.author);
+        // "Zapper, Pusher and Grabber".
+        int present = 0;
+        for (int s = 0; s < 3; ++s) present += tower.spider_available(s);
+        std::string spiders;
+        if (present == 0) {
+            spiders = assets_.program.text(no_spiders);
+        } else {
+            const std::uint32_t names[3] = {zapper_name, pusher_name, grabber_name};
+            int left = present;
+            for (int s = 0; s < 3 && left > 0; ++s) {
+                if (!tower.spider_available(s)) continue;
+                spiders += assets_.program.text(names[s]);
+                if (--left > 0) spiders += assets_.program.text(left == 2 ? comma : and_text);
+            }
+        }
+        centred(0x68, spiders);
+        screen_.cursor.y = 0x86;
+        objective(tower);
+        screen_.cursor.paper = 0;
+        screen_.cursor.ink = 15;
+        t.at = chosen;
+        return call(fade_in_program(menu_palette), tasks::WaitRelease{}, select(information_areas));
+    }
+    case chosen:
+        t.play = result_ == 0;
+        t.at = faded;
+        return call(fade_out());
+    case faded:
+        break;
+    }
+    return end(t.play);
+}
+
+FrontEnd::Go FrontEnd::run(tasks::StandardGame& t) {
+    using enum tasks::StandardGame::At;
+    for (;;) switch (t.at) {
+        case start:
+            selected_ = -1;
+            t.at = choose;
+            continue;
+        case choose:
+            t.at = chosen;
+            return call(tasks::ChooseTower{0});
+        case chosen:
+            t.choice = result_;
+            if (t.choice < 0) return Go::end;
+            if (t.choice >= 9) {
+                group_ += t.choice == 10 ? 1 : -1;
+                selected_ = -1;
+                t.at = choose;
+                continue;
+            }
+            t.at = informed;
+            return call(tasks::Information{0, t.choice});
+        case informed:
+            if (!result_) {
+                t.at = choose;
+                continue;
+            }
+            t.at = played;
+            return call(tasks::PlayTower{tower_in(0, t.choice), 0});
+        case played:
+            t.at = after;
+            if (result_ == 1) return call(tasks::WonScreen{t.choice, progress(0, t.choice)});
+            return call(tasks::EndScreen{0, result_});
+        case after:
+            update_scores(); // $94C6
+            screen_.copper = CopperMode::plain;
+            t.at = choose;
+            if (!std::all_of(standard_progress_.begin(), standard_progress_.end(), [](std::uint8_t b) { return b == 0xFF; }))
+                continue;
             // $95A0: every tower solved.
             all_done_ = true;
             screen_.clear();
@@ -1047,125 +1268,137 @@ Flow FrontEnd::standard_game() {
             screen_.text_at(ok_text);
             screen_.text_at(final_text);
             screen_.number(score_, 6);
-            co_await fade_in_program(menu_palette);
-            co_await wait_release();
-            int c = 0;
-            co_await select(final_areas, c);
-            co_await fade_out();
-            co_return;
+            t.at = final_faded;
+            return call(fade_in_program(menu_palette), tasks::WaitRelease{}, select(final_areas), fade_out());
+        case final_faded:
+            return Go::end;
         }
-    }
 }
 
-Flow FrontEnd::tutorial_game() {
-    if (!resume_tower_) selected_ = -1;
-    for (;;) {
-        int choice = -1;
-        const auto resume = std::exchange(resume_tower_, std::nullopt);
-        if (resume) choice = *resume;
-        else co_await choose_tower(2, choice);
-        if (choice < 0) co_return;
-        const auto& tower = tower_in(2, choice);
-        bool go = resume.has_value();
-        if (!go) co_await information(tower, choice, go);
-        if (!go) continue;
-        int reason = 0;
-        co_await play_tower(tower, 2, reason);
-        co_await end_screen(2, reason);
-        screen_.copper = CopperMode::plain;
-    }
-}
-
-Flow FrontEnd::custom_game() {
-    const bool resuming = resume_tower_.has_value(); // straight into the group's tower
-    if (!resuming) {
-        co_await fade_out();
-        screen_.clear();
-        screen_.title_bar();
-        menu_boxes(0x1E);
-        screen_.text_at(custom_text);
-        header();
-        co_await fade_in_program(menu_palette);
-    }
-    for (;;) {
-        if (!resuming) {
-            int choice = 0;
-            co_await select(custom_areas, choice);
-            if (choice == 3) co_return;
-            if (choice == 2) { // $9144: a group from the data disk becomes the custom group
-                bool loaded = false;
-                co_await requester(FileKind::group, group_title, [&](const std::string& n, bool) {
-                    const auto file = disk_.read(FileKind::group, n);
-                    if (!file) return 6;
-                    if (file->size() < 9 * data::tower_record_size) return 0xB;
-                    for (std::size_t i = 0; i < 9; ++i)
-                        custom_towers_[i] = data::decode_tower(std::span<const std::uint8_t>(*file).subspan(i * data::tower_record_size, data::tower_record_size));
-                    custom_progress_.fill(0);
-                    loaded = true;
-                    return 0;
-                });
-                if (!loaded) continue;
+FrontEnd::Go FrontEnd::run(tasks::TutorialGame& t) {
+    using enum tasks::TutorialGame::At;
+    for (;;) switch (t.at) {
+        case start:
+            selected_ = -1;
+            t.at = choose;
+            continue;
+        case choose:
+            t.at = chosen;
+            return call(tasks::ChooseTower{2});
+        case chosen:
+            t.choice = result_;
+            if (t.choice < 0) return Go::end;
+            t.at = informed;
+            return call(tasks::Information{2, t.choice});
+        case informed:
+            if (!result_) {
+                t.at = choose;
+                continue;
             }
-            if (choice == 1) { // the designer's nine towers ($9046)
+            t.at = played;
+            return call(tasks::PlayTower{tower_in(2, t.choice), 2});
+        case played:
+            t.at = after;
+            return call(tasks::EndScreen{2, result_});
+        case after:
+            screen_.copper = CopperMode::plain;
+            t.at = choose;
+            continue;
+        }
+}
+
+FrontEnd::Go FrontEnd::run(tasks::CustomGame& t) {
+    using enum tasks::CustomGame::At;
+    for (;;) switch (t.at) {
+        case start:
+            t.at = drawn;
+            return call(fade_out());
+        case drawn:
+            screen_.clear();
+            screen_.title_bar();
+            menu_boxes(0x1E);
+            screen_.text_at(custom_text);
+            header();
+            t.at = choose;
+            return call(fade_in_program(menu_palette));
+        case choose:
+            t.at = chosen;
+            return call(select(custom_areas));
+        case chosen:
+            if (result_ == 3) return Go::end;
+            if (result_ == 2) {
+                t.at = group_loaded;
+                return call(tasks::Requester{FileKind::group, group_title, DiskAction::load_custom_group});
+            }
+            if (result_ == 1) { // the designer's nine towers ($9046)
                 if (designer_group_.empty()) custom_towers_ = assets_.groups.at(15).towers;
                 else
                     for (std::size_t i = 0; i < 9; ++i) custom_towers_[i] = data::decode_tower(designer_group_[i]);
                 custom_progress_.fill(0);
             }
             selected_ = -1;
-        }
-        for (;;) {
-            int t = -1;
-            const auto resume = std::exchange(resume_tower_, std::nullopt);
-            if (resume) t = *resume;
-            else co_await choose_tower(1, t);
-            if (t < 0) co_return;
-            const auto& tower = tower_in(1, t);
-            bool go = resume.has_value();
-            if (!go) co_await information(tower, t, go);
-            if (!go) continue;
-            int reason = 0;
-            co_await play_tower(tower, 1, reason);
-            co_await end_screen(1, reason);
+            t.at = choose_tower;
+            continue;
+        case group_loaded:
+            if (!result_) {
+                t.at = choose;
+                continue;
+            }
+            selected_ = -1;
+            t.at = choose_tower;
+            continue;
+        case choose_tower:
+            t.at = tower_chosen;
+            return call(tasks::ChooseTower{1});
+        case tower_chosen:
+            t.choice = result_;
+            if (t.choice < 0) return Go::end;
+            t.at = informed;
+            return call(tasks::Information{1, t.choice});
+        case informed:
+            if (!result_) {
+                t.at = choose_tower;
+                continue;
+            }
+            t.at = played;
+            return call(tasks::PlayTower{tower_in(1, t.choice), 1});
+        case played:
+            t.at = after;
+            return call(tasks::EndScreen{1, result_});
+        case after:
             screen_.copper = CopperMode::plain;
+            t.at = choose_tower;
+            continue;
         }
-    }
 }
 
-Flow FrontEnd::play_tower(const data::Tower& tower, int game_type, int& reason, bool frozen) {
-    for (;;) {
-        // After a quick load: the tower as it was at a game frame's start.
-        const bool restored = !resume_play_.empty();
-        // $969A: the game screen, faded in from black.
-        if (!restored) co_await fade_out();
-        Play play(assets_, screen_, tower, settings_, game_type);
-        active_play_ = &play;
-        struct Forget {
-            Play*& play;
-            ~Forget() { play = nullptr; }
-        } forget{active_play_};
-        playing_type_ = game_type;
-        if (restored) {
-            state::Reader r(resume_play_);
-            play.persist(r);
-            r.finish();
-            resume_play_.clear();
-        } else {
+FrontEnd::Go FrontEnd::run(tasks::PlayTower& t) {
+    using enum tasks::PlayTower::At;
+    for (;;) switch (t.at) {
+        case start:
+            // $969A: the game screen, faded in from black.
+            t.at = unpack;
+            return call(fade_out());
+        case unpack:
+            t.play.emplace(assets_, screen_, t.tower, settings_, t.game_type);
             play_paused_ = false;
-            last_tower_ = tower;
-            if (frozen) play.freeze_enemies();
+            last_tower_ = t.tower;
+            if (t.frozen) t.play->freeze_enemies();
             sound(SoundEvent::Kind::stop); // the unpacker ($135C6)
-            play.draw_screen();
-            co_await fade(play.target_palette());
+            t.play->draw_screen();
+            t.at = faded_in;
+            return call(fade(t.play->target_palette()));
+        case faded_in:
             clicked_ = false;
+            t.leave = 0;
             sound(SoundEvent::Kind::resume); // the play loop's start ($9976)
-        }
-        int leave = 0;
-        for (bool marked = restored;;) {
-            if (!std::exchange(marked, false)) {
-                co_await game_frame_wait();
-                if (!in_designer_) mark(Mark::tower_frame); // (the designer's test goes back to the designer)
-            }
+            t.at = frame;
+            continue;
+        case frame:
+            t.at = framed;
+            return call(tasks::GameFrameWait{});
+        case framed: {
+            auto& play = *t.play;
             Play::Pointer p{in_.pointer ? in_.x : -1, in_.pointer ? in_.y : -1, in_.left || clicked_};
             if (clicked_ && !in_.left) {
                 p.x = clicked_x_;
@@ -1174,191 +1407,262 @@ Flow FrontEnd::play_tower(const data::Tower& tower, int game_type, int& reason, 
             clicked_ = false;
             const auto outcome = play.frame(p);
             sound_frame(play);
+            t.at = frame;
             if (outcome == Play::Outcome::playing) continue;
             if (outcome == Play::Outcome::ended) {
-                reason = play.end_reason();
+                t.reason = play.end_reason();
                 survivors_ = play.survivors();
                 // $9A6C: the jingle for a solved tower, otherwise a short sound.
                 sound(SoundEvent::Kind::stop);
-                if (reason == 1) {
+                if (t.reason == 1) {
                     piece_ = 1;
                     piece_frames_ = int(assets_.pieces.at(1).samples.size() * 50 / (3546895 / std::max(assets_.pieces.at(1).period, 1))) + 1;
-                    while (piece_frames_ > 0) co_await next_frame();
-                } else {
-                    sound(SoundEvent::Kind::start, lose_sound);
+                    t.at = jingle;
+                    continue;
                 }
-                co_await wait_release();
-                co_return;
+                sound(SoundEvent::Kind::start, lose_sound);
+                t.at = released;
+                return call(tasks::WaitRelease{});
             }
             sound(SoundEvent::Kind::pause);
             paused_screen_ = screen_.canvas();
             paused_wide_ = false;
             play_paused_ = true;
-            co_await wait_release();
-            co_await pause_menu(play, leave);
+            t.at = paused;
+            return call(tasks::WaitRelease{}, tasks::PauseMenu{});
+        }
+        case jingle:
+            if (piece_frames_ > 0) return Go::wait;
+            t.at = released;
+            return call(tasks::WaitRelease{});
+        case released:
+            return end(t.reason);
+        case paused:
+            t.leave = result_;
             play_paused_ = false;
-            if (leave != 0) break;
-            play.resume();
-            sound(SoundEvent::Kind::resume);
-        }
-        if (leave == 6) { // Restart Tower: one more try counted, the tower unpacked again
-            if (game_type < 3 && selected_ >= 0) {
-                auto& b = progress(game_type, selected_);
-                if (b < 0x64) ++b;
+            if (t.leave == 0) {
+                t.play->resume();
+                sound(SoundEvent::Kind::resume);
+                t.at = frame;
+                continue;
             }
+            t.at = after;
             continue;
+        case after:
+            t.play.reset();
+            if (t.leave == 6) { // Restart Tower: one more try counted, the tower unpacked again
+                if (t.game_type < 3 && selected_ >= 0) {
+                    auto& b = progress(t.game_type, selected_);
+                    if (b < 0x64) ++b;
+                }
+                t.at = start;
+                continue;
+            }
+            return end(t.leave); // 5: abandoned
         }
-        reason = leave; // 5: abandoned
-        co_return;
-    }
 }
 
-Flow FrontEnd::pause_menu(Play& play, int& leave) {
+FrontEnd::Go FrontEnd::run(tasks::PauseMenu& t) {
     // $9704: the menu bar over the title line; the pause button again (or a
     // click on it) continues.
-    leave = 0;
-    screen_.fill(1, 1, 318, 10, 0);
-    screen_.text_at(pause_bar);
-    for (;;) {
-        int choice = 0;
-        co_await select(pause_areas, choice);
-        co_await wait_release();
-        switch (choice) {
-        case 0:
-            co_await setup_page();
-            break;
-        case 1: {
-            co_await view_page();
+    using enum tasks::PauseMenu::At;
+    auto& play = *active_play();
+    for (;;) switch (t.at) {
+        case start:
+            screen_.fill(1, 1, 318, 10, 0);
+            screen_.text_at(pause_bar);
+            t.at = choose;
+            continue;
+        case choose:
+            t.at = chosen;
+            return call(select(pause_areas));
+        case chosen:
+            t.choice = result_;
+            t.at = released;
+            return call(tasks::WaitRelease{});
+        case released:
+            t.at = choose;
+            switch (t.choice) {
+            case 0: return call(tasks::SetupPage{});
+            case 1:
+                t.at = viewed;
+                return call(tasks::ViewPage{});
+            case 2: return call(tasks::InfoPage{});
+            case 3:
+                t.at = exited;
+                return call(tasks::ExitPage{play.game_type()});
+            default:
+                // Back to the tower: the title line shows its name again.
+                screen_.fill(1, 1, 318, 10, 0);
+                play.draw_title();
+                play.state().panel.turn = -1;
+                return end(0);
+            }
+        case viewed: {
             // $9F48: the view offsets, the panel in its (new) style and colours.
             play.set_settings(settings_);
             play.redraw_panel();
             const auto target = play.target_palette();
             for (std::size_t i = 33; i < 48; ++i) current_[i] = target[i];
             screen_.palette = current_;
-            break;
+            t.at = choose;
+            continue;
         }
-        case 2:
-            co_await info_page(play.tower());
-            break;
-        case 3:
-            co_await exit_page(play.game_type(), leave);
-            if (leave != 0) co_return;
-            break;
-        default:
-            // Back to the tower: the title line shows its name again.
-            screen_.fill(1, 1, 318, 10, 0);
-            play.draw_title();
-            play.state().panel.turn = -1;
-            co_return;
+        case exited:
+            if (result_ != 0) return end(result_);
+            t.at = choose;
+            continue;
         }
-    }
 }
 
-Flow FrontEnd::setup_page() {
-    screen_.open_window(0, 0, 0xAF, 0xA8, 0);
-    screen_.text_at(setup_text);
-    for (;;) {
-        screen_.radio(radio_backwards, settings_.backwards_allowed ? 0 : 1);
-        screen_.radio(radio_link, settings_.link_cameras ? 0 : 1);
-        screen_.radio(radio_info, 2 - settings_.info);
-        screen_.radio(radio_timer, 2 - settings_.timer);
-        screen_.radio(radio_screen_x, 1); // the picture's place on the monitor: the host frames it
-        screen_.radio(radio_screen_y, 0);
-        co_await wait_release();
-        int choice = 0;
-        co_await select(setup_areas, choice);
-        if (choice == 0) break; // outside the window
-        const int i = choice - 1;
-        if (i < 2) settings_.backwards_allowed = i == 0;
-        else if (i < 4) settings_.link_cameras = i == 2;
-        else if (i < 7) settings_.info = 6 - i;
-        else if (i < 10) settings_.timer = 9 - i;
-    }
-    screen_.close_window();
-}
-
-Flow FrontEnd::view_page() {
-    screen_.open_window(0x40, 0, 0x11F, 0x92, 0);
-    screen_.text_at(view_text);
-    for (;;) {
-        if (settings_.sights && !(settings_.view_side == 1 && settings_.view_height == 0 && settings_.view_distance == 0))
-            settings_.sights = false; // sights only from the spider's own eye
-        screen_.radio(radio_sights, settings_.sights ? 0 : 1);
-        screen_.radio(radio_view_side, settings_.view_side);
-        screen_.radio(radio_view_height, settings_.view_height);
-        screen_.radio(radio_view_distance, settings_.view_distance);
-        screen_.radio(radio_panel, settings_.panel_style);
-        co_await wait_release();
-        int choice = 0;
-        co_await select(view_areas, choice);
-        if (choice == 0) break;
-        const int i = choice - 1;
-        if (i < 3) {
-            settings_.view_side = i;
-            if (settings_.view_side != 1 && settings_.view_distance == 2) settings_.view_distance = 1;
-        } else if (i < 6) {
-            settings_.view_height = i - 3;
-        } else if (i < 9) {
-            settings_.view_distance = i - 6;
-            if (settings_.view_distance == 2) settings_.view_side = 1;
-        } else if (i < 11) {
-            settings_.sights = i == 9;
-            if (settings_.sights) {
-                settings_.view_side = 1;
-                settings_.view_height = 0;
-                settings_.view_distance = 0;
+FrontEnd::Go FrontEnd::run(tasks::SetupPage& t) {
+    using enum tasks::SetupPage::At;
+    for (;;) switch (t.at) {
+        case start:
+            screen_.open_window(0, 0, 0xAF, 0xA8, 0);
+            screen_.text_at(setup_text);
+            t.at = choose;
+            continue;
+        case choose:
+            screen_.radio(radio_backwards, settings_.backwards_allowed ? 0 : 1);
+            screen_.radio(radio_link, settings_.link_cameras ? 0 : 1);
+            screen_.radio(radio_info, 2 - settings_.info);
+            screen_.radio(radio_timer, 2 - settings_.timer);
+            screen_.radio(radio_screen_x, 1); // the picture's place on the monitor: the host frames it
+            screen_.radio(radio_screen_y, 0);
+            t.at = chosen;
+            return call(tasks::WaitRelease{}, select(setup_areas));
+        case chosen: {
+            if (result_ == 0) { // outside the window
+                screen_.close_window();
+                return Go::end;
             }
-        } else {
-            settings_.panel_style = i - 11;
+            const int i = result_ - 1;
+            if (i < 2) settings_.backwards_allowed = i == 0;
+            else if (i < 4) settings_.link_cameras = i == 2;
+            else if (i < 7) settings_.info = 6 - i;
+            else if (i < 10) settings_.timer = 9 - i;
+            t.at = choose;
+            continue;
         }
-    }
-    screen_.close_window();
+        }
 }
 
-Flow FrontEnd::info_page(const data::Tower& tower) {
-    screen_.open_window(0x90, 0, 0x137, 0x48, 0);
-    screen_.text_at(info_text);
-    if (tower.flags[4]) screen_.text_at(info_not);
-    screen_.text_at(info_allowed);
-    if (tower.flags[8]) screen_.text_at(info_dont);
-    screen_.text_at(info_floor);
-    screen_.message(tower.settings[0] + 0x6C);
-    screen_.cursor.paper = 0;
-    screen_.cursor.ink = 15;
-    int choice = 0;
-    co_await select(info_areas, choice);
-    if (choice != 0) {
-        screen_.open_window(0x20, 0x3C, 0x11F, 0x86, 0);
-        screen_.text_at(task_text);
-        screen_.cursor.y = 0x54;
-        objective(tower);
-        co_await wait_release();
-        co_await select(task_areas, choice);
+FrontEnd::Go FrontEnd::run(tasks::ViewPage& t) {
+    using enum tasks::ViewPage::At;
+    for (;;) switch (t.at) {
+        case start:
+            screen_.open_window(0x40, 0, 0x11F, 0x92, 0);
+            screen_.text_at(view_text);
+            t.at = choose;
+            continue;
+        case choose:
+            if (settings_.sights && !(settings_.view_side == 1 && settings_.view_height == 0 && settings_.view_distance == 0))
+                settings_.sights = false; // sights only from the spider's own eye
+            screen_.radio(radio_sights, settings_.sights ? 0 : 1);
+            screen_.radio(radio_view_side, settings_.view_side);
+            screen_.radio(radio_view_height, settings_.view_height);
+            screen_.radio(radio_view_distance, settings_.view_distance);
+            screen_.radio(radio_panel, settings_.panel_style);
+            t.at = chosen;
+            return call(tasks::WaitRelease{}, select(view_areas));
+        case chosen: {
+            if (result_ == 0) {
+                screen_.close_window();
+                return Go::end;
+            }
+            const int i = result_ - 1;
+            if (i < 3) {
+                settings_.view_side = i;
+                if (settings_.view_side != 1 && settings_.view_distance == 2) settings_.view_distance = 1;
+            } else if (i < 6) {
+                settings_.view_height = i - 3;
+            } else if (i < 9) {
+                settings_.view_distance = i - 6;
+                if (settings_.view_distance == 2) settings_.view_side = 1;
+            } else if (i < 11) {
+                settings_.sights = i == 9;
+                if (settings_.sights) {
+                    settings_.view_side = 1;
+                    settings_.view_height = 0;
+                    settings_.view_distance = 0;
+                }
+            } else {
+                settings_.panel_style = i - 11;
+            }
+            t.at = choose;
+            continue;
+        }
+        }
+}
+
+FrontEnd::Go FrontEnd::run(tasks::InfoPage& t) {
+    using enum tasks::InfoPage::At;
+    const auto& tower = active_play()->tower();
+    switch (t.at) {
+    case start:
+        screen_.open_window(0x90, 0, 0x137, 0x48, 0);
+        screen_.text_at(info_text);
+        if (tower.flags[4]) screen_.text_at(info_not);
+        screen_.text_at(info_allowed);
+        if (tower.flags[8]) screen_.text_at(info_dont);
+        screen_.text_at(info_floor);
+        screen_.message(tower.settings[0] + 0x6C);
+        screen_.cursor.paper = 0;
+        screen_.cursor.ink = 15;
+        t.at = chosen;
+        return call(select(info_areas));
+    case chosen:
+        if (result_ != 0) {
+            screen_.open_window(0x20, 0x3C, 0x11F, 0x86, 0);
+            screen_.text_at(task_text);
+            screen_.cursor.y = 0x54;
+            objective(tower);
+            t.at = task_closed;
+            return call(tasks::WaitRelease{}, select(task_areas));
+        }
+        break;
+    case task_closed:
         screen_.close_window();
+        break;
     }
     screen_.close_window();
+    return Go::end;
 }
 
-Flow FrontEnd::exit_page(int game_type, int& leave) {
-    screen_.open_window(0xD8, 0, 0x13F, 0x30, 0);
-    screen_.text_at(exit_text);
-    int choice = 0;
-    co_await select(exit_areas, choice);
-    if (choice == 1 || choice == 2) {
-        bool yes = game_type == 3;
-        if (!yes) co_await confirm(choice == 1 ? abandon_title : restart_tower_title, yes);
-        if (yes) leave = choice == 1 ? 5 : 6;
+FrontEnd::Go FrontEnd::run(tasks::ExitPage& t) {
+    using enum tasks::ExitPage::At;
+    switch (t.at) {
+    case start:
+        screen_.open_window(0xD8, 0, 0x13F, 0x30, 0);
+        screen_.text_at(exit_text);
+        t.at = chosen;
+        return call(select(exit_areas));
+    case chosen:
+        t.choice = result_;
+        if (t.choice == 1 || t.choice == 2) {
+            if (t.game_type != 3) {
+                t.at = confirmed;
+                return call(tasks::Confirm{t.choice == 1 ? abandon_title : restart_tower_title});
+            }
+            t.leave = t.choice == 1 ? 5 : 6;
+        }
+        break;
+    case confirmed:
+        if (result_) t.leave = t.choice == 1 ? 5 : 6;
+        break;
     }
     screen_.close_window();
+    return end(t.leave);
 }
 
 void FrontEnd::start_interlude(int index) {
-    const auto& tower = assets_.groups.at(14).towers.at(std::size_t(index % 18));
+    interlude_index_ = index % 18;
+    const auto& tower = assets_.groups.at(14).towers.at(std::size_t(interlude_index_));
     interlude_ = std::make_unique<Play>(assets_, screen_, tower, settings_, 5);
-    active_play_ = interlude_.get();
     last_tower_ = tower;
     sound(SoundEvent::Kind::stop);
-    interlude_->start_demo(index % 18);
+    interlude_->start_demo(interlude_index_);
     interlude_->draw_demo_screen();
 }
 
@@ -1374,263 +1678,337 @@ void FrontEnd::draw_score_numbers() {
     screen_.number(score_, 6);
 }
 
-Flow FrontEnd::interlude_ok() {
+void FrontEnd::toggle_ok(bool& lit) {
+    lit = !lit;
+    for (int y = 184; y < 196; ++y)
+        for (int x = 136; x < 184; ++x) screen_.canvas().set(x, y, std::uint8_t(screen_.canvas().at(x, y) ^ 15));
+}
+
+FrontEnd::Go FrontEnd::run(tasks::InterludeOk& t) {
     // $948C: the OK button lights while the pointer is on it; the
     // demonstration runs on until it is clicked.
-    bool lit = false;
-    const auto toggle = [&] {
-        lit = !lit;
-        for (int y = 184; y < 196; ++y)
-            for (int x = 136; x < 184; ++x) screen_.canvas().set(x, y, std::uint8_t(screen_.canvas().at(x, y) ^ 15));
-    };
-    for (;;) {
-        const bool over = in_.pointer && in_.x >= 0x88 && in_.x < 0xB8 && in_.y >= 0xB8 && in_.y < 0xC3;
-        if (over != lit) toggle();
-        if (in_.left && lit) break;
-        co_await game_frame_wait();
-        interlude_->demo_frame();
-        sound_frame(*interlude_);
-    }
-    if (lit) toggle();
-    sound(SoundEvent::Kind::pause); // $15A10
-    co_await wait_release();
-    co_await fade_out();
-    screen_.copper = CopperMode::plain;
-    interlude_.reset();
-    active_play_ = nullptr;
-}
-
-Flow FrontEnd::won_screen(int letter, int tries) {
-    // $92EC: the tower's bonus, a bonus for few tries and 10 for each spider
-    // still standing, counted into the score in steps of up to 20.
-    shown_bonus_[0] = 100;
-    auto& b = progress(0, letter);
-    shown_bonus_[1] = std::max(0, 100 - 4 * tries);
-    shown_bonus_[2] = 10 * survivors_;
-    b = 0xFF;
-    co_await fade_out();
-    ++interludes_;
-    start_interlude(interludes_ % 6);
-    screen_.bevel_box(0, 0x82, 0x13F, 0xB4, 6);
-    screen_.frame(0x87, 0xB7, 0xB8, 0xC4, 13);
-    screen_.text_at(ok_text);
-    screen_.text_at(score_text);
-    draw_score_numbers();
-    interlude_->demo_frame();
-    sound_frame(*interlude_);
-    auto target = interlude_->target_palette();
-    for (std::size_t i = 0; i < 15; ++i) target[33 + i] = assets_.program.u16(panel_band_menu + std::uint32_t(i) * 2);
-    co_await fade(target);
-    for (int i = 0; i < 4; ++i) {
-        co_await game_frame_wait();
-        interlude_->demo_frame();
-        sound_frame(*interlude_);
-    }
-    for (int k = 0; k < 3; ++k) {
-        for (int chunk = 20; chunk != 0;) {
-            if (chunk > shown_bonus_[k]) {
-                chunk >>= 1;
+    using enum tasks::InterludeOk::At;
+    for (;;) switch (t.at) {
+        case start: {
+            const bool over = in_.pointer && in_.x >= 0x88 && in_.x < 0xB8 && in_.y >= 0xB8 && in_.y < 0xC3;
+            if (over != t.lit) toggle_ok(t.lit);
+            if (in_.left && t.lit) {
+                t.at = clicked;
                 continue;
             }
-            score_ += chunk;
-            shown_bonus_[k] -= chunk;
-            draw_score_numbers();
-            co_await game_frame_wait();
+            t.at = framed;
+            return call(tasks::GameFrameWait{});
+        }
+        case framed:
             interlude_->demo_frame();
             sound_frame(*interlude_);
-            co_await next_frame();
+            t.at = start;
+            continue;
+        case clicked:
+            if (t.lit) toggle_ok(t.lit);
+            sound(SoundEvent::Kind::pause); // $15A10
+            t.at = faded;
+            return call(tasks::WaitRelease{}, fade_out());
+        case faded:
+            screen_.copper = CopperMode::plain;
+            interlude_.reset();
+            return Go::end;
         }
-        if (k < 2)
-            for (int i = 0; i < 3; ++i) {
-                co_await game_frame_wait();
-                interlude_->demo_frame();
-                sound_frame(*interlude_);
-            }
-    }
-    co_await interlude_ok();
-    selected_ = -1;
 }
 
-Flow FrontEnd::end_screen(int game_type, int reason) {
-    // $97AA: a solved tower is marked, an unsolved one counts two more
-    // tries; a demonstration runs above the reason (won: 0-5 in turn, lost: 6-11).
-    if (selected_ >= 0) {
-        auto& b = progress(game_type, selected_);
-        if (reason == 1) {
-            b = 0xFF;
-            selected_ = -1;
-        } else if (b < 0x63) {
-            b = std::uint8_t(b + 2);
-        }
-    }
-    co_await fade_out();
-    ++interludes_;
-    start_interlude(interludes_ % 6 + (reason == 1 ? 0 : 6));
-    const int pen = reason == 1 ? 6 : 3;
-    screen_.bevel_box(0x40, 0x82, 0xFF, 0xA8, pen);
-    screen_.cursor.paper = reason == 1 ? 6 : 3;
-    screen_.cursor.ink = reason == 1 ? 8 : 5;
-    screen_.message(message_end + reason);
-    screen_.frame(0x87, 0xB7, 0xB8, 0xC4, 13);
-    screen_.text_at(ok_text);
-    interlude_->demo_frame();
-    sound_frame(*interlude_);
-    auto target = interlude_->target_palette();
-    for (std::size_t i = 0; i < 15; ++i) target[33 + i] = assets_.program.u16(panel_band_menu + std::uint32_t(i) * 2);
-    co_await fade(target);
-    co_await interlude_ok();
-}
-
-Flow FrontEnd::demo_sequence() {
-    // $15780: demonstrations 12-17 in turn; a click in the view's left half
-    // goes back one, in its right half on one, on the logo below (or Space) ends.
-    int index = 12;
-    co_await fade_out();
-    for (;;) {
-        start_interlude(index);
-        screen_.picture(assets_.title_memory, logo_at, 0, 0x90, 20, 35);
+FrontEnd::Go FrontEnd::run(tasks::WonScreen& t) {
+    // $92EC: the tower's bonus, a bonus for few tries and 10 for each spider
+    // still standing, counted into the score in steps of up to 20.
+    using enum tasks::WonScreen::At;
+    const auto demo_frame = [this] {
         interlude_->demo_frame();
         sound_frame(*interlude_);
-        std::array<data::Colour, 48> target = interlude_->target_palette();
-        for (std::size_t i = 0; i < 15; ++i) target[33 + i] = assets_.program.u16(var(0x249A) + std::uint32_t(i) * 2);
-        co_await fade(target);
-        int next = index;
-        for (;;) {
-            co_await game_frame_wait();
+    };
+    for (;;) switch (t.at) {
+        case start:
+            shown_bonus_[0] = 100;
+            shown_bonus_[1] = std::max(0, 100 - 4 * t.tries);
+            shown_bonus_[2] = 10 * survivors_;
+            progress(0, t.letter) = 0xFF;
+            t.at = faded;
+            return call(fade_out());
+        case faded: {
+            ++interludes_;
+            start_interlude(interludes_ % 6);
+            screen_.bevel_box(0, 0x82, 0x13F, 0xB4, 6);
+            screen_.frame(0x87, 0xB7, 0xB8, 0xC4, 13);
+            screen_.text_at(ok_text);
+            screen_.text_at(score_text);
+            draw_score_numbers();
+            demo_frame();
+            auto target = interlude_->target_palette();
+            for (std::size_t i = 0; i < 15; ++i) target[33 + i] = assets_.program.u16(panel_band_menu + std::uint32_t(i) * 2);
+            t.i = 0;
+            t.at = settle;
+            return call(fade(target));
+        }
+        case settle: // four frames before the counting
+            if (t.i == 4) {
+                t.k = 0;
+                t.at = bonus;
+                continue;
+            }
+            t.at = settled;
+            return call(tasks::GameFrameWait{});
+        case settled:
+            demo_frame();
+            ++t.i;
+            t.at = settle;
+            continue;
+        case bonus:
+            if (t.k == 3) {
+                t.at = ok;
+                continue;
+            }
+            t.chunk = 20;
+            t.at = count;
+            continue;
+        case count:
+            if (t.chunk == 0) {
+                t.at = next_bonus;
+                continue;
+            }
+            if (t.chunk > shown_bonus_[t.k]) {
+                t.chunk >>= 1;
+                continue;
+            }
+            score_ += t.chunk;
+            shown_bonus_[t.k] -= t.chunk;
+            draw_score_numbers();
+            t.at = counted;
+            return call(tasks::GameFrameWait{});
+        case counted:
+            demo_frame();
+            t.at = shown;
+            return Go::wait;
+        case shown:
+            t.at = count;
+            continue;
+        case next_bonus: // three frames between the bonuses
+            if (t.k < 2) {
+                t.i = 0;
+                t.at = pause;
+            } else {
+                ++t.k;
+                t.at = bonus;
+            }
+            continue;
+        case pause:
+            if (t.i == 3) {
+                ++t.k;
+                t.at = bonus;
+                continue;
+            }
+            t.at = paused;
+            return call(tasks::GameFrameWait{});
+        case paused:
+            demo_frame();
+            ++t.i;
+            t.at = pause;
+            continue;
+        case ok:
+            t.at = finished;
+            return call(tasks::InterludeOk{});
+        case finished:
+            selected_ = -1;
+            return Go::end;
+        }
+}
+
+FrontEnd::Go FrontEnd::run(tasks::EndScreen& t) {
+    // $97AA: a solved tower is marked, an unsolved one counts two more
+    // tries; a demonstration runs above the reason (won: 0-5 in turn, lost: 6-11).
+    using enum tasks::EndScreen::At;
+    switch (t.at) {
+    case start:
+        if (selected_ >= 0) {
+            auto& b = progress(t.game_type, selected_);
+            if (t.reason == 1) {
+                b = 0xFF;
+                selected_ = -1;
+            } else if (b < 0x63) {
+                b = std::uint8_t(b + 2);
+            }
+        }
+        t.at = faded;
+        return call(fade_out());
+    case faded: {
+        ++interludes_;
+        start_interlude(interludes_ % 6 + (t.reason == 1 ? 0 : 6));
+        const int pen = t.reason == 1 ? 6 : 3;
+        screen_.bevel_box(0x40, 0x82, 0xFF, 0xA8, pen);
+        screen_.cursor.paper = t.reason == 1 ? 6 : 3;
+        screen_.cursor.ink = t.reason == 1 ? 8 : 5;
+        screen_.message(message_end + t.reason);
+        screen_.frame(0x87, 0xB7, 0xB8, 0xC4, 13);
+        screen_.text_at(ok_text);
+        interlude_->demo_frame();
+        sound_frame(*interlude_);
+        auto target = interlude_->target_palette();
+        for (std::size_t i = 0; i < 15; ++i) target[33 + i] = assets_.program.u16(panel_band_menu + std::uint32_t(i) * 2);
+        t.at = finished;
+        return call(fade(target), tasks::InterludeOk{});
+    }
+    case finished:
+        break;
+    }
+    return Go::end;
+}
+
+FrontEnd::Go FrontEnd::run(tasks::DemoSequence& t) {
+    // $15780: demonstrations 12-17 in turn; a click in the view's left half
+    // goes back one, in its right half on one, on the logo below (or Space) ends.
+    using enum tasks::DemoSequence::At;
+    for (;;) switch (t.at) {
+        case start:
+            t.at = show;
+            return call(fade_out());
+        case show: {
+            start_interlude(t.index);
+            screen_.picture(assets_.title_memory, logo_at, 0, 0x90, 20, 35);
             interlude_->demo_frame();
             sound_frame(*interlude_);
+            std::array<data::Colour, 48> target = interlude_->target_palette();
+            for (std::size_t i = 0; i < 15; ++i) target[33 + i] = assets_.program.u16(var(0x249A) + std::uint32_t(i) * 2);
+            t.next = t.index;
+            t.at = frame;
+            return call(fade(target));
+        }
+        case frame:
+            t.at = framed;
+            return call(tasks::GameFrameWait{});
+        case framed:
+            interlude_->demo_frame();
+            sound_frame(*interlude_);
+            t.at = frame;
             if (in_.key == ' ') {
                 sound(SoundEvent::Kind::pause);
-                co_await fade_out();
-                interlude_.reset();
-                active_play_ = nullptr;
-                screen_.copper = CopperMode::plain;
-                co_return;
+                t.at = ended;
+                return call(fade_out());
             }
             if (in_.left) {
                 if (in_.y >= 0x80) {
                     sound(SoundEvent::Kind::pause);
-                    co_await wait_release();
-                    co_await fade_out();
-                    interlude_.reset();
-                    active_play_ = nullptr;
-                    screen_.copper = CopperMode::plain;
-                    co_return;
+                    t.at = ended;
+                    return call(tasks::WaitRelease{}, fade_out());
                 }
-                next = in_.x < 0xA0 ? index - 1 : index + 1;
-                break;
+                t.next = in_.x < 0xA0 ? t.index - 1 : t.index + 1;
+                t.at = next;
+                return call(fade_out());
             }
             if (interlude_->demo_script_ended()) {
-                next = index + 1;
-                break;
+                t.next = t.index + 1;
+                t.at = next;
+                return call(fade_out());
             }
+            continue;
+        case next:
+            t.index = t.next < 12 ? 17 : t.next > 17 ? 12 : t.next;
+            t.at = show;
+            continue;
+        case ended:
+            interlude_.reset();
+            screen_.copper = CopperMode::plain;
+            return Go::end;
         }
-        co_await fade_out();
-        index = next < 12 ? 17 : next > 17 ? 12 : next;
-    }
 }
 
 // --- quick saves -----------------------------------------------------------
 
-std::uint64_t FrontEnd::Input::packed() const {
-    return std::uint64_t(std::uint16_t(x)) | std::uint64_t(std::uint16_t(y)) << 16 | std::uint64_t(std::uint8_t(key)) << 32 |
-           std::uint64_t(pointer) << 40 | std::uint64_t(left) << 41 | std::uint64_t(right) << 42;
+namespace {
+
+// A task of the kind with this index, default made, at the end of `tasks`.
+template <std::size_t I = 0> void emplace_task(std::deque<Task>& tasks, std::size_t index) {
+    if constexpr (I < std::variant_size_v<Task>) {
+        if (index == I) tasks.emplace_back(std::in_place_index<I>);
+        else emplace_task<I + 1>(tasks, index);
+    } else {
+        state::Reader::fail();
+    }
 }
 
-FrontEnd::Input FrontEnd::Input::unpacked(std::uint64_t w) {
-    Input in;
-    in.x = std::int16_t(w & 0xFFFF);
-    in.y = std::int16_t(w >> 16 & 0xFFFF);
-    in.key = int(w >> 32 & 0xFF);
-    in.pointer = (w >> 40 & 1) != 0;
-    in.left = (w >> 41 & 1) != 0;
-    in.right = (w >> 42 & 1) != 0;
-    return in;
+} // namespace
+
+template <class A> void FrontEnd::persist_task(A& ar, Task& task) {
+    std::visit(
+        [&](auto& t) {
+            ar(t);
+            if constexpr (std::is_same_v<std::decay_t<decltype(t)>, tasks::PlayTower>) {
+                // The tower being played, made again from the task's tower.
+                bool playing = t.play.has_value();
+                ar(playing);
+                if (!playing) return;
+                if constexpr (A::reading) t.play.emplace(assets_, screen_, t.tower, settings_, t.game_type);
+                t.play->persist(ar);
+            }
+        },
+        task);
 }
 
 template <class A> void FrontEnd::persist(A& ar) {
+    const auto check = [](bool ok) {
+        if (!ok) A::fail();
+    };
     // The player, the progress and the tables.
     ar(name_, score_, group_, all_done_, standard_progress_, custom_progress_, tutorial_progress_, selected_,
-       completed_count_, interludes_, survivors_, shown_bonus_, settings_, screen_x_, screen_y_, scores_,
-       file_name_.text, custom_towers_, last_tower_);
+       completed_count_, interludes_, survivors_, shown_bonus_, settings_, screen_x_, screen_y_, scores_, file_name_,
+       custom_towers_, last_tower_);
     // The designer.
     ar(design_, time_text_, designer_group_, undo_, undo_ready_, floor_, slot_, palette_, hover_x_, hover_y_,
        depth_cue_, enemy_movement_, auto_repeat_, confirm_replace_, bright_, painting_, colour_, whole_tower_,
-       mouse_scaling_, mouse_style_, previous_colours_);
-    // The machine: the screen, the colours faded to, the timer, the
-    // inputs as the last blank left them, the random number.
-    ar(screen_, current_, fast_fades_, ticks_, random_, piece_frames_, clicked_, clicked_x_, clicked_y_);
-    std::uint64_t in = in_.packed(), previous = previous_.packed();
-    ar(in, previous);
-    if constexpr (A::reading) {
-        in_ = Input::unpacked(in);
-        previous_ = Input::unpacked(previous);
-        const auto check = [](bool ok) {
-            if (!ok) A::fail();
-        };
+       mouse_scaling_, mouse_style_, previous_colours_, loaded_tower_);
+    if constexpr (A::reading)
         check(group_ >= 0 && group_ < 13 && !scores_.empty() && custom_towers_.size() == 9 &&
               (designer_group_.empty() || designer_group_.size() == 9) && settings_.panel_style >= 0 &&
               settings_.panel_style < 3 && settings_.view_distance >= 0 && settings_.view_distance < 4);
+    // The machine: the screen, the colours faded to, the timer, the inputs
+    // as the last blank left them, the random number.
+    ar(screen_, current_, fast_fades_, ticks_, random_, piece_frames_, clicked_, clicked_x_, clicked_y_, in_, previous_);
+    // A pause: the screen as it began, and the wide picture once drawn.
+    ar(play_paused_, paused_wide_);
+    if (play_paused_) ar(paused_screen_.pixels);
+    if (paused_wide_) ar(wide_.width, wide_.height, wide_.pixels);
+    if constexpr (A::reading)
+        check(paused_screen_.pixels.size() == std::size_t(Screen::width * Screen::height) &&
+              wide_.pixels.size() == std::size_t(wide_.width) * std::size_t(wide_.height));
+    // The demonstration running, if any.
+    bool interlude = interlude_ != nullptr;
+    ar(interlude);
+    if (interlude) {
+        ar(interlude_index_);
+        if constexpr (A::reading) {
+            check(interlude_index_ >= 0 && interlude_index_ < 18);
+            interlude_ = std::make_unique<Play>(assets_, screen_, assets_.groups.at(14).towers.at(std::size_t(interlude_index_)),
+                                                settings_, 5);
+        }
+        interlude_->persist(ar);
     }
-}
-
-void FrontEnd::mark(Mark m) {
-    // Called where the flow can be taken up again (see resumed()): its
-    // state now, and the journal starts afresh.
-    state::Writer ar;
-    persist(ar);
-    if (m == Mark::tower_frame) {
-        state::Writer play;
-        active_play_->persist(play);
-        ar(playing_type_, play.bytes);
+    // The tasks under way, from the first.
+    std::size_t count = tasks_.size();
+    ar(count);
+    if constexpr (A::reading) {
+        check(count > 0 && count < 64);
+        tasks_.clear();
     }
-    mark_ = m;
-    checkpoint_ = std::move(ar.bytes);
-    journal_.clear();
-    disk_.record();
+    for (std::size_t i = 0; i < count; ++i) {
+        std::size_t index = A::reading ? 0 : tasks_[i].index();
+        ar(index);
+        if constexpr (A::reading) emplace_task(tasks_, index);
+        persist_task(ar, tasks_[i]);
+    }
 }
 
 void FrontEnd::write_state(state::Writer& ar) {
-    auto answers = disk_.answers();
-    ar(mark_, checkpoint_, journal_, answers);
+    persist(ar);
 }
 
 void FrontEnd::read_state(state::Reader& ar) {
-    DataDisk::Answers answers;
-    ar(mark_, checkpoint_, journal_, answers);
-    disk_.replay(answers);
-    state::Reader r(checkpoint_);
-    persist(r);
-    if (mark_ == Mark::tower_frame) {
-        r(playing_type_, resume_play_);
-        if (playing_type_ < 0 || playing_type_ > 2 || selected_ < 0 || selected_ > 8) state::Reader::fail();
-        resume_tower_ = selected_;
-    }
-    r.finish();
-    // The flow taken up where the mark was made: the rest of that blank, then the blanks since.
-    resume_menu_ = mark_ == Mark::menu;
-    resume_designer_ = mark_ == Mark::designer;
-    const auto journal = std::exchange(journal_, {});
-    const auto mark = mark_;
-    const auto checkpoint = checkpoint_;
-    if (mark_ == Mark::start) {
-        runner_.start(run());
-    } else {
-        runner_.start(resumed());
-        runner_.resume();
-    }
-    for (const auto& [word, count] : journal)
-        for (int i = 0; i < count; ++i) {
-            const auto input = Input::unpacked(word);
-            if (!journal_.empty() && journal_.back().first == word) ++journal_.back().second;
-            else journal_.push_back({word, 1});
-            step(input);
-        }
-    // It must have gone the same way.
-    if (mark_ != mark || checkpoint_ != checkpoint || journal_ != journal || !disk_.replay_done()) state::Reader::fail();
-    disk_.end_replay();
-    sounds_.clear();
-    piece_.reset();
+    persist(ar);
 }
 
 } // namespace babel::front

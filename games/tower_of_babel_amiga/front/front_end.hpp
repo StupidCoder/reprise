@@ -2,24 +2,26 @@
 #include "tower_of_babel_amiga/data/assets.hpp"
 #include "tower_of_babel_amiga/design/tower_design.hpp"
 #include "tower_of_babel_amiga/front/data_disk.hpp"
-#include "tower_of_babel_amiga/front/flow.hpp"
 #include "tower_of_babel_amiga/front/play.hpp"
 #include "tower_of_babel_amiga/front/screen.hpp"
+#include "tower_of_babel_amiga/front/tasks.hpp"
 #include "state/archive.hpp"
 #include <array>
+#include <deque>
 #include <memory>
-#include <functional>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 // The game as the player meets it, from the title to the towers and back:
 // the title and credits, the player's name, the main menu, the game types,
 // the tower chooser and the tower's information, playing it with its pause
 // menus, and the screens after it (the score, or why it was lost) with a
-// demonstration running above them. Written as the original's routines
-// are, waiting for vertical blanks (front/flow.hpp); the texts, menus'
-// click areas, pictures and palettes are the program's.
+// demonstration running above them. Each of the original's routines that
+// waits for vertical blanks is a task (front/tasks.hpp), so all of it is
+// values; the texts, menus' click areas, pictures and palettes are the
+// program's.
 namespace babel::front {
 
 class FrontEnd {
@@ -34,9 +36,7 @@ public:
         bool left{}, right{};   // buttons held
         int key{};              // a key typed this frame (the original's codes: ASCII, 8 delete, 13 return, 27 escape), 0 none
 
-        // One word for the journal of a quick save.
-        std::uint64_t packed() const;
-        static Input unpacked(std::uint64_t);
+        template <class A> void persist(A& ar) { ar(pointer, x, y, left, right, key); }
     };
     void vblank(const Input&);
 
@@ -64,83 +64,109 @@ public:
     };
     std::vector<SoundEvent> take_sounds() { return std::exchange(sounds_, {}); }
 
-    // Quick saves, anywhere: the state at the last point the flow can be
-    // taken up again from (the start, the main menu drawn, the designer
-    // opened, each game frame of a tower) and the vertical blanks' inputs
-    // since. A load takes the state up at that point and plays the inputs
-    // again, so the game goes on exactly as it would have. (What the data
-    // disk held is read again as it is now.) The sounds the replay makes
-    // are dropped: the module keeps the effects' own state.
+    // Quick saves, anywhere: the tasks under way with what each keeps, the
+    // towers being played, the screen and everything the game keeps. A
+    // load goes on from there.
     void write_state(state::Writer&);
     void read_state(state::Reader&); // on a fresh front end, before its first frame
 
 private:
-    // --- waiting
-    auto next_frame() { return runner_.next_frame(); }
-    void step(const Input&); // one vertical blank, `x` in the game's own picture
-    Flow wait_frames(int n);
-    Flow wait_release();        // $11318: until no button is held
-    Flow select(std::uint32_t menu, int& choice); // $112EA
-    Flow game_frame_wait();     // $87EE: a game frame is 14 ticks of the CIA timer
-    Flow fade(const std::array<data::Colour, 48>& target, int first = 0, int count = 48); // $1252C / $1255C
-    Flow fade_out();            // $124B0: to black
-    Flow fade_in_program(std::uint32_t palette); // a 48-colour palette in the program
+    // --- the tasks: each run() goes on with its task until it waits, calls
+    // another or ends (see front/tasks.hpp).
+    enum class Go { wait, call, end };
+    void run_tasks();
+    // Calls tasks in turn (the first runs first); the caller goes on after the last.
+    template <class T, class... More> Go call(T task, More... more) {
+        if constexpr (sizeof...(More) > 0) call(std::move(more)...);
+        tasks_.emplace_back(std::move(task));
+        return Go::call;
+    }
+    // The task's answer: a called task's result, read when its caller goes on.
+    Go end(int result) {
+        result_ = result;
+        return Go::end;
+    }
+    tasks::Fade fade(const std::array<data::Colour, 48>& target, int first = 0, int count = 48) const;
+    tasks::Fade fade_out() const;                             // $124B0: to black
+    tasks::Fade fade_in_program(std::uint32_t palette) const; // a 48-colour palette in the program
+    tasks::Select select(std::uint32_t areas) const { return {areas, false, {}}; }
 
-    // --- screens
-    Flow run();
-    Flow resumed();             // after a quick load: back to the main menu, the designer or the tower
-    Flow title();               // $7EF6
-    Flow credits();             // $15A2E
-    Flow name_entry();          // $8BD6
-    // A line editor ($12096): its record (place, most characters, rightmost
-    // x, click box) and text; `filter` rejects keys (the requester's '.' and space).
-    struct LineEditor {
-        int x{}, y{}, most{}, right{};
-        int box_x0{}, box_y0{}, box_x1{}, box_y1{};
-        std::string text;
-        int cursor{};
-        bool digits{}; // only 0-9 ($C(a5) set)
-    };
-    Flow edit_field(LineEditor&); // $12096 on a record: until Return or a click outside its box
+    Go run(tasks::WaitFrames&);
+    Go run(tasks::WaitRelease&);
+    Go run(tasks::GameFrameWait&);
+    Go run(tasks::Select&);
+    Go run(tasks::Fade&);
+    Go run(tasks::Game&);
+    Go run(tasks::Title&);
+    Go run(tasks::Credits&);
+    Go run(tasks::CreditsWait&);
+    Go run(tasks::NameEntry&);
+    Go run(tasks::EditField&);
+    Go run(tasks::MainMenu&);
+    Go run(tasks::PlayGame&);
+    Go run(tasks::ChooseTower&);
+    Go run(tasks::Information&);
+    Go run(tasks::StandardGame&);
+    Go run(tasks::TutorialGame&);
+    Go run(tasks::CustomGame&);
+    Go run(tasks::PlayTower&);
+    Go run(tasks::PauseMenu&);
+    Go run(tasks::SetupPage&);
+    Go run(tasks::ViewPage&);
+    Go run(tasks::InfoPage&);
+    Go run(tasks::ExitPage&);
+    Go run(tasks::Confirm&);
+    Go run(tasks::WonScreen&);
+    Go run(tasks::EndScreen&);
+    Go run(tasks::InterludeOk&);
+    Go run(tasks::DemoSequence&);
+    Go run(tasks::SaveLoad&);
+    Go run(tasks::HighScores&);
+    Go run(tasks::Requester&);
+    Go run(tasks::ReplaceFile&);
+    Go run(tasks::DiskError&);
+    // The designer (front/designer.cpp).
+    Go run(tasks::Designer&);
+    Go run(tasks::ChooseSlot&);
+    Go run(tasks::TowerUnlocked&);
+    Go run(tasks::DesignerFile&);
+    Go run(tasks::DesignerOptions&);
+    Go run(tasks::TextPage&);
+    Go run(tasks::EffectsPage&);
+    Go run(tasks::SoundPage&);
+    Go run(tasks::MoonPage&);
+    Go run(tasks::BehaviourPage&);
+    Go run(tasks::FinishingPage&);
+    Go run(tasks::TestDesign&);
+    Go run(tasks::DesignerToolbox&);
+    Go run(tasks::ScrollPage&);
+    Go run(tasks::LevelPage&);
+    Go run(tasks::ColoursPage&);
+    Go run(tasks::DesignerExtras&);
+    Go run(tasks::DesignerSetup&);
+    Go run(tasks::StatisticsPage&);
+    Go run(tasks::SupportPage&);
+    Go run(tasks::PathPage&);
+    Go run(tasks::MousePage&);
+
+    // --- drawing and rules the tasks share
     void draw_editor(const LineEditor&, bool cursor = true);
     bool edit_key(LineEditor&, int key, int end_x); // false: Return
     void edit_click(LineEditor&, int x);
-    Flow edit_name();           // $12096 on the name record $E46
-
-    // The data disk ($126C0): a window listing the files of one kind ten to
-    // a page, a name to type or pick, the action and Change Disk.
-    // `action(name, replace)` returns 0, an error ($80 + n is its message),
-    // or -1 to have the requester ask before replacing the file.
-    Flow requester(FileKind, std::uint32_t title, std::function<int(const std::string&, bool)> action);
-    Flow disk_error(int code);  // $12CFE
-    Flow replace_file(bool& yes); // $12D6C
-    Flow save_load();           // $A6B6
-    Flow high_scores();         // $A81E
+    // A requester's action ($126C0's routine) on the name given: 0, an
+    // error ($80 + n is its message), or -1 to have the requester ask before
+    // replacing the file.
+    int disk_action(DiskAction, const std::string& name, bool replace);
+    void draw_requester_page(const tasks::Requester&); // $1297A
+    void read_directory(tasks::Requester&);            // $12A10 / $12AFA
     void update_scores();       // $AA8C: the player's score into the table
     void sort_scores();         // $AA24
     std::vector<std::uint8_t> position() const; // what Save Game keeps ($110E-$11D3)
     bool load_position(const std::vector<std::uint8_t>&);
-    Flow main_menu();           // $8D84
-    Flow play_game();           // $8EAE
-    Flow standard_game();       // $91B4
-    Flow tutorial_game();       // $8F20
-    Flow custom_game();         // $8FE4
-    Flow choose_tower(int game_type, int& choice); // $A2DA + $A542 + menu $38EC
-    Flow information(const data::Tower&, int letter, bool& play); // $A396
-    Flow play_tower(const data::Tower&, int game_type, int& reason, bool frozen = false); // $969A
-    Flow pause_menu(Play&, int& leave);  // $9704: Setup, View, Info, Exit
-    Flow setup_page();          // $9AC4
-    Flow view_page();           // $9C68
-    Flow info_page(const data::Tower&); // $9FB6
-    Flow exit_page(int game_type, int& leave); // $A060
-    Flow confirm(std::uint32_t title, bool& yes); // $110D2
-    Flow won_screen(int letter, int tries);       // $92EC
-    Flow end_screen(int game_type, int reason);   // $97AA
-    Flow demo_sequence();       // $15780
-    Flow interlude_ok();        // $948C: OK clicked while the demonstration runs
+    void draw_high_scores();
+    void toggle_ok(bool& lit);  // $948C's highlight
 
-    // --- the tower designer (front/designer.cpp)
-    Flow designer();            // $E386
+    void designer_start();      // $E386 up to the loop: the group, the design's settings, the screen
     void designer_screen();     // $10BDE: palette, title line, texts, the object palette
     void designer_views();      // $E3A8: floor plans, view window, password, spiders, floor boxes, the chosen kind
     void draw_plans();          // $10E44
@@ -154,27 +180,11 @@ private:
     void designer_edit(bool left); // $1098E
     void letter_grid(int y);    // $E538
     void tower_name_window(int slot); // $EC84
-    Flow choose_slot(int title_x0, int y0, int y1, std::uint32_t title, std::uint32_t areas, std::uint32_t question, int& slot);
-    Flow tower_unlocked(const std::array<std::uint8_t, data::tower_record_size>&, int letter, bool& allowed); // $EBD2
-    Flow designer_file(bool& exit);
-    Flow designer_options();
-    Flow designer_toolbox();
-    Flow designer_extras();
-    Flow effects_page();        // $ED56
-    Flow sound_page();          // $EE0C
-    Flow moon_page();           // $EEB2
-    Flow behaviour_page();      // $F008
-    Flow finishing_page();      // $F0B0
-    Flow text_page(int y0, std::uint32_t title, LineEditor&); // Name Tower, Tower's Author ($F27E, $F2AE)
-    Flow test_design();         // Play/View Tower ($F2DE)
-    Flow colours_page();        // $F38E
-    Flow scroll_page(bool rotate, bool& done); // $F978 / $FA9E
-    Flow level_page(bool swap, bool& done); // $FBB0 / $FC76
-    Flow designer_setup();      // $1027E
-    Flow statistics_page();     // $10384
-    Flow support_page();        // $104AE
-    Flow path_page();           // $10614
-    Flow mouse_page(bool style);// $1082E / $1087C
+    void draw_moon_sky();       // the Moon page's little sky
+    void draw_finishing_status();
+    void draw_colours_page();   // $F38E: the page drawn
+    void draw_chosen_colour();
+    void step_colours(int command); // Step/Swap Colours ($1247A, $12420)
     void snapshot();            // $108D0: the undo copy
     void unpack_design(const std::array<std::uint8_t, data::tower_record_size>&); // $13024
     std::array<std::uint8_t, data::tower_record_size> pack_design() const;      // $12E4A
@@ -190,7 +200,12 @@ private:
     int completed_mask(int game_type, int& count) const; // $8E6C
 
     const data::Assets& assets_;
-    Play* active_play_{};     // the tower or demonstration being played, if any
+    std::deque<Task> tasks_;  // the routines under way, the one going on last (a deque: its tasks stay in place)
+    int result_{};            // the last ended task's answer
+    std::string edited_;      // the last line edited
+    // The tower or demonstration being played, if any.
+    const Play* active_play() const;
+    Play* active_play() { return const_cast<Play*>(std::as_const(*this).active_play()); }
     bool play_paused_{};      // its pause menu is open
     int margin_{};
     mutable view::Canvas wide_{320, 200}; // the wide picture as the pause began
@@ -199,7 +214,6 @@ private:
     view::Canvas paused_screen_{320, 200}; // the screen as the pause began: what the menus change shows over the wide view
     DataDisk disk_;
     Screen screen_;
-    FlowRunner runner_;
     Input in_{}, previous_{};
     bool clicked_{};        // the left button went down since the last game frame
     int clicked_x_{}, clicked_y_{};
@@ -231,7 +245,7 @@ private:
         template <class A> void persist(A& ar) { ar(name, score); }
     };
     std::vector<Score> scores_;    // $122E: ten, sorted (room for 21 while merging)
-    LineEditor file_name_{0xAC, 0x6E, 8, 0xFE, 0xAC, 0x6C, 0xFF, 0x77, {}, 0}; // $F7E
+    LineEditor file_name_{0xAC, 0x6E, 8, 0xFE, 0xAC, 0x6C, 0xFF, 0x77, {}, 0, false}; // $F7E
     std::vector<data::Tower> custom_towers_; // the custom group ($60952)
     bool fast_fades_{};    // $500: fades are instant (the designer)
     std::optional<data::Tower> last_tower_; // the tower the game unpacked last ($13278)
@@ -252,21 +266,10 @@ private:
     int mouse_scaling_{1}, mouse_style_{}; // $11D0, $11D2 (no effect with the host's pointer)
     std::array<data::Colour, 18> previous_colours_{}; // $2616
     std::unique_ptr<Play> interlude_;
-    // Quick saves: the points the flow is taken up from, the last one's
-    // state and the inputs since.
-    enum class Mark { start, menu, designer, tower_frame };
-    void mark(Mark);
-    template <class A> void persist(A&);  // everything but a tower being played
-    Mark mark_{Mark::start};
-    std::vector<std::uint8_t> checkpoint_;
-    std::vector<std::pair<std::uint64_t, int>> journal_; // (input, vertical blanks)
-    bool in_designer_{};
-    int playing_type_{};                // the game type of the tower being played
-    // On a load, what the flow goes back into (the main menu's loop, the
-    // designer or a game's tower with its state).
-    bool resume_menu_{}, resume_designer_{};
-    std::optional<int> resume_tower_;
-    std::vector<std::uint8_t> resume_play_;
+    int interlude_index_{};            // its demonstration
+    std::array<std::uint8_t, data::tower_record_size> loaded_tower_{}; // Load Tower's record
+    template <class A> void persist(A&);
+    template <class A> void persist_task(A&, Task&);
     long shown_bonus_[3]{}; // $1222-$1226 while counting
     int survivors_{};      // spiders left at the end of the last tower
 };

@@ -26,6 +26,8 @@ namespace babel::view {
 struct Camera {
     int x{}, y{}, z{};
     int heading{}; // 0-3
+
+    template <class A> void persist(A& ar) { ar(x, y, z, heading); }
 };
 
 // The camera on a spider at its position and heading ($AAD4): turned to

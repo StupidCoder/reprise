@@ -156,11 +156,15 @@ public:
     void hover(Screen&, int x, int y);
     void unhover(Screen& screen) { hover(screen, 0x1F40, 0x8000); } // $113F2
 
+    template <class A> void persist(A& ar) { ar(items_); }
+
 private:
     struct Item {
         int pen{}, flags{};
         int x0{}, y0{}, x1{}, y1{};
         bool lit{};
+
+        template <class A> void persist(A& ar) { ar(pen, flags, x0, y0, x1, y1, lit); }
     };
     std::vector<Item> items_;
     bool inside(const Item&, int x, int y) const;

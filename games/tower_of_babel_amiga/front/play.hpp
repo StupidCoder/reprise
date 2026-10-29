@@ -46,13 +46,13 @@ public:
     // frame, the panel), drawn before the first frame and after a pause.
     void draw_screen();
 
-    // Quick saves: the running tower, the panel, the sky and what the view
-    // keeps between frames (not a demonstration's camera). Reading puts the
-    // blinking pens in the phase the frames had left them in.
+    // Quick saves: the running tower, the panel, the sky, the settings, what
+    // the view keeps between frames and a demonstration's script and camera.
+    // Reading puts the blinking pens in the phase the frames had left them in.
     template <class A> void persist(A& ar) {
-        ar(state_, panel_, sky_, sky_drawn_, noise_, ready_, before_, before_active_, before_heading_, sounds_,
-           running_, even_frame_, picked_, view_offset_, view_height_, view_distance_, noise_x_, noise_y_,
-           noise_step_, volume_offset_, strip_);
+        ar(settings_, state_, panel_, sky_, sky_drawn_, noise_, ready_, fixed_, before_fixed_, before_, before_active_,
+           before_heading_, sounds_, running_, even_frame_, picked_, view_offset_, view_height_, view_distance_, noise_x_,
+           noise_y_, noise_step_, volume_offset_, strip_, demo_, demo_step_, demo_byte_, demo_height_);
         if constexpr (A::reading)
             if (!even_frame_) invert_blink_pens();
     }
