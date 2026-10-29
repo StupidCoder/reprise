@@ -1,5 +1,6 @@
 #include "spindizzy_worlds_amiga/game/front_end.hpp"
 #include "spindizzy_worlds_amiga/view/text.hpp"
+#include <string>
 
 namespace spindizzy::game {
 namespace {
@@ -28,6 +29,47 @@ void title_picture(view::Screen& s, const data::Assets& assets) {
 }
 
 } // namespace
+
+void draw_statistics(view::Screen& s, const data::Assets& assets, const std::vector<WorldRecord>& done) {
+    const auto& main = assets.main;
+    view::TextPrinter text(main);
+    if (done.empty()) {
+        text.print(s, 0x16DB4);
+        return;
+    }
+    text.print(s, 0x16DD3); // " You have completed "
+    const int count = int(done.size());
+    // $187F4: the count from the cursor on.
+    const std::string digits = std::to_string(count);
+    for (char c : digits) text.put(s, std::uint8_t(c));
+    text.print(s, count == 1 ? 0x16DFD : 0x16DF2);
+    // $16E56: the box around the list, its height by the count.
+    const int height = count < 16 ? count * 9 + 2 : main.u16(0x16E2A);
+    view::TextPrinter::box(s, main.u16(0x16E30), main.u16(0x16E2C), main.u16(0x16E2E) - 1, main.u16(0x16E28), height);
+    text.column = main.u16(0x16E2C);
+    text.row = main.u16(0x16E2E);
+    const std::size_t first = done.size() > 16 ? done.size() - 16 : 0;
+    for (std::size_t i = first; i < done.size(); ++i) {
+        const auto& r = done[i];
+        text.column = 2;
+        text.print(s, 0x119EE + std::uint32_t(r.world & 31) * 13);             // $119D8
+        text.column = 0x12;
+        text.put(s, '%');                                                       // $18818
+        text.column -= 2;
+        text.number(s, r.fuel * 100 / 256);
+        text.column = 0x14;
+        for (char c : std::to_string(r.taken)) text.put(s, std::uint8_t(c));
+        text.print(s, 0x16F06);                                                 // " of "
+        for (char c : std::to_string(r.found)) text.put(s, std::uint8_t(c));
+        text.print(s, 0x16F0B);                                                 // " jewels."
+        text.put(s, 0x0D);
+    }
+    text.print(s, 0x16E07); // "Reserve fuel level"
+    const int reserve = done.back().reserve;
+    text.put(s, '%');
+    text.column -= 2;
+    text.number(s, reserve * 100 / 256);
+}
 
 void set_title_palette(view::Screen& s, const data::Assets& assets) {
     for (std::size_t i = 0; i < 16; ++i) s.palette[i] = assets.title.palette[i];
@@ -73,7 +115,7 @@ Menu::Menu(const data::Assets& assets, const view::Screen& behind, std::uint32_t
     : assets_(assets), behind_(behind), items_(items), header_(header), timeout_(timeout) {
     for (std::uint32_t at = items_; assets_.main.u16(at) != 0; at += assets_.main.u16(at)) item_at_.push_back(at);
     view::TextPrinter text(assets_.main);
-    text.print(behind_, header_);
+    if (header_) text.print(behind_, header_);
 }
 
 int Menu::frame(std::uint8_t joystick) {
@@ -165,9 +207,14 @@ WorldMap::WorldMap(const data::Assets& assets, bool easy, std::uint32_t worlds_l
 
 int WorldMap::frame(std::uint8_t joystick) {
     // $11686 each frame: the planets placed, then the joystick ($168BE).
+    const bool fire = joystick & 0x80;
+    if (refused_) { // $109CC: until fire
+        if (fire && released_) { refused_ = false; released_ = false; }
+        if (!fire) released_ = true;
+        return -1;
+    }
     chosen_ = cluster_.update(assets_.main, planets_, shown_);
     cluster_.steer(joystick);
-    const bool fire = joystick & 0x80;
     if (!fire) { released_ = true; return -1; }
     if (!released_ || chosen_ < 0) return -1;
     return planets_[std::size_t(chosen_)].world;
@@ -185,6 +232,7 @@ void WorldMap::draw(view::Screen& s) const {
         text.row = 8;
         text.print(s, world_names + std::uint32_t(planets_[std::size_t(chosen_)].world & 31) * 13);
     }
+    if (refused_) text.print(s, 0x1180A);
 }
 
 } // namespace spindizzy::game

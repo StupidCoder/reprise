@@ -76,6 +76,8 @@ public:
     WorldMap(const data::Assets&, bool easy, std::uint32_t worlds_left);
     // −1 still choosing, else the world number entered.
     int frame(std::uint8_t joystick);
+    // $11798: a locked world's message over the map until fire.
+    void refuse() { refused_ = true; released_ = false; }
     void draw(view::Screen&) const;
 
 private:
@@ -85,7 +87,20 @@ private:
     view::ClusterView cluster_;
     int chosen_{-1};
     bool released_{};
+    bool refused_{};
 };
+
+// A world done as $16B8C records it ($36B6 lists): its number, the fuel
+// and reserve then (whole parts) and the jewels found and taken.
+struct WorldRecord {
+    int world{};
+    int fuel{}, reserve{};
+    int found{}, taken{};
+};
+
+// $16DA4 ("Check performance", and after each world): "You have not
+// started", or the worlds done with fuel and jewels, then the reserve.
+void draw_statistics(view::Screen&, const data::Assets&, const std::vector<WorldRecord>&);
 
 // The palettes the front end sets: the title's (attract, menu) and the
 // map's ($11666), each ST word doubled ($10A46).

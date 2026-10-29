@@ -24,11 +24,16 @@ public:
     Builder(const data::World& world, const std::array<std::uint8_t, 256>& attributes, const Switches& switches)
         : world_(world), attributes_(attributes), switches_(switches) {}
 
-    Level build(int level) {
-        // $125B0 starts from the level's rotation $248B, which $12028 clears:
-        // no offset, no turn. (Its offset table $125A8 only matters for
-        // turned levels, which no traced path builds.)
-        run(world_.commands(level), Frame{}, 0);
+    Level build(int level, int rotation) {
+        // $125B0 starts from the level's rotation $248B and the offset for
+        // it (table $125A8: none, (0, −1), (−1, −1), (−1, 0) cells), so a
+        // turned cell (x, y) lands on (y, 31 − x) like the objects.
+        Frame start;
+        start.turns = rotation & 3;
+        static constexpr int offset_x[] = {0, 0, -1, -1}, offset_y[] = {0, -1, -1, 0};
+        start.x = offset_x[start.turns];
+        start.y = offset_y[start.turns];
+        run(world_.commands(level), start, 0);
         return std::move(level_);
     }
 
@@ -198,8 +203,8 @@ bool Switches::holds(std::uint16_t condition) const {
 }
 
 Level build_level(const data::World& world, int level, const std::array<std::uint8_t, 256>& block_attributes,
-                  const Switches& switches) {
-    return Builder(world, block_attributes, switches).build(level);
+                  const Switches& switches, int rotation) {
+    return Builder(world, block_attributes, switches).build(level, rotation);
 }
 
 } // namespace spindizzy::world

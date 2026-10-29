@@ -76,7 +76,7 @@ LevelPlay::LevelPlay(const data::Assets& assets, const SurfaceTable& surfaces, P
     const bool first_visit = p.jewels & 0x80000000u;
     if (first_visit) add_whole(p.fuel_change, p.costs.first_visit);
     if (level_flags_ & 0x8000) p.rotation = 0; // $12028: a level that does not turn
-    level_ = world::build_level(file, p.level, assets.block_attributes, p.switches);
+    level_ = world::build_level(file, p.level, assets.block_attributes, p.switches, p.rotation);
     for (auto condition : level_.conditions) condition_results_.push_back(p.switches.holds(condition));
     // $12714: from an exit's place word, or the header's start cell.
     const std::uint16_t place = p.arrival_place;
@@ -229,6 +229,50 @@ void LevelPlay::tick(std::uint8_t joystick) {
     if (!events.deaths.empty() && phase_ == ExplorerPhase::playing) die(events.deaths.back());
 }
 
+bool LevelPlay::turn(int direction) {
+    if (level_flags_ & 0x8000) return false;
+    auto& p = progress_;
+    p.rotation = (p.rotation + direction) & 0xFF;
+    rebuild(false); // $11FF0; the passages open again from their rotate handlers
+    const int turns = -direction & 3; // $143DE
+    auto w = object_world();
+    objects_->rotate(turns, w);
+    auto& e = p.explorer; // $12C64: position and respawn (^ $1FFF), speed
+    for (int i = 0; i < turns; ++i) {
+        std::int16_t x = e.x;
+        e.x = std::int16_t(e.y ^ 0x1FFF);
+        e.y = x;
+        x = e.respawn_x;
+        e.respawn_x = std::int16_t(e.respawn_y ^ 0x1FFF);
+        e.respawn_y = x;
+        const std::int32_t vx = e.vx;
+        e.vx = -e.vy;
+        e.vy = vx;
+    }
+    camera_ = view::snap_camera(view::explorer_place({e.x, e.y, e.z}), level_flags_); // $14202
+    return true;
+}
+
+void LevelPlay::revive() {
+    auto& p = progress_;
+    p.fuel = p.reserve;
+    p.reserve = 0;
+    p.reserve_at_start = 0;
+    p.game_over = false;
+    p.timer_expired = false;
+    auto& e = p.explorer; // $12B2E
+    e.timer_a = e.timer_b = 0;
+    e.arrival_ticks = arrival_flash;
+    phase_ = ExplorerPhase::playing;
+    spin_ = 0x100;
+    running_ = true;
+}
+
+void LevelPlay::centre() {
+    const auto& e = progress_.explorer;
+    camera_ = view::snap_camera(view::explorer_place({e.x, e.y, e.z}), level_flags_);
+}
+
 void LevelPlay::brake() {
     const auto& e = progress_.explorer;
     if (e.brake_lock == 0 && (e.contact & 0xFF) != 0) progress_.explorer.brake_requested = true;
@@ -289,17 +333,17 @@ void LevelPlay::frame(bool slow) {
     }
 }
 
-void LevelPlay::rebuild() {
+void LevelPlay::rebuild(bool reopen) {
     auto& p = progress_;
     const auto& file = assets_.worlds.at(std::size_t(p.world));
     if (level_flags_ & 0x8000) p.rotation = 0;
     auto objects = level_.objects;
-    level_ = world::build_level(file, p.level, assets_.block_attributes, p.switches);
+    level_ = world::build_level(file, p.level, assets_.block_attributes, p.switches, p.rotation);
     level_.objects = std::move(objects);
     condition_results_.clear();
     for (auto condition : level_.conditions) condition_results_.push_back(p.switches.holds(condition));
     auto w = object_world();
-    objects_->reapply(w); // $143DE: the objects' rotate handlers (secret passages)
+    if (reopen) objects_->reapply(w); // $143DE: the objects' rotate handlers (secret passages)
     ++builds_;
 }
 

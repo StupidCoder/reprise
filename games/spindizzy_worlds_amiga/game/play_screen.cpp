@@ -34,13 +34,19 @@ void PlayScreen::frame(const PlayInput& input, bool slow) {
         if (fire_now) notice_ = false;
         return;
     }
-    (void)fire_pressed;
+    if (paused_) { // $1133C: until fire, then the palette back ($1106E)
+        if (fire_pressed) paused_ = false;
+        return;
+    }
+    if (input.pause) { paused_ = true; return; }
+    if (input.centre) play_->centre();
     if (clue_) { // the game waits inside $15FC0
         ++clue_frames_;
         const bool fire = input.joystick & play::stick::fire;
         if (clue_frames_ >= clue_hold + clue_wait || (clue_frames_ > clue_hold && fire)) clue_.reset();
         return;
     }
+    if (input.turn) play_->turn(input.turn);
     if (input.space && !space_held_) play_->brake();
     space_held_ = input.space;
     for (int tick = 0; tick < (slow ? 1 : 2) && !play_->ended() && !notice_; ++tick) {
@@ -98,6 +104,11 @@ void PlayScreen::draw_playfield(view::Screen& screen) const {
 void PlayScreen::draw(view::Screen& screen) const {
     screen.fill(0);
     view::set_level_palette(screen, assets_.graphics);
+    if (paused_) // $11074: each ST colour word less its ror by 1 & $777, then doubled
+        for (std::size_t i = 0; i < 16; ++i) {
+            const int st = screen.palette[i] >> 1;
+            screen.palette[i] = data::Colour((st - ((st >> 1) & 0x777)) * 2);
+        }
     draw_playfield(screen);
     view::draw_panel(screen, assets_, progress_.world);
     view::draw_compass(screen, assets_.main, progress_.rotation);
@@ -118,6 +129,17 @@ void PlayScreen::draw(view::Screen& screen) const {
     if (notice_) {
         view::TextPrinter text(assets_.main);
         text.print(screen, 0x13888);
+    }
+    // $153C4: a timer's seconds, right-aligned at column 20, row 6, in the
+    // printer's state the panel left (bank 2, normal size).
+    for (const auto& o : play_->objects().objects()) {
+        if (!o.alive || o.kind != world::ObjectKind::timer) continue;
+        view::TextPrinter text(assets_.main);
+        text.put(screen, 0x10);
+        text.put(screen, 0x02);
+        text.column = 20;
+        text.row = 6;
+        text.number(screen, progress_.timer >> 8);
     }
 }
 

@@ -80,7 +80,8 @@ struct Level {
     std::vector<std::uint16_t> conditions; // the condition words met while building, in order ($162D8)
 };
 
+// `rotation`: the level's quarter turns ($248B; the r and t keys).
 Level build_level(const data::World& world, int level, const std::array<std::uint8_t, 256>& block_attributes,
-                  const Switches& switches = {});
+                  const Switches& switches = {}, int rotation = 0);
 
 } // namespace spindizzy::world

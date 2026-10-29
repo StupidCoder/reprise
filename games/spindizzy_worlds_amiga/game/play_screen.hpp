@@ -20,6 +20,9 @@ namespace spindizzy::game {
 struct PlayInput {
     std::uint8_t joystick{};
     bool space{};        // the brake ($11314)
+    int turn{};          // r: +1, t: −1 ($11402)
+    bool centre{};       // c ($1144A)
+    bool pause{};        // p ($11332: the palette dimmed until fire)
 };
 
 class PlayScreen {
@@ -37,6 +40,8 @@ public:
     void draw(view::Screen&) const;
 
     const play::LevelPlay& level() const { return *play_; }
+    // After "Use reserve fuel": the same level goes on.
+    void revive() { play_->revive(); outcome_ = Outcome::playing; }
 
 private:
     void start_level();
@@ -53,6 +58,7 @@ private:
     // A clue on show ($15FC0): 26 frames, then until fire or 126 more.
     std::optional<int> clue_;
     bool notice_{};   // the bonus-level notice, until fire
+    bool paused_{};   // p: until fire ($109CC)
     bool fire_held_{};
     int clue_frames_{};
     Outcome outcome_{Outcome::playing};

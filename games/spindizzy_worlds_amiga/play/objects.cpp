@@ -223,6 +223,53 @@ void LevelObjects::reapply(ObjectWorld& w) const {
     }
 }
 
+void LevelObjects::rotate(int turns, ObjectWorld& w) {
+    auto turn_cell = [&](std::int16_t& x, std::int16_t& y, int mask) { // $12A08
+        for (int i = 0; i < (turns & 3); ++i) {
+            const std::int16_t old_x = x;
+            x = std::int16_t(y ^ mask);
+            y = old_x;
+        }
+    };
+    for (auto& o : objects_) {
+        if (!o.alive) continue;
+        turn_cell(o.x, o.y, 0x1F00); // $12DDE
+        switch (o.kind) {
+        case ObjectKind::binary_switch: o.word2e = std::uint16_t(o.word2e + (turns << 8)); break; // $161AE
+        case ObjectKind::boink: // $1520C
+            o.heading = std::int16_t(o.heading + turns);
+            o.x = std::int16_t(o.x | 0x80);
+            o.y = std::int16_t(o.y | 0x80);
+            break;
+        case ObjectKind::pac: { // $154E4: target, start cell and step with it
+            o.heading = std::int16_t(o.heading + turns);
+            turn_cell(o.target_x, o.target_y, 0x1F00);
+            std::int16_t sx = std::int16_t(o.word34 >> 8 & 31), sy = std::int16_t(o.word34 & 31);
+            turn_cell(sx, sy, 0x1F);
+            o.word34 = std::uint16_t(sx << 8 | (sy & 0xFF));
+            o.word26 = std::uint16_t(w.grid.at(o.x >> 8 & 31, o.y >> 8 & 31, o.z >> 8 & 7) << 8 | (o.word26 & 0xFF)); // $154D0
+            o.heading &= 3; // $154A2
+            const std::int16_t speed = std::int16_t(o.word30 >> 8);
+            const std::int16_t ax[] = {speed, 0, std::int16_t(-speed), 0}, ay[] = {0, speed, 0, std::int16_t(-speed)};
+            o.step_x = ax[o.heading];
+            o.step_y = ay[o.heading];
+            break;
+        }
+        case ObjectKind::pyramid: { // $15850
+            o.heading = std::int16_t((o.heading + turns) & 3);
+            turn_cell(o.target_x, o.target_y, 0x1F00);
+            const std::int16_t speed = std::int16_t(o.word30);
+            const std::int16_t ax[] = {speed, 0, std::int16_t(-speed), 0}, ay[] = {0, speed, 0, std::int16_t(-speed)};
+            o.step_x = ax[o.heading];
+            o.step_y = ay[o.heading];
+            break;
+        }
+        default: break;
+        }
+    }
+    reapply(w); // secret passages at their new cells ($15430)
+}
+
 void LevelObjects::tick(ObjectWorld& w, ObjectEvents& events) {
     for (auto& o : objects_) {
         if (!o.alive) continue;

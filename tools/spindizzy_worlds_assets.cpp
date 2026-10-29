@@ -296,6 +296,7 @@ int play_check(const spindizzy::data::Assets& assets, const std::filesystem::pat
         std::istringstream words(spans);
         std::string span;
         while (words >> span) {
+            if (span[0] == 'K') continue; // a key, applied after the tick
             const auto colon = span.find(':');
             const int at = std::stoi(span.substr(0, colon), nullptr, 16);
             const auto bytes = from_hex(span.substr(colon + 1));
@@ -336,6 +337,14 @@ int play_check(const spindizzy::data::Assets& assets, const std::filesystem::pat
         fields.push_back({"binary", progress.switches.binary, m.u8(0x3619)});
         fields.push_back({"timer", progress.timer, m.u16(0x360E)});
         fields.push_back({"random", long(progress.random), long(std::uint32_t(m.s32(0x2094)))});
+        fields.push_back({"rotation", progress.rotation & 3, m.u8(0x248B) & 3});
+        {
+            int differ = 0;
+            for (int x = 0; x < 32; ++x)
+                for (int y = 0; y < 32; ++y)
+                    for (int z = 0; z < 8; ++z) differ += lp->level().grid.at(x, y, z) != m.u8(0xE + x * 256 + y * 8 + z);
+            fields.push_back({"grid cells differing", differ, 0});
+        }
         std::vector<bool> used(32);
         for (const auto& o : lp->objects().objects()) {
             if (!o.alive) continue;
@@ -388,6 +397,12 @@ int play_check(const spindizzy::data::Assets& assets, const std::filesystem::pat
         lp->tick(std::uint8_t(ticks[i].first));
         (void)lp->take_clue();
         lp->frame(true);
+        // A key pressed at this record is read at the next frame's start.
+        for (std::size_t k = ticks[i].second.find('K'); k != std::string::npos && k < 4; k = std::string::npos) {
+            const int key = std::stoi(ticks[i].second.substr(k + 1, 2), nullptr, 16);
+            if (key == 'r') lp->turn(1);
+            if (key == 't') lp->turn(-1);
+        }
         if (lp->ended()) {
             if (progress.game_over || progress.level == 0) break;
             lp = std::make_unique<play::LevelPlay>(assets, surfaces, progress);

@@ -569,8 +569,8 @@ window). Native: `view/camera`.
    asked only with at least $20 reserve and fuel 0); level 0 → the world
    is done: $11838 shows the map with the done planet disintegrating
    (kind −7, frames at SELECT.SWP + $35C0), $16B8C records the world
-   (number, fuel, reserve, jewels found in lists at $36B6, $36E4, $3712,
-   $3740), $16D44 recomputes $24AE from those records; all done → the
+   (number, fuel, reserve, jewels found and taken in lists at $36B6,
+   $36E4, $3712, $3740), $16D44 recomputes $24AE from those records; all done → the
    ending ($17CBE); else $18C90 (statistics, then "Next world" / "Save
    game") and the world map again. Any other level → $11F72 for it.
 
@@ -587,6 +587,27 @@ rebuild, objects' rotate handlers $143DE, compass, camera); "F" toggles
 slow mode; "c" centres the camera; with the cheat flag $249C, "l" goes to
 the next level; "B" toggles $24A0; any other key ends the level loop with
 the key in $2494 ($65 = 'e' → $18D36).
+
+## Turning the level
+
+r (+1) and t (−1) in the level loop ($11402), not with header bit 15:
+$248B += direction; the level is built again ($11FF0, the explorer kept
+where it is) from the rotation: $125B0 starts each build turned by $248B
+and moved by the table $125A8 (none, (0, −1), (−1, −1), (−1, 0) cells),
+so a cell (x, y) lands on (y, 31 − x) per turn; then $143DE calls every
+object's rotate handler (desc + 8) with (−direction) & 3 turns of (x, y)
+→ (y ^ $1F00, x) ($12DDE): binary switches turn their facing, boinks,
+Pacs and pyramids their heading (Pacs also their target, start cell and
+step, pyramids target and step), secret passages open their cells again
+at the new place; the explorer ($12C64) turns its position and respawn
+point with $1FFF and its speed ((vx, vy) → (−vy, vx)); the compass is
+redrawn and the camera snaps. Traced (`play_turn`: Tutorial 1, r, t, r,
+r; grid, objects and explorer equal).
+
+Other keys: F toggles slow mode, c snaps the camera ($14202), p dims the
+palette (each ST word less its ror by 1 & $777, $11074) until fire, [
+waits for fire without dimming, m shows the overview map ($1135A: the
+level drawn in strips through $18DC6; not rebuilt).
 
 ## Fuel
 
@@ -792,6 +813,28 @@ $1635E (every 16 frames) looks for the first object slot with a word
 +$26 within $380 of the explorer and shows it in the panel's four small
 boxes ($163BE, pictures at $418F0/$41930): the condition the object waits
 for. Not rebuilt yet.
+
+## After a world and at a game over
+
+$18C90: the screen cleared, palette 0, the statistics ($16DA4, also the
+menu's "Check performance"): "You have not started" ($16DB4), or "You
+have completed n World(s)." ($16DD3 …), a box ($16E28: x 2, y $20, width
+$24, style $3B, height count × 9 + 2) listing up to 16 worlds done: the
+name at column 2, the fuel then as a percentage (× 100 / 256, $18818:
+"%" then the digits leftward) ending at column $12, "taken of found
+jewels." from column $14; then "Reserve fuel level" and its percentage.
+Fire ($109CC), then the menu "Next world" / "Save game" ($18CD2 box,
+$18CDC items) over it.
+
+$18C14 at a game over: with at least $20 reserve and the fuel at 0 the
+menu at $18C2E ("Use reserve fuel", "Retry this world", "Abandon this
+world"), else the one at $18C4A without the first item. Use reserve: the
+fuel becomes the reserve, which is emptied, $24FC set, and the level
+loop goes on ($189E0): the dying explorer takes up its kind again where
+it is ($12CE8 → $12B58). Retry: $16D44 and level 1. Abandon: the title.
+
+A locked world ($1177A) prints "You cannot enter this world yet"
+($1180A) over the map and waits for fire.
 
 ## Text printer ($18518)
 

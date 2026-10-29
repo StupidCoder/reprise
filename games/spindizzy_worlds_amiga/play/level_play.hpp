@@ -83,6 +83,14 @@ public:
     void tick(std::uint8_t joystick);
     // The space bar ($11314): stops dead when allowed.
     void brake();
+    // The r (+1) and t (−1) keys ($11408): the level turns a quarter,
+    // unless its header bit 15 forbids it.
+    bool turn(int direction);
+    // The c key ($1144A → $14202): the camera snaps to the explorer.
+    void centre();
+    // "Use reserve fuel" ($18A28): the reserve becomes the fuel and the
+    // dying explorer takes up its kind again where it is ($24FC → $12B58).
+    void revive();
     // Once per drawn frame after the ticks: the camera ($14138), fuel
     // ($10E96), the frame handlers' steps, the condition re-test and
     // rebuild ($162FE).
@@ -123,7 +131,7 @@ private:
     void arrive();
     void die(const Death&);
     void show_clue(int number, bool always);
-    void rebuild();
+    void rebuild(bool reopen = true);
 
     const data::Assets& assets_;
     const SurfaceTable& surfaces_;

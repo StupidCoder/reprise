@@ -50,6 +50,14 @@ rate apart from drawing.
      then levels 8 and 15; level 4's jewel is covered by the shorter
      route1 record.
 
+6. **Creatures, controls, game over and world end** (2026-10-29):
+   boinks, Pac aliens, pyramids and spark generators (`play/objects`);
+   the random generator as game state, including the original's sprite
+   blits that clear its state word; turning the level (r/t) with every
+   object's rotate handler; the keys F, c and p; the game-over offer;
+   the statistics screen; the timer's seconds; the locked-world message.
+   Records: 12 runs equal tick for tick (game.md, "Evidence").
+
 ## Remaining tasks
 
 ### Rules
@@ -68,19 +76,17 @@ rate apart from drawing.
 - [ ] A Pac touch and a Pac eaten while the explorer flashes, traced.
 - [x] Spark generators (on/off by condition, touch: clue 9, $20 fuel a
       tick); Spindizzy! 1/2 equal, a touch to game over in `play_w22_1s`.
-- [ ] Turning the level ("r"/"t": rotation, rebuild, objects' rotate
-      handlers, compass): the builder's and the objects' turns differ by
-      a cell ((32 − x) vs (31 − x)); trace before rebuilding.
-- [ ] The other level-loop keys: pause, the overview map ("m"), slow mode
-      ("F"), centre ("c").
+- [x] Turning the level (r/t; the builder's offset table $125A8 makes
+      blocks and objects agree), traced in `play_turn`.
+- [x] Keys F (slow mode), c (centre), p (pause, dimmed). Not done: [ (pause
+      without dimming) and the overview map m ($1135A/$18DC6).
 - [ ] The deadly timer's end: after it runs out (Roller-ama 4, tick 641)
       the original runs no more rules ticks (its frame handler $153EA runs
       the dying routine $12CE8 on the timer's own record); the port keeps
       the explorer's 200-tick dying phase. Read $12CE8 with a4 = timer.
-- [ ] Game over (the dying kind after fuel runs out is traced, 200 ticks):
-      the reserve-fuel offer ($18C14: use reserve / retry /
-      abandon the world), the dying kind's frames ($12D14 list, "Game
-      over" text $12D68); the timer's "Die if elapse" frame ($153EA).
+- [x] Game over: the reserve-fuel offer ($18C14) with its three outcomes.
+- [ ] The dying kind's frames ($12D14 list, "Game over" text $12D68) and
+      the timer's "Die if elapse" frame ($153EA, see the timer's end).
 - [ ] The exit's "Reserve fuel collected" message ($15186) (kind −9's
       notice is done).
 - [ ] The space-bar brake traced.
@@ -88,17 +94,19 @@ rate apart from drawing.
 
 ### Front end
 
-- [ ] After a world: the disintegrating planet on the map ($11838, kind
-      −7), the statistics screen ($16DA4, also "Check performance"), the
-      ending when every world is done ($17CBE).
+- [x] The statistics screen ($16DA4) after a world and for "Check
+      performance".
+- [ ] The disintegrating planet on the map after a world ($11838, kind −7,
+      frames SELECT.SWP + $35C0, list $16B38) and the ending when every
+      world is done ($17CBE).
 - [ ] Load / Save game state (sd_game.dat, $16D28/$16CBE), Wind back
       world ($36B0 − 2), Create Data disk: decide what to keep (saves in
-      the shell's own format).
+      the shell's own format: the module's state is the Progress, the
+      worlds-done records, the cluster and $24AE). Not started.
 - [ ] The panel's clue boxes ($1635E/$163BE: the nearest object's
       condition) and the message 24 boxes it refers to.
-- [ ] The timer's seconds on screen ($153C4, $18826).
-- [ ] The world map's gating message ($1180A) for the locked worlds $16
-      and $1F (the port refuses them silently).
+- [x] The timer's seconds on screen ($153C4) and the locked-world message
+      ($1180A).
 - [ ] Menu input: the original takes the joystick byte each pass; the
       port acts on presses. Its pass rate (not frame-locked) is guessed
       as one a frame.
@@ -123,8 +131,9 @@ rate apart from drawing.
   flash rate are not compared.
 - The creatures' popping and the Pacs' eaten frames are not drawn yet
   (the view keeps their walking frames).
-- The star generator's running state at a level start is not traced (seed
-  0 is used); starfields without their own seed may differ.
+- The random generator starts at 0 at boot (the attract and menus draw
+  no numbers in the code read); not checked against the original after
+  a long front-end session.
 - Sprite colour 24 and the pillars' screen columns (−1 and 303) follow
   the hardware registers; not checked against a window capture.
 - Not compared yet: the "lost" tops, the ice timeout, the brake, a lift

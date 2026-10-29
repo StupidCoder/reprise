@@ -103,6 +103,9 @@ public:
     void frame(const data::Memory& main, bool slow, const view::Camera&);
     // The secret passages' cells again after a rebuild ($143DE).
     void reapply(ObjectWorld&) const;
+    // The rotate handlers ($143DE): `turns` quarter turns of (x, y) →
+    // (y ^ $1F00, x), headings and targets with them.
+    void rotate(int turns, ObjectWorld&);
     // The sprite places of the creatures drawn this frame, for the
     // generator's overwrite (key 1: the 32-pixel drawer $10124, else the
     // 16-pixel $100A0).
