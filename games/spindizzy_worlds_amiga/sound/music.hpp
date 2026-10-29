@@ -97,7 +97,6 @@ private:
     int tempo_index_{};      // +$2A
     int instrument_change_{};// +$2B
     std::array<int, 8> tempo_{}; // +$10 … +$17
-    bool stopped_{};         // a $FE stopped the tune this tick
 };
 
 } // namespace spindizzy::sound

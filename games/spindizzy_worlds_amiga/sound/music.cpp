@@ -17,7 +17,7 @@ constexpr std::uint32_t samples = 0x4445C;
 constexpr std::uint32_t vibrato_depths = 0x4397A; // $4390E + $6C, by the instrument's byte $E
 constexpr std::uint32_t vibrato_shifts = 0x4398D; // $4390E + $7F
 constexpr std::uint32_t first_positions = 0x43A1C; // $439A0 + $7C
-constexpr std::uint32_t state = 0x439A0;
+// The state blocks: $4390E (Paula's side) and $439A0.
 
 } // namespace
 

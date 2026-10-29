@@ -47,11 +47,26 @@ std::vector<Planet> read_cluster(const data::Memory& main, std::uint32_t list);
 // damped speeds.
 class ClusterView {
 public:
+    // The three angles ($166EC, $166F0, $166F4): never reset, so the map
+    // keeps its turn from one visit to the next (only the speeds are
+    // cleared, $1169A).
+    struct Turn { std::int32_t angle[3]{}; };
+    Turn turn() const { return {{angle_[0], angle_[1], angle_[2]}}; }
+    void set_turn(const Turn& t) { for (int i = 0; i < 3; ++i) angle_[i] = t.angle[i]; }
+
     void steer(std::uint8_t joystick); // $168BE
     // One frame's planets ($11686): turned and projected, sorted far to
     // near; the nearest is the chosen one ($1445A), whose picture counter
-    // moves ($16A50). Returns its index, or −1.
-    int update(const data::Memory& main, const std::vector<Planet>&, const std::vector<bool>& shown);
+    // moves ($16A50). Returns its index, or −1. Without `choose` (the map
+    // after a world, $11838) nothing is chosen.
+    int update(const data::Memory& main, const std::vector<Planet>&, const std::vector<bool>& shown, bool choose = true);
+
+    // $16A86: the planet at `index` (the world just done, kind −7) breaks
+    // up: $16ADE steps its frames ($10058 over the list $16B38) `steps`
+    // times a frame, its picture still drawn under the first four; once
+    // the list's last entry ($FF ticks) is reached $16AA6 removes it.
+    void break_up(int index) { breaking_ = index; break_ticks_ = 4; break_entry_ = 0; break_gone_ = false; }
+    void step_break_up(const data::Memory& main, int steps, bool slow);
     // Draws the box, the shadows and the planets of the last update.
     void draw(Canvas&, const data::Assets&, const data::Memory& main, const std::vector<Planet>&) const;
 
@@ -62,7 +77,15 @@ private:
     std::int32_t angle_[3]{};   // $166EC, $166F0, $166F4 (16.16, index = whole part & $FF)
     std::int32_t speed_[2]{};   // $166F8, $166FC
     std::vector<int> spin_;     // +$1E of each planet
+    int breaking_{-1};          // the kind −7 planet
+    int break_ticks_{}, break_entry_{}; // its +$1E and +$1F
+    std::uint32_t break_offset_{};      // the frame $10058 returned
+    bool break_under_{}, break_gone_{}, break_removed_{};
 };
+
+// $16B62: picture n of the break-up series (SELECT.SWP + $35C0 + n × $280,
+// 32 rows) at (x, y).
+void draw_break_frame(Canvas&, const data::Assets&, int n, int x, int y);
 
 // $11D2E: a 2/3-size copy of the map's 192 × 192 box (from buffer row 4,
 // byte 8) into another canvas at a byte offset: 48 pixels become 32

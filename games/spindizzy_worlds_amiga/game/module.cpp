@@ -26,16 +26,16 @@ constexpr int main_menu_timeout = 0x64 << 3;                             // $18A
 constexpr std::uint32_t easy_worlds = 0x9F800000, hard_worlds = 0x007FFFFF; // $11E10: $24AE per cluster
 
 // The game's screens in the original's main loop ($18950).
-enum class Stage { attract, menu, clusters, map, play, statistics, next_menu, game_over };
+enum class Stage { attract, menu, clusters, map, play, statistics, next_menu, game_over, break_up, ending };
 
 class Module final : public app::GameModule {
 public:
     explicit Module(const std::filesystem::path& content)
         : assets_(data::load_assets(content)), surfaces_(play::read_surfaces(assets_.main)), effects_(assets_.effects), music_(assets_.music) {
-        attract_.emplace(assets_);
         paula_.set_memory(effects_.memory());
         effects_.reset(paula_);
         music_paula_.set_memory(music_.memory());
+        open_attract();
     }
 
     double step_seconds() const override { return 1.0 / 50; } // PAL frames
@@ -81,6 +81,7 @@ public:
         if (get()) saved_ = game();
         slow_ = get() != 0;
         restore(now);
+        enter_map();
     }
     double pixel_aspect() const override { return 1.0; }
 
@@ -92,7 +93,9 @@ public:
         constexpr double tick_rate = 709379.0 / 0x3782;
         std::size_t done = 0;
         while (done < frames) {
-            const bool level = stage_ == Stage::play || stage_ == Stage::game_over;
+            // $1116C hooks the effects for a level; they stay hooked over
+            // the map after a world and the ending until a tune starts.
+            const bool level = stage_ == Stage::play || stage_ == Stage::game_over || stage_ == Stage::break_up || stage_ == Stage::ending;
             if (sound_wait_ <= 0) {
                 // The hook $2054: the effects player in levels, the music
                 // player elsewhere ($1116C / $112A2), each on its own copy
@@ -115,7 +118,6 @@ public:
         if (input.left) joystick |= play::stick::left;
         if (input.right) joystick |= play::stick::right;
         if (input.fire) joystick |= play::stick::fire;
-        choose_tune();
         switch (stage_) {
         case Stage::attract:
             if (attract_->frame(joystick)) open_menu();
@@ -124,23 +126,23 @@ public:
             const int item = menu_->frame(joystick);
             slow_ = menu_->slow_mode;
             if (item == -1) { // timed out: the attract again
-                attract_.emplace(assets_);
-                stage_ = Stage::attract;
+                open_attract();
             } else if (item == 1) { // Start new game ($18AB4)
                 cluster_ = 0;
                 worlds_done_ = 0;
                 records_.clear();
                 progress_.clues_left = 0xFFFFFFFF;
-                open_map();
+                enter_map();
             } else if (item == 0 || item == 6) { // Continue / Slow Mode
-                open_map();
+                enter_map();
             } else if (item == 4) { // Check performance ($18AF6)
                 open_statistics(false);
             } else if (item == 3) { // Save game state ($16CBE): the game between worlds
                 saved_ = current();
                 open_menu();
-            } else if (item == 2 && saved_) { // Load saved game ($16D28)
+            } else if (item == 2 && saved_) { // Load saved game ($16D28): then the statistics ($18AD0)
                 restore(*saved_);
+                open_statistics(false);
             }
             break; // Load, Save, Check performance, Wind back world, Create Data disk: not rebuilt
         }
@@ -153,6 +155,7 @@ public:
             break;
         case Stage::map: {
             const int world = map_->frame(joystick);
+            turn_ = map_->turn();
             if (world < 0) break;
             // $1177A: world $16 needs the Hard worlds 0-21 done, $1F the Easy 23-28.
             if ((world == 0x1F && (worlds_left_ & 0x1F800000)) || (world == 0x16 && (worlds_left_ & 0x003FFFFF))) {
@@ -175,13 +178,17 @@ public:
             in.space = input.space;
             // Keys as the C64 matrix gives them: R (17) and T (22) turn the level.
             // F (21) slow mode, C (20) centre, P (41) pause.
-            constexpr int key_r = 17, key_t = 22, key_f = 21, key_c = 20, key_p = 41;
+            // M (36) the overview map; [ has no key in the matrix the host
+            // gives: '@' (46), where a C64 matrix would put it.
+            constexpr int key_r = 17, key_t = 22, key_f = 21, key_c = 20, key_p = 41, key_m = 36, key_bracket = 46;
             auto pressed = [&](int k) { return input.c64_keys[std::size_t(k)] && !keys_held_[std::size_t(k)]; };
             if (pressed(key_r)) in.turn = 1;
             if (pressed(key_t)) in.turn = -1;
             if (pressed(key_f)) slow_ = !slow_; // $11440
             in.centre = pressed(key_c);
             in.pause = pressed(key_p);
+            in.hold = pressed(key_bracket);
+            in.overview = pressed(key_m);
             keys_held_ = input.c64_keys;
             play_->frame(in, slow_);
             for (const auto& sound : progress_.sounds) { // the request block $36D2
@@ -192,12 +199,11 @@ public:
             }
             progress_.sounds.clear();
             if (play_->outcome() == PlayScreen::Outcome::world_done) {
-                // $16B8C: the world is recorded done; fuel and reserve go on.
-                worlds_left_ &= ~(1u << (progress_.world & 31));
-                ++worlds_done_;
-                records_.push_back({progress_.world, progress_.fuel >> 16, progress_.reserve >> 16,
-                                    progress_.jewels_found, progress_.jewels_taken});
-                open_statistics(true); // $18C90: the statistics, fire, then "Next world"
+                // $11838: the map with the world's planet breaking up; its
+                // making ($16A86) asks for effect 0 on channel 0.
+                map_.emplace(assets_, cluster_ == 1, worlds_left_, turn_, progress_.world);
+                request({0, 0, 0x40});
+                stage_ = Stage::break_up;
             } else if (play_->outcome() == PlayScreen::Outcome::game_over) {
                 // $18C14: the reserve is offered with at least $20 of it and
                 // the fuel empty.
@@ -207,6 +213,40 @@ public:
                 menu_.emplace(assets_, behind, offers_reserve_ ? reserve_menu : retry_menu, 0, 0);
                 stage_ = Stage::game_over;
             }
+            break;
+        }
+        case Stage::break_up: {
+            const bool over = map_->break_frame(joystick, slow_);
+            turn_ = map_->turn();
+            if (!over) break;
+            // $16B8C: the world is recorded done; fuel and reserve go on.
+            worlds_left_ &= ~(1u << (progress_.world & 31));
+            ++worlds_done_;
+            records_.push_back({progress_.world, progress_.fuel >> 16, progress_.reserve >> 16,
+                                progress_.jewels_found, progress_.jewels_taken});
+            if (worlds_left_ == 0) { // $18A5E: every world done, the ending
+                view::Screen shown;
+                map_->draw(shown);
+                ending_.emplace(assets_, shown, cluster_ == 1);
+                take_sounds(ending_->sounds);
+                stage_ = Stage::ending;
+                break;
+            }
+            start_tune(2);         // $18A66: the map's tune again
+            open_statistics(true); // $18C90: the statistics, fire, then "Next world"
+            break;
+        }
+        case Stage::ending: {
+            const bool over = ending_->frame(joystick);
+            take_sounds(ending_->sounds);
+            if (!over) break;
+            // $17D5E: the worlds done and the cluster forgotten (the clues
+            // kept), tune 1, then the title ($18962), which keeps it.
+            cluster_ = 0;
+            worlds_done_ = 0;
+            records_.clear();
+            start_tune(1);
+            open_attract();
             break;
         }
         case Stage::statistics: { // $109CC: until fire
@@ -224,8 +264,12 @@ public:
         }
         case Stage::next_menu: {
             const int item = menu_->frame(joystick);
-            if (item == 1) saved_ = current(); // "Save game"
-            if (item >= 0) open_map();
+            if (item == 1) { // "Save game" ($16CBE), then the menu again
+                saved_ = current();
+                menu_.emplace(assets_, statistics_, next_menu, next_menu_box, 0);
+            } else if (item == 0) {
+                enter_map();
+            }
             break;
         }
         case Stage::game_over: {
@@ -242,28 +286,25 @@ public:
                 progress_.reserve = reserve;
                 play_ = std::make_unique<PlayScreen>(assets_, surfaces_, progress_);
                 stage_ = Stage::play;
-            } else { // abandon ($18956): the title
-                attract_.emplace(assets_);
-                stage_ = Stage::attract;
+            } else { // abandon ($18956): tune 3, then the title, which keeps it
+                start_tune(3);
+                open_attract();
             }
             break;
         }
         }
     }
 
-    // The tune each screen asks for ($11250): 0 the title and menus ($17734),
-    // 2 the cluster choice and world map ($1170A); levels use the effects.
-    void choose_tune() {
-        int tune = -1;
-        if (stage_ == Stage::attract || stage_ == Stage::menu || stage_ == Stage::statistics || stage_ == Stage::next_menu)
-            tune = 0;
-        else if (stage_ == Stage::clusters || stage_ == Stage::map)
-            tune = 2;
-        if (tune < 0) {
-            if (music_.playing()) music_.stop(music_paula_);
-            return;
-        }
-        if (music_.tune() != tune) music_.start(tune, music_paula_);
+    // $11250: a tune started (from its beginning); the music player takes
+    // the interrupt hook again ($112A2).
+    void start_tune(int tune) { music_.start(tune, music_paula_); }
+    void request(const EffectRequest& r) {
+        effects_volume_[std::size_t(r.channel & 3)] = r.volume;
+        effects_.request(r.channel, r.effect, r.volume);
+    }
+    void take_sounds(std::vector<EffectRequest>& sounds) {
+        for (const auto& r : sounds) request(r);
+        sounds.clear();
     }
 
     platform::Image picture() const override {
@@ -272,7 +313,8 @@ public:
         case Stage::attract: attract_->draw(screen); break;
         case Stage::menu: case Stage::next_menu: case Stage::game_over: menu_->draw(screen); break;
         case Stage::clusters: clusters_->draw(screen); break;
-        case Stage::map: map_->draw(screen); break;
+        case Stage::map: case Stage::break_up: map_->draw(screen); break;
+        case Stage::ending: ending_->draw(screen); break;
         case Stage::play: play_->draw(screen); break;
         case Stage::statistics: screen = statistics_; break;
         }
@@ -280,6 +322,14 @@ public:
     }
 
 private:
+    // $17694 → $1771C: the title starts tune 0 only when no tune plays
+    // (the module's byte $6F9, $439A1), so a tune started before (3 after
+    // "Abandon", 1 after the ending) goes on over the attract and menu.
+    void open_attract() {
+        attract_.emplace(assets_);
+        if (!music_.playing()) start_tune(0);
+        stage_ = Stage::attract;
+    }
     void open_menu() {
         view::Screen behind;
         attract_->draw(behind);
@@ -311,7 +361,6 @@ private:
         progress_.fuel = g.fuel;
         progress_.reserve = g.reserve;
         play_.reset();
-        open_map();
     }
 
     void open_statistics(bool then_next) {
@@ -322,13 +371,19 @@ private:
         fire_held_ = true; // the fire that got here must be let go
         stage_ = Stage::statistics;
     }
+    // $116F0: the map's tune from its start ($1170A), then the cluster
+    // choice when none is chosen yet, then the map.
+    void enter_map() {
+        start_tune(2);
+        open_map();
+    }
     void open_map() {
         if (cluster_ == 0) { // $11710: no cluster chosen yet
-            clusters_.emplace(assets_);
+            clusters_.emplace(assets_, turn_);
             stage_ = Stage::clusters;
             return;
         }
-        map_.emplace(assets_, cluster_ == 1, worlds_left_);
+        map_.emplace(assets_, cluster_ == 1, worlds_left_, turn_);
         stage_ = Stage::map;
     }
 
@@ -340,6 +395,8 @@ private:
     std::optional<Menu> menu_;
     std::optional<ClusterChoice> clusters_;
     std::optional<WorldMap> map_;
+    std::optional<Ending> ending_;
+    view::ClusterView::Turn turn_;  // the map's angles, kept between visits
     std::unique_ptr<PlayScreen> play_;
     int cluster_{};                 // $36B4: 0 none yet, 1 Easy, 2 Hard
     std::uint32_t worlds_left_{};   // $24AE

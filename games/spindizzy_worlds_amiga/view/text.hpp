@@ -44,6 +44,7 @@ public:
     static void box(Canvas&, int style, int x, int y, int w, int h);
 
     int column{}, row{};          // $37A0, $37A2
+    int height() const { return height_; } // $37A6
     bool transparent{true};       // $37AC
     bool to_hidden{true};         // $379C: the hidden buffer ($4(a5)) or the shown one
 

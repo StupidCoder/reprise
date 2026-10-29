@@ -100,6 +100,11 @@ public:
     // ($10E96), the frame handlers' steps, the condition re-test and
     // rebuild ($162FE).
     void frame(bool slow = true);
+    // The frame handlers' pass ($143B6) seen from a camera: the objects'
+    // frames, the run-out timer's countdown and the generator overwrite
+    // (frame() runs it with the level's camera; the overview map, m, runs
+    // it once for each of its 16 views).
+    void frame_handlers(const view::Camera&, bool slow);
     // The scroll position (it decides which sprites animate, so it is
     // part of the game's state).
     const view::Camera& camera() const { return camera_; }
@@ -112,6 +117,13 @@ public:
     // Header bit 12 ("Add reserve fuel"): kind −9 shows the bonus-level
     // notice ($13888) on its first frame and waits for fire ($1386E).
     bool take_notice() { const bool n = notice_; notice_ = false; return n; }
+    // The dying kind's frame ($12D14) prints "Game  Over" ($12D68); a timer
+    // that ran out with "Die if elapse" prints "TIME OUT" ($153F6).
+    bool dying() const { return phase_ == ExplorerPhase::out_of_fuel; }
+    bool time_out() const { return timer_dying_; }
+    // An exit or timer to another level with header bit 12 ("Add reserve
+    // fuel"): its frame shows "Reserve fuel collected" ($15186), once.
+    bool take_reserve_message() { const bool m = reserve_message_; reserve_message_ = false; return m; }
 
     const world::Level& level() const { return level_; }
     const world::Switches& switches() const { return progress_.switches; }
@@ -152,6 +164,10 @@ private:
     int spin_{0x100};    // +$1E of the explorer kind
     bool flash_{};       // +$21 bit 0
     bool running_{true}; // $2498
+    bool timer_dying_{};          // the timer's frame handler is $153EA
+    bool reserve_message_{};
+    std::uint16_t timer_word_{};  // that timer's +$2C, counted down
+    std::uint8_t joystick_{};     // the last tick's (for the fire latch $10A63)
     bool moved_{};
     bool notice_{};
     view::Camera camera_;

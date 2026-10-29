@@ -11,6 +11,8 @@ constexpr std::uint32_t swap_buffer = 0x56CE8;      // $A(a5); SELECT.SWP's data
 constexpr std::uint32_t planet_pictures = swap_buffer + 0x1404;
 constexpr std::uint32_t mystery_planet = swap_buffer + 0x3344;
 constexpr std::uint32_t planet_shadow = swap_buffer + 0x192C;
+constexpr std::uint32_t break_frames = swap_buffer + 0x35C4; // $16AF2
+constexpr std::uint32_t break_list = 0x16B38;       // (ticks, frame offset) words; $FFFF loops
 constexpr std::uint32_t planet_sizes = 0x16A2C;     // per size: dy, offset, rows − 1 (8 bytes, backwards)
 constexpr int map_x = 0x90, map_y = 0x58;           // $16868
 constexpr std::uint8_t map_box_colour = 11;         // $1693C: planes 0, 1 and 3
@@ -129,7 +131,8 @@ void ClusterView::steer(std::uint8_t joystick) {
     }
 }
 
-int ClusterView::update(const data::Memory& main, const std::vector<Planet>& planets, const std::vector<bool>& shown) {
+int ClusterView::update(const data::Memory& main, const std::vector<Planet>& planets, const std::vector<bool>& shown, bool choose) {
+    if (break_removed_) breaking_ = -1;
     // $16704: sine and cosine of the three angles ($1673A: cos = 64 entries on).
     auto sincos = [&](std::int32_t angle) {
         const int i = (angle >> 16) & 0xFF;
@@ -147,7 +150,7 @@ int ClusterView::update(const data::Memory& main, const std::vector<Planet>& pla
     placed_.clear();
     if (spin_.size() != planets.size()) spin_.assign(planets.size(), 0x400);
     for (std::size_t i = 0; i < planets.size(); ++i) {
-        if (!shown[i]) continue;
+        if (!shown[i] && int(i) != breaking_) continue;
         std::int16_t x = planets[i].x, y = planets[i].y, z = planets[i].z;
         // first about y with angle 2 ($36AC/$36AE), then about z with angle 0
         // ($36A4/$36A6), then about x with angle 1 ($36A8/$36AA).
@@ -158,9 +161,41 @@ int ClusterView::update(const data::Memory& main, const std::vector<Planet>& pla
     }
     // $1440E: farthest first; the nearest is the chosen one ($1445A).
     std::stable_sort(placed_.begin(), placed_.end(), [](const Placed& a, const Placed& b) { return a.sort < b.sort; });
-    chosen_ = placed_.empty() ? -1 : placed_.back().index;
+    chosen_ = placed_.empty() || !choose ? -1 : placed_.back().index;
     if (chosen_ >= 0) ++spin_[std::size_t(chosen_)];
     return chosen_;
+}
+
+void ClusterView::step_break_up(const data::Memory& main, int steps, bool slow) {
+    if (breaking_ < 0) return;
+    break_under_ = break_entry_ < 4; // $16AE2: +$1F before this frame's steps
+    for (int i = 0; i < steps; ++i) {
+        // $10058: the ticks count down once a call (twice without slow
+        // mode, $24A6); at 0 the next entry, a negative one going back to
+        // the first.
+        break_ticks_ = (break_ticks_ - 1) & 0xFF;
+        bool next = break_ticks_ == 0;
+        if (!next && !slow) next = (break_ticks_ = (break_ticks_ - 1) & 0xFF) == 0;
+        if (next) {
+            ++break_entry_;
+            std::uint16_t ticks = main.u16(break_list + std::uint32_t(break_entry_) * 4);
+            if (ticks & 0x8000) { break_entry_ = 0; ticks = main.u16(break_list); }
+            break_ticks_ = ticks & 0xFF;
+        }
+        break_offset_ = main.u16(break_list + std::uint32_t(break_entry_) * 4 + 2);
+    }
+    // $16AA6 (after the drawing): +$1E negative removes the object.
+    break_removed_ = break_ticks_ & 0x80;
+}
+
+void draw_break_frame(Canvas& c, const data::Assets& assets, int n, int x, int y) {
+    // Picture 11 (the hard ending's $16B62 with d0 = 10) lies past the
+    // file's end: the original blits whatever the level left in RAM there;
+    // here it is left out.
+    const std::uint32_t frame = break_frames + std::uint32_t(n) * 0x280;
+    if (frame + 0x280 > swap_buffer + 4 + assets.select_swap.size()) return;
+    const data::Memory swap(swap_buffer + 4, assets.select_swap);
+    blit_frame(c, swap, frame, 32, x, y);
 }
 
 void ClusterView::draw(Canvas& c, const data::Assets& assets, const data::Memory& main, const std::vector<Planet>& planets) const {
@@ -170,7 +205,7 @@ void ClusterView::draw(Canvas& c, const data::Assets& assets, const data::Memory
         for (int x = 64; x < 256; ++x) set(c, x, y, map_box_colour);
     // $169F8 → $1688A: each planet's shadow first (plane 0 cleared under it).
     for (const auto& p : placed_) {
-        if (planets[std::size_t(p.index)].picture < 0) continue;
+        if (planets[std::size_t(p.index)].picture < 0 || p.index == breaking_) continue;
         const int sx = p.x + 0x98 - (std::int16_t(std::uint16_t(p.sort + 0x8080)) >> 2), sy = p.y + 0x5C;
         for (int r = 0; r < 18; ++r) {
             const std::uint32_t mask = swap.u32(planet_shadow + std::uint32_t(r) * 20);
@@ -183,8 +218,14 @@ void ClusterView::draw(Canvas& c, const data::Assets& assets, const data::Memory
     }
     for (const auto& p : placed_) {
         const auto& planet = planets[std::size_t(p.index)];
+        const bool breaking = p.index == breaking_;
+        if (breaking && !break_under_) { // $16B2A: the frame alone
+            blit_frame(c, swap, break_frames + break_offset_, 32, p.x + map_x, p.y - 4 + map_y);
+            continue;
+        }
         if (planet.picture < 0) { // $16A76: the "?" planet, 32 rows
             blit_frame(c, swap, mystery_planet, 32, p.x + map_x, p.y - 4 + map_y);
+            if (breaking) blit_frame(c, swap, break_frames + break_offset_, 32, p.x + map_x, p.y - 4 + map_y);
             continue;
         }
         std::uint32_t frame = planet_pictures + std::uint32_t(planet.picture & 3) * 0x7D0;
@@ -199,6 +240,9 @@ void ClusterView::draw(Canvas& c, const data::Assets& assets, const data::Memory
         frame += main.u32(entry + 2);
         const int rows = main.u16(entry + 6) + 1;
         blit_frame(c, swap, frame, rows, p.x + map_x, p.y + dy + map_y);
+        // $16AC8 draws the picture with the size of the depth in d6 as the
+        // drawing loop leaves it (hypothesis: the planet's own depth).
+        if (breaking) blit_frame(c, swap, break_frames + break_offset_, 32, p.x + map_x, p.y - 4 + map_y);
     }
 }
 

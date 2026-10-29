@@ -23,6 +23,8 @@ struct PlayInput {
     int turn{};          // r: +1, t: −1 ($11402)
     bool centre{};       // c ($1144A)
     bool pause{};        // p ($11332: the palette dimmed until fire)
+    bool hold{};         // [ ($1133C: the same without dimming)
+    bool overview{};     // m ($1135A: the overview map until fire)
 };
 
 class PlayScreen {
@@ -45,6 +47,10 @@ public:
 
 private:
     void start_level();
+    void finish_level();
+    // $1135A: the 16 views squeezed into the box.
+    void open_overview(bool slow);
+    void draw_view(view::Canvas&, const view::Camera&) const;
     void draw_playfield(view::Screen&) const;
 
     const data::Assets& assets_;
@@ -58,7 +64,10 @@ private:
     // A clue on show ($15FC0): 26 frames, then until fire or 126 more.
     std::optional<int> clue_;
     bool notice_{};   // the bonus-level notice, until fire
-    bool paused_{};   // p: until fire ($109CC)
+    bool paused_{};   // p or [: until fire ($109CC)
+    bool dimmed_{};   // p dims the palette ($11074)
+    std::optional<view::Screen> overview_; // m: until fire
+    int message_frames_{-1}; // "Reserve fuel collected": frames left ($109E2)
     bool fire_held_{};
     int clue_frames_{};
     Outcome outcome_{Outcome::playing};

@@ -58,6 +58,7 @@ struct ObjectEvents {
     int clue{-1};           // a clue to show once ($15FC0) or a message ($16028)
     bool clue_always{};     // the message's bit 7: shown again
     bool timer_death{};     // the timer elapsed with "Die if elapse" ($15374)
+    std::uint16_t timer_word{}; // then its record's word +$2C (flags, seconds)
     int fuel_cost{};        // whole fuel units a creature took ($152E2)
     // Sound requests for the effects player ($36D2 + channel; volume −1:
     // the volume word is not written).

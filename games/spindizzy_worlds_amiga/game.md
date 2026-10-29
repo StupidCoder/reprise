@@ -518,6 +518,12 @@ $131F4 takes the death cost $2060(a5) from the fuel change $206C(a5), clears the
 the clue once ($15FC0, bit n of $3610) and turns the explorer into kind −2.
 The tick goes on after a death (the routines return into it).
 
+- The dying kind (out of fuel $12C9A: clue 1, effect 4 on channel 1; or
+  $2492 from a timer, $12CB0): tick $12CE8, frame $12D14; +$2C = $C8,
+  +$1E = $100, the fire latch cleared. Each tick +$2C − 1: negative →
+  game over; below $A0 fire ends it. Frame: the explorer's place
+  ($257A), frames from the list $12D56 ($C ticks each, the last $FF),
+  and unless $249E "Game  Over" ($12D68: column 15, row $50).
 - Kind −2, lost ($12D96): effect 2, $18 ticks + 1, frames from list
   $12DB8.
 - Kind −3, arriving ($12AC6; create $12B0C): back at the respawn point at
@@ -567,12 +573,29 @@ window). Native: `view/camera`.
 5. After the loop ($18A18): game over ($2490) → $18C14 (the reserve fuel
    offer: "Use reserve fuel" / "Retry this world" / "Abandon this world",
    asked only with at least $20 reserve and fuel 0); level 0 → the world
-   is done: $11838 shows the map with the done planet disintegrating
-   (kind −7, frames at SELECT.SWP + $35C0), $16B8C records the world
+   is done: $11838 shows the map with the done planet breaking up (see
+   "After a world and at a game over"), $16B8C records the world
    (number, fuel, reserve, jewels found and taken in lists at $36B6,
    $36E4, $3712, $3740), $16D44 recomputes $24AE from those records; all done → the
-   ending ($17CBE); else $18C90 (statistics, then "Next world" / "Save
-   game") and the world map again. Any other level → $11F72 for it.
+   ending ($17CBE); else tune 2 ($18A66) and $18C90 (statistics, then
+   "Next world" / "Save game") and the world map again. Any other level
+   → $11F72 for it.
+
+The level loop's order ($112F6 … $1150E): one key ($109B2) acted on,
+then the rules ticks ($11510, twice without slow mode), the sort
+($1440E), the camera ($14138), $1428C, the fuel ($10E96), the clue
+search ($1635E), the map draw ($13AE2), the frame handlers ($143B6), the
+buffer swap ($112E0) and frame wait, the condition re-test ($162FE),
+and only then the test of $2498: a frame handler run on the frame an
+exit fired (the reserve message, the timer's end) still runs.
+
+Menu results ($18AA2 …): 0 "Continue" and 6 "Slow Mode?" → the map; 1
+"Start new game" ($18AB4: no cluster, clues $FFFFFFFF, no worlds done);
+2 "Load saved game" ($16D28): on success the statistics ($18AF6), else
+the message $16BCF; then fire and the menu again; 3 "Save game state"
+($16CBE); 4 "Check performance" (statistics, fire, menu); 5 "Wind back
+world" ($36B0 − 2, then $16D44). After a world, "Save game" ($18CC6)
+saves and shows its menu again; only "Next world" goes on.
 
 $16D44 (a world's start): switches $3616 = $FFFF, $3618 = 0, rotation 0,
 $24C0 = 0, the per-level jewel longs all $80000000 ($138E0), $2564 = 0,
@@ -581,12 +604,32 @@ reserve 0), the fuel costs ($10E1E), level 1. Clues ($3610) are reset
 only by "Start new game".
 
 Keys in the level loop ($112F6, through $109B2): space the brake; "["
-or "p" pause; "m" the overview map (not with header bit 14); "r"/"t"
+($1133C: until fire) or "p" ($11338: the palette dimmed first, $11074,
+restored after, $1106E) pause; "m" the overview map ($1135A, not with
+header bit 14; see "Overview map"); "r"/"t"
 turn the level a quarter (not with header bit 15: rotation $248B,
 rebuild, objects' rotate handlers $143DE, compass, camera); "F" toggles
 slow mode; "c" centres the camera; with the cheat flag $249C, "l" goes to
 the next level; "B" toggles $24A0; any other key ends the level loop with
 the key in $2494 ($65 = 'e' → $18D36).
+
+### Overview map ($1135A)
+
+$249E is set (the dying kind's "Game  Over" and the timer's seconds are
+not printed meanwhile) and the box $1134A (style $30 at column 4, row 8,
+$20 columns, $96 rows) printed over the shown screen. The camera words
+$256C … $2572 are saved, then for the rows d5 = $34, $22, $10, 0 (top
+in 8-row steps, so scroll y $1A0, $110, $80, 0) and the columns d4 = 3 …
+0 (scroll x d4 × $100): the camera set, $1428C, the map drawn ($13AE2)
+and the frame handlers run ($143B6, so every object's frame steps 16
+times and the sprite blits may clear the generator), then $18DC6
+squeezes the hidden buffer into the shown one: per output byte four
+source bytes through the table $3FC4 twice ($18D9A: bits 7, 5, 3, 1 into
+both nibbles), so every fourth pixel from the buffer's pixel 16, every
+fourth row ($A0 bytes), 64 × 42 pixels at x 32 + 64 × d4, y 8 + 2 × d5.
+Each tile overlaps the one below it by 6 rows (drawn bottom first).
+Then the camera back, $249E cleared, fire ($109CC), and the loop goes on
+with the next key test ($11300).
 
 ## Turning the level
 
@@ -697,7 +740,14 @@ is (object z + extra − explorer z) unsigned ≤ reach.
   while its condition holds; taken in the explorer's cell with (z + $40
   − explorer z) & $FE00 = 0. To its own level: the place with bit 15
   forced, at once (camera snap). Elsewhere: the next level, place in
-  $24C0; with header bit 12 its frame shows "Reserve fuel collected".
+  $24C0; with header bit 12 +$21 is set ($150DE) and its frame ($15186,
+  also the timer's through $153D0) shows, unless in the editor's test
+  mode ($24BE): the box and " Reserve fuel collected   " ($15162), then
+  the reserve this level added (($2074 − $2078) × 100 / 256, $16EF8)
+  with "%"; with $37B4 clear (as seen) no 26-frame hold, then $109E2:
+  until fire, a key or d7 + 1 frames, d7 being what the printer left
+  ($37A6 + the row: 15 + the text's row); $112E0, and the object goes.
+  Seen at the end of the Tutorial (level 15 is a bonus level).
 - **Push button** ($16048, tick $1609C): the explorer resting exactly at
   its z in its cell: type 7 → word $3616 = $FFFF; types 4-6 → byte $3616
   = (type & 3) + 1; types 0-3 → word $3616 = type.
@@ -719,7 +769,18 @@ is (object z + extra − explorer z) unsigned ≤ reach.
   −8 a tick; at zero: "Die if elapse" (bit 6) → clue 4 and $2492 (the
   explorer dies); else "Elapse Dest" (bits 0-3) like an exit with place
   0. Creating it: absolute (fraction $F0) or, bit 7, added. Its frame
-  prints the seconds right-aligned at column 20, row 6.
+  prints the seconds right-aligned at column 20, row 6 (not with $249E,
+  the overview map). "Die if elapse" also makes its frame handler
+  $153EA ($1537C): the dying kind's countdown $12CE8 on the timer's own
+  record, each frame its word +$2C (flags << 8 | seconds) less 1;
+  negative → game over ($2490 set, $2498 cleared); below $A0 fire
+  (latched) ends it too; then "TIME OUT" ($153F6, column 16, row 6, the
+  small size). With "Relative" (bit 7 of the flags) the word is negative
+  at once: Roller-ama 4's timer ($C306) ends the level loop on the frame
+  it runs out (the record stops at tick 641); without it the explorer's
+  200-tick countdown comes first. With $24FC set (the reserve used, and
+  the explorer not dead since), $12CE8 goes to $12B58 and remakes the
+  timer's record as the explorer's (a quirk, not rebuilt).
 - **Message** ($16002, tick $16028): after `delay` + 1 ticks shows message
   p0 & $1F (once a game, or every time with bit 7); not made in the
   editor's test mode ($24BE).
@@ -842,6 +903,42 @@ it is ($12CE8 → $12B58). Retry: $16D44 and level 1. Abandon: the title.
 A locked world ($1177A) prints "You cannot enter this world yet"
 ($1180A) over the map and waits for fire.
 
+**The planet breaking up** ($11838, before $16B8C records the world):
+$24AC = the world just done, the map made again ($1169A: the speeds
+$166F8/$166FC cleared, the angles $166EC … $166F4 never reset, so the
+map keeps its turn from visit to visit and also turns the Easy/Hard
+thumbnails); $119B4 makes that world's planet kind −7: its create
+($16A86) asks for effect 0 on channel 0 at volume $40 (the effects
+player is still hooked from the level), +$1E = $0400 (4 ticks, entry 0).
+Then $40 − $36B2 + 1 frames (Easy 47, Hard 19) of $11686 (box, angles,
+draw), the frame handlers and the joystick ($168BE), no planet chosen
+(no name, no picture cycling). Its draw ($16ADE): with +$1F (entry) < 4
+the planet's own picture ($16AC8, its size from d6 as the drawing loop
+leaves it), then $10058 over the list $16B38 once, twice more for $36B2
+≥ $10 and ≥ $20 (Easy 2, Hard 3 steps a frame), each step counting +$1E
+down once (twice without slow mode); the list: nine pictures 4 ticks
+each at SELECT.SWP + $35C0 + n × $280 (32 rows, drawn at the planet's x,
+y − 4), then ($FF, the last again), then $FFFF (back to the first). Its
+frame ($16AA6) removes it once +$1E is negative, so after the ninth.
+
+**The endings** ($17CBE, every world of the cluster done): the text over
+the last map frame ($18518 into the shown buffer): Easy $17D74 (a box,
+"Well done!" / "Now try the Hard game."), Hard $17DA7 ("Well done!" at
+column 15, row 30); effect 1 on channels 0-2 at $40 ($17CA0); 151
+frames ($10A1E with $96). Easy: 51 frames more, then fire ($109CC).
+Hard: $17DB8 builds a pixel-doubling table at $40FC, the three effects
+again, then 48 frames: from $17C62 a byte per frame (bit 7 clear: effect
+1 on that channel; frames 24, 31, 36), $16B62 draws picture d0 + 4 of
+the break-up series (d0 = 0-7 in turn; SELECT.SWP + $3840 + (d0 + 3) ×
+$280) at x 144, y 84 of the shown buffer, $17DFC doubles that buffer's
+centre (bytes 10-29 of rows 50-149, each byte through the table, each
+row twice) into the hidden one, which is then shown ($112E0): the
+picture zooms in on itself frame after frame; then 9 frames of the
+doubling alone. The eighth picture lies past the file's end ($5140
+bytes): it comes from whatever the level left in that RAM. Then
+$36B0, $36B4 and $24A8 cleared (the clues kept), tune 1 ($11250), and
+the main loop's title ($18962), which keeps it playing.
+
 ## Text printer ($18518)
 
 All texts are byte strings in main with control codes, printed by one
@@ -928,7 +1025,16 @@ in $2054(a5), when not 0: the music player (module + $94, set by $112A2)
 on the title and menus, the effects player ($344A, set by $1116C) in the
 levels; one at a time. $11250 (d0 & 3) starts a tune (module entry at
 offset 0 with d1 = tune, $1126C), $112B0 stops the music, $11152 resets
-the effects ($3400: requests $FF, channel volumes and DMA off).
+the effects ($3400: requests $FF, channel volumes and DMA off). A level
+leaves the music's state alone: its playing flag (module + $6F9 =
+$439A1) stays set.
+
+**Where the tunes start:** the title ($1772C) starts tune 0 only when
+$6F9 is clear (at boot), so it keeps whatever plays; entering the map
+($1170A) starts tune 2 from its beginning (the cluster choice after it
+does not); after a world tune 2 again ($18A66), heard over the
+statistics and "Next world"; "Abandon this world" tune 3 ($18956); the
+ending tune 1 ($17D6C). Both 3 and 1 go on over the title and menus.
 
 **Effects player** (the file "effects" at $3400). Requests at $36D2:
 bytes +0…+3 the effect asked for per channel ($FF none), words +4…+$A
@@ -1069,6 +1175,13 @@ Kept in the port's original mode unless noted.
 - **Transparent text masks with the usual font** ($18440): the mask
   table comes from bank 1 whatever bank is drawn.
 - **The timer's clamp tests the parameter, not the sum** ($1531A).
+- **The Hard ending reads past SELECT.SWP** ($16B62 with d0 = 10): its
+  eighth picture starts at the file's end, so whatever the level left in
+  that RAM is blitted (the port leaves it out).
+- **A deadly timer after "Use reserve fuel"** ($12CE8 with $24FC set)
+  remakes the timer's own record as the explorer ($12B58).
+- **The reserve message's wait comes from a leftover register** ($151B4:
+  $109E2 counts d7, which the text printer left as height + row).
 - **The secret passage's loop jumps into the clearing loop** ($15422):
   only the bottom cell becomes block 1, the cells above are cleared.
 - **The lift has no clamp at its top**: it can overshoot the top level by
@@ -1158,9 +1271,17 @@ Native checks and tools (`spindizzy_worlds_assets`):
 | w11_1_1354c | 499 | conveyors 497 |
 | hard landing | — | w22_2_1327e first take (dropped from 3 levels): clue 6 ×9 |
 
+- `ending EASY|HARD LAST`: the ending over a cluster's map, a picture
+  every 8 frames and the effects asked (not compared with the original).
+- `drivefile` items `state:FILE` (a saved state) and `kNN` (a matrix key
+  for one frame): the break-up after the Tutorial, the Easy ending from
+  a state with one world left, the overview map.
+- `playcheck` says after a record what the port does next: Roller-ama 4
+  (`play_w9_4`, 641 ticks, recorded until the original stopped ticking)
+  ends in game over at the next tick, as the original does.
+
 ## Not yet traced
 
-Music ($432A8 player) and effects ($3400 player) formats; sd_game.dat;
-level header words +2/+6; the world "setting" word; the creatures' and
-sparks' behaviour; turning the level; the overview map; the statistics
-screen, the reserve-fuel offer and the ending; the panel's clue boxes.
+sd_game.dat; level header words +2/+6; the world "setting" word; the
+overview map's 16 passes; the break-up and the endings against the
+original; tunes 1 and 3.

@@ -57,6 +57,13 @@ rate apart from drawing.
    object's rotate handler; the keys F, c and p; the game-over offer;
    the statistics screen; the timer's seconds; the locked-world message.
    Records: 12 runs equal tick for tick (game.md, "Evidence").
+7. **Sound, music, world end and the endings** (2026-10-29): the effects
+   and music players (`sound/`), each tune started where the original
+   starts it; the done planet breaking up on the map, the Easy and Hard
+   endings; the deadly timer's end; the dying explorer's frames and
+   "Game  Over"; "Reserve fuel collected"; the overview map (m) and the
+   plain pause ([). 13 runs equal tick for tick, both tunes over 1,500
+   ticks.
 
 ## Remaining tasks
 
@@ -77,17 +84,20 @@ rate apart from drawing.
       tick); Spindizzy! 1/2 equal, a touch to game over in `play_w22_1s`.
 - [x] Turning the level (r/t; the builder's offset table $125A8 makes
       blocks and objects agree), traced in `play_turn`.
-- [x] Keys F (slow mode), c (centre), p (pause, dimmed). Not done: [ (pause
-      without dimming) and the overview map m ($1135A/$18DC6).
-- [ ] The deadly timer's end: after it runs out (Roller-ama 4, tick 641)
-      the original runs no more rules ticks (its frame handler $153EA runs
-      the dying routine $12CE8 on the timer's own record); the port keeps
-      the explorer's 200-tick dying phase. Read $12CE8 with a4 = timer.
+- [x] Keys F (slow mode), c (centre), p (pause, dimmed), [ (pause without
+      dimming), m (the overview map, $1135A/$18DC6, with its 16 passes of
+      the frame handlers).
+- [ ] The overview map traced (a record with K6d and fire on the same
+      tick: its 16 frame-handler passes change the animations and can
+      clear the generator).
+- [x] The deadly timer's end ($153EA runs $12CE8 on the timer's record):
+      Roller-ama 4 ends in game over right after tick 641 as the original
+      does (`playcheck` now says what the port does after a record).
 - [x] Game over: the reserve-fuel offer ($18C14) with its three outcomes.
-- [ ] The dying kind's frames ($12D14 list, "Game over" text $12D68) and
-      the timer's "Die if elapse" frame ($153EA, see the timer's end).
-- [ ] The exit's "Reserve fuel collected" message ($15186) (kind −9's
-      notice is done).
+- [x] The dying kind's frames (list $12D56) and "Game  Over" ($12D68),
+      "TIME OUT" ($153F6).
+- [x] "Reserve fuel collected" with the per cent added ($15186); seen at
+      the end of the Tutorial (its level 15 is a bonus level).
 - [ ] The space-bar brake traced.
 - [ ] Palette objects (kind 16, unused by the levels) and $207E fades.
 
@@ -95,14 +105,19 @@ rate apart from drawing.
 
 - [x] The statistics screen ($16DA4) after a world and for "Check
       performance".
-- [ ] The disintegrating planet on the map after a world ($11838, kind −7,
-      frames SELECT.SWP + $35C0, list $16B38) and the ending when every
-      world is done ($17CBE).
+- [x] The done planet breaking up on the map after a world ($11838, kind
+      −7, list $16B38) and the endings when every world is done ($17CBE:
+      Easy's message, Hard's blown-up screen); the map's angles kept
+      between visits ($166EC is never reset).
+- [ ] The endings and the break-up compared with the original (needs a
+      record that finishes a cluster, or $24AE poked to one world left).
 - [x] Saves between worlds as the original keeps them (the cluster, worlds
       done and their records, clues, slow mode) in the shell's format
       (`write_state`/`read_state`); the menu's "Save game state", "Load
-      saved game" and "Save game" after a world use a slot in it; a load
-      goes back to the world map.
+      saved game" and "Save game" after a world use a slot in it. A menu
+      load shows the statistics, then the menu ($18AD0); "Save game"
+      after a world shows its menu again ($18CC6); the shell's load goes
+      to the world map.
 - [ ] Wind back world ($36B0 − 2) and Create Data disk (decide whether to
       keep them).
 - [x] The panel's clue boxes ($1635E/$163BE), equal in every record.
@@ -120,13 +135,14 @@ rate apart from drawing.
 - [ ] Effects not traced yet: the timer ticks, switch pads, creature
       touches, boink bounces, heads, sparks, pyramids; the sample-level
       output against a recording of the original's audio.
-- [x] Music: the player rebuilt (`sound/music`); tune 0 on the title and
-      menus, the map's tune on the cluster choice and map; both equal to
-      the original over 1,500 ticks (`musiccheck`).
-- [ ] Music still to place: tune 3 ($18958, after "Abandon") and tune 1
-      (not seen yet); the music after a world ($18A6A); the attract's tune
-      kept over a restart ($6F9 of the module); compare the sample output
-      with a recording of the original's audio.
+- [x] Music: the player rebuilt (`sound/music`); tunes 0 and 2 equal to
+      the original over 1,500 ticks (`musiccheck`). Started where the
+      original starts them: 0 by the title only when none plays (the
+      module's flag $6F9), 2 on entering the map ($1170A) and after a
+      world ($18A6A), 3 after "Abandon this world" ($18956), 1 after the
+      ending ($17D6C); the title keeps 3 or 1.
+- [ ] Tunes 1 and 3 compared with the original (`sdw.py musictrace`), and
+      the sample output with a recording of the original's audio.
 
 ### Enhancements (optional, off by default)
 
@@ -154,9 +170,23 @@ rate apart from drawing.
   top without its lift, the clue boxes; of the Tutorial, levels 6, 7 and
   14 played through (their buttons, lifts, gates) and level 5's
   switches (only played natively).
-- The bonus notice and clue texts are drawn over the live picture; the
-  original prints them once into the shown buffer (the same picture
-  while the game waits).
+- The bonus notice, clue texts and "Reserve fuel collected" are drawn over
+  the live picture; the original prints them once into the shown buffer
+  (the same picture while the game waits).
+- The Hard ending's eighth picture ($16B62 with d0 = 10, SELECT.SWP +
+  $5140) lies past the file: the original blits whatever the level left
+  in that RAM; the port leaves it out.
+- The breaking planet's picture under its first four frames is drawn at
+  the size of its own depth; $16AC8 uses d6 as the drawing loop leaves
+  it (not traced).
+- A deadly timer running out after "Use reserve fuel" ($24FC set): $12CE8
+  would remake the timer's record as the explorer ($12B58); not rebuilt.
+- The reserve message's wait ends on fire only; the original's $109E2
+  also ends on any key.
+- The [ key: the shell's key matrix has no [ (the module listens on '@',
+  matrix 46, which the host does not map yet; a shared change).
+- The fire tests of the dying countdown and waits read the held button;
+  the original reads the latched press ($10A63 bit 7).
 
 ## Open research items
 

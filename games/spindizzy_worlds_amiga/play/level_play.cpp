@@ -7,6 +7,7 @@ namespace {
 
 constexpr std::uint32_t arrival_list = 0x12AF2; // kind −3's frames ($12B04)
 constexpr std::uint32_t lost_list = 0x12DB8;    // kind −2's frames ($12DB0)
+constexpr std::uint32_t dying_list = 0x12D56;   // the dying kind's frames ($12D1A)
 constexpr std::uint32_t fuel_cost_tables = 0x10DFE; // $10E5E: difficulty 0, < 6, < 16, more
 constexpr int arrival_time = 0x0B;              // $12B48: +$2C, counted below 0
 constexpr int lost_time = 0x18;                 // $12D8E
@@ -172,6 +173,7 @@ void LevelPlay::die(const Death& death) {
 }
 
 void LevelPlay::tick(std::uint8_t joystick) {
+    joystick_ = joystick;
     auto& p = progress_;
     auto& e = p.explorer;
     switch (phase_) {
@@ -203,6 +205,7 @@ void LevelPlay::tick(std::uint8_t joystick) {
             p.timer_expired = true;
             phase_ = ExplorerPhase::out_of_fuel;
             phase_ticks_ = dying_time;
+            stepper_ = {}; // $12CC6: +$1E = $100
         } else {
             Ground ground{level_.grid, surfaces_, level_flags_, p.switches};
             move_explorer(e, joystick, ground, events);
@@ -215,6 +218,10 @@ void LevelPlay::tick(std::uint8_t joystick) {
     if (phase_ == ExplorerPhase::playing) settle_explorer(e, events);
     if (happened.clue >= 0) show_clue(happened.clue, happened.clue_always);
     if (happened.fuel_cost) add_whole(p.fuel_change, -happened.fuel_cost);
+    if (happened.timer_death) {
+        timer_dying_ = true;
+        timer_word_ = happened.timer_word;
+    }
     p.sounds.insert(p.sounds.end(), happened.sounds.begin(), happened.sounds.end());
     // $11208: channel 2 for the loudest object heard; its volume each
     // tick, the effect when the object or effect changed; none: silent.
@@ -246,6 +253,7 @@ void LevelPlay::tick(std::uint8_t joystick) {
             p.level = happened.travel->level;
             p.arrival_place = happened.travel->place;
             running_ = false;
+            reserve_message_ = happened.travel->reserve_fuel_message;
         }
     }
     if (!events.deaths.empty() && phase_ == ExplorerPhase::playing) die(events.deaths.back());
@@ -282,6 +290,7 @@ void LevelPlay::revive() {
     p.reserve_at_start = 0;
     p.game_over = false;
     p.timer_expired = false;
+    timer_dying_ = false;
     auto& e = p.explorer; // $12B2E
     e.timer_a = e.timer_b = 0;
     e.arrival_ticks = arrival_flash;
@@ -345,24 +354,7 @@ void LevelPlay::frame(bool slow) {
         }
         p.clue_word = found;
     }
-    objects_->frame(assets_.main, slow, camera_);
-    // $102F6 / $101FE: a sprite drawn through a mask buffer at $2098 (the
-    // explorer and every creature) whose corner is on a 16-pixel boundary
-    // starts its blit one word early; with its y on an 8-row band and its
-    // top not clipped that word is $2096, the generator's state word,
-    // which becomes 0. An original bug, kept: it steers the Pacs' turns.
-    auto clears = [&](const view::SpritePlace& at) {
-        const bool wide = at.key == 1;
-        const int across = at.x - camera_.scroll_x + (wide ? 0x20 : 0x10); // $10138 / $100A8
-        const int down = at.y - camera_.scroll_y;                          // $1072A
-        return across > 0 && across < (wide ? 0x140 : 0x130) && down >= 0 && down < 0xA7 && (at.x & 15) == 0 &&
-               (at.y & 7) == 0;
-    };
-    auto explorer_at = view::explorer_place({e.x, e.y, e.z});
-    explorer_at.key = 0;
-    bool cleared = clears(explorer_at);
-    for (const auto& at : objects_->masked_creature_places(assets_.main)) cleared = cleared || clears(at);
-    if (cleared) p.random &= 0xFFFF0000u;
+    frame_handlers(camera_, slow);
     // $162FE: a condition met while building changed: build again where
     // the explorer is ($11FF0 with $24C0 = $4000).
     for (std::size_t i = 0; i < level_.conditions.size(); ++i) {
@@ -371,6 +363,41 @@ void LevelPlay::frame(bool slow) {
             break;
         }
     }
+}
+
+void LevelPlay::frame_handlers(const view::Camera& camera, bool slow) {
+    auto& p = progress_;
+    const auto& e = p.explorer;
+    objects_->frame(assets_.main, slow, camera);
+    // $153EA: the run-out timer's frame runs the dying kind's countdown
+    // $12CE8 on its own record: its word +$2C (flags and seconds) less 1;
+    // negative (with "Relative", bit 15, at once) the game is over, below
+    // $A0 fire ends it. ($12CE8 with $24FC set, the reserve used, would
+    // instead remake the timer's record as the explorer: not rebuilt.)
+    if (timer_dying_ && running_) {
+        timer_word_ = std::uint16_t(timer_word_ - 1);
+        if (std::int16_t(timer_word_) < 0 || (timer_word_ < 0xA0 && (joystick_ & stick::fire))) {
+            p.game_over = true;
+            running_ = false;
+        }
+    }
+    // $102F6 / $101FE: a sprite drawn through a mask buffer at $2098 (the
+    // explorer and every creature) whose corner is on a 16-pixel boundary
+    // starts its blit one word early; with its y on an 8-row band and its
+    // top not clipped that word is $2096, the generator's state word,
+    // which becomes 0. An original bug, kept: it steers the Pacs' turns.
+    auto clears = [&](const view::SpritePlace& at) {
+        const bool wide = at.key == 1;
+        const int across = at.x - camera.scroll_x + (wide ? 0x20 : 0x10); // $10138 / $100A8
+        const int down = at.y - camera.scroll_y;                          // $1072A
+        return across > 0 && across < (wide ? 0x140 : 0x130) && down >= 0 && down < 0xA7 && (at.x & 15) == 0 &&
+               (at.y & 7) == 0;
+    };
+    auto explorer_at = view::explorer_place({e.x, e.y, e.z});
+    explorer_at.key = 0;
+    bool cleared = clears(explorer_at);
+    for (const auto& at : objects_->masked_creature_places(assets_.main)) cleared = cleared || clears(at);
+    if (cleared) p.random &= 0xFFFF0000u;
 }
 
 void LevelPlay::rebuild(bool reopen) {
@@ -398,7 +425,7 @@ std::uint32_t LevelPlay::explorer_frame(const data::Memory& main, bool slow) {
     switch (phase_) {
     case ExplorerPhase::arriving: return view::explorer_frames + stepper_.advance(main, arrival_list, slow);
     case ExplorerPhase::lost: return view::explorer_frames + stepper_.advance(main, lost_list, slow);
-    case ExplorerPhase::out_of_fuel: return view::explorer_frames; // $12D14's list (not rebuilt yet)
+    case ExplorerPhase::out_of_fuel: return view::explorer_frames + stepper_.advance(main, dying_list, slow); // $12D14
     case ExplorerPhase::playing: break;
     }
     // $1490A: the spin counter steps once a frame (twice without slow

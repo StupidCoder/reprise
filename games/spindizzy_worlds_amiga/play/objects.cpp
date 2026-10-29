@@ -464,8 +464,9 @@ void LevelObjects::tick_timer(LevelObject& o, ObjectWorld& w, ObjectEvents& even
     if (flags & 0x40) { // "Die if elapse"
         events.clue = 4;
         events.timer_death = true;
+        events.timer_word = o.word2c;
         w.timer_expired = true;
-        o.alive = false; // its tick and frame become the dying routines (not rebuilt)
+        o.alive = false; // its frame handler becomes $153EA (LevelPlay::frame)
         return;
     }
     // "Elapse Dest" ($150D0): the timer travels like an exit at place 0.

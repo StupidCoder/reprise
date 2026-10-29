@@ -36,6 +36,7 @@
 #include "platform/host.hpp"
 #include "spindizzy_worlds_amiga/data/assets.hpp"
 #include "spindizzy_worlds_amiga/data/preview.hpp"
+#include "spindizzy_worlds_amiga/game/front_end.hpp"
 #include "spindizzy_worlds_amiga/game/module.hpp"
 #include "spindizzy_worlds_amiga/import/disk_import.hpp"
 #include "spindizzy_worlds_amiga/play/explorer.hpp"
@@ -443,6 +444,13 @@ int play_check(const spindizzy::data::Assets& assets, const std::filesystem::pat
         }
     }
     std::printf("%d ticks equal over %d level%s\n", compared, levels, levels == 1 ? "" : "s");
+    // A record that stops without "end" ran out of ticks or the original
+    // stopped ticking (its level loop over): say what the port does next.
+    if (!lp->ended()) {
+        lp->tick(0);
+        lp->frame(true);
+    }
+    if (lp->ended()) std::printf("the port's level loop is over after the record%s\n", progress.game_over ? " (game over)" : "");
     if (sound)
         for (int c = 0; c < 4; ++c) {
             auto show = [](const std::vector<int>& v) { std::string t; for (int e : v) t += std::to_string(e) + " "; return t; };
@@ -766,7 +774,9 @@ int main(int argc, char** argv) {
         }
         if (command == "drivefile" && argc == 5) {
             // drivefile <content> <out folder> <file>: BITS:FRAMES items from
-            // a file; "!" saves a picture (shotNN.png), the last frame too.
+            // a file; "!" saves a picture (shotNN.png), the last frame too;
+            // "state:<file>" loads a saved state; "kNN" holds matrix key NN
+            // for one frame.
             auto module = spindizzy::game::start(platform::utf8_path(argv[2]));
             const auto out = platform::utf8_path(argv[3]);
             std::filesystem::create_directories(out);
@@ -787,6 +797,18 @@ int main(int argc, char** argv) {
             };
             while (items >> item) {
                 if (item == "!") { shot(); continue; }
+                if (item.rfind("state:", 0) == 0) { // a saved state loaded here
+                    std::ifstream in(item.substr(6), std::ios::binary);
+                    const std::vector<std::uint8_t> bytes{std::istreambuf_iterator<char>(in), {}};
+                    module->read_state(bytes);
+                    continue;
+                }
+                if (item[0] == 'k') { // a key of the C64 matrix held for one frame
+                    app::GameInput input;
+                    input.c64_keys[std::size_t(std::stoi(item.substr(1)))] = true;
+                    run(input);
+                    continue;
+                }
                 const int bits = std::stoi(item.substr(0, item.find(':')), nullptr, 16);
                 const int frames = std::stoi(item.substr(item.find(':') + 1));
                 app::GameInput input;
@@ -803,6 +825,33 @@ int main(int argc, char** argv) {
                 u32(16); u16(1); u16(2); u32(44100); u32(44100 * 4); u16(4); u16(16);
                 wav.write("data", 4); u32(std::uint32_t(sound.size() * 2));
                 for (float v : sound) u16(std::uint16_t(std::int16_t(std::max(-1.0f, std::min(1.0f, v)) * 32767)));
+            }
+            return 0;
+        }
+        if (command == "ending" && argc == 6) {
+            // ending <content> <out folder> <easy|hard>: the ending ($17CBE)
+            // over the cluster's map with every world done; a picture every
+            // 8 frames (endingNNN.png, NNN the frame) and the effects asked.
+            const auto assets = spindizzy::data::load_assets(platform::utf8_path(argv[2]));
+            const auto out = platform::utf8_path(argv[3]);
+            std::filesystem::create_directories(out);
+            const bool easy = std::string(argv[4]) == "easy";
+            spindizzy::game::WorldMap map(assets, easy, 0, {});
+            spindizzy::view::Screen shown;
+            map.draw(shown);
+            spindizzy::game::Ending ending(assets, shown, easy);
+            const int last = std::stoi(argv[5]);
+            for (int frame = 0; frame <= last; ++frame) {
+                for (const auto& r : ending.sounds) std::printf("frame %d: channel %d effect %d volume $%X\n", frame, r.channel, r.effect, r.volume);
+                ending.sounds.clear();
+                if (frame % 8 == 0 || frame == last) {
+                    spindizzy::view::Screen s;
+                    ending.draw(s);
+                    char name[32];
+                    std::snprintf(name, sizeof name, "ending%03d.png", frame);
+                    platform::save_png(s.image(), out / name);
+                }
+                if (ending.frame(frame == last ? 0x80 : 0)) { std::printf("over after frame %d\n", frame); break; }
             }
             return 0;
         }
