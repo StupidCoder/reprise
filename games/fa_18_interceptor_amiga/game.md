@@ -1251,6 +1251,84 @@ towards (70, 65), so it sails (the object step for moving objects), and
 the list has mission 3's other objects (the bogey; type 6 entries).
 Menu item 1 therefore waits for the missions' objects (task 11).
 
+### The maneuvers (menu items 3 and 4, 2026-10-29)
+
+**The demo (item 3, mode 2)** (`$102190`): the object list for mode 2
+(`$11E032`) has the carrier and an F-16 (type 3 shape, type byte $10) in
+record 4 on path $2E (cells 73, 78, height 12,288 << 8); the spawner
+(`$11D318`) gives it the gear up, speed and airspeed $2000, level
+angles, +$64 = $10. The view and the panel follow record 4 (`$13ABCC` 4,
+`$13ABCE` $800): outside, position 3, distance 1; record 4's +2 bit 0
+is set (`$1021DA`). The screen fades in (`$1023C2`), the check
+(`$1027C8`) and briefing 9 (`$102452`, until typed or a key), then the
+flight starts without a "ready" text (`$102DB8`: `$13AAD0` $FF;
+`$102E4E` sets `$13AA83`), three frames, the beep.
+
+Record 4's training step (`$1172AA`, in the object step before its
+autopilot): the maneuver number `$13AA89` runs 1-7, each with 8 bytes
+at `$11756A`: a long whose low byte is the camera's position and next
+byte its distance (only set from outside), and a long $800000nn: the
+role nn written to +5 (`$11744C`, `$14508A` marking it started). When
+the role is back at 0 the control byte's stick bits go and the next
+maneuver follows in the same frame (`$11739C`, `$117478`: its name from
+`$117522` + 8n + 2 in the message line - $17 AILERON ROLL, $1A, $19,
+$1B, $2B, $18 BARREL ROLL, $1C - or $35 "TOO LOW FOR SPLIT-S" for the
+split-S below height $100000); after the seventh the objects are spawned
+again. The first frame (`$117354`) sets the throttle to $60 and the
+engine's start. Return asks for the next maneuver (`$10E8EA` sets the
+player record's +2 bit 3; `$1172FE` respawns the objects and moves on).
+Esc starts the selection again as the practice (`$101AF4`: mode 2
+becomes $7D).
+
+**The autopilot** (`$120B6E`, also the missions' aircraft): the record's
+role byte +5 selects a handler (jump table `$1202D4`, 40 roles; Ghidra
+reads the table as code, so this part was read from the disassembly).
+Each frame: the timer +$4C counts down in the object step (`$1179A4`),
+then the handler sets the control byte +$65 and may move on to the next
+role in the same frame. The maneuvers' roles:
+
+| Maneuver | Roles | What they do |
+|---|---|---|
+| aileron roll ($0B) | 11, 12, 13 | clear the progress bits (+$20 bits 3, 4), 15 frames wings level (+3 bit 4), a full roll at rate 800 (`$121432`[8]), let go within 22.5° of level |
+| inside loop ($0E) | 14, 15, 16 | the same start, pull at -400 (`$12141C`[6]) round the loop until the nose is up again |
+| split-S ($11) | 17, 18, 19, 15, 16 | only above height $100000; roll inverted, then the loop's pull (2 frames' pause) |
+| vertical half loop ($14) | 20, 21, 22, 13 | pull up past the vertical, then the roll to level |
+| barrel roll ($17) | 23, 24, 25 | roll at 720 and pull at -480 together (`$12135E` keeps the roll) |
+| inverted flight ($1A) | 26, 27, 28, 30, 31, 33, 34, 22, 13 | roll inverted, nose up to the horizon and down again, then the half loop's end |
+| break turn ($27) | 39, 40, 2, 7 | to the nearest knife edge (90° / 270°), then pull at -320 for 32 frames |
+| (practice's start, $23) | 35-38 | throttle to $60, at airspeed $840 a minute's wait, pull to 32° up, level at height $240000 |
+
+A maneuver ends at `$120A74`: a record with +2 bit 0 (the trainer)
+waits in role 10 ($24 frames with `$13AA83` set, else $3C) and lets go
+(role 0, the stick released, `$120B58`); in practice, while waiting for
+the trigger (`$13AA8A` negative), it flies on in role 6. The helpers:
+`$12126E` rolls (bit 3 for a positive rate, bit 2 for a negative one,
+the pitch and rudder bits released), `$121362` pulls or pushes while the
+pitch rate +$56 is short of the wanted one (`$12135E` keeping the roll
+bits); every handler that steers sets +$64 bit 4 (`$1213FC`). In the
+attitude step (`$121D4C`) roles 6 and 10 roll the wings level by the
+frame's starting roll (side bits 4 / 8, none within 3.5°), for the next
+frame. The record then flies by the player's own input, attitude and
+velocity steps with two differences for records other than 0: the
+response table is `$132834` unless +2 bit 0 is set (`$10557C`), and the
+pitch rate eases off by `$105B7A(…, 1)` instead of 2 when the stick is
+let go; the flight step's +$4C count of 2 a frame is the player's only.
+
+Checked: `fa_18_interceptor_assets trainercheck` steps record 4 from
+each frame of the original's maneuvers' demo (`work/ref/man.jsonl`,
+maneuvers 2-7, `flightcap.py --objs`) - all 699 frames equal (role,
+timer, control byte, +$64, +$20, position, angles, speed).
+
+**The practice (item 4, $7D)** - read, not yet built: the player on
+runway 3 with the camera's descent (`$102202`), record 4 a copy of the
+player's record with the F-16's shape (`$11D0AA`), alive once the
+player moves (`$1172AA`), flying role 35-38's climb, then "TRIGGER FOR:
+<maneuver>" (`$117522` + 8n); the player's trigger (`$10F0B6`: record
+4's +2 bit 3) makes record 4 fly it; Return puts the player beside
+record 4 again (`$117170`: its record copied, offset (9, 1, -97)). A
+dead leftover (`$117254`) once recorded the player's control bytes into
+the maneuvers' scripts ("PATTERN EXHAUSTED" after $1FD frames).
+
 ### Qualification (menu item 5, 2026-10-29)
 
 Mode 9 (`$102252`): the carrier's catapult (free flight's object list,

@@ -329,6 +329,7 @@ add_library(fa_18_interceptor_amiga
     games/fa_18_interceptor_amiga/data/shapes.cpp
     games/fa_18_interceptor_amiga/data/world.cpp
     games/fa_18_interceptor_amiga/game/aircraft.cpp
+    games/fa_18_interceptor_amiga/game/autopilot.cpp
     games/fa_18_interceptor_amiga/game/attitude.cpp
     games/fa_18_interceptor_amiga/game/carrier.cpp
     games/fa_18_interceptor_amiga/game/weapons.cpp

@@ -40,6 +40,7 @@
 #include "fa_18_interceptor_amiga/data/shapes.hpp"
 #include "fa_18_interceptor_amiga/data/world.hpp"
 #include "fa_18_interceptor_amiga/game/aircraft.hpp"
+#include "fa_18_interceptor_amiga/game/autopilot.hpp"
 #include "fa_18_interceptor_amiga/game/replay.hpp"
 #include "fa_18_interceptor_amiga/game/carrier.hpp"
 #include "fa_18_interceptor_amiga/game/cockpit.hpp"
@@ -775,6 +776,83 @@ int demo_check(const std::filesystem::path& content, const std::filesystem::path
     return matched == compared ? 0 : 1;
 }
 
+// --- trainercheck ---------------------------------------------------------------
+
+// Research: steps record 4, the maneuvers' trainer, from each frame of a
+// `flightcap.py --objs` recording of the maneuvers' demo: its timer, the
+// next maneuver's first role where the original started one (`$11756A`),
+// the autopilot and the flight step, and compares the next frame.
+int trainer_check(const std::filesystem::path& content, const std::filesystem::path& capture) {
+    using namespace interceptor;
+    const auto assets = data::load_assets(content);
+    const auto tables = game::read_flight_tables(assets.program);
+    const game::Autopilot autopilot(assets.program);
+    struct Line {
+        Frame frame;
+        std::vector<std::uint8_t> trainer;
+    };
+    std::vector<Line> lines;
+    std::ifstream in(capture);
+    for (std::string text; std::getline(in, text);) {
+        if (text.empty()) continue;
+        Line l;
+        l.frame.number = std::stoi(text.substr(text.find("\"frame\": ") + 9));
+        l.frame.globals = hex_field(text, "glob");
+        const auto objs = hex_field(text, "objs");
+        l.trainer.assign(objs.begin() + 3 * 0x200, objs.begin() + 4 * 0x200);
+        l.frame.object = l.trainer;
+        lines.push_back(std::move(l));
+    }
+    int matched = 0, compared = 0;
+    for (std::size_t k = 0; k + 1 < lines.size(); ++k) {
+        const auto& now = lines[k];
+        const auto& next = lines[k + 1];
+        if (next.frame.number != now.frame.number + 1) continue;
+        const Record o{now.trainer}, want_o{next.trainer}, g{now.frame.globals}, gn{next.frame.globals};
+        if (!(o.u8(1) & 0x40)) continue;
+        auto a = aircraft_from(now.frame);
+        a.player = false;
+        std::uint8_t pilot = o.u8(0x64);
+        // $1172AA: a new maneuver's first role.
+        if (a.role == 0 && want_o.u8(5) != 0) {
+            const int m = gn.u8(0x13AA89 - 0x13A9E0);
+            a.role = std::uint8_t(assets.program.u32(0x11756A + std::uint32_t(8 * m) + 4) & 0xFF);
+        }
+        a.timer = std::int16_t(a.timer - 1); // ($1179A4)
+        game::PilotWorld world;
+        world.mode = g.u8(0x13AB96 - 0x13A9E0);
+        world.practice_ready = std::int8_t(g.u8(0x13AA8A - 0x13A9E0)) < 0;
+        world.practice = g.u8(0x13AA83 - 0x13A9E0) != 0;
+        autopilot.fly(a, pilot, world);
+        game::FlightRules rules;
+        rules.stall_model = g.u8(0x13AA74 - 0x13A9E0) != 0;
+        rules.bank_turns = g.u8(0x13AA7F - 0x13A9E0) != 0;
+        rules.flying = (g.u16(0x13ABBC - 0x13A9E0) & 0x40) != 0;
+        rules.ceiling = g.s32(0x13A9EA - 0x13A9E0);
+        game::FlightControls c;
+        c.recorded = a.controls;
+        const auto roll_before = a.attitude.roll;
+        game::fly(a, c, rules, tables);
+        game::Autopilot::level_out(a, roll_before);
+        const auto want = aircraft_from(next.frame);
+        std::string diff;
+        const auto check = [&](const char* name, long got, long expected) {
+            if (got != expected) diff += std::string(" ") + name + " " + std::to_string(got) + "/" + std::to_string(expected);
+        };
+        check("role", a.role, want.role); check("timer", a.timer, want.timer);
+        check("ctl", a.controls, want.controls); check("pilot", pilot, want_o.u8(0x64));
+        check("x", a.x, want.x); check("y", a.y, want.y); check("z", a.z, want.z);
+        check("pitch", a.attitude.pitch, want.attitude.pitch); check("heading", a.attitude.heading, want.attitude.heading);
+        check("roll", a.attitude.roll, want.attitude.roll); check("speed", a.speed, want.speed);
+        check("h20", a.handling, want.handling);
+        ++compared;
+        if (diff.empty()) ++matched;
+        else std::printf("frame %d role %d:%s\n", next.frame.number, o.u8(5), diff.c_str());
+    }
+    std::printf("%d of %d frames match\n", matched, compared);
+    return matched == compared ? 0 : 1;
+}
+
 // --- hudcheck ------------------------------------------------------------------
 
 // Research: draws the cockpit for given readings and compares the head-up
@@ -961,6 +1039,9 @@ int main(int argc, char** argv) {
         }
         if (command == "fly" && argc >= 5) {
             return fly_script(platform::utf8_path(argv[2]), argv[3], argc - 4, argv + 4);
+        }
+        if (command == "trainercheck" && argc == 4) {
+            return trainer_check(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]));
         }
         if (command == "democheck" && argc == 4) {
             return demo_check(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]));

@@ -3,6 +3,7 @@
 #include "fa_18_interceptor_amiga/data/preview.hpp"
 #include "fa_18_interceptor_amiga/data/world.hpp"
 #include "fa_18_interceptor_amiga/game/aircraft.hpp"
+#include "fa_18_interceptor_amiga/game/autopilot.hpp"
 #include "fa_18_interceptor_amiga/game/carrier.hpp"
 #include "fa_18_interceptor_amiga/game/cockpit.hpp"
 #include "fa_18_interceptor_amiga/game/front_end.hpp"
@@ -33,6 +34,8 @@ constexpr int end_text_fa18 = 99;     // "HEY ROOKIE, F/A-18'S DON'T GROW ON TRE
 constexpr int end_text_f16 = 98;      // the same for the F-16 ($103A06)
 constexpr int ready_text = 89;        // "READY FOR TAKEOFF"
 constexpr int launch_text = 90;       // "READY TO LAUNCH" (on the carrier, $102E10)
+constexpr int maneuvers_text = 9;     // "BASIC FLIGHT MANEUVERS - PART 1" ($102488)
+constexpr int practice_text = 10;     // "... PART 2" ($102496)
 constexpr int qualification_text = 73; // the qualification's briefing ($101CDA)
 constexpr int landed_text = 74;       // "LANDING SUCCESSFUL ... YOU ARE NOW QUALIFIED" ($1032D6)
 constexpr int menu_hint_text = 83;    // "(SHIFT ESC) TO RETURN TO MAIN MENU"
@@ -153,8 +156,17 @@ public:
             sounds_.update(aircraft_);
             return;
         }
-        if (flying_) fly_tick(input);
-        else remember_keys(input);
+        if (flying_ && mode_ == FlightMode::maneuvers) {
+            // ($10E8EA: Return in mode 2 asks for the next maneuver.)
+            if (pressed(key::return_key)) skip_maneuver_ = true;
+            view_keys(input);
+            remember_keys(input);
+            trainer_tick();
+        } else if (flying_) {
+            fly_tick(input);
+        } else {
+            remember_keys(input);
+        }
         sounds_.warn(messages_.update(aircraft_));
         sounds_.update(aircraft_);
     }
@@ -426,6 +438,10 @@ private:
             begin_qualification(start.again);
             return;
         }
+        if (mode_ == FlightMode::maneuvers) {
+            begin_maneuvers(start.again);
+            return;
+        }
         fade_ = 15;
         place_ = start.place;
         aircraft_type_ = start.aircraft;
@@ -472,6 +488,139 @@ private:
         replay_game_ = replay_view_ = 0;
         replay_ended_ = false;
         phase_ = Phase::fade_in;
+    }
+
+    // The maneuvers' demo ($102190): the trainer (record 4, the object list
+    // of mode 2) flies them, seen from outside (position 3, distance 1); the
+    // screen fades in, briefing 9 (also after Esc: there is no check of
+    // `$13AB1B` here), then the flight with no "ready" text.
+    void begin_maneuvers(bool again) {
+        (void)again;
+        place_ = 0;
+        aircraft_type_ = 0x10; // (the trainer's shape: the F-16's)
+        aircraft_left_ = 3;
+        text_.clear();
+        sounds_.set_active(true);
+        restart();
+        spawn_trainer();
+        before_ = aircraft_;
+        flying_ = false;
+        ready_done_ = true;
+        outside_ = true;
+        above_ = false;
+        position_ = 3;
+        distance_ = 1;
+        chase_set_ = false;
+        look_ = 0;
+        zoom_ = 0x80;
+        maneuver_ = 0;
+        maneuver_started_ = false;
+        skip_maneuver_ = false;
+        maneuvers_running_ = false;
+        brief_ = true;
+        fade_ = 0;
+        fade_ticks_ = 0;
+        briefing_key_ = false;
+        phase_ = Phase::fade_in;
+    }
+
+    // $11D318 for mode 2's second entry: the F-16 in record 4 on path $2E,
+    // at its height with the gear up, speed $2000, level; the training's
+    // flag (+2 bit 0) set ($1021DA).
+    void spawn_trainer() {
+        const auto& m = assets_.program;
+        const std::uint32_t path = 0x11DDC0 + std::uint32_t(m.s16(0x11DDC0 + 0x2E));
+        Aircraft a = start_at_place(m, tables_, 0);
+        a.x = (m.s16(path) << 22) + (m.s16(path + 4) << 8);
+        a.z = (m.s16(path + 2) << 22) + (m.s16(path + 6) << 8);
+        a.y = m.s16(path + 8) << 8;
+        a.attitude = {0, 0, 0};
+        a.body = body_matrix(tables_, a.attitude);
+        a.view = view_matrix(tables_, a.attitude);
+        a.type = 0x10;
+        a.player = false;
+        a.state = 0x10C8 | 0x0140;
+        a.motion = 0x0100;
+        a.surface = 0;
+        a.gear = 0xE0;
+        a.speed = a.airspeed = 0x2000;
+        a.vx = a.vy = a.vz = 0;
+        a.throttle = 0x60;
+        a.role = 0;
+        a.timer = 0;
+        aircraft_ = a;
+        trainer_pilot_ = 0x10;
+    }
+
+    // $1172AA for mode 2: the maneuvers one after the other ($11756A), the
+    // trainer's role set to each and waited for; Return skips to the next
+    // one; after the seventh the trainer starts again from its place.
+    void training_step() {
+        if (!maneuvers_running_) return; // ($13AA83, from the flight's start)
+        const auto& m = assets_.program;
+        if (skip_maneuver_) {
+            skip_maneuver_ = false;
+            spawn_trainer();
+            next_maneuver();
+        } else if (maneuver_ == 0) {
+            // ($117354: the first frame: the engine's start, then on.)
+            aircraft_.throttle = 0x60;
+            sounds_.event(EngineSound::start);
+            next_maneuver();
+        }
+        for (int guard = 0; guard < 2; ++guard) {
+            if (!maneuver_started_) {
+                aircraft_.role = std::uint8_t(m.u32(0x11756A + std::uint32_t(8 * maneuver_) + 4) & 0xFF);
+                maneuver_started_ = true;
+                aircraft_.motion &= ~0x0800;
+                return;
+            }
+            if (aircraft_.role != role::none) return;
+            // Done: the next one ($11739C, $1173EA).
+            aircraft_.controls &= 0xC3;
+            if (maneuver_ >= 7) spawn_trainer();
+            next_maneuver();
+        }
+    }
+
+    // $117478: the next maneuver (1-7 round), the camera's place for it,
+    // its name in the message line ("TOO LOW FOR SPLIT-S" when so).
+    void next_maneuver() {
+        const auto& m = assets_.program;
+        maneuver_ = maneuver_ >= 7 ? 1 : maneuver_ + 1;
+        maneuver_started_ = false;
+        aircraft_.controls = 0;
+        const std::uint32_t view = m.u32(0x11756A + std::uint32_t(8 * maneuver_));
+        position_ = int(view & 0xFF);
+        if (outside_) {
+            const int d = int((view >> 8) & 0xFF);
+            distance_ = d > 0 ? d : -1;
+        }
+        sounds_.set_view(outside_, position_, distance_);
+        if (maneuver_ == 4 && aircraft_.y <= 0x100000) messages_.post(0x35);
+        else messages_.post(m.u16(0x117522 + std::uint32_t(8 * maneuver_) + 2));
+    }
+
+    // The trainer's frame in the object step: the training, its timer
+    // ($1179A4), the autopilot, the flight step, the attitude step's
+    // levelling.
+    void trainer_tick() {
+        training_step();
+        aircraft_.timer = std::int16_t(aircraft_.timer - 1);
+        PilotWorld world;
+        world.mode = 2;
+        world.practice = maneuvers_running_;
+        autopilot_.fly(aircraft_, trainer_pilot_, world);
+        FlightControls c;
+        c.recorded = aircraft_.controls;
+        const auto roll_before = aircraft_.attitude.roll;
+        FlightRules rules;
+        rules.world = &world_;
+        const auto events = fly(aircraft_, c, rules, tables_);
+        Autopilot::level_out(aircraft_, roll_before);
+        if (events.engine_sound != 0) sounds_.event(EngineSound(events.engine_sound));
+        chase_camera();
+        ++ticks_;
     }
 
     // $101854 / $103B24: the flight stops, the screen fades out (`$13AB91`
@@ -552,6 +701,13 @@ private:
             // (`$1093F2`), then the frames before the text ($101BD0).
             if (++fade_ticks_ % 3 == 0 && fade_ < 15) ++fade_;
             if (fade_ == 15) {
+                if (mode_ == FlightMode::maneuvers) {
+                    sounds_.set_active(false);
+                    text_.clear();
+                    text_.queue(maneuvers_text);
+                    phase_ = Phase::briefing;
+                    break;
+                }
                 if (mode_ == FlightMode::qualification && brief_) {
                     // ($101CD4: the sound update stops while it is typed.)
                     sounds_.set_active(false);
@@ -567,6 +723,16 @@ private:
             break;
         case Phase::briefing:
             if (!text_.done() && text_.tick()) sounds_.click();
+            if ((text_.done() || briefing_key_) && mode_ == FlightMode::maneuvers) {
+                // $1024C4 / $102DB8 / $102E4E: no text, the flight starts
+                // ($13AA83 set), three frames, the beep ($102EDA).
+                sounds_.set_active(true);
+                text_.clear();
+                maneuvers_running_ = true;
+                countdown_ = 3;
+                phase_ = Phase::ready;
+                break;
+            }
             if (text_.done() || briefing_key_) {
                 sounds_.set_active(true); // ($101D18)
                 text_.clear();
@@ -600,7 +766,8 @@ private:
                     begin_demo();
                 } else {
                     leave_flight();
-                    front_.again(mode_ == FlightMode::qualification ? 5 : 2);
+                    // ($101AF4: after the maneuvers' demo comes their practice.)
+                    front_.again(mode_ == FlightMode::qualification ? 5 : mode_ == FlightMode::maneuvers ? 4 : 2);
                 }
             }
             break;
@@ -1344,6 +1511,12 @@ private:
     int fade_ = 15, fade_ticks_ = 0;    // $13AB90: the screen's fade step (15: full)
     std::uint16_t replay_game_ = 0, replay_view_ = 0; // `$13AC86`, `$13AC88`: last frame's key events
     bool replay_ended_ = false;
+    Autopilot autopilot_{assets_.program};
+    std::uint8_t trainer_pilot_ = 0;    // the trainer's +$64
+    int maneuver_ = 0;                  // $13AA89
+    bool maneuver_started_ = false;     // $14508A
+    bool skip_maneuver_ = false;        // record 0's +2 bit 3 (Return)
+    bool maneuvers_running_ = false;    // $13AA83
     bool brief_ = false;                // the qualification's briefing comes (`$13AB1B` clear)
     bool briefing_key_ = false;         // a key during the briefing
     int radar_range_ = 0xD;             // +$63 low nibble: 9, B, D (2, 10, 40 miles; key R)

@@ -372,7 +372,9 @@ void level_wings(Aircraft& a) {
 void respond(Aircraft& a, const FlightRules& rules, const FlightTables& t) {
     a.motion &= ~flag::nose_wheel_down;
     if (!rules.flying) return;
-    const auto& table = t.player_response;
+    // ($10557C: others respond by `$132834`, unless flown as the player's,
+    // +2 bit 0.)
+    const auto& table = a.player || (a.motion & 0x0100) ? t.player_response : t.other_response;
     const int pitch_in = a.pitch_input;
     int rudder_in = a.rudder_input, roll_in = a.roll_input;
     if (a.surface & 8) rudder_in = roll_in = 0;
@@ -392,7 +394,7 @@ void respond(Aircraft& a, const FlightRules& rules, const FlightTables& t) {
     } else if (ground) {
         settle_nose(a);
     } else if (a.pitch_rate != 0 && a.ground_drag == 0) {
-        decay(a.pitch_rate, 2);
+        decay(a.pitch_rate, a.player ? 2 : 1); // ($105B7A: record 0 by 2, others by 1)
     }
 
     if (rudder_in != 0) {
@@ -730,7 +732,7 @@ FlightEvents fly(Aircraft& a, const FlightControls& controls, const FlightRules&
         a.gear_speed_warned = false;
     }
     read_controls(a, controls);
-    a.timer = std::int16_t(a.timer - 2);
+    if (a.player) a.timer = std::int16_t(a.timer - 2); // (others: the object step, $1179A4)
     if ((a.gear & 0x0F) == 0) ramp_inputs(a);
     FlightEvents events;
     if (!(a.handling & 2) && (a.state & flag::moves)) events = run_engine(a, rules, t);

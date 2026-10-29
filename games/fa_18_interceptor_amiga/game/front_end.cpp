@@ -159,7 +159,7 @@ void FrontEnd::show_chosen(int item, int line) {
     choice_ = item;
     // (The demo, 1, flies mission 3 from its moving carrier with a bogey:
     // it waits for the missions' objects, task 11; its replay is built.)
-    unbuilt_ = item != 2 && item != 5;
+    unbuilt_ = item != 2 && item != 3 && item != 5;
     text_.clear();
     text_.set_line_spacing(12);
     text_.queue(line);
@@ -264,6 +264,10 @@ std::optional<FlightStart> FrontEnd::tick(const FrontKeys& keys) {
             sounds_.stop_tune();
             if (unbuilt_) {
                 to_menu();
+            } else if (choice_ == 3) {
+                // $102190: the maneuvers, flown by the trainer.
+                sounds_.ambience(8);
+                return FlightStart{0, 0x10, FlightMode::maneuvers, again_};
             } else if (choice_ == 5) {
                 // $102252: the qualification, from the carrier's catapult.
                 sounds_.ambience(8);
