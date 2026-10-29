@@ -55,8 +55,12 @@ fs::path pack_path(const fs::path& root) {
 }
 
 bool pack_installed(const fs::path& root) {
+    return pack_current(pack_path(root));
+}
+
+bool pack_current(const fs::path& pack) {
     try {
-        return file_equals(pack_path(root) / manifest_file, manifest);
+        return file_equals(pack / manifest_file, manifest);
     } catch (const std::exception&) {
         return false;
     }
@@ -76,6 +80,18 @@ bool is_supported_rom(const fs::path& image) {
     } catch (const std::exception&) {
         return false;
     }
+}
+
+std::vector<std::pair<std::string, Bytes>> extract_pack(Bytes bytes) {
+    if (bytes.size() != rom_size || platform::sha256(bytes) != rom_sha256) {
+        throw std::runtime_error("This ROM revision is not supported. Expected Sonic Advance "
+                                 "Game Boy Advance (USA, En/Ja), CRC32 63F70FD8.");
+    }
+    const Rom rom(std::move(bytes));
+    std::vector<std::pair<std::string, Bytes>> files;
+    files.emplace_back("data.bin", Assets::extract(rom).data_file());
+    files.emplace_back(manifest_file, Bytes(manifest.begin(), manifest.end()));
+    return files;
 }
 
 void import_rom(const fs::path& image, const fs::path& root, ExtractProgress progress) {

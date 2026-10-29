@@ -44,6 +44,16 @@ struct PointerEvent {
     enum class Kind { down, move, up };
     Kind kind{};
     float x{}, y{};
+    // Made by a finger on a touch screen (the first finger; the others are Controls::fingers),
+    // not a mouse: a game can tell a touch that may become a gesture of several fingers.
+    bool touch{};
+};
+
+// A finger on a touch screen, while it touches: SDL's finger id and where it is, in the units
+// of PointerEvent (it may lie outside the frame).
+struct Finger {
+    std::uint64_t id{};
+    float x{}, y{};
 };
 
 // A frame a game draws itself with the host's renderer (SDL 3's SDL_Renderer): `target` is a
@@ -84,6 +94,18 @@ struct ScreenEffect {
     const FragmentShader* shader{};
     std::vector<std::uint8_t> uniforms;     // the shader's uniforms for this frame
     std::function<Image(const Image&)> cpu; // the frame's picture -> the picture to show
+    // Separate pictures within one frame (the two screens of a handheld shown together, side by
+    // side or stacked): each region, in the frame's logical units, is filtered as a picture of
+    // its own (its own raster, uniforms and CPU form) and shown where it lies, so one screen's
+    // picture never bleeds into the other and neither is stretched to the frame's shape. The
+    // frame outside the regions is shown as drawn. Empty: the whole frame is one picture
+    // (`uniforms` and `cpu` above).
+    struct Region {
+        int x{}, y{}, width{}, height{};
+        std::vector<std::uint8_t> uniforms;
+        std::function<Image(const Image&)> cpu;
+    };
+    std::vector<Region> regions;
 };
 
 // Input for one frame: held joystick state plus edge-triggered UI events.
@@ -96,6 +118,9 @@ struct Controls {
     bool left{}, right{}, up{}, down{}, fire{};
     bool f1{}, f3{}, f5{}, f7{}, c64_space{};
     bool left2{}, right2{}, up2{}, down2{}, fire2{}; // the second joystick
+    // A second action button and a Start button, held, for consoles with them (Game Gear
+    // button 2 / GBA B, Start): X and Return on the keyboard, the gamepad's east button and Start.
+    bool button2{}, start{};
     // The C64 keyboard as a game that scans it sees it, held this frame:
     // index row * 8 + column of the C64 key matrix. Letters, digits and
     // punctuation by their character, Return, Backspace = DEL, Tab = RUN/STOP,
@@ -111,6 +136,7 @@ struct Controls {
     bool page_up{}, page_down{}; // Page Up/Down, the gamepad's shoulder buttons
     // Mouse wheel steps this frame (positive: towards the user, scrolling down).
     int wheel{};
+    float wheel_precise{}; // fractional wheel motion, same direction as wheel
     bool quit{}, toggle_mute{}, quick_save{}, quick_load{};
     // Mouse position of a click, in the UI design space.
     int mouse_x{}, mouse_y{};
@@ -123,6 +149,13 @@ struct Controls {
     std::optional<std::array<int, 2>> game_pointer;
     // Every press, move (while pressed) and release over the last game frame shown, in order.
     std::vector<PointerEvent> pointer_events;
+    // The fingers touching the screen after this poll (touch screens; in the last game frame's
+    // units), for games with gestures of several fingers such as a pinch.
+    std::vector<Finger> fingers;
+    // The device's accelerometer while a game asks for it (Host::set_motion_wanted): the
+    // direction away from the earth in G (1 at rest), in the window's axes (x right, y up, z out
+    // of the screen) whichever way the display is turned. Empty without one (desktops).
+    std::optional<std::array<float, 3>> motion;
     bool mouse_held{};
     bool mouse_right_held{}; // the right button (games played with both)
     // The mouse's movement since the previous poll, in window points (also
@@ -177,6 +210,8 @@ public:
     // Whether the game shown draws its own mouse pointer; the system's is
     // then hidden while over the game frame (not over an overlay).
     void set_game_draws_pointer(bool draws);
+    // Opens the accelerometer (Controls::motion) while a game wants it; false closes it again.
+    void set_motion_wanted(bool wanted);
     // Captures the mouse for a game played with its movement (relative
     // mode: the pointer is hidden and held in the window, Controls::mouse_dx
     // and mouse_dy keep counting at the screen's edges); false lets it go.

@@ -102,3 +102,38 @@ skipping, checkpoints and touch-area help.
 - `run_mobiclip_validation.py` after decoder changes.
 - `ctest`; `build.sh` runs the story and first-puzzle self-test when the pack
   exists.
+
+## In Reprise (2026-10-29)
+
+The game runs inside Reprise (catalog id `pandoras_box_ds`); the integration is
+described in [../reprise.md](../reprise.md).
+
+Connected: import (YLTD NDS, streamed), Start (the title), Continue and quick
+save/load (the last checkpoint: a room, or an event's or puzzle's start - it
+resumes at that start), the slots in `backup.sav`, the "Hold to blow" button
+for puzzle 203 (or fire held in a puzzle), the VHS filter per screen,
+touch-area help, background previews, takeover of Picarat's pack and
+`backup.sav`. Picarat's checkpoint of 9 October is format 1, which the game
+itself refuses (it opens the title); such checkpoints are not taken over.
+
+Not offered in Reprise (Picarat shell features, by decision): music player,
+movie theatre, puzzle mode, minigame free play, the hub's "Continue story".
+Movies, music, puzzles and minigames play as part of normal play.
+
+Remaining for Reprise:
+
+- typed name entry (the touch keyboard works);
+- an accelerometer for the 3DS games on phones (Picarat had one);
+- the screen filter's CPU fallback path is untested on a renderer without
+  GPU shaders.
+
+Validation:
+
+- Validated on macOS (2026-10-29): `ctest -R layton_module` with
+  `LAYTON_PACKS` (the story starts from the title with picture and sound);
+  the real window driven by `reprise --events` scripts. Android: the APK
+  builds; only Curious Village was run on an emulator (start, touch,
+  rotation). No physical device was used.
+- Quick save round trip checked with a format-2 checkpoint written by
+  `picarat_story_explorer` (continues into event 20020's start).
+- Not run on Android.

@@ -16,6 +16,10 @@ inline bool pack_installed(const std::filesystem::path& root) {
     return gg_engine::pack_installed(cartridge, root);
 }
 
+inline bool pack_current(const std::filesystem::path& pack) {
+    return gg_engine::pack_current(cartridge, pack);
+}
+
 inline void validate_pack(const std::filesystem::path& pack) {
     gg_engine::validate_pack(cartridge, pack);
 }

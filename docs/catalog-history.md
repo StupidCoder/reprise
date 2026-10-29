@@ -126,10 +126,57 @@ metadata checked 2026-10-28; no external game implementation material used.
 
 Connected to Reprise on 2026-10-28; the year is the platform release.
 
+## Sonic games — Game Gear and Game Boy Advance
+
+Connected to Reprise on 2026-10-29 (games/sonic). Years are the first release on
+the platform shown; regional dates differ and the sources disagree on some.
+
+- Sonic the Hedgehog, Game Gear, 1991: [Wikipedia](https://en.wikipedia.org/wiki/Sonic_the_Hedgehog_(8-bit_video_game))
+  and [MobyGames](https://www.mobygames.com/game/36523/sonic-the-hedgehog/): Japan 28 December 1991;
+  Western dates given as October, November or December 1991.
+- Sonic the Hedgehog 2, Game Gear, 1992: [Wikipedia](https://en.wikipedia.org/wiki/Sonic_the_Hedgehog_2_(8-bit_video_game)):
+  Japan 21 November 1992; [MobyGames](https://www.mobygames.com/game/42573/sonic-the-hedgehog-2/releases/) lists Europe in October 1992.
+- Sonic Triple Trouble, Game Gear, 1994: [Wikipedia](https://en.wikipedia.org/wiki/Sonic_the_Hedgehog:_Triple_Trouble):
+  November 1994 (Japan 11 November, as Sonic & Tails 2).
+- Sonic Advance, Game Boy Advance, 2001: [Wikipedia](https://en.wikipedia.org/wiki/Sonic_Advance):
+  Japan 20 December 2001; North America February 2002 (the imported USA cartridge).
+
+- History notes: Ancient as Koshiro's studio, its first and only Sonic game
+  ([Ancient (company)](https://en.wikipedia.org/wiki/Ancient_(company))); Aspect's
+  separate 8-bit Sonic 2 and the first four-megabit Game Gear cartridge (Sonic 2
+  article above); Fang/Nack's debut and the removed gun
+  ([List of Sonic the Hedgehog characters](https://en.wikipedia.org/wiki/List_of_Sonic_the_Hedgehog_characters));
+  Sonic Advance as Dimps' first Sonic game, sharing early Nintendo-platform status
+  with Sonic Adventure 2: Battle ([Talk:Sonic Advance](https://en.wikipedia.org/wiki/Talk:Sonic_Advance)
+  disputes "the first").
+
+The card descriptions are the collection's original summaries.
+
 ## Incoming preview entries
 
 Layton years match Picarat/src/shell/library_screen.cpp's existing catalog
-(first Japanese release, not the imported European edition). Sonic years are
-intentionally unset pending their catalog handoff.
+(first Japanese release, not the imported European edition).
 Incoming descriptions are original editorial summaries, not reconstruction
 evidence or claims that the games are connected to Reprise.
+
+## Puzzle adventures (connected 2026-10-29)
+
+History notes for the six connected Nintendo DS/3DS adventures. They describe
+the original releases, not the reconstruction. Years stay the first Japanese
+release (above).
+
+- Curious Village: [Wikipedia](https://en.wikipedia.org/wiki/Professor_Layton_and_the_Curious_Village)
+  (Hino and Tago, 2006 prototype, puzzle camps, Japan 15 February 2007).
+- Pandora's Box: [Wikipedia](https://en.wikipedia.org/wiki/Professor_Layton_and_the_Diabolical_Box)
+  (Japan 29 November 2007; Wi-Fi content ended 20 May 2014).
+- Lost Future: [Wikipedia](https://en.wikipedia.org/wiki/Professor_Layton_and_the_Unwound_Future)
+  (Japan November 2008; title translation; Western 2010 releases).
+- Spectre's Call: [Wikipedia](https://en.wikipedia.org/wiki/Professor_Layton_and_the_Last_Specter)
+  (Japan 26 November 2009; prequel; Europe 25 November 2011).
+- Miracle Mask: [Wikipedia](https://en.wikipedia.org/wiki/Professor_Layton_and_the_Miracle_Mask),
+  [Nintendo World Report](https://nintendoworldreport.com/preview/25495)
+  (Japan 26 February 2011 with the 3DS launch; October 2012 West; Plus edition 2013).
+- Azran Legacy: [Wikipedia](https://en.wikipedia.org/wiki/Professor_Layton_and_the_Azran_Legacy),
+  [Giant Bomb releases](https://giantbomb.com/professor-layton-and-the-azran-legacy/3030-39570/releases/)
+  (Japan 28 February 2013; final game with the professor as lead per Hino;
+  Europe November 2013).

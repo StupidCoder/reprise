@@ -111,6 +111,7 @@ void EventScript::pump(double seconds) {
         else if (line.kind == "up" && n.size() >= 2) push_button(SDL_EVENT_MOUSE_BUTTON_UP, n[0], n[1]);
         else if (line.kind == "move" && n.size() >= 2) push_motion(n[0], n[1]);
         else if (line.kind == "rel" && n.size() >= 2) push_relative(n[0], n[1]);
+        else if (line.kind == "resize" && n.size() >= 2 && window()) SDL_SetWindowSize(window(), int(n[0]), int(n[1]));
         else if (line.kind == "drag" && n.size() >= 5) {
             push_button(SDL_EVENT_MOUSE_BUTTON_DOWN, n[0], n[1]);
             dragging_ = line;

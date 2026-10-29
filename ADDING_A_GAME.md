@@ -91,6 +91,10 @@ stable ID, title, machine, media description, importer, previews and start facto
 2. Return `ImportResult` with relative file names, decoded data and release
    identity. No absolute paths or `..` traversal. Declare an appropriate
    `largest_image`; use `part`/`parts` for genuine multi-disk imports.
+   Large-image `import_into` receives an `ImportProgress` callback: report a
+   readable phase and a measured fraction from 0 to 1 (negative for unknown).
+   Imports run on a worker; callbacks must not draw UI or use the host renderer.
+   The library reports its own verification phase after extraction.
 3. Let `Library` own staging, checksums and installation. Do not write into the
    application bundle or rely on source-image access after import. Android
    document URIs are handled by platform plumbing, not by individual games.

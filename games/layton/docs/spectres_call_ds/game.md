@@ -491,3 +491,12 @@ What was checked:
   state is copied.
 - The story's loop requests from boot through the first events match the
   ROM. The runner reaches the staff roll and the post-credits event.
+
+## Embedding notes (Reprise, 2026-10-29)
+
+Observations from running the reconstruction inside Reprise, not new
+findings about the original: the game thread is stepped one frame at a time
+by the host, and the sound is rendered a fixed amount per frame (32 728 Hz
+resampled to 48 kHz), so every sound-gated wait follows the frame count
+instead of the device's real-time progress. Reprise keeps no checkpoint for this game yet: the engine's own save slots are its progress. Details:
+[../reprise.md](../reprise.md).

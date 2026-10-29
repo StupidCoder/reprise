@@ -1822,7 +1822,8 @@ Scene::Pick Scene::pickAt(int screen, float x, float y) const {
 // (not decoded yet).
 static void drawSilhouette(ctr3d::Target& target, const ctr3d::DrawState& base, const Mesh& mesh,
                            const std::vector<ctr3d::Vertex>& verts,
-                           const std::vector<std::array<float, 2>>& normals) {
+                           const std::vector<std::array<float, 2>>& normals,
+                           const float* colour) {
     auto facing = [&](int t) {
         const std::size_t i = std::size_t(t) * 3;
         if (i + 2 >= mesh.indices.size()) {
@@ -1849,8 +1850,7 @@ static void drawSilhouette(ctr3d::Target& target, const ctr3d::DrawState& base, 
             v.x += n[0] * k;
             v.y += n[1] * k;
         }
-        v.r = mesh.outlineColour[0], v.g = mesh.outlineColour[1], v.b = mesh.outlineColour[2],
-        v.a = 1;
+        v.r = colour[0], v.g = colour[1], v.b = colour[2], v.a = 1;
         return v;
     };
     for (const auto& e : mesh.edges) {
@@ -2340,7 +2340,12 @@ void Scene::draw3D(ctr3d::Target& target, const Object3D& o, int screen, bool fl
             }
             ctr3d::drawTriangles(target, ms, verts, mesh.indices);
             if (outlined) {
-                drawSilhouette(target, state, mesh, verts, silNormal);
+                const float* colour = mesh.outlineColour;
+                if (const auto oc = o.outlineColours.find(mesh.outline);
+                    oc != o.outlineColours.end()) {
+                    colour = oc->second.data(); // 6870
+                }
+                drawSilhouette(target, state, mesh, verts, silNormal, colour);
             }
         }
         if (!o.popup) {

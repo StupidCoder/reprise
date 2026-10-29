@@ -255,3 +255,12 @@ What was checked:
 - Nut Roller course 1 matches the console step for step through a full
   solve.
 - Flower Garden 1 matches the console with the yellow and red flowers.
+
+## Embedding notes (Reprise, 2026-10-29)
+
+Observations from running the reconstruction inside Reprise, not new
+findings about the original: the game thread is stepped one frame at a time
+by the host, and the sound is rendered a fixed amount per frame (32 728 Hz
+resampled to 48 kHz), so every sound-gated wait follows the frame count
+instead of the device's real-time progress. Not started in Reprise (no story yet); only its import is connected. Details:
+[../reprise.md](../reprise.md).

@@ -302,6 +302,29 @@ void Game::registerStoryServices() {
     m.service(16500, [this](Call& c) { return done(c, variable(kPlace)); });
     m.service(16501, [this](Call& c) { return done(c, variable(kMap)); });
     m.service(16506, [this](Call& c) { return done(c, variable(kStep)); });
+    // 16502 (0x163220 -> 0x33f354): the variable 現在のガイド.
+    m.service(16502, [this](Call& c) { return done(c, variable(kGuide)); });
+    // 16551 (0x162394 -> 0x185590): an item (lt5_def 2021 by name or number,
+    // 0x2bdcf4) is given, with an argument [, 0] (0x2ac12c: the flags, the
+    // counted items and the notice queue, as Game::giveItem). Place_Item and
+    // the deepening puzzles' menu (menu_fukamaru) use it.
+    m.service(16551, [this](Call& c) {
+        if (c.count() == 0) {
+            return false;
+        }
+        const int argument = c.count() > 1 ? c.integer(1) : 0;
+        if (c.at(0).isText()) {
+            const auto& rows = story.rows[2021];
+            for (const auto& r : rows) {
+                if (r.size() > 1 && r[1].isText() && r[1].text == c.at(0).text) {
+                    giveItem(r[0].toInt(), argument);
+                }
+            }
+        } else {
+            giveItem(c.integer(0), argument);
+        }
+        return done(c, 1);
+    });
     // 16510 (0x15ebb0 -> 0x1858b0): the current place by name or id (-1 and
     // result 0 when there is none).
     m.service(16510, [this, placeOf](Call& c) {
@@ -854,14 +877,17 @@ void Game::registerStageServices() {
         });
         return done(c, moving ? 1 : 0);
     });
-    m.service(6322, [each3D](Call& c) {
-        if (c.count() < 3) {
-            return false;
-        }
-        const float alpha = c.real(2);
-        each3D(c.integer(0), c.integer(1), [&](Object& o) { o.alpha.set({alpha}); });
-        return done(c, 1);
-    });
+    // 6262 (0x14d194 -> 0x32b9a8) is a second copy of 6322's code.
+    for (const int op : {6322, 6262}) {
+        m.service(op, [each3D](Call& c) {
+            if (c.count() < 3) {
+                return false;
+            }
+            const float alpha = c.real(2);
+            each3D(c.integer(0), c.integer(1), [&](Object& o) { o.alpha.set({alpha}); });
+            return done(c, c.integer(0) <= 4 ? 1 : 0);
+        });
+    }
     // 15200 (0x15bb30): a character's id; 15203 (0x15bb80): its typing
     // sound (40 + record +4 >> 30); 15204 (0x163f08): its four numbers
     // (2111 fields 5, 6 x 10, 7, 8 in radians) into registers; 15201
@@ -1019,6 +1045,34 @@ void Game::registerStageServices() {
         const int curve = c.count() > 6 ? c.integer(6) : 0;
         eachColoured(c, [&](adventure56::Object& o) {
             o.colour.start(rgb, frames, curve);
+            return false;
+        });
+        return done(c, c.integer(0) <= 4 ? 1 : 0);
+    });
+    // The alpha of every 2D object of a screen (-1 all) and kind, as 6322 /
+    // 6261 do for the 3D ones: 5322 (0x135d08 -> 0x35114c, 0x1a803c) at
+    // once; 5323 (0x135d88 -> 0x2ca584, 0x1a8130) over frames [, curve]
+    // (a sixth operand, 0x2d029c, is passed on but not read yet). The ruins
+    // and event 06_060100 fade their pictures this way.
+    m.service(5322, [eachColoured](Call& c) {
+        if (c.count() < 3) {
+            return false;
+        }
+        const float alpha = c.real(2);
+        eachColoured(c, [&](adventure56::Object& o) {
+            o.alpha.set({alpha});
+            return false;
+        });
+        return done(c, c.integer(0) <= 4 ? 1 : 0);
+    });
+    m.service(5323, [eachColoured](Call& c) {
+        if (c.count() < 4) {
+            return false;
+        }
+        const float alpha = c.real(2), frames = c.real(3);
+        const int curve = c.count() > 4 ? c.integer(4) : 0;
+        eachColoured(c, [&](adventure56::Object& o) {
+            o.alpha.start({alpha}, frames, curve);
             return false;
         });
         return done(c, c.integer(0) <= 4 ? 1 : 0);
@@ -1458,6 +1512,54 @@ void Game::registerStageServices() {
         }
         return done(c, 1);
     });
+    // 15401 / 15402 (0x15e57c / 0x15e3ac, the game's table): an area's
+    // (2132, by id or name) picture file "gmp/g%02d.xi" / animation file
+    // "gmp/g%02d.xa" (only when the choice has its animation flag: 0x33c2b8;
+    // else nothing) of its first choice whose condition holds (0x2bd0a4, the
+    // named conditions as computed; with a true second operand they are
+    // evaluated afresh, 0x33c31c). No area or no choice: result 0. The
+    // event's area-map rebuild loads them with 3404 / 3504.
+    for (const int op : {15401, 15402}) {
+        m.service(op, [this, op](Call& c) {
+            if (c.count() == 0) {
+                return false;
+            }
+            const AreaRecord* area = nullptr;
+            for (const auto& a : story.areas) {
+                if (c.at(0).isText() ? a.name == c.at(0).text : a.id == c.integer(0)) {
+                    area = &a;
+                }
+            }
+            if (!area) {
+                return false;
+            }
+            const bool afresh = c.count() > 1 && c.at(1).truthy();
+            const AreaRecord::Choice* choice = nullptr;
+            for (const auto& ch : area->choices) {
+                const bool holds =
+                    ch.condition < 0 ||
+                    (afresh ? holdsNamed(*this, ch.condition)
+                            : std::size_t(ch.condition) < conditionBits.size() &&
+                                  conditionBits[std::size_t(ch.condition)]);
+                if (holds) {
+                    choice = &ch;
+                    break;
+                }
+            }
+            if (!choice) {
+                return false;
+            }
+            if (op == 15402 && choice->flag == 0) {
+                c.result = Value::ofInt(0);
+                return true;
+            }
+            char path[32];
+            std::snprintf(path, sizeof path, op == 15401 ? "gmp/g%02d.xi" : "gmp/g%02d.xa",
+                          choice->value & 0x7fff);
+            c.result = Value::ofText(path);
+            return true;
+        });
+    }
     // 12103 (0x152274): the shown slot (operand true) or the other one.
     m.service(12103, [this](Call& c) {
         const bool shown = c.count() > 0 && c.at(0).truthy();
@@ -1759,6 +1861,20 @@ void Game::registerStageServices() {
             p = &defs.puzzles[std::size_t(v.toInt())];
         }
         return done(c, p ? p->id : -1);
+    });
+    // 15701 (0x1622f0 -> 0x33ecc0): a puzzle's (by name or id) place in the
+    // 2301 table (0x2adfd8: its slot; the puzzle list shows it plus one),
+    // -1 for none.
+    m.service(15701, [this](Call& c) {
+        if (c.count() == 0) {
+            return false;
+        }
+        const Value& v = c.at(0);
+        const PuzzleRecord* p = v.isText() ? defs.puzzleByName(v.text) : defs.puzzle(v.toInt());
+        if (!p || defs.puzzles.empty() || p < &defs.puzzles.front() || p > &defs.puzzles.back()) {
+            return done(c, -1);
+        }
+        return done(c, int(p - &defs.puzzles.front()));
     });
     m.service(15702, [this](Call& c) {
         if (c.count() == 0) {

@@ -17,7 +17,7 @@ struct SoundData {
 };
 
 SoundData extract_sound(const Rom& rom);
-void save_sound(const SoundData&, const std::filesystem::path&);
+void save_sound(const SoundData&, PackWriter&);
 SoundData load_sound(const std::filesystem::path&);
 
 // Music numbers of the sound driver. Only the ones the game logic starts by

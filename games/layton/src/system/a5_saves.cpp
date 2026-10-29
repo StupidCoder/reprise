@@ -426,4 +426,16 @@ int headerField(const SaveHeader& h, int field) {
     }
 }
 
+bool writeCheckpoint(const std::filesystem::path& file, const SaveRecord& record) {
+    return writeFile(file, encode(record));
+}
+
+std::optional<SaveRecord> readCheckpoint(const std::filesystem::path& file) {
+    std::error_code error;
+    if (!std::filesystem::exists(file, error)) {
+        return std::nullopt;
+    }
+    return decode(readFile(file));
+}
+
 } // namespace picarat::adventure5

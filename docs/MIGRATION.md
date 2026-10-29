@@ -33,9 +33,9 @@ joyport-source/main. The other exact revisions and file counts are recorded in
 
 | Source | Stable engine root | State |
 | --- | --- | --- |
-| Picarat | games/layton | Source migrated; standalone build retained |
+| Picarat | games/layton | Connected to the Reprise launcher (2026-10-29); standalone build retained |
 | DoubleOCheese | games/spy_mouse_ios | Connected to the Reprise launcher (2026-10-28); standalone build retained |
-| BlueStreak | games/sonic | Source migrated; standalone build retained |
+| BlueStreak | games/sonic | Connected to the Reprise launcher (2026-10-29: all four games); standalone build retained; source folder retired (below) |
 | Joyport games | games/<existing game id> | Connected to the Reprise launcher |
 
 Source files were exported from the committed Git trees, not copied from dirty
@@ -50,14 +50,24 @@ The shell previews are **not** evidence of live engine integration. Rendering,
 ordered pointer input, timing, audio, importer and save/profile adapters remain.
 No subprocess launching or screenshot-based rendering is presented as integration.
 
-The original projects are left intact. Local ignored `.analysis` symlinks point
+**BlueStreak retired (2026-10-29).** Its research archive and tools now live in
+`games/sonic/.analysis` and `games/sonic/.tools` (real folders, ignored by Git;
+no longer a link). Its ROM dumps are read only from `images/`. Its history (five
+commits, `main` at `0f644a3`) is kept as the tag `source/bluestreak`; the
+`sonic-source` remote was removed. The folder `Decomp/BlueStreak` and the GitHub
+repository `StupidCoder/BlueStreak` are no longer needed once that tag is pushed.
+
+Picarat was retired on 2026-10-29: its history is the tag `source/picarat`, its research archive
+moved into `games/layton/.analysis` (a real ignored folder, no longer a link), and the
+`layton-source` remote was removed. The other original projects are left intact. Local ignored `.analysis` symlinks point
 at their research archives, avoiding tens of GB of duplicated evidence. Keep
 those original archives available; portable clones require their own evidence.
 No research links or images directory is bundled into Reprise.app.
 
 Reprise uses its own data directory; old imports/saves remain untouched in their
 original application directories. Automatic library migration is still pending,
-except for Spy Mouse (below).
+except for Spy Mouse (below) and BlueStreak (its current imports are copied once;
+quick saves stay in BlueStreak; games/sonic/REPRISE-HANDOFF.md).
 
 ## Shared interfaces added for engine integration (2026-10-28)
 
@@ -76,6 +86,10 @@ Introduced while connecting Spy Mouse; designed so Layton and Sonic can use them
   declaring SPIR-V and MSL; the `SDL_RENDER_DRIVER` hint or environment variable overrides),
   else one read-back and the CPU form. Off: the earlier path, unchanged. Picture games keep
   `shown_picture`'s CPU look, so nothing is filtered twice.
+- **Console buttons and the pause request** (2026-10-29, for the Sonic games:
+  `Controls::button2`/`start`, `GameInput::button2`/`start`, `GameModule::take_menu_request`):
+  a second action button (X, gamepad east) and Start (Return, gamepad Start), held; a game
+  whose Start opens the launcher's pause menu during play asks for it once per press.
 - **Ordered pointer events** (`platform::PointerEvent`, `Controls::pointer_events`,
   `GameInput::pointer_events`): every press, move and release over the game frame in order,
   in frame units (floats); events of frames without a tick go to the next tick.
@@ -113,3 +127,31 @@ The save magic and game IDs remain compatible for the connected Joyport games.
 
 Diorama remains in its original project; later share its core between Reprise
 and an independent OpenXR target, preserving its graphics abstraction.
+
+## Shared interfaces added for the puzzle adventures (2026-10-29)
+
+Introduced while connecting games/layton (details: games/layton/docs/reprise.md).
+
+- **Streamed imports** (`GameEntry::import_into`, `platform::FileSource`): large images are read
+  with random access through SDL's I/O (also Android documents) and the importer writes its
+  files into the library's staging folder; `Library::install_folder` hashes them for the
+  manifest. Such manifests end in `size` lines and `check sizes`: at start-up these installs are
+  checked by file sizes (hashing gigabytes at every start was too slow). `app::importable()`
+  replaces the launcher's checks of `GameEntry::import`.
+- **Folder takeover** (`LegacyCopy::folder`, `folder_release`): an earlier app's import copied
+  file by file, never moved.
+- **Several screens in one frame** (`ScreenEffect::regions`, `GameModule::filter_regions`,
+  `app::add_filter_regions`): each region is filtered as a picture of its own (own raster,
+  uniforms and CPU form, the frame number offset per region) and composed at its place; the
+  rest of the frame stays as drawn. Overlays and notes stay sharp as before.
+- **Touch** (`PointerEvent::touch`, `platform::Finger`, `Controls::fingers`,
+  `GameInput::fingers`): which pointer events come from a finger, and every finger's position,
+  for multi-finger gestures (the adventures' pinch zoom).
+- **Save wording** (`GameModule::saved_message`, `GameEntry::continue_note`, `saves_note`): a
+  game whose quick save keeps a checkpoint says so instead of "Saved state" / "restores this
+  moment"; a game with only its own slots says how it keeps progress.
+- **Scripted checks**: `--events` scripts gained `resize W H`.
+- **Motion and save pictures** (2026-10-29, later): `GameModule::wants_motion`, `Host::set_motion_wanted`,
+  `Controls::motion` / `GameInput::motion` (the accelerometer in the window's axes, opened only while
+  such a game runs; Android), and `GameModule::save_picture` (the quick save's picture; default
+  `picture()`).

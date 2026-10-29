@@ -521,3 +521,12 @@ What was checked:
 
 Not compared with the ROM: the save screen, the trunk's own pages and the
 staff roll.
+
+## Embedding notes (Reprise, 2026-10-29)
+
+Observations from running the reconstruction inside Reprise, not new
+findings about the original: the game thread is stepped one frame at a time
+by the host, and the sound is rendered a fixed amount per frame (32 728 Hz
+resampled to 48 kHz), so every sound-gated wait follows the frame count
+instead of the device's real-time progress. Reprise's quick save stores the game's automatic checkpoint - the A5FP cartridge backup image (slot 0) that `RoomScene::run` writes once the room takes touches - and continues through the game's own load path. It is a checkpoint, not a snapshot of the running machine. Details:
+[../reprise.md](../reprise.md).

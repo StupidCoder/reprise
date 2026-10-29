@@ -11,6 +11,7 @@
 //   SECONDS down|move|up X Y      the left mouse button / pointer, in window points
 //   SECONDS rel DX DY             mouse movement only (a game holding the captured mouse)
 //   SECONDS drag X1 Y1 X2 Y2 SECS a press, moves along the line every frame, a release
+//   SECONDS resize W H            the window's size in points (a resize or a rotation)
 //   SECONDS key NAME              escape, return, left, right, up, down, m; cmd+s, cmd+l, cmd+q
 //   SECONDS shot FILE             the next frame the window shows, as a PNG file
 //   SECONDS drop FILE             a file dropped on the window (the rest of the line)

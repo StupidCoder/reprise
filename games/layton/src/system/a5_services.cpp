@@ -374,19 +374,28 @@ void Game::registerLibraryServices() {
             return done(c, 1);
         });
     }
-    // 3402 (0x12a1a0): a picture resource "name", "path" (.xi).
-    m.service(3402, [this](Call& c) {
-        const fs::path file = findOfKind(pack, textOf(c, 1), ".xi");
-        if (file.empty()) {
-            return done(c, 0);
-        }
-        Resource r;
-        r.kind = Resource::Kind::Picture;
-        r.path = textOf(c, 1);
-        r.picture = adventure56::loadTexture(pack, file);
-        scene.addResource(textOf(c, 0), std::move(r));
-        return done(c);
-    });
+    // 3402 (0x12a1a0): a picture resource "name", "path" (.xi). 3404
+    // (0x13f3a8) the same at scope level 0 (0x2d5da8's level 0 where 3402
+    // passes -1, the current scope): the event's area map (prog_event
+    // EventChangeGmpBuild) outlives the event.
+    for (const auto& [op, level] : {std::pair{3402, -1}, std::pair{3404, 0}}) {
+        m.service(op, [this, level](Call& c) {
+            const fs::path file = findOfKind(pack, textOf(c, 1), ".xi");
+            if (file.empty()) {
+                return done(c, 0);
+            }
+            Resource r;
+            r.kind = Resource::Kind::Picture;
+            r.path = textOf(c, 1);
+            r.picture = adventure56::loadTexture(pack, file);
+            if (level < 0) {
+                scene.addResource(textOf(c, 0), std::move(r));
+            } else {
+                scene.addResource(textOf(c, 0), std::move(r), level);
+            }
+            return done(c);
+        });
+    }
     // 3414 (0x18f430 -> 0x197608): a picture "name" that is a render
     // target: screen, width, height [, flag] (puzzle 017: "img_frame" 0 400
     // 240 1); refused when the name exists. Starts transparent. 3410
@@ -456,7 +465,20 @@ void Game::registerLibraryServices() {
         scene.addResource(textOf(c, 0), std::move(r));
         return done(c);
     });
-    // 3502 (0x129364): an animation set "name", "path" (.xa).
+    // 3502 (0x129364): an animation set "name", "path" (.xa); 3504
+    // (0x13cc24) the same at scope level 0 (0x2d42f8's level, as 3404).
+    m.service(3504, [this](Call& c) {
+        const fs::path folder = findOfKind(pack, textOf(c, 1), ".xa");
+        if (folder.empty()) {
+            return done(c, 0);
+        }
+        Resource r;
+        r.kind = Resource::Kind::Animation;
+        r.path = textOf(c, 1);
+        r.animation = adventure56::loadAnimationSet(pack, folder);
+        scene.addResource(textOf(c, 0), std::move(r), 0);
+        return done(c);
+    });
     m.service(3502, [this](Call& c) {
         const fs::path folder = findOfKind(pack, textOf(c, 1), ".xa");
         if (folder.empty()) {
@@ -765,6 +787,22 @@ void Game::registerLibraryServices() {
         v[1] += c.real(2);
         o->position.start(v, c.real(3), c.integer(4));
         return done(c);
+    });
+    // 5111 (0x136738 -> 0x2ca3cc): the colour (the 5112 tween's current
+    // value, +0xb8) into three registers; without the object 0, 0, 0 and
+    // result 0. The event's area-map fade reads the old map's colour.
+    m.service(5111, [object](Call& c) {
+        if (c.count() < 4) {
+            return false;
+        }
+        Object* o = object(c);
+        const auto rgb = o ? o->colour.value() : std::array<float, 3>{0, 0, 0};
+        for (std::size_t i = 0; i < 3; ++i) {
+            if (Value* r = c.reg(1 + i)) {
+                *r = Value::ofFloat(rgb[i]);
+            }
+        }
+        return done(c, o ? 1 : 0);
     });
     // 5246: the offset into two registers.
     m.service(5246, [object](Call& c) {
@@ -1511,6 +1549,13 @@ void Game::registerHandlerServices() {
             Object* o = object(c);
             return o ? done(c, o->alpha.moving()) : false;
         });
+        // 5120 / 6120 (0x156cb8 / 0x1575f4 -> 0x2becfc): the alpha or the
+        // colour still changing (each tween's curve byte, +0x98 / +0xbc,
+        // below 32 while it runs). Scripts wait on it after 5103.
+        m.service(base + 120, [object](Call& c) {
+            Object* o = object(c);
+            return o ? done(c, o->alpha.moving() || o->colour.moving()) : false;
+        });
         // 5040 / 6040 (0x148fc8 / 0x1496e0): 1 while the object's handler
         // thread runs a block (+0x17c; the robot game waits on its pieces
         // so).
@@ -1985,25 +2030,39 @@ void Game::register3DServices() {
         r->animationValue = c.real(1);
         return done(c, 1);
     });
-    // 3725 / 3726 (0x14de94 / 0x14dcc4): a model resource's motion / face
-    // motion (by name; the resource's own list, then its eight parts) as
-    // its length in frames: last - first (the MINF words at 0x4c / 0x50,
-    // +0x30 / +0x34 once loaded).
-    auto motionLength = [this](Call& c, bool face) {
+    // 3725 / 3726 / 3727 (0x14de94 / 0x14dcc4 / 0x14e064): a model
+    // resource's motion / face motion / material motion (by name; the
+    // resource's own list - material motions at +0x488 - then its eight
+    // parts) as its length in frames: last - first (the MINF words at 0x4c
+    // / 0x50, +0x30 / +0x34 once loaded). The event's area-map rebuild
+    // carries a material motion's place over with 3727.
+    auto motionLength = [this](Call& c, int kind) {
         Resource* r = c.count() > 1 ? scene.resource(reference(c, 0)) : nullptr;
         if (!r || !r->model) {
             return false;
         }
         const std::string name = textOf(c, 1);
-        const adventure56::Motion* mo = face ? r->model->faceMotion(name) : r->model->motion(name);
+        const adventure56::Motion* mo = nullptr;
+        if (kind == 0) {
+            mo = r->model->motion(name);
+        } else if (kind == 1) {
+            mo = r->model->faceMotion(name);
+        } else {
+            for (const auto& m : r->model->materialMotions) {
+                if (m.name == name) {
+                    mo = &m;
+                }
+            }
+        }
         if (!mo) {
             return false;
         }
         c.result = Value::ofInt(mo->last - mo->first);
         return true;
     };
-    m.service(3725, [motionLength](Call& c) { return motionLength(c, false); });
-    m.service(3726, [motionLength](Call& c) { return motionLength(c, true); });
+    m.service(3725, [motionLength](Call& c) { return motionLength(c, 0); });
+    m.service(3726, [motionLength](Call& c) { return motionLength(c, 1); });
+    m.service(3727, [motionLength](Call& c) { return motionLength(c, 2); });
     // 3691 (0x12ab84): a pop-up's scale (+0x1a8; see Resource::popScale).
     m.service(3691, [this](Call& c) {
         Resource* r = c.count() > 1 ? scene.resource(reference(c, 0)) : nullptr;
@@ -2416,6 +2475,21 @@ void Game::register3DServices() {
             n >= 0 && n < int(found.size()) ? Value::ofText(found[std::size_t(n)]->name) : Value{};
         return true;
     });
+    // 6025 (0x12c060 -> 0x1c48e8): a 3D object's kind (6002's fourth
+    // operand, +0x76a) changes {name, kind}; kinds above 26 are refused.
+    // prog_place's Place_AddObj uses it.
+    m.service(6025, [this](Call& c) {
+        if (c.count() < 2) {
+            return false;
+        }
+        const int kind = c.integer(1) & 0xff;
+        Object3D* o = scene.object3D(reference(c, 0));
+        if (!o || kind > 26) {
+            return done(c, 0);
+        }
+        o->kind = kind;
+        return done(c, 1);
+    });
     // 6009 (0x12c248): whether all named 3D objects exist.
     m.service(6009, [this](Call& c) {
         for (std::size_t i = 0; i < c.count(); ++i) {
@@ -2599,6 +2673,30 @@ void Game::register3DServices() {
     m.service(6251, [get3](Call& c) { return get3(c, &Object3D::position, &Object3D::offset); });
     // 6875 (0x15d154 -> 0x18e6b8): a model's material alpha factor (only on
     // model content, 13).
+    // 6870 (0x14db74 -> 0x18b204): an outline's colour {object, silhouette
+    // name, r, g, b, a} (Object3D::outlineColours); 1 when the model has
+    // that silhouette.
+    m.service(6870, [object](Call& c) {
+        Object3D* o = object(c);
+        if (!o || c.count() < 6) {
+            return false;
+        }
+        const std::uint32_t name = reference(c, 1);
+        const bool found = o->model && std::any_of(o->model->meshes.begin(), o->model->meshes.end(),
+                                                   [&](const auto& mesh) {
+                                                       return mesh.outlineWidth > 0 &&
+                                                              mesh.outline == name;
+                                                   });
+        if (!found) {
+            return done(c, 0);
+        }
+        std::array<float, 4> rgba{};
+        for (std::size_t i = 0; i < 4; ++i) {
+            rgba[i] = float(int(std::clamp(c.real(2 + i), 0.0f, 1.0f) * 255.0f)) / 255.0f;
+        }
+        o->outlineColours[name] = rgba;
+        return done(c, 1);
+    });
     m.service(6875, [object](Call& c) {
         Object3D* o = object(c);
         if (!o || c.count() < 2) {
@@ -2837,13 +2935,90 @@ void Game::register3DServices() {
         }
         return done(c, 1);
     });
-    m.service(6815, [object](Call& c) {
+    // The motion playing on a layer into a register: 6815 (0x15ffdc ->
+    // 0x340770: the motion layers at +0x10c, count +0x110, 0x1dc bytes
+    // each), 6825 (0x15fe98 -> 0x340720: the face layers at +0x120 / +0x124)
+    // and 6835 (0x1601bc -> 0x3407c0: the material layers at +0x134 / +0x138,
+    // 0x11c bytes each): (object, register [, layer]; with fewer than three
+    // operands layer 0). A layer without a motion, or past the count, gives
+    // nothing. The event's area-map rebuild (prog_event EventChangeMapBuild)
+    // copies the old map model's motions to the new one with them.
+    auto layerMotion = [object](Call& c, auto name) {
         const Object3D* o = object(c);
         if (!o || c.count() < 2) {
             return false;
         }
+        const int layer = c.count() > 2 ? c.integer(2) : 0;
+        const std::string motion = name(*o, layer);
         if (Value* r = c.reg(1)) {
-            *r = o->motion.empty() ? Value{} : Value::ofText(o->motion);
+            *r = motion.empty() ? Value{} : Value::ofText(motion);
+        }
+        return done(c, 1);
+    };
+    m.service(6815, [layerMotion](Call& c) {
+        return layerMotion(c, [](const Object3D& o, int layer) {
+            if (layer == 0) {
+                return o.motion;
+            }
+            return layer >= 1 && layer <= int(o.upperMotions.size())
+                       ? o.upperMotions[std::size_t(layer - 1)].motion
+                       : std::string();
+        });
+    });
+    m.service(6825, [layerMotion](Call& c) {
+        return layerMotion(c, [](const Object3D& o, int layer) {
+            return layer >= 0 && layer < 3 ? o.faces[std::size_t(layer)].motion : std::string();
+        });
+    });
+    m.service(6835, [layerMotion](Call& c) {
+        // (The reconstruction keeps one material layer.)
+        return layerMotion(c, [](const Object3D& o, int layer) {
+            return layer == 0 ? o.materialMotion : std::string();
+        });
+    });
+    // 6832 / 6834 (0x14d7ec -> 0x18f9f0 / 0x160270 -> 0x33e088): 6812 /
+    // 6814 for the material motion layer: its frame (object, frame [,
+    // layer]; clamped to the motion), how far the named material motion has
+    // come (0..1) into a register. (One material layer is kept.)
+    auto materialMotionOf = [](const Object3D* o) -> const adventure56::Motion* {
+        if (!o || !o->model || o->materialMotion.empty()) {
+            return nullptr;
+        }
+        for (const auto& m : o->model->materialMotions) {
+            if (m.name == o->materialMotion) {
+                return &m;
+            }
+        }
+        return nullptr;
+    };
+    m.service(6832, [object, materialMotionOf](Call& c) {
+        Object3D* o = object(c);
+        if (!o || c.count() < 2) {
+            return false;
+        }
+        const auto* mo = materialMotionOf(o);
+        if (!mo || (c.count() > 2 && c.integer(2) != 0)) {
+            return done(c, 0);
+        }
+        const float length = float(std::max(1, mo->last - mo->first + 1));
+        o->materialMotionTime = std::clamp(c.real(1), 0.0f, length - 1);
+        return done(c, 1);
+    });
+    m.service(6834, [object, materialMotionOf](Call& c) {
+        const Object3D* o = object(c);
+        if (!o || c.count() < 3) {
+            return false;
+        }
+        const auto* mo = materialMotionOf(o);
+        float progress = 0;
+        const bool named = mo && (c.at(1).isText() ? o->materialMotion == textOf(c, 1)
+                                                   : mo->hash == reference(c, 1) ||
+                                                         xq::hash(o->materialMotion) == reference(c, 1));
+        if (named) {
+            progress = o->materialMotionTime / float(std::max(1, mo->last - mo->first));
+        }
+        if (Value* r = c.reg(2)) {
+            *r = Value::ofFloat(progress);
         }
         return done(c, 1);
     });
@@ -4171,6 +4346,11 @@ void Game::registerGameServices() {
     m.service(11057, query(&adventure56::StreamPlayers::stopFading));
     // 16541 (0x165004): the current puzzle's type.
     m.service(16541, [this](Call& c) { return done(c, puzzle ? puzzle->type : 0); });
+    // 16505 (0x163280): the current puzzle's id (its 2301 record is copied
+    // to game +0x194a8: the halfword +4 is the id, +6 the type above, +0x1c
+    // the title). The ladybug puzzles (n052, n117, n141, d06_rabbit) name
+    // their motions "n%03d_blue_fly_start_00" with it.
+    m.service(16505, [this](Call& c) { return done(c, puzzle ? puzzle->id : 0); });
     // 15703 (0x160690): a puzzle's picarats after 0, 1, 2+ wrong answers.
     m.service(15703, [this](Call& c) {
         const PuzzleRecord* p = defs.puzzle(c.integer(0));

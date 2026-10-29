@@ -46,10 +46,10 @@ SoundData extract_sound(const Rom& rom) {
     return {rom.slice(0xc716, 0x7fbd - 0x4716), rom.slice(0xc4d5, 30), rom.slice(0xc3ce, 16)};
 }
 
-void save_sound(const SoundData& d, const std::filesystem::path& p) {
-    write_file(p / "music.bin", d.sequences);
-    write_file(p / "notes.bin", d.notes);
-    write_file(p / "drums.bin", d.drums);
+void save_sound(const SoundData& d, PackWriter& out) {
+    out.write("music.bin", d.sequences);
+    out.write("notes.bin", d.notes);
+    out.write("drums.bin", d.drums);
 }
 
 SoundData load_sound(const std::filesystem::path& p) {

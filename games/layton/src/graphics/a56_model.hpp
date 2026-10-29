@@ -75,6 +75,9 @@ struct Mesh {
     // Width 0: no outline.
     float outlineWidth = 0;
     float outlineColour[3] = {0, 0, 0};
+    // The silhouette's name hash (its block's word 0, e.g. "#new_000" on
+    // the horse ride's models); 6870 recolours an outline by it.
+    std::uint32_t outline = 0;
 
     // Edges for the silhouette (vertices welded by position): the two
     // triangles beside each edge (second -1 for an open edge).

@@ -87,6 +87,13 @@ Assets Assets::extract(const CartridgeInfo& info, const Rom& rom) {
 }
 
 void Assets::save(const std::filesystem::path& directory) const {
+    for (const auto& [name, bytes] : files()) {
+        write_file(directory / name, bytes);
+    }
+}
+
+std::vector<std::pair<std::string, Bytes>> Assets::files() const {
+    std::vector<std::pair<std::string, Bytes>> out;
     Bytes data = magic_bytes(info_->data_magic);
     for (unsigned b = 0; b < 32; ++b) {
         // Runs of data bytes: bank, offset, length, bytes.
@@ -107,10 +114,10 @@ void Assets::save(const std::filesystem::path& directory) const {
             o = end;
         }
     }
-    write_file(directory / "data.bin", data);
+    out.emplace_back("data.bin", std::move(data));
 
     if (!info_->tiles_magic) {
-        return;
+        return out;
     }
     Bytes tiles = magic_bytes(info_->tiles_magic);
     for (const auto& [key, bytes] : tiles_) {
@@ -118,7 +125,8 @@ void Assets::save(const std::filesystem::path& directory) const {
         put32(tiles, std::uint32_t(bytes.size()));
         tiles.insert(tiles.end(), bytes.begin(), bytes.end());
     }
-    write_file(directory / "tiles.bin", tiles);
+    out.emplace_back("tiles.bin", std::move(tiles));
+    return out;
 }
 
 Assets Assets::load(const CartridgeInfo& info, const std::filesystem::path& directory) {

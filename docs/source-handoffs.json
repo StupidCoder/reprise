@@ -3,7 +3,9 @@
     "project": "Picarat",
     "commit": "3566d8c0c83e2e170b8a6a7d2303485d4e9022ff",
     "path": "games/layton",
-    "files": 551
+    "files": 551,
+    "history_tag": "source/picarat",
+    "retired": "2026-10-29"
   },
   {
     "project": "DoubleOCheese",

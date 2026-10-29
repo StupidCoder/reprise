@@ -18,9 +18,15 @@ std::filesystem::path pack_path(const std::filesystem::path& root);
 
 // True when a pack written by the current extractor version is installed.
 bool pack_installed(const std::filesystem::path& root);
+// True when the pack in `pack` was written by the current extractor version.
+bool pack_current(const std::filesystem::path& pack);
 
 // Loads every level, frontend and sound file of a pack; throws if any is invalid.
 void validate_pack(const std::filesystem::path& pack);
+
+// The pack's files (its manifest included) made from the bytes of the supported ROM, for an
+// application that installs them itself. Throws std::runtime_error for other bytes.
+std::vector<std::pair<std::string, Bytes>> extract_pack(Bytes rom, ExtractProgress progress = {});
 
 // Verifies `image`, extracts it and atomically replaces the installed pack.
 void import_rom(const std::filesystem::path& image, const std::filesystem::path& root,

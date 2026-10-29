@@ -92,3 +92,39 @@ An auto-player run reaches the staff roll in one go.
 - `ctest` (`a1_script_tests` runs all 930 scripts, `a1_sound_tests`).
 - After changing the shared interpreter, also compare `tools/golden.py`
   against a build without the change.
+
+## In Reprise (2026-10-29)
+
+The game runs inside Reprise (catalog id `curious_village_ds`); the integration is
+described in [../reprise.md](../reprise.md).
+
+Connected: import (A5FP NDS, streamed), Start (the title), Continue and
+quick save/load (the last room checkpoint, not the exact moment), the three
+cartridge slots in `<data>/progress/curious_village_ds/backup.sav`, a Language
+option (system default or one of the five; applies at the next start), the
+VHS filter per screen, touch-area help, background previews, takeover of
+Picarat's pack and `a5fp-backup.sav`.
+
+Not offered in Reprise (Picarat shell features, by decision): music player,
+movie theatre, puzzle mode, minigame free play, the hub's "Continue story".
+Movies, music, puzzles and minigames play as part of normal play.
+
+Remaining for Reprise:
+
+- typed name entry (the touch keyboard works);
+- an accelerometer for the 3DS games on phones (Picarat had one);
+- the screen filter's CPU fallback path is untested on a renderer without
+  GPU shaders.
+
+Validation:
+
+- Validated on macOS (2026-10-29): `ctest -R layton_module` with
+  `LAYTON_PACKS` (the story starts from the title with picture and sound);
+  the real window driven by `reprise --events` scripts. Android: the APK
+  builds; only Curious Village was run on an emulator (start, touch,
+  rotation). No physical device was used.
+- Quick save, fresh-process Continue, damaged and foreign saves: checked
+  (`LAYTON_CHECKPOINTS` with Picarat's `a5fp-checkpoint.sav`; in the window:
+  title → Continue → slot → room → Cmd+S → relaunch → Continue).
+- Emulator (Medium Phone API 36.1): title, touch on New Game in landscape, a
+  typed letter kept across rotations, stacked/side-by-side switching.

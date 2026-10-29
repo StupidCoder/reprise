@@ -27,7 +27,8 @@ add_library(platform
     shared/platform/host_sdl.cpp
     shared/platform/sha256.cpp
     shared/platform/resources.cpp
-    shared/platform/type.cpp)
+    shared/platform/type.cpp
+    shared/platform/file_source.cpp)
 target_include_directories(platform PUBLIC ${SOURCE_ROOT})
 target_link_libraries(platform PUBLIC SDL3::SDL3)
 target_compile_options(platform PRIVATE ${PROJECT_WARNINGS})
@@ -393,6 +394,30 @@ target_include_directories(spy_mouse_ios PUBLIC ${SOURCE_ROOT})
 target_link_libraries(spy_mouse_ios PUBLIC platform ui PRIVATE doc_embed)
 target_compile_options(spy_mouse_ios PRIVATE ${PROJECT_WARNINGS})
 
+# --- sonic: BlueStreak's games (Sonic 1, Sonic 2, Triple Trouble on the Game Gear; Sonic Advance)
+# The engine folder keeps its standalone build (the BlueStreak app with its own shell and host);
+# included here it builds only the engine libraries and its embedding interface (src/embed),
+# compiled against Reprise's shared platform headers and linked to Reprise's `platform`, so
+# BlueStreak's host and its "app/..." headers never meet Reprise's (games/sonic/CMakeLists.txt).
+set(BLUESTREAK_HOST_SHARED ${CMAKE_CURRENT_SOURCE_DIR}/shared)
+add_subdirectory(games/sonic EXCLUDE_FROM_ALL)
+add_library(sonic games/sonic/reprise/entry.cpp)
+target_include_directories(sonic PUBLIC ${SOURCE_ROOT})
+target_link_libraries(sonic PUBLIC platform ui PRIVATE bluestreak_embed)
+target_compile_options(sonic PRIVATE ${PROJECT_WARNINGS})
+
+# --- layton: Picarat's puzzle adventures (Nintendo DS and 3DS) ------------------------------
+# The engine folder keeps its standalone build (the Picarat app, research tools and tests);
+# included here with PICARAT_EMBEDDED it builds only the engine and its embedding interface
+# (src/embed/layton_embed.hpp), so Picarat's own "platform/..." and "shell/..." headers never
+# meet Reprise's. Reprise's adapter (games/layton/reprise) shows the two screens.
+set(PICARAT_EMBEDDED ON)
+add_subdirectory(games/layton EXCLUDE_FROM_ALL)
+add_library(layton games/layton/reprise/entry.cpp games/layton/reprise/dual_screen.cpp)
+target_include_directories(layton PUBLIC ${SOURCE_ROOT})
+target_link_libraries(layton PUBLIC platform ui PRIVATE picarat_embed)
+target_compile_options(layton PRIVATE ${PROJECT_WARNINGS})
+
 # --- reprise: the launcher application -----------------------------------------
 set(REPRISE_SOURCES
     app/main.cpp
@@ -412,7 +437,7 @@ if(ANDROID)
 else()
     add_executable(reprise ${REPRISE_SOURCES})
 endif()
-target_link_libraries(reprise PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga spindizzy_worlds_amiga spy_mouse_ios ui)
+target_link_libraries(reprise PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga spindizzy_worlds_amiga spy_mouse_ios sonic layton ui)
 target_compile_options(reprise PRIVATE ${PROJECT_WARNINGS})
 
 # --- tools ---------------------------------------------------------------------
@@ -502,11 +527,12 @@ if(BUILD_TESTING)
     games/bruce_lee_c64/game/room_chapter.cpp
     games/bruce_lee_c64/game/background_article.cpp
     app/launcher.cpp app/quick_save.cpp app/pause_menu.cpp)
-    target_link_libraries(shell_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga spindizzy_worlds_amiga spy_mouse_ios ui)
+    target_link_libraries(shell_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga spindizzy_worlds_amiga spy_mouse_ios sonic layton ui)
     target_compile_options(shell_checks PRIVATE ${PROJECT_WARNINGS})
     add_dependencies(shell_checks reprise_resources)
     add_test(NAME shell_navigation COMMAND shell_checks)
     add_test(NAME shell_motion COMMAND shell_checks --motion)
+    add_test(NAME import_progress COMMAND shell_checks --import-progress)
 endif()
 
 # The screen filter stage on this machine's renderer: GPU shader against its CPU form
@@ -521,7 +547,7 @@ target_compile_options(marble_madness_replay PRIVATE ${PROJECT_WARNINGS})
 
 if(BUILD_TESTING)
     add_executable(persistence_checks tests/persistence.cpp app/catalog.cpp app/quick_save.cpp app/saved_options.cpp)
-    target_link_libraries(persistence_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga spindizzy_worlds_amiga spy_mouse_ios ui)
+    target_link_libraries(persistence_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga spindizzy_worlds_amiga spy_mouse_ios sonic layton ui)
     target_compile_options(persistence_checks PRIVATE ${PROJECT_WARNINGS})
     add_test(NAME persistent_saves COMMAND persistence_checks)
     # Spy Mouse through the module interface; skipped unless SPY_MOUSE_CONTENT and
@@ -530,4 +556,16 @@ if(BUILD_TESTING)
     target_link_libraries(spy_mouse_checks PRIVATE spy_mouse_ios ui)
     target_compile_options(spy_mouse_checks PRIVATE ${PROJECT_WARNINGS})
     add_test(NAME spy_mouse_module COMMAND spy_mouse_checks)
+    # BlueStreak's games through the module interface; skipped unless SONIC_ROMS names a folder
+    # with the user's dumps (tests/sonic.cpp).
+    add_executable(sonic_checks tests/sonic.cpp app/library.cpp app/quick_save.cpp)
+    target_link_libraries(sonic_checks PRIVATE sonic ui)
+    target_compile_options(sonic_checks PRIVATE ${PROJECT_WARNINGS})
+    add_test(NAME sonic_module COMMAND sonic_checks)
+    # The puzzle adventures through the module interface: layouts, stylus and importer always;
+    # the games themselves with LAYTON_PACKS (and LAYTON_CHECKPOINTS) set (tests/layton.cpp).
+    add_executable(layton_checks tests/layton.cpp app/quick_save.cpp)
+    target_link_libraries(layton_checks PRIVATE layton picarat_embed ui)
+    target_compile_options(layton_checks PRIVATE ${PROJECT_WARNINGS})
+    add_test(NAME layton_module COMMAND layton_checks)
 endif()

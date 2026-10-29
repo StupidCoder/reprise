@@ -47,12 +47,18 @@ Use `--version-code N` for a higher Android version code if desired.
   two columns and swipe scrolling in portrait. Selection survives rotation.
   Details and documentation reflow with scrollable text, save previews, asset
   viewers and lesson lists. Individual lesson experiments and in-game menus
-  retain their original canvas, letterboxed in portrait. Dual-screen presentation, safe-area refinements and individual
-  game input adaptation remain follow-ups.
-- Android's system document picker is accessed through SDL. Selected content
-  URIs are copied to private disposable cache for existing filesystem importers;
-  up to 1 GiB per selection, replaced by the next selection. Imported games and
-  saves use app-private persistent storage, with no broad storage permission.
+  retain their original canvas, letterboxed in portrait. The puzzle adventures' two screens adapt to
+  rotation (stacked/side by side) with touch and pinch zoom; safe-area
+  refinements and other games' input adaptation remain follow-ups.
+- Android's system document picker is accessed through SDL. Content URIs go
+  directly to the background import worker through `platform::FileSource`; the
+  UI thread no longer copies selected images. The SDL loading screen stays
+  responsive, with measured Layton extraction and file-verification progress,
+  and an animated indicator for importers without progress reports. It adapts
+  to rotation. Closing waits for the current import to finish safely.
+  Imported games and saves use app-private persistent storage, with no broad
+  storage permission. The new picker/worker path still needs physical-device
+  validation; desktop large-image import and APK build/signing were checked.
 - Both native libraries and the APK's uncompressed native entries are verified
   for 16 KB alignment. Signature verification runs after every build.
 - Build metadata and APK checksum are in `build-android/build-info.json`.
@@ -78,3 +84,22 @@ Portrait Layton preview visually checked. Physical rotation testing pending.
 with touch-sized actions, vertically scrolling descriptions/development notes,
 save screenshots, asset browsing/audio/model controls and lesson selection.
 Desktop navigation/motion/save/module checks cover the new portrait paths.
+
+## Shell navigation and layout
+
+The Android SDL window requests immersive fullscreen, hiding the status and
+navigation bars; an edge swipe can reveal system controls temporarily. System
+Back (button or gesture) is routed into SDL as the same shell/pause action as
+Escape instead of finishing the Activity. The manifest keeps the legacy Back
+callback enabled for SDL's activity integration.
+
+The library shelf follows the display aspect ratio: portrait keeps its compact
+top navigation, while landscape expands its canvas and fits as many card columns
+as the available width permits. Dragging scrolls by the pointer's actual travel;
+fractional mouse-wheel/trackpad movement is retained. Keyboard/gamepad selection
+still brings its selected card into view.
+
+Landscape game details and documentation also match the window aspect ratio.
+Wide displays expand the content panels; narrower landscape displays use a
+taller layout. Cover art and typography retain their proportions, and asset
+controls, interactive previews and confirmation dialogs follow the new bounds.

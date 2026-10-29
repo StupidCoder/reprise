@@ -1,6 +1,7 @@
 #pragma once
 #include "app/game_entry.hpp"
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -45,7 +46,8 @@ public:
     // Imports an image. The preferred game (the one selected in the
     // launcher) is tried first, then every other importable game, so a
     // dropped image lands with the game it belongs to.
-    Outcome import(const std::filesystem::path& image, std::optional<std::size_t> preferred);
+    Outcome import(const std::filesystem::path& image, std::optional<std::size_t> preferred,
+                   const ImportProgress& progress = {});
 
     // Deletes a game's imported content.
     void remove(std::size_t game);
@@ -67,6 +69,11 @@ private:
     std::optional<Install> check_folder(const std::filesystem::path& folder) const;
     void install(const GameEntry& game, const ImportResult& result,
                  const std::filesystem::path& source);
+    // Installs files `fill` writes into an empty staging folder (returning their release):
+    // large imports and folder takeovers. The manifest's checksums are of the written files.
+    void install_folder(const GameEntry& game, const std::filesystem::path& source,
+                        const std::function<std::string(const std::filesystem::path&)>& fill,
+                        const ImportProgress& progress = {});
     void write_verified(const std::filesystem::path& target, const ImportResult& result,
                         const std::filesystem::path& source);
     // Keeps one disk of a game on several disks; installs the game when all

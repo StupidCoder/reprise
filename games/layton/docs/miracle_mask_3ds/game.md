@@ -218,6 +218,25 @@ for handwriting.
 **Merged models** (6890..6896) draw many instances of one mesh, each with its
 own matrix.
 
+**Tween state.** An object's alpha tween sits at +0x94 and its colour tween
+at +0xb8; each tween's byte +4 holds the running curve and stays below 32
+only while it runs. 5100 tests the alpha, 5120 / 6120 (`0x2BECFC`) the alpha
+or the colour.
+
+**Group services.** 5320..5331 and 6260..6262 / 6322 act on every object of a
+screen (−1 all) and kind: the 2D kind is byte +0x436 (above 0x34 any), the
+3D kind byte +0x76A (above 26 any; 6025 changes it). 5322 / 6322 set the
+alpha, 5323 / 6261 fade it, 5330 / 5331 the colour. 6262 is a second copy of
+6322's code.
+
+**Outline colour** (6870, `0x18B204`): a model's silhouette is named by its
+`.sil` block's word 0 ("#new_000" on the horse and the mask); the service
+writes RGBA bytes (clamped 0..1) into constant 0 of that silhouette's
+combiner.
+
+**The current puzzle** is a copy of its 2301 record at game +0x194A8: id
+(+0x194AC, 16505), type (+0x194AE, 16541), title (+0x194C4, 16542).
+
 
 ## 5 3D rendering
 
@@ -486,3 +505,12 @@ What was checked:
 - The autopilot plays from the title to the end credits.
 - The handwriting recogniser is byte-exact against console dumps.
 - Side games and secrets match console runs in the stretches compared.
+
+## Embedding notes (Reprise, 2026-10-29)
+
+Observations from running the reconstruction inside Reprise, not new
+findings about the original: the game thread is stepped one frame at a time
+by the host, and the sound is rendered a fixed amount per frame (32 728 Hz
+resampled to 48 kHz), so every sound-gated wait follows the frame count
+instead of the device's real-time progress. Reprise keeps no checkpoint for this game yet: the engine's own save slots are its progress. Details:
+[../reprise.md](../reprise.md).

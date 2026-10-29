@@ -18,6 +18,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <thread>
 #include <vector>
@@ -50,8 +51,13 @@ public:
     // screens, see geometry()).
     // `sixth`: the sixth adventure (same runtime, its own definitions).
     // The fifth adventure's story from the boot (no save files yet).
+    // `checkpoint`: the app's checkpoint file (written whenever a place is
+    // ready; empty: none); with `resume` the story continues from it instead
+    // of opening the title.
     static std::unique_ptr<GameSession> adventure5Story(std::filesystem::path pack,
-                                                        std::filesystem::path saves);
+                                                        std::filesystem::path saves,
+                                                        std::filesystem::path checkpoint = {},
+                                                        bool resume = false);
     static std::unique_ptr<GameSession> adventure5Puzzle(std::filesystem::path pack, int id,
                                                          bool sixth = false);
     // Plays the fourth adventure from its title (adventure4::Game); its save
@@ -111,6 +117,16 @@ public:
 
     // Lets the game run its next frame (call at 60 Hz).
     void tick();
+    // For embedding hosts (src/embed), instead of tick(): runs exactly one
+    // frame and waits until it is out, then renders that frame's sound into
+    // `stereo` (interleaved stereo at `rate`; the game's AudioStreams join
+    // the session, platform/audio_pull.hpp). The host decides when the game
+    // advances: between steps the game thread waits. False (nothing run)
+    // while the game is still loading its first frame, or once it has ended.
+    bool step(std::span<float> stereo, int rate);
+    // The game thread has ended: the story is over, an error (error()), or
+    // back to the library (returnedToLibrary()).
+    bool ended() const;
 
     // The screens' sizes (DS unless the game says otherwise).
     ScreenGeometry geometry() const;
@@ -165,6 +181,8 @@ private:
     adventure3Session(std::filesystem::path pack, std::filesystem::path saves, int movie,
                       std::optional<std::vector<std::uint8_t>> minigame, int which = 0,
                       bool resume = false);
+    // Starts a game thread running `body`; its sound joins the session's pull.
+    static std::thread spawn(std::shared_ptr<Shared> shared, std::function<void()> body);
     std::shared_ptr<Shared> shared_;
     std::thread worker_;
 };

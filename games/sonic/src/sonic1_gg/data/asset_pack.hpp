@@ -6,5 +6,5 @@
 namespace sonic1_gg {
 using ExtractProgress = std::function<void(unsigned, unsigned)>;
 // Reusable extraction operation. The caller owns transactional installation.
-void extract_asset_pack(const Rom&, const std::filesystem::path&, ExtractProgress = {});
+void extract_asset_pack(const Rom&, PackWriter&, ExtractProgress = {});
 } // namespace sonic1_gg

@@ -27,6 +27,11 @@ struct Host::Implementation {
     int game_width{}, game_height{}; // that frame's size in pixels
     bool game_draws_pointer{};       // the game shows its own pointer
     bool press_in_game{};            // a press began over the game frame (pointer events)
+    std::map<SDL_FingerID, std::array<float, 2>> fingers; // touching now (render coordinates)
+    // The accelerometer (set_motion_wanted), closed while no game asks; whether the sensor
+    // subsystem was started and none was found.
+    SDL_Sensor* accelerometer{};
+    bool sensors_started{}, no_accelerometer{};
     std::filesystem::path capture;   // capture_next_frame's file, until the next present
     SDL_Texture* gpu_target{};       // present_game_gpu's target, at the shown size
     int gpu_width{}, gpu_height{};
@@ -36,6 +41,10 @@ struct Host::Implementation {
     SDL_Texture* effect_source{};
     SDL_Texture* effect_output{};
     int effect_width{}, effect_height{};
+    // Effects with regions (ScreenEffect::regions): the frame composed at its shown size, and per
+    // region its picture, its filtered raster and (CPU form) its uploaded result.
+    SDL_Texture* effect_composite{};
+    std::vector<SDL_Texture*> region_sources, region_outputs, region_uploads;
     struct CompiledShader {
         SDL_GPUShader* shader{};
         SDL_GPURenderState* state{};
@@ -64,6 +73,7 @@ struct Host::Implementation {
         if (gamepad2) {
             SDL_CloseGamepad(gamepad2);
         }
+        if (accelerometer) SDL_CloseSensor(accelerometer);
         SDL_DestroyAudioStream(audio);
         SDL_GPUDevice* device = renderer ? SDL_GetGPURendererDevice(renderer) : nullptr;
         for (auto& [name, compiled] : shaders) {
@@ -72,6 +82,10 @@ struct Host::Implementation {
         }
         SDL_DestroyTexture(effect_output);
         SDL_DestroyTexture(effect_source);
+        SDL_DestroyTexture(effect_composite);
+        for (auto* t : region_sources) SDL_DestroyTexture(t);
+        for (auto* t : region_outputs) SDL_DestroyTexture(t);
+        for (auto* t : region_uploads) SDL_DestroyTexture(t);
         SDL_DestroyTexture(texture);
         SDL_DestroyTexture(overlay_texture);
         SDL_DestroyTexture(note_texture);
@@ -145,6 +159,97 @@ struct Host::Implementation {
         return image;
     }
 
+    // A render-target texture of `width` x `height` in `texture`, made anew when its size changed.
+    void ensure_target(SDL_Texture*& texture, int width, int height) {
+        width = std::max(1, width);
+        height = std::max(1, height);
+        if (texture && (texture->w != width || texture->h != height)) {
+            SDL_DestroyTexture(texture);
+            texture = nullptr;
+        }
+        if (!texture) {
+            texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, width, height);
+            if (!texture) throw std::runtime_error(SDL_GetError());
+            SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_NEAREST);
+        }
+    }
+
+    // The screen filter stage for an effect with regions: effect_source holds the frame at its
+    // logical size (`width` x `height`); effect_composite becomes the picture to show at
+    // `shown_width` x `shown_height`: the frame as drawn, each region replaced by its filtered
+    // picture (on the GPU, else read back once per region and filtered on the CPU).
+    void filter_regions(const ScreenEffect& effect, int width, int height, int shown_width, int shown_height) {
+        ensure_target(effect_composite, shown_width, shown_height);
+        auto plain = [&](SDL_Texture* to) {
+            SDL_SetRenderTarget(renderer, to);
+            SDL_SetRenderLogicalPresentation(renderer, 0, 0, SDL_LOGICAL_PRESENTATION_DISABLED);
+            SDL_SetRenderScale(renderer, 1.0f, 1.0f);
+            SDL_SetRenderViewport(renderer, nullptr);
+        };
+        plain(effect_composite);
+        SDL_RenderTexture(renderer, effect_source, nullptr, nullptr);
+        const std::size_t count = effect.regions.size();
+        region_sources.resize(count, nullptr);
+        region_outputs.resize(count, nullptr);
+        region_uploads.resize(count, nullptr);
+        SDL_GPURenderState* state = effect.shader ? shader_state(*effect.shader) : nullptr;
+        const float sx = float(shown_width) / float(std::max(1, width));
+        const float sy = float(shown_height) / float(std::max(1, height));
+        std::string path;
+        for (std::size_t k = 0; k < count; ++k) {
+            const auto& r = effect.regions[k];
+            // (Clipped to the frame.)
+            const int x0 = std::clamp(r.x, 0, width), y0 = std::clamp(r.y, 0, height);
+            const int x1 = std::clamp(r.x + r.width, 0, width), y1 = std::clamp(r.y + r.height, 0, height);
+            if (x1 <= x0 || y1 <= y0) continue;
+            const SDL_FRect source{float(x0), float(y0), float(x1 - x0), float(y1 - y0)};
+            const SDL_FRect shown{float(x0) * sx, float(y0) * sy, float(x1 - x0) * sx, float(y1 - y0) * sy};
+            // The region as a picture of its own (the shader samples a whole texture).
+            ensure_target(region_sources[k], x1 - x0, y1 - y0);
+            plain(region_sources[k]);
+            SDL_RenderTexture(renderer, effect_source, &source, nullptr);
+            SDL_Texture* filtered = region_sources[k];
+            if (state && SDL_SetGPURenderStateFragmentUniforms(state, 0, r.uniforms.data(), Uint32(r.uniforms.size()))) {
+                path = shaders[effect.shader->name].path;
+                SDL_Texture* to = effect_composite;
+                if (effect.raster_width > 0 && effect.raster_height > 0) {
+                    ensure_target(region_outputs[k], effect.raster_width, effect.raster_height);
+                    to = region_outputs[k];
+                }
+                plain(to);
+                SDL_SetGPURenderState(renderer, state);
+                SDL_RenderTexture(renderer, region_sources[k], nullptr, to == effect_composite ? &shown : nullptr);
+                SDL_SetGPURenderState(renderer, nullptr);
+                // (The uniforms are pushed when the draw runs: run it before the next region's.)
+                SDL_FlushRenderer(renderer);
+                if (to == effect_composite) continue;
+                filtered = to;
+            } else if (r.cpu) {
+                const Image picture = r.cpu(read_pixels());
+                auto& upload = region_uploads[k];
+                if (upload && (upload->w != picture.width || upload->h != picture.height)) {
+                    SDL_DestroyTexture(upload);
+                    upload = nullptr;
+                }
+                if (!upload) {
+                    upload = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STREAMING,
+                                               picture.width, picture.height);
+                    if (!upload) throw std::runtime_error(SDL_GetError());
+                    SDL_SetTextureScaleMode(upload, SDL_SCALEMODE_NEAREST);
+                }
+                SDL_UpdateTexture(upload, nullptr, picture.pixels.data(), picture.width * int(sizeof(Color)));
+                filtered = upload;
+                path = "CPU";
+            }
+            plain(effect_composite);
+            SDL_RenderTexture(renderer, filtered, nullptr, &shown);
+        }
+        if (path != effect_path && !path.empty()) {
+            SDL_Log("Screen effect: %s per region (%s renderer)", path.c_str(), SDL_GetRendererName(renderer));
+        }
+        effect_path = path;
+    }
+
     // Presents, writing the frame to `capture` first when one is asked for.
     void present_frame() {
         if (!capture.empty()) {
@@ -179,12 +284,17 @@ struct Host::Implementation {
 };
 
 Host::Host(std::string_view title) : impl_(std::make_unique<Implementation>()) {
+    SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD | SDL_INIT_AUDIO)) {
         throw std::runtime_error(SDL_GetError());
     }
     auto& i = *impl_;
     i.window = SDL_CreateWindow(std::string(title).c_str(), ui_width, ui_height,
-                                SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+                                SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY
+#ifdef __ANDROID__
+                                | SDL_WINDOW_FULLSCREEN
+#endif
+                                );
     if (!i.window) {
         throw std::runtime_error(SDL_GetError());
     }
@@ -240,23 +350,33 @@ Controls Host::poll() {
             input.mouse_dx += event.motion.xrel;
             input.mouse_dy += event.motion.yrel;
         }
+        if (event.type == SDL_EVENT_FINGER_DOWN || event.type == SDL_EVENT_FINGER_MOTION) {
+            SDL_ConvertEventToRenderCoordinates(i.renderer, &event);
+            i.fingers[event.tfinger.fingerID] = {event.tfinger.x, event.tfinger.y};
+        }
+        if (event.type == SDL_EVENT_FINGER_UP || event.type == SDL_EVENT_FINGER_CANCELED) {
+            i.fingers.erase(event.tfinger.fingerID);
+        }
         if (event.type == SDL_EVENT_MOUSE_MOTION && i.press_in_game) {
             SDL_ConvertEventToRenderCoordinates(i.renderer, &event);
             if (const auto at = i.frame_point(event.motion.x, event.motion.y))
-                input.pointer_events.push_back({PointerEvent::Kind::move, (*at)[0], (*at)[1]});
+                input.pointer_events.push_back({PointerEvent::Kind::move, (*at)[0], (*at)[1],
+                                                event.motion.which == SDL_TOUCH_MOUSEID});
         }
         if (event.type == SDL_EVENT_MOUSE_BUTTON_UP && event.button.button == SDL_BUTTON_LEFT && i.press_in_game) {
             SDL_ConvertEventToRenderCoordinates(i.renderer, &event);
             i.press_in_game = false;
             if (const auto at = i.frame_point(event.button.x, event.button.y))
-                input.pointer_events.push_back({PointerEvent::Kind::up, (*at)[0], (*at)[1]});
+                input.pointer_events.push_back({PointerEvent::Kind::up, (*at)[0], (*at)[1],
+                                                event.button.which == SDL_TOUCH_MOUSEID});
         }
         if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button == SDL_BUTTON_LEFT) {
             SDL_ConvertEventToRenderCoordinates(i.renderer, &event);
             if (const auto at = i.frame_point(event.button.x, event.button.y);
                 at && (*at)[0] >= 0 && (*at)[1] >= 0 && (*at)[0] < float(i.game_width) && (*at)[1] < float(i.game_height)) {
                 i.press_in_game = true;
-                input.pointer_events.push_back({PointerEvent::Kind::down, (*at)[0], (*at)[1]});
+                input.pointer_events.push_back({PointerEvent::Kind::down, (*at)[0], (*at)[1],
+                                                event.button.which == SDL_TOUCH_MOUSEID});
             }
             input.click = true;
             if (i.ui_shown) {
@@ -271,6 +391,7 @@ Controls Host::poll() {
         if (event.type == SDL_EVENT_MOUSE_WHEEL) {
             // Whole steps; trackpads deliver fractions, which add up here. The
             // value already follows the system's scroll direction setting.
+            input.wheel_precise -= event.wheel.y;
             i.wheel_rest -= event.wheel.y;
             const int steps = int(i.wheel_rest);
             i.wheel_rest -= float(steps);
@@ -295,8 +416,8 @@ Controls Host::poll() {
             input.quick_save |= shortcut && key == SDLK_S;
             input.quick_load |= shortcut && key == SDLK_L;
             if (!shortcut) {
-                input.back |= key == SDLK_ESCAPE;
-                input.menu |= key == SDLK_ESCAPE;
+                input.back |= (key == SDLK_ESCAPE || key == SDLK_AC_BACK);
+                input.menu |= (key == SDLK_ESCAPE || key == SDLK_AC_BACK);
                 input.accept |= key == SDLK_RETURN || key == SDLK_KP_ENTER;
                 input.remove |= key == SDLK_BACKSPACE || key == SDLK_DELETE;
                 input.info |= key == SDLK_I;
@@ -318,6 +439,8 @@ Controls Host::poll() {
     input.up = k[SDL_SCANCODE_UP] || (letters && k[SDL_SCANCODE_W]);
     input.down = k[SDL_SCANCODE_DOWN] || (letters && k[SDL_SCANCODE_S]);
     input.fire = k[SDL_SCANCODE_SPACE] || k[SDL_SCANCODE_Z];
+    input.button2 = letters && k[SDL_SCANCODE_X];
+    input.start = k[SDL_SCANCODE_RETURN] || k[SDL_SCANCODE_KP_ENTER];
     input.f1 = k[SDL_SCANCODE_F1] || (letters && k[SDL_SCANCODE_1]);
     input.f3 = k[SDL_SCANCODE_F3] || (letters && k[SDL_SCANCODE_3]);
     input.f5 = k[SDL_SCANCODE_F5] || (letters && k[SDL_SCANCODE_5]);
@@ -367,6 +490,8 @@ Controls Host::poll() {
         input.down |= button(SDL_GAMEPAD_BUTTON_DPAD_DOWN) || y > 12000;
         input.fire |= button(SDL_GAMEPAD_BUTTON_SOUTH);
         input.f7 |= button(SDL_GAMEPAD_BUTTON_START);
+        input.button2 |= button(SDL_GAMEPAD_BUTTON_EAST);
+        input.start |= button(SDL_GAMEPAD_BUTTON_START);
         input.f3 |= button(SDL_GAMEPAD_BUTTON_NORTH);
         input.f5 |= button(SDL_GAMEPAD_BUTTON_WEST);
     }
@@ -404,6 +529,36 @@ Controls Host::poll() {
         const float fy = (ry - i.game_box.y) * float(i.game_height) / i.game_box.h;
         if (fx >= 0 && fy >= 0 && fx < float(i.game_width) && fy < float(i.game_height)) {
             input.game_pointer = std::array<int, 2>{int(fx), int(fy)};
+        }
+    }
+    if (i.accelerometer) {
+        // SDL reports m/s^2 in the device's natural orientation (x right, y up the screen held
+        // upright, z towards the viewer), gravity as "up"; turned into the window's axes.
+        float d[3] = {};
+        // (Nothing until the first real reading: a sensor just opened reads zero.)
+        if (SDL_GetSensorData(i.accelerometer, d, 3) &&
+            d[0] * d[0] + d[1] * d[1] + d[2] * d[2] > 0.25f * SDL_STANDARD_GRAVITY * SDL_STANDARD_GRAVITY) {
+            const float x = d[0] / SDL_STANDARD_GRAVITY, y = d[1] / SDL_STANDARD_GRAVITY,
+                        z = d[2] / SDL_STANDARD_GRAVITY;
+            switch (SDL_GetCurrentDisplayOrientation(SDL_GetDisplayForWindow(i.window))) {
+            case SDL_ORIENTATION_LANDSCAPE: // the device turned a quarter anticlockwise
+                input.motion = std::array<float, 3>{-y, x, z};
+                break;
+            case SDL_ORIENTATION_LANDSCAPE_FLIPPED:
+                input.motion = std::array<float, 3>{y, -x, z};
+                break;
+            case SDL_ORIENTATION_PORTRAIT_FLIPPED:
+                input.motion = std::array<float, 3>{-x, -y, z};
+                break;
+            default:
+                input.motion = std::array<float, 3>{x, y, z};
+                break;
+            }
+        }
+    }
+    for (const auto& [id, at] : i.fingers) {
+        if (const auto point = i.frame_point(at[0], at[1])) {
+            input.fingers.push_back({std::uint64_t(id), (*point)[0], (*point)[1]});
         }
     }
     // Only one pointer: the system's hidden over a game drawing its own.
@@ -505,6 +660,18 @@ void Host::present_game_gpu(int width, int height, double pixel_aspect,
         }
         SDL_SetRenderTarget(i.renderer, i.effect_source);
         draw(GpuFrame{i.renderer, i.effect_source, width, height});
+        if (!effect->regions.empty()) {
+            // Each region filtered on its own, composed at the shown size over the frame as drawn.
+            i.filter_regions(*effect, width, height, w, h);
+            SDL_SetRenderTarget(i.renderer, nullptr);
+            SDL_SetRenderLogicalPresentation(i.renderer, 0, 0, SDL_LOGICAL_PRESENTATION_DISABLED);
+            SDL_SetRenderScale(i.renderer, 1.0f, 1.0f);
+            SDL_SetRenderViewport(i.renderer, nullptr);
+            SDL_SetRenderDrawColor(i.renderer, 0, 0, 0, 255);
+            SDL_RenderClear(i.renderer);
+            i.show_frame(i.effect_composite, target, dim, overlay, note, note_opacity, note_offset, cw, ch);
+            return;
+        }
         SDL_GPURenderState* state = effect->shader ? i.shader_state(*effect->shader) : nullptr;
         std::string path;
         SDL_Texture* shown = i.effect_source;
@@ -708,6 +875,36 @@ void Host::Implementation::show_frame(SDL_Texture* frame, const SDL_FRect& targe
     i.present_frame();
 }
 
+void Host::set_motion_wanted(bool wanted) {
+    auto& i = *impl_;
+    if (!wanted) {
+        if (i.accelerometer) {
+            SDL_CloseSensor(i.accelerometer);
+            i.accelerometer = nullptr;
+        }
+        return;
+    }
+    if (i.accelerometer || i.no_accelerometer) {
+        return;
+    }
+    if (!i.sensors_started) {
+        i.sensors_started = true;
+        if (!SDL_InitSubSystem(SDL_INIT_SENSOR)) {
+            i.no_accelerometer = true;
+            return;
+        }
+    }
+    int count = 0;
+    SDL_SensorID* ids = SDL_GetSensors(&count);
+    for (int k = 0; ids && k < count && !i.accelerometer; ++k) {
+        if (SDL_GetSensorTypeForID(ids[k]) == SDL_SENSOR_ACCEL) {
+            i.accelerometer = SDL_OpenSensor(ids[k]);
+        }
+    }
+    SDL_free(ids);
+    i.no_accelerometer = i.accelerometer == nullptr;
+}
+
 void Host::capture_next_frame(const std::filesystem::path& file) {
     impl_->capture = file;
 }
@@ -775,7 +972,7 @@ void Host::choose_image() {
         state->result.reset();
     }
     auto* context = new std::shared_ptr<Implementation::Dialog>(state);
-    static const SDL_DialogFileFilter filters[] = {{"Game images", "tap;t64;d64;prg;adf;ipa"},
+    static const SDL_DialogFileFilter filters[] = {{"Game images", "tap;t64;d64;prg;adf;ipa;nds;cci"},
                                                    {"All files", "*"}};
     SDL_ShowOpenFileDialog(
         [](void* userdata, const char* const* paths, int) {
@@ -801,57 +998,10 @@ std::optional<Host::FileChoice> Host::take_file_choice() {
     std::lock_guard guard(impl_->dialog->mutex);
     auto result = std::move(impl_->dialog->result);
     impl_->dialog->result.reset();
-#ifdef SDL_PLATFORM_ANDROID
-    // Android's document picker returns content URIs, not filesystem paths.
-    // Materialize the chosen documents through SDL before existing importers
-    // read them. Only this private, disposable cache is replaced next time.
-    if (result && result->error.empty() && !result->files.empty()) {
-        std::filesystem::path cache;
-        try {
-            const char* root = SDL_GetAndroidCachePath();
-            if (!root) throw std::runtime_error("Android import cache is unavailable.");
-            cache = std::filesystem::path(root) / "reprise-import";
-            std::filesystem::remove_all(cache);
-            std::filesystem::create_directories(cache);
-            std::uint64_t total{};
-            unsigned index{};
-            for (auto& file : result->files) {
-                const auto uri = file.string();
-                if (!uri.starts_with("content://")) continue;
-                using Stream = std::unique_ptr<SDL_IOStream, decltype(&SDL_CloseIO)>;
-                Stream input(SDL_IOFromFile(uri.c_str(), "rb"), SDL_CloseIO);
-                if (!input) throw std::runtime_error(SDL_GetError());
-                auto local = cache / ("document-" + std::to_string(index++) + ".image");
-                Stream output(SDL_IOFromFile(local.string().c_str(), "wb"), SDL_CloseIO);
-                if (!output) throw std::runtime_error(SDL_GetError());
-                char buffer[65536];
-                for (;;) {
-                    const auto count = SDL_ReadIO(input.get(), buffer, sizeof(buffer));
-                    total += count;
-                    if (total > 1024ull * 1024 * 1024)
-                        throw std::runtime_error("Select at most 1 GiB of game images at a time.");
-                    if (count && SDL_WriteIO(output.get(), buffer, count) != count)
-                        throw std::runtime_error("Could not copy the selected game image.");
-                    if (count < sizeof(buffer)) {
-                        if (SDL_GetIOStatus(input.get()) != SDL_IO_STATUS_EOF)
-                            throw std::runtime_error("Could not read the selected game image.");
-                        break;
-                    }
-                }
-                if (!SDL_CloseIO(output.release()))
-                    throw std::runtime_error("Could not finish copying the game image.");
-                file = std::move(local);
-            }
-        } catch (const std::exception& error) {
-            result->files.clear();
-            result->error = error.what();
-            if (!cache.empty()) {
-                std::error_code ignored;
-                std::filesystem::remove_all(cache, ignored);
-            }
-        }
-    }
-#endif
+    // Return Android content URIs immediately too. Library opens every image through
+    // FileSource/SDL IO on the import worker, including small in-memory importers.
+    // Copying documents here used to block the UI after the picker closed.
+
     return result;
 }
 

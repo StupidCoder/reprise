@@ -4,6 +4,9 @@
 #include <cstdint>
 #include <filesystem>
 #include <map>
+#include <string>
+#include <utility>
+#include <vector>
 
 // Everything a game needs from the cartridge, extracted once at import.
 //
@@ -34,6 +37,8 @@ public:
     // Copies the data bytes of the verified cartridge image (and decodes the
     // listed tile blocks).
     static Assets extract(const CartridgeInfo& info, const Rom& rom);
+    // The pack's files (name, bytes): data.bin, and tiles.bin when the game has one.
+    std::vector<std::pair<std::string, Bytes>> files() const;
     void save(const std::filesystem::path& directory) const;
     static Assets load(const CartridgeInfo& info, const std::filesystem::path& directory);
 

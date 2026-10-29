@@ -4,6 +4,8 @@
 #include <filesystem>
 #include <map>
 #include <span>
+#include <string>
+#include <utility>
 #include <vector>
 
 // Reading the ROM and the level data extracted from it.
@@ -20,10 +22,37 @@ using Bytes = std::vector<std::uint8_t>;
 Bytes read_file(const std::filesystem::path& path);
 void write_file(const std::filesystem::path& path, std::span<const std::uint8_t> bytes);
 
+// Where an extraction's files go: a folder (BlueStreak's own importer) or memory (an
+// application that installs the files itself, such as Reprise's library). Names are
+// relative to the pack, with '/' between folders.
+class PackWriter {
+public:
+    virtual ~PackWriter() = default;
+    virtual void write(const std::string& name, std::span<const std::uint8_t> bytes) = 0;
+};
+
+class FolderWriter final : public PackWriter {
+public:
+    explicit FolderWriter(std::filesystem::path root) : root_(std::move(root)) {}
+    void write(const std::string& name, std::span<const std::uint8_t> bytes) override;
+
+private:
+    std::filesystem::path root_;
+};
+
+class MemoryWriter final : public PackWriter {
+public:
+    void write(const std::string& name, std::span<const std::uint8_t> bytes) override {
+        files.emplace_back(name, Bytes(bytes.begin(), bytes.end()));
+    }
+    std::vector<std::pair<std::string, Bytes>> files;
+};
+
 // The supported cartridge image (checked by size and CRC32).
 class Rom {
 public:
     explicit Rom(const std::filesystem::path& path);
+    explicit Rom(Bytes bytes);
     std::uint8_t byte(std::size_t offset) const;
     std::uint16_t word(std::size_t offset) const;
     Bytes slice(std::size_t offset, std::size_t count) const;
@@ -93,6 +122,7 @@ struct Level {
 
 // Decodes an act from the ROM; save/load write and read the pack files.
 Level extract_level(const Rom& rom, unsigned act);
-void save_level(const Level& level, const std::filesystem::path& directory);
+// `folder`: the level's folder in the pack ("" for the first act).
+void save_level(const Level& level, PackWriter& out, const std::string& folder);
 Level load_level(const std::filesystem::path& directory);
 } // namespace sonic1_gg

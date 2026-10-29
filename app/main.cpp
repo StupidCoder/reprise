@@ -12,6 +12,11 @@
 #include "app/catalog.hpp"
 #include "app/launcher.hpp"
 #include "app/library.hpp"
+#include "app/import_screen.hpp"
+#include <future>
+#include <mutex>
+#include <chrono>
+#include <thread>
 #include "app/pause_menu.hpp"
 #include "app/saved_options.hpp"
 #include "platform/files.hpp"
@@ -28,6 +33,52 @@
 #include <string_view>
 
 namespace {
+// The worker exclusively owns library access until it finishes. The UI draws a separate
+// progress screen, never the launcher (which reads the same library). Keep pumping SDL so
+// Android can restore its surface after the picker and handle orientation/lifecycle events.
+bool import_images(platform::Host& host, app::Launcher& launcher, app::Library& library,
+                   const std::vector<std::filesystem::path>& images) {
+    bool quitting = false;
+    host.pause_audio(true);
+    for (std::size_t i = 0; i < images.size(); ++i) {
+        std::mutex mutex;
+        std::string phase = "Opening game image";
+        double fraction = -1;
+        const auto preferred = launcher.selected();
+        const auto draw = [&] {
+            std::string label;
+            double value;
+            { std::lock_guard lock(mutex); label = phase; value = fraction; }
+            const auto canvas = host.canvas_size();
+            const double scale = 640.0 / std::max(1, std::min(canvas[0], canvas[1]));
+            host.present(app::import_screen(int(canvas[0] * scale), int(canvas[1] * scale),
+                                           label, value, host.seconds(), i, images.size(), quitting));
+        };
+        draw(); // Present before even opening a potentially slow Android document provider.
+        auto work = std::async(std::launch::async, [&] {
+            try {
+                return library.import(images[i], preferred, [&](const std::string& label, double value) {
+                    std::lock_guard lock(mutex);
+                    phase = label;
+                    fraction = value;
+                });
+            } catch (const std::exception& error) {
+                return app::Library::Outcome{false, std::nullopt, std::string("Import failed: ") + error.what()};
+            }
+        });
+        while (work.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) {
+            quitting |= host.poll().quit;
+            draw();
+            std::this_thread::sleep_for(std::chrono::milliseconds(16));
+        }
+        const auto outcome = work.get();
+        launcher.imported(outcome, host.seconds());
+        if (quitting || !outcome.ok) break;
+    }
+    host.pause_audio(false);
+    return !quitting;
+}
+
 struct Options {
     std::optional<std::filesystem::path> data, import_image, preview;
     std::size_t select{};
@@ -193,7 +244,8 @@ int run(const Options& options) {
                                   [&](const platform::GpuFrame& frame) { game->draw_gpu(frame); }, overlay, dim, note,
                                   opacity, offset, effect ? &*effect : nullptr);
         } else {
-            const auto effect = ui::vhs_effect(frames_run, game->vhs_level(), shown.image.width, shown.image.height);
+            auto effect = ui::vhs_effect(frames_run, game->vhs_level(), shown.image.width, shown.image.height);
+            if (game->vhs_level() > 0) app::add_filter_regions(effect, *game, frames_run, game->vhs_level());
             host.present_game(shown.image, game->pixel_aspect(), overlay, dim, note, opacity, offset,
                               game->vhs_level() > 0 ? &effect : nullptr);
         }
@@ -230,6 +282,8 @@ int run(const Options& options) {
         }
         // A game steered by mouse movement holds the mouse while it runs.
         host.set_mouse_captured(game && !menu.open() && game->captures_mouse());
+        // A game reading the device's tilt keeps the accelerometer open while it runs.
+        host.set_motion_wanted(game && !menu.open() && game->wants_motion());
         const double now = host.seconds();
 
         if (game) {
@@ -253,8 +307,9 @@ int run(const Options& options) {
                         break;
                     case app::PauseMenu::Action::save:
                         if (game->save())
-                            menu.set_message(app::persistent_saves(entry.id) ? "Saved state"
-                                                                             : "Saved for this session only.",
+                            menu.set_message(!game->saved_message().empty() ? game->saved_message()
+                                             : app::persistent_saves(entry.id) ? "Saved state"
+                                                                               : "Saved for this session only.",
                                              now);
                         else
                             menu.set_message(game->save_error().empty() ? "Quick save is not available here."
@@ -298,7 +353,9 @@ int run(const Options& options) {
                 if (controls.quick_save || controls.quick_load) {
                     const bool ok = controls.quick_save ? game->save() : game->load();
                     const std::string message =
-                        ok ? (controls.quick_save ? "Saved state" : "Loaded state")
+                        ok ? (controls.quick_save ? (game->saved_message().empty() ? std::string("Saved state")
+                                                                                  : game->saved_message())
+                                                  : "Loaded state")
                            : (game->save_error().empty() ? "Quick save or load is not available here."
                                                          : game->save_error());
                     quick_message = message;
@@ -326,6 +383,8 @@ int run(const Options& options) {
                 input.option = controls.option_held;
                 input.control = controls.control_held;
                 input.shift = controls.shift_held;
+                input.button2 = controls.button2;
+                input.start = controls.start;
                 // Pointer events in the picture's units, given to the next tick that runs.
                 for (auto e : controls.pointer_events) {
                     if (!shown.gpu) {
@@ -333,6 +392,15 @@ int run(const Options& options) {
                         e.y = e.y * float(shown.picture_height) / float(std::max(shown.image.height, 1));
                     }
                     pending_pointer.push_back(e);
+                }
+                input.motion = controls.motion;
+                // The fingers touching now, in the same units (gestures such as a pinch).
+                input.fingers = controls.fingers;
+                for (auto& f : input.fingers) {
+                    if (!shown.gpu) {
+                        f.x = f.x * float(shown.picture_width) / float(std::max(shown.image.width, 1));
+                        f.y = f.y * float(shown.picture_height) / float(std::max(shown.image.height, 1));
+                    }
                 }
                 pending_dx += controls.mouse_dx;
                 pending_dy += controls.mouse_dy;
@@ -360,6 +428,14 @@ int run(const Options& options) {
                 if (!game->stopped().empty()) {
                     launcher.show_message(game->stopped(), true, now);
                     game.reset();
+                    continue;
+                }
+                if (game->take_menu_request()) {
+                    // (Start during play in a console game: its pause is the launcher's menu.)
+                    menu.show(now);
+                    host.pause_audio(true);
+                    pending_pointer.clear();
+                    pending_dx = pending_dy = 0;
                     continue;
                 }
                 if (game->finished()) {
@@ -407,11 +483,13 @@ int run(const Options& options) {
             continue;
         }
         if (!controls.dropped_files.empty()) {
-            launcher.import(controls.dropped_files, now);
+            if (!import_images(host, launcher, library, controls.dropped_files)) break;
+            continue;
         }
         if (auto choice = host.take_file_choice()) {
             if (!choice->files.empty()) {
-                launcher.import(choice->files, now);
+                if (!import_images(host, launcher, library, choice->files)) break;
+                continue;
             } else if (!choice->error.empty()) {
                 launcher.show_error(choice->error, now);
             }

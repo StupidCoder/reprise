@@ -70,6 +70,11 @@
   share one engine and format set (XFSA/ARC0 archives, XPCK packs, IMGC
   pictures, XQ32 scripts, XSCR data, NintendoWare sound, moflex movies),
   descended from the fourth adventure's. Research: `.analysis/adventure56/`.
+- Reprise (since 2026-10-29) runs these games through `src/embed` and
+  `reprise/` (see docs/reprise.md): there the shell conveniences below are
+  replaced by Reprise's launcher, and the music player, theatre, puzzle mode
+  and minigame free play are deliberately not offered. Keep `GameSession`
+  steppable (`step()`) and never open a sound device in the embedded build.
 - Every game in the collection gets the same conveniences, listed in the
   README under "Conveniences in every game" (music player, movie theatre,
   puzzle mode, minigame free play, skipping, start at the title,

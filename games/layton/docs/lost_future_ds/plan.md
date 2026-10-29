@@ -79,3 +79,37 @@ missing loops below is needed to finish the story.
 - `picarat_a3_loop_run PACK OUT 0 224 x 0`: the support survey.
 - `picarat_a3_story_run` with `PICARAT_AUTO`: the story to the credits.
 - `ctest` (`a3_lscr_tests`).
+
+## In Reprise (2026-10-29)
+
+The game runs inside Reprise (catalog id `lost_future_ds`); the integration is
+described in [../reprise.md](../reprise.md).
+
+Connected: import (C3JD NDS, streamed), Start (the title), Continue and quick
+save/load (the last room checkpoint, `checkpoint.sav` record), the slots
+`slot0..2.sav` in `<data>/progress/lost_future_ds/`, the VHS filter per screen,
+touch-area help, takeover of Picarat's pack and `c3jd-saves` slots. No
+imported-data previews yet.
+
+Not offered in Reprise (Picarat shell features, by decision): music player,
+movie theatre, puzzle mode, minigame free play, the hub's "Continue story".
+Movies, music, puzzles and minigames play as part of normal play.
+
+Remaining for Reprise:
+
+- typed name entry (the touch keyboard works);
+- an accelerometer for the 3DS games on phones (Picarat had one);
+- the screen filter's CPU fallback path is untested on a renderer without
+  GPU shaders.
+
+Validation:
+
+- Validated on macOS (2026-10-29): `ctest -R layton_module` with
+  `LAYTON_PACKS` (the story starts from the title with picture and sound);
+  the real window driven by `reprise --events` scripts. Android: the APK
+  builds; only Curious Village was run on an emulator (start, touch,
+  rotation). No physical device was used.
+- Quick save round trip checked with a checkpoint written by
+  `picarat_a3_story_run` (`PICARAT_AUTO=0`, 15 000 frames): continues in a room
+  (Vor dem Uhrenladen).
+- Not run on Android.

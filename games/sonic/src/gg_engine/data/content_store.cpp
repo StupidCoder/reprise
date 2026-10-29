@@ -56,8 +56,12 @@ fs::path pack_path(const CartridgeInfo& info, const fs::path& root) {
 }
 
 bool pack_installed(const CartridgeInfo& info, const fs::path& root) {
+    return pack_current(info, pack_path(info, root));
+}
+
+bool pack_current(const CartridgeInfo& info, const fs::path& pack) {
     try {
-        return file_equals(pack_path(info, root) / manifest_file, manifest(info));
+        return file_equals(pack / manifest_file, manifest(info));
     } catch (const std::exception&) {
         return false;
     }
@@ -77,6 +81,19 @@ bool is_supported_rom(const CartridgeInfo& info, const fs::path& image) {
     } catch (const std::exception&) {
         return false;
     }
+}
+
+std::vector<std::pair<std::string, Bytes>> extract_pack(const CartridgeInfo& info, Bytes bytes) {
+    if (bytes.size() != info.size || platform::sha256(bytes) != info.sha256) {
+        throw std::runtime_error(std::string("This ROM revision is not supported. Expected ") +
+                                 info.short_name + " Game Gear (" + info.region + "), CRC32 " +
+                                 info.crc32 + ".");
+    }
+    const Rom rom(info, std::move(bytes));
+    auto files = Assets::extract(info, rom).files();
+    const auto text = manifest(info);
+    files.emplace_back(manifest_file, Bytes(text.begin(), text.end()));
+    return files;
 }
 
 void import_rom(const CartridgeInfo& info, const fs::path& image, const fs::path& root,

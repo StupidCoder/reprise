@@ -436,6 +436,11 @@ struct Object {
     // +0x14). Hypothesis: the material's alpha (puzzle 018 fades it over 20
     // frames); multiplied into the material's meshes.
     std::map<std::uint32_t, float> materialValues;
+    // 6870 (0x14db74 -> 0x18b204): an outline's colour by the silhouette's
+    // name hash (its combiner's constant 0, RGBA clamped to 0..1 and kept
+    // as bytes). The alpha is kept but not drawn (*not known* whether the
+    // outline blends).
+    std::map<std::uint32_t, std::array<float, 4>> outlineColours;
 
     // A mesh drawn with another texture (by the mesh name's hash, as
     // meshAlpha; the sixth adventure's ChangeTexture class 0x339070): its

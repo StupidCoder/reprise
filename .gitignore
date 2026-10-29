@@ -19,6 +19,7 @@
 *.nds
 *.3ds
 *.cia
+*.cci
 
 # Imported engines keep local research links and standalone build directories.
 /games/*/.analysis

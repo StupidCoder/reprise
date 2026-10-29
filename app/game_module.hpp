@@ -47,10 +47,18 @@ struct GameInput {
     bool command{}, option{}, control{};
     // A Shift key held, for games that type text (capital letters).
     bool shift{};
+    // A second action button and Start, held (consoles: Game Gear button 2 / GBA B, Start;
+    // platform::Controls::button2 and start).
+    bool button2{}, start{};
     // Every press, move and release over the game since the previous tick, in order (in the
     // units of picture(), or of gpu_frame_size() for a GPU-drawn game). Games drawn with the
     // pointer (paths) use these instead of the once-per-frame pointer above.
     std::vector<platform::PointerEvent> pointer_events{};
+    // The fingers on a touch screen at this tick (Controls::fingers), in the same units: for
+    // gestures of several fingers (a pinch to zoom). The first finger also makes pointer_events.
+    std::vector<platform::Finger> fingers{};
+    // The device's accelerometer (Controls::motion) for a game that asks for it (wants_motion).
+    std::optional<std::array<float, 3>> motion{};
 };
 
 // A setting the player can change in the pause menu (a fix or an
@@ -105,6 +113,9 @@ public:
     // counters are read), not its position: while it runs (not in menus) the
     // host captures the mouse and GameInput::mouse_dx/dy carry the movement.
     virtual bool captures_mouse() const { return false; }
+    // True for a game that reads the device's motion (a handheld's tilt sensor): while it runs
+    // (not in menus) the host keeps the accelerometer open and GameInput::motion carries it.
+    virtual bool wants_motion() const { return false; }
     // Displayed width / height of one picture pixel.
     virtual double pixel_aspect() const = 0;
 
@@ -116,8 +127,23 @@ public:
     virtual std::optional<std::array<int, 2>> gpu_frame_size() const { return std::nullopt; }
     virtual void draw_gpu(const platform::GpuFrame& /*frame*/) {}
     virtual void attach_gpu(platform::GpuSurface* /*surface*/) {}
+    // Pictures of their own within the frame (x, y, width, height in the frame's units; a GPU
+    // game's logical size or picture()'s pixels), such as a handheld's two screens shown
+    // together: the screen filter treats each as a separate picture (ScreenEffect::regions).
+    // Empty: the whole frame is one picture.
+    virtual std::vector<std::array<int, 4>> filter_regions() const { return {}; }
+    // The picture a quick save keeps (the details page and Continue show it): by default the
+    // frame of the moment of saving. A game that saves a checkpoint gives the frame of the
+    // moment the checkpoint keeps, so the picture shows where Continue returns.
+    virtual platform::Image save_picture() const { return picture(); }
+    // The message for a successful quick save, when "Saved state" would say too much (a game
+    // that keeps a checkpoint instead of the exact moment).
+    virtual std::string saved_message() const { return {}; }
     // The player left the game through its own menu (back to the library, not an error).
     virtual bool finished() const { return false; }
+    // The game asks for the launcher's pause menu (a console's Start pressed during play, where
+    // the original's own pause is replaced by the launcher's); true once per request.
+    virtual bool take_menu_request() { return false; }
     // The window's drawing area, for a game whose view can widen to it.
     virtual void set_canvas(int /*width*/, int /*height*/) {}
     // How far the time shown lies past the last tick, as a fraction of a
@@ -181,6 +207,17 @@ struct ShownPicture {
     }
 };
 
+// A game's filter regions (GameModule::filter_regions) into its effect: each screen its own
+// picture, with its own tape (the frame number offset per region, so the faults differ).
+inline void add_filter_regions(platform::ScreenEffect& effect, const GameModule& game, long frame, int level) {
+    const auto regions = game.filter_regions();
+    for (std::size_t k = 0; k < regions.size(); ++k) {
+        const auto& r = regions[k];
+        auto own = ui::vhs_effect(frame + long(k) * 7919, level, r[2], r[3]);
+        effect.regions.push_back({r[0], r[1], r[2], r[3], std::move(own.uniforms), std::move(own.cpu)});
+    }
+}
+
 // Runtime presentation requests an unfiltered picture for the host GPU stage.
 // Offline captures may still request the deterministic CPU implementation.
 inline ShownPicture shown_picture(const GameModule& game, long frame, bool cpu_filter = true) {
@@ -204,7 +241,9 @@ inline std::optional<platform::ScreenEffect> screen_effect(const GameModule& gam
     const auto size = game.gpu_frame_size();
     const int level = game.vhs_level();
     if (!size || level <= 0) return std::nullopt;
-    return ui::vhs_effect(frame, level, (*size)[0], (*size)[1]);
+    auto effect = ui::vhs_effect(frame, level, (*size)[0], (*size)[1]);
+    add_filter_regions(effect, game, frame, level);
+    return effect;
 }
 
 } // namespace app

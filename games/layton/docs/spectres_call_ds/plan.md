@@ -92,3 +92,36 @@ the game's GSS1 scripts on the reconstructed machine. Conveniences in place.
   loops.
 - `picarat_a4_story_run` with `A4_AUTO` from a step snapshot to the staff roll.
 - `ctest` (`a4_gss_tests`, `a4_saves_tests`).
+
+## In Reprise (2026-10-29)
+
+The game runs inside Reprise (catalog id `spectres_call_ds`); the integration is
+described in [../reprise.md](../reprise.md).
+
+Connected: import (BLFD NDS, streamed), Start (the title) with the game's own
+continue from its three slots (`<data>/progress/spectres_call_ds/`), the VHS
+filter per screen, touch-area help where the game reports areas, takeover of
+Picarat's pack and `blfd-saves`. **No Reprise quick save / launcher Continue
+yet**: this engine has no app checkpoint (a save record written when a place
+is ready and a continue path into that place); it is not in the persistent
+save allowlist. No imported-data previews yet.
+
+Not offered in Reprise (Picarat shell features, by decision): music player,
+movie theatre, puzzle mode, minigame free play, the hub's "Continue story".
+Movies, music, puzzles and minigames play as part of normal play.
+
+Remaining for Reprise:
+
+- typed name entry (the touch keyboard works);
+- an accelerometer for the 3DS games on phones (Picarat had one);
+- the screen filter's CPU fallback path is untested on a renderer without
+  GPU shaders.
+
+Validation:
+
+- Validated on macOS (2026-10-29): `ctest -R layton_module` with
+  `LAYTON_PACKS` (the story starts from the title with picture and sound);
+  the real window driven by `reprise --events` scripts. Android: the APK
+  builds; only Curious Village was run on an emulator (start, touch,
+  rotation). No physical device was used.
+- Not run on Android.

@@ -1,5 +1,6 @@
 #include "app/library.hpp"
 #include "platform/files.hpp"
+#include "platform/file_source.hpp"
 #include "platform/sha256.hpp"
 #include <algorithm>
 #include <sstream>
@@ -18,6 +19,40 @@ std::string manifest(const ImportResult& result, const fs::path& source) {
     for (const auto& file : result.files) {
         out << "file " << platform::sha256(file.bytes) << ' ' << file.name << '\n';
     }
+    return out.str();
+}
+// The manifest of a folder of installed files (large imports, GameEntry::import_into):
+// "release", "source", the files' checksums as above, then "size <bytes> <name>" per file and
+// "check sizes", which tells check_folder to compare sizes at start-up instead of checksums.
+std::string folder_manifest(const fs::path& folder, const std::string& release, const fs::path& source,
+                            const ImportProgress& progress) {
+    std::vector<std::string> names;
+    for (const auto& entry : fs::recursive_directory_iterator(folder)) {
+        if (entry.is_regular_file()) {
+            names.push_back(fs::relative(entry.path(), folder).generic_string());
+        }
+    }
+    std::sort(names.begin(), names.end());
+    if (names.empty()) {
+        throw std::runtime_error("The import wrote no files.");
+    }
+    std::ostringstream out, sizes;
+    out << "release " << release << '\n' << "source " << source.filename().string() << '\n';
+    std::uintmax_t total = 0, verified = 0;
+    for (const auto& name : names) total += fs::file_size(folder / name);
+    if (progress) progress("Verifying imported files", 0);
+    for (const auto& name : names) {
+        if (name == "release.txt" || name.find('\n') != std::string::npos) {
+            throw std::runtime_error("The import wrote an unexpected file name.");
+        }
+        // (Read back from disk: the checksum is of what was written.)
+        const auto bytes = platform::read_file(folder / name);
+        out << "file " << platform::sha256(bytes) << ' ' << name << '\n';
+        sizes << "size " << bytes.size() << ' ' << name << '\n';
+        verified += bytes.size();
+        if (progress) progress("Verifying imported files", total ? double(verified) / total : 1);
+    }
+    out << sizes.str() << "check sizes\n";
     return out.str();
 }
 } // namespace
@@ -44,7 +79,7 @@ std::vector<std::pair<std::string, std::uintmax_t>> Library::installed_files(
 }
 
 std::optional<Library::Install> Library::check_install(const GameEntry& game) const {
-    if (!game.import) {
+    if (!game.import && !game.import_into) {
         return std::nullopt;
     }
     return check_folder(root_ / "games" / game.id);
@@ -60,12 +95,31 @@ std::optional<Library::Install> Library::check_folder(const fs::path& folder) co
         std::istringstream in(std::string(text.begin(), text.end()));
         Install install;
         std::string line;
+        std::vector<std::string> lines;
+        bool sizes_only = false; // a large import (folder_manifest): sizes, not checksums
         while (std::getline(in, line)) {
-            if (line.starts_with("release ")) {
-                install.release = line.substr(8);
-            } else if (line.starts_with("file ")) {
-                const auto hash = line.substr(5, 64);
-                const auto name = line.substr(70);
+            sizes_only |= line == "check sizes";
+            lines.push_back(line);
+        }
+        for (const auto& entry : lines) {
+            if (entry.starts_with("release ")) {
+                install.release = entry.substr(8);
+            } else if (sizes_only && entry.starts_with("size ")) {
+                const auto space = entry.find(' ', 5);
+                if (space == std::string::npos) {
+                    return std::nullopt;
+                }
+                const auto expected = std::stoull(entry.substr(5, space - 5));
+                const auto name = entry.substr(space + 1);
+                std::error_code error;
+                const auto size = fs::file_size(folder / name, error);
+                if (error || size != expected) {
+                    return std::nullopt;
+                }
+                install.files.emplace_back(name, size);
+            } else if (!sizes_only && entry.starts_with("file ")) {
+                const auto hash = entry.substr(5, 64);
+                const auto name = entry.substr(70);
                 const auto bytes = platform::read_file(folder / name);
                 if (platform::sha256(bytes) != hash) {
                     return std::nullopt;
@@ -84,6 +138,32 @@ std::optional<Library::Install> Library::check_folder(const fs::path& folder) co
 
 void Library::install(const GameEntry& game, const ImportResult& result, const fs::path& source) {
     write_verified(root_ / "games" / game.id, result, source);
+}
+
+void Library::install_folder(const GameEntry& game, const fs::path& source,
+                             const std::function<std::string(const fs::path&)>& fill,
+                             const ImportProgress& progress) {
+    const auto target = root_ / "games" / game.id;
+    const auto staging = root_ / "staging" / ("games-" + game.id);
+    fs::remove_all(staging);
+    fs::create_directories(staging);
+    try {
+        const auto release = fill(staging);
+        platform::write_text(staging / "release.txt", folder_manifest(staging, release, source, progress));
+        if (!check_folder(staging)) {
+            throw std::runtime_error("Writing the imported files failed; please try again.");
+        }
+    } catch (...) {
+        std::error_code ignored;
+        fs::remove_all(staging, ignored);
+        throw;
+    }
+    if (progress) progress("Finishing installation", -1);
+    fs::create_directories(target.parent_path());
+    fs::remove_all(target);
+    fs::rename(staging, target);
+    std::error_code ignored;
+    fs::remove(root_ / "staging", ignored); // only if no other import is staged
 }
 
 fs::path Library::parts_directory(const GameEntry& game) const {
@@ -115,15 +195,22 @@ void Library::write_verified(const fs::path& target, const ImportResult& result,
     fs::remove(root_ / "staging", ignored); // only if no other import is staged
 }
 
-Library::Outcome Library::import(const fs::path& image, std::optional<std::size_t> preferred) {
+Library::Outcome Library::import(const fs::path& image, std::optional<std::size_t> preferred,
+                                 const ImportProgress& progress) {
+    if (progress) progress("Identifying game image", -1);
     // Each importer has its own size limit (GameEntry::largest_image); only those that accept
     // a file of this size see it.
-    std::error_code size_error;
-    const auto size = fs::file_size(image, size_error);
-    if (size_error) {
-        return {false, std::nullopt, "The file could not be read (" + size_error.message() + ")."};
+    // (Through the platform's reader, which also opens the file picker's documents.)
+    std::unique_ptr<platform::FileSource> source;
+    try {
+        source = std::make_unique<platform::FileSource>(image);
+    } catch (const std::exception& e) {
+        return {false, std::nullopt, std::string("The file could not be read (") + e.what() + ")."};
     }
-    auto accepts = [&](std::size_t i) { return games_[i].import && size <= games_[i].largest_image; };
+    const auto size = source->size();
+    auto accepts = [&](std::size_t i) {
+        return (games_[i].import || games_[i].import_into) && size <= games_[i].largest_image;
+    };
     std::vector<std::size_t> order;
     if (preferred && accepts(*preferred)) {
         order.push_back(*preferred);
@@ -136,19 +223,49 @@ Library::Outcome Library::import(const fs::path& image, std::optional<std::size_
     if (order.empty()) {
         return {false, std::nullopt, "This file is too large to be one of the supported games' images."};
     }
-    std::vector<std::uint8_t> bytes;
-    try {
-        bytes = platform::read_file(image);
-    } catch (const std::exception& e) {
-        return {false, std::nullopt, e.what()};
-    }
+    // Read whole only for the importers that take the image in memory.
+    std::optional<std::vector<std::uint8_t>> bytes;
 
     std::string other_game, this_game; // first message of each kind
     for (const auto index : order) {
         const auto& game = games_[index];
+        if (game.import_into) {
+            // A large image: the importer streams it and writes the files itself.
+            try {
+                install_folder(game, image, [&](const fs::path& folder) {
+                    return game.import_into(*source, folder, progress);
+                }, progress);
+            } catch (const NotThisGame& e) {
+                if (other_game.empty()) {
+                    other_game = e.what();
+                }
+                continue;
+            } catch (const std::exception& e) {
+                if (this_game.empty()) {
+                    this_game = e.what();
+                }
+                continue;
+            }
+            installs_[index] = check_install(game);
+            if (!installs_[index]) {
+                return {false, index, "The imported files could not be verified."};
+            }
+            return {true, index, game.title + " imported (" + installs_[index]->release + ")."};
+        }
+        if (!bytes) {
+            try {
+                bytes.emplace(std::size_t(size));
+                if (size > 0) {
+                    source->read(0, *bytes);
+                }
+            } catch (const std::exception& e) {
+                return {false, std::nullopt, e.what()};
+            }
+        }
         ImportResult result;
         try {
-            result = game.import(bytes);
+            if (progress) progress("Reading game assets", -1);
+            result = game.import(*bytes);
         } catch (const NotThisGame& e) {
             if (other_game.empty()) {
                 other_game = e.what();
@@ -168,6 +285,7 @@ Library::Outcome Library::import(const fs::path& image, std::optional<std::size_
             }
         }
         try {
+            if (progress) progress("Installing and verifying files", -1);
             install(game, result, image);
         } catch (const std::exception& e) {
             return {false, index, std::string("Import failed: ") + e.what()};
@@ -269,6 +387,27 @@ std::vector<std::string> Library::adopt_legacy() {
         }
         std::vector<std::string> done = legacy->notes;
         bool failed = false;
+        if (legacy->folder) {
+            if (installs_[index]) {
+                done.push_back("Reprise already has an import of " + game.title + "; the earlier one was left as it is.");
+            } else {
+                try {
+                    install_folder(game, "earlier application", [&](const fs::path& folder) {
+                        fs::copy(*legacy->folder, folder, fs::copy_options::recursive);
+                        return legacy->folder_release;
+                    });
+                    installs_[index] = check_install(game);
+                    if (!installs_[index]) {
+                        throw std::runtime_error("the copied files could not be verified");
+                    }
+                    done.push_back(game.title + ": the earlier import (" + legacy->folder_release +
+                                   ") was copied into Reprise.");
+                } catch (const std::exception& e) {
+                    failed = true;
+                    messages.push_back(game.title + ": the earlier import could not be copied (" + e.what() + ").");
+                }
+            }
+        }
         if (legacy->import) {
             if (installs_[index]) {
                 done.push_back("Reprise already has an import of " + game.title + "; the earlier one was left as it is.");

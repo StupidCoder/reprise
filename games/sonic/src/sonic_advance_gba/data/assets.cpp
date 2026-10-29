@@ -78,6 +78,10 @@ Assets Assets::extract(const Rom& rom) {
 }
 
 void Assets::save(const std::filesystem::path& directory) const {
+    write_file(directory / "data.bin", data_file());
+}
+
+Bytes Assets::data_file() const {
     // Runs of data bytes: offset, length, bytes.
     Bytes out(std::begin(data_magic), std::end(data_magic) - 1);
     std::size_t o = 0;
@@ -96,7 +100,7 @@ void Assets::save(const std::filesystem::path& directory) const {
                    data_.begin() + std::ptrdiff_t(end));
         o = end;
     }
-    write_file(directory / "data.bin", out);
+    return out;
 }
 
 Assets Assets::load(const std::filesystem::path& directory) {

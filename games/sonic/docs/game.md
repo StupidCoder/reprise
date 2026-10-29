@@ -61,6 +61,42 @@ README's "Where to find the game mechanics".
 - **Sonic 1 and Sonic Advance.** Sonic 1 GG and Sonic Advance share nothing
   with that lineage or with each other beyond hardware.
 
+### Recognising the cartridges (importers, 2026-10-29)
+
+*Observed* in the user's dumps, used by the Reprise importers to tell another
+cartridge ("not this game") from another revision or a damaged dump of a
+supported one (those are then rejected by SHA-256 with a message):
+
+| Game | Header | Identity used |
+| --- | --- | --- |
+| Sonic 1 (GG) | `TMR SEGA` at 7FF0; 7FFC-7FFE = `08 24 00` | product code 2408 (BCD, high digit in 7FFE's upper nibble) |
+| Sonic 2 (GG) | `TMR SEGA`; `07 25 00` | product code 2507 |
+| Triple Trouble (GG) | `TMR SEGA`; `30 25 00` | product code 2530 |
+| Sonic Advance (GBA) | title `SONICADVANCE` at 0A0, game code `ASOE` at 0AC | game code `ASO` + any region letter |
+
+*Interpretation:* the low nibble of 7FFE (version) and other regions' codes
+were not examined; only the dumps above are supported.
+
+### Presentation in Reprise (not cartridge behaviour)
+
+The optional LCD look (`gamegear/lcd_filter.hpp`) is an interpretation of the
+Game Gear's STN panel from general hardware documentation, not a measurement.
+In Reprise it is drawn by the game module on the host's renderer: colour
+response and persistence at the frame's size, then the subpixel mask and glow
+at the device resolution (integer scale from three device pixels per dot).
+Reprise's VHS look runs after it, on the host's filter stage. Neither reaches
+the game, its sound or its saves.
+
+### Asset packs
+
+The packs are BlueStreak's (`pack.manifest`: format, game, ROM SHA-256 and an
+extractor number). Reprise installs the same files (byte-identical to
+BlueStreak's importer, checked 2026-10-29) plus its own `release.txt`.
+*Observed:* Triple Trouble packs written by BlueStreak 0.14/0.15 differ from
+the current extractor in one data region (one byte longer since 0.16) while
+both said "extractor 3"; the number is now 4, and older packs are refused
+with a request to import again.
+
 ---
 
 ## Game Gear hardware notes (all three GG games)

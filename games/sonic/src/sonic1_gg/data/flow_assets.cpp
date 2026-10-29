@@ -141,26 +141,25 @@ FlowAssets extract_flow(const Rom& rom) {
     return result;
 }
 
-void save_flow(const FlowAssets& data, const std::filesystem::path& directory) {
+void save_flow(const FlowAssets& data, PackWriter& out) {
     for (unsigned i = 0; i < 10; ++i) {
-        write_file(directory / ("flow_patterns_" + std::to_string(i) + ".bin"),
-                   data.screens[i].patterns);
-        write_file(directory / ("flow_tiles_" + std::to_string(i) + ".bin"), data.screens[i].tiles);
+        out.write("flow_patterns_" + std::to_string(i) + ".bin", data.screens[i].patterns);
+        out.write("flow_tiles_" + std::to_string(i) + ".bin", data.screens[i].tiles);
     }
-    write_file(directory / "flow_ending.bin", data.ending_tables);
-    write_file(directory / "flow_ending_motion.bin", data.ending_motion);
-    write_file(directory / "flow_ending_results.bin", data.ending_results);
-    write_file(directory / "flow_palettes.bin", data.palettes);
-    write_file(directory / "flow_logo.bin", data.logo_tables);
-    write_file(directory / "flow_title.bin", data.title_tables);
-    write_file(directory / "flow_map_intro.bin", data.map_intro);
-    write_file(directory / "flow_map.bin", data.map_tables);
-    write_file(directory / "flow_demo.bin", data.demo_inputs);
-    write_file(directory / "flow_continue.bin", data.continue_tables);
-    write_file(directory / "flow_voice.bin", data.voice);
-    write_file(directory / "result_bonus.bin", data.result_bonus);
-    write_file(directory / "result_digits.bin", data.result_digits);
-    write_file(directory / "result_emerald.bin", data.result_emerald);
+    out.write("flow_ending.bin", data.ending_tables);
+    out.write("flow_ending_motion.bin", data.ending_motion);
+    out.write("flow_ending_results.bin", data.ending_results);
+    out.write("flow_palettes.bin", data.palettes);
+    out.write("flow_logo.bin", data.logo_tables);
+    out.write("flow_title.bin", data.title_tables);
+    out.write("flow_map_intro.bin", data.map_intro);
+    out.write("flow_map.bin", data.map_tables);
+    out.write("flow_demo.bin", data.demo_inputs);
+    out.write("flow_continue.bin", data.continue_tables);
+    out.write("flow_voice.bin", data.voice);
+    out.write("result_bonus.bin", data.result_bonus);
+    out.write("result_digits.bin", data.result_digits);
+    out.write("result_emerald.bin", data.result_emerald);
 }
 
 FlowAssets load_flow(const std::filesystem::path& directory) {

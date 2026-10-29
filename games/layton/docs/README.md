@@ -8,6 +8,8 @@ Each game of this engine family has two documents:
   data is stored and encoded, bugs in the original, and how findings were
   checked.
 
+Integration in Reprise: [reprise.md](reprise.md).
+
 | Game | Platform | Cartridge | Documents |
 |---|---|---|---|
 | Curious Village | Nintendo DS | `A5FP` (Europe) | [plan](curious_village_ds/plan.md) · [game](curious_village_ds/game.md) |
@@ -50,7 +52,10 @@ notes (`.analysis/docs/skip.md`, `checkpoints.md`, `touch-areas.md`):
 - touch-area help;
 - pinch zoom.
 
-A game is not complete without them.
+A game is not complete without them. In Reprise (2026-10-29) the games run
+inside the shared launcher instead, which keeps skipping, touch-area help,
+pinch zoom and (as quick saves) the checkpoints, and leaves the music player,
+theatre, puzzle mode and free play out by decision: see [reprise.md](reprise.md).
 
 ## Sources and rules
 

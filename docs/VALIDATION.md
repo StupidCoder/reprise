@@ -185,3 +185,137 @@ assessment. These checks measure appearance, not Android frame rate or battery u
 To repeat the larger window comparison, run
 `build/screen_effect_check '' /tmp/reprise-filter-check large`. The test asserts
 that the software-picture route actually selected a GPU shader.
+
+
+## Sonic games (BlueStreak) connected — 2026-10-29
+
+`sonic_gg`, `sonic2_gg`, `triple_trouble_gg` and `sonic_advance_gba` through
+games/sonic/reprise. macOS (Apple silicon), scratch data folders; the user's
+dumps and the standalone BlueStreak data folder were only read.
+
+- **Module check** `sonic_checks` (CTest `sonic_module`; skipped unless
+  `SONIC_ROMS` names a folder with the dumps; `SONIC_LEGACY` adds the takeover):
+  each importer rejects the other three cartridges and other data as "not this
+  game" and explains a damaged dump of its own; the library installs a copy that
+  is then removed; previews decode (24, 27, 40 and 3 previews; 17, 20 and 33
+  sound tracks; 0.5-3 s each); 2400 frames from power-on with sound; Start during
+  play asks for the pause menu (GG) or stays with the game (Advance); drawing
+  with the LCD look at x5 and x1 changes nothing; the expanded view widens the
+  frame (399 x 224 at 16:9) and a portrait canvas gives a taller one; save →
+  fresh module → load: the save's expanded view restored, the current VHS/LCD
+  choices kept, 300 later frames picture-identical to the original run, repeated
+  loads; a damaged save and a foreign state refused with the running game
+  unchanged; Sonic Advance reports why it has no quick saves. All 92 checks pass.
+- **Takeover**: Sonic 1, Sonic 2 and Sonic Advance copied from the real
+  BlueStreak folder (file count unchanged, 3972); its Triple Trouble pack
+  (written by BlueStreak 0.14/0.15) explained as outdated and re-imported.
+- **Packs**: Reprise's imports are byte-identical to BlueStreak's own packs
+  (Sonic 1: 3915 files) except that stale Triple Trouble pack.
+- **Real window** (`--events`, scratch data): Sonic collection → details →
+  Start; the title screen drawn at the window's resolution; Cmd+S ("Saved
+  state" note sharp over the game); the pause menu; quit; a new process shows
+  the save's picture and date on the details page; Continue with the LCD look
+  and "VHS look = Medium" from the options file: "Screen effect: GPU shader
+  (MSL)"; Cmd+L.
+- **Headless launcher pages**: the Sonic collection in landscape and portrait,
+  details, documentation (imported files and previews), history, the options
+  page and its Level select page.
+- **CTest** 5/5 (`shell_navigation` now checks that Sonic cards import and a
+  Layton card still cannot). The standalone BlueStreak app builds and its check
+  passes. `./build-android.sh` builds the APK; it contains no game data.
+
+Not verified: play through the real window (scripted events cannot hold keys),
+physical gamepads, any Android device or emulator run, Windows and Linux,
+touch (the games have no touch controls yet).
+
+## Puzzle adventures (games/layton), 2026-10-29
+
+macOS (Apple Silicon), scratch data folders; images and packs from the user's Picarat folder.
+
+- **CTest** 6/6 including `layton_module` (`tests/layton.cpp`): DS and 3DS geometry in five frame
+  shapes (shape, order, scale, the larger arrangement chosen), the switch on rotation, stylus
+  mapping through letterbox and zoom, upper-screen and margin presses ignored, drags off the
+  lower screen, a layout change during a press, movie clicks, touch hold-back and taps, pinch
+  zoom, importer rejection (all six). With `LAYTON_PACKS`: the five playable stories start with
+  picture and sound (Azran Legacy correctly not startable). With `LAYTON_CHECKPOINTS`
+  (checkpoints written by the games): Curious Village, Pandora's Box and Lost Future continue,
+  quick save, load in a fresh module, show the saved picture; a damaged save and another
+  game's save are refused while the game runs on.
+- **Import** (`reprise --import`, streamed): Curious Village NDS 8 s, Miracle Mask 1 GiB CCI 26 s
+  at ~200 MB peak memory; manifests with sizes; start-up with 3.2 GB of large installs ~1 s.
+- **Takeover**: all six Picarat packs copied and checked (`check sizes` manifests), slots
+  copied, Reprise's existing imports kept, Picarat's folder unchanged.
+- **Real window** (`--events`, new `resize` lines): Curious Village Start → side by side at
+  960x640, stacked at 500x900, wide at 1400x560 without restart; a tap mapped through the
+  stacked layout to New Game; pause menu over the game; VHS Medium per screen ("GPU shader (MSL)
+  per region") in both arrangements, menu and notes sharp; Miracle Mask's unequal screens stacked
+  and narrow, filtered per screen; title → Continue → slot → room → Cmd+S ("Saved: Continue
+  returns to the last room you entered"; before the first room a refusal saying why) →
+  relaunch → Continue into the same room; return to the library; clean quit while in game.
+- **Standalone Picarat** still builds; `shell_layout_tests` passes.
+- **Android**: `./build-android.sh` builds the APK with the engine. Emulator (Medium Phone API
+  36.1, 2 GB RAM): Curious Village (pushed into app storage) starts from the launcher, title
+  shown; rotation switches stacked ↔ side by side live; a touch tap selects New Game; a typed
+  letter survives rotations. First frame took ~30 s because the AVD was swapping.
+
+Not verified: any physical Android device; audio by ear (sample peaks only); the CPU fallback
+of the per-region filter; Android import through the document picker (the emulator was seeded
+via `run-as`); gamepad-only play; quick saves of Pandora's Box and Lost Future in the real
+window (checked through the module and wrapper only); Windows/Linux.
+
+## Responsive shelf and Android navigation (2026-10-29)
+
+The shelf now retains fractional wheel motion and translates pointer dragging
+into continuous card-strip offsets in both orientations. Keyboard/controller
+selection retains animated row reveal. Landscape canvas width follows display
+aspect; the grid fits and centres columns within the available content area.
+
+Shell navigation and motion checks passed, including a 30-pixel drag, fractional
+wheel input, four columns at 2400×1080 and two at 1280×1024, matching button hit
+bounds, selection across rotation and existing documentation navigation. Rendered
+wide/narrow shelf previews were visually inspected.
+
+Android requests SDL immersive fullscreen and maps AC Back to Escape's shell
+and pause actions. The Activity also forwards system Back callbacks into SDL.
+The APK rebuilt and passed signature verification. Status-bar visibility and
+system Back gestures still require confirmation on a physical device.
+
+## Landscape details and documentation (2026-10-29)
+
+Landscape details now use the available aspect ratio, expanding the description,
+save preview and documentation panels horizontally on wide displays and using
+a taller canvas on narrower landscape displays. Text and cover art retain their
+proportions. Asset paging, preview interaction, fades and confirmation-dialog
+input use the resized bounds. Portrait layouts remain unchanged.
+
+Wide (2400×1080) and narrow (1280×1024) details and development-note renders
+were inspected. Navigation checks cover matching canvas aspect and identical
+cover geometry across pages; interaction checks exercise right-anchored asset
+arrows, the expanded waveform panel and centred confirmation controls. The
+Android APK rebuilt and passed signing verification.
+
+The navigation checks passed. The first new asset-interaction check exposed a
+test setup error (opening assets before opening Details); the fixture was
+corrected. Its final rerun was blocked at link time by concurrent engine changes:
+`interceptor::game::touch_bodies` and `picarat::adventure5::readCheckpoint` were
+unresolved. Those engines were left untouched. Do not count that interaction
+check as passing until the shared build is consistent and it is rerun.
+
+### Responsive imports (2026-10-29)
+
+Interactive imports now run on a worker while the SDL thread presents an
+aspect-adaptive progress screen and pumps events. The worker exclusively owns
+library access until completion; the launcher applies the outcome afterwards,
+using completion time for its message and arrival animation. Android picker
+results no longer synchronously copy documents on the UI thread. Layton forwards
+its measured extraction progress; streamed installation reports a separate
+byte-weighted verification phase. Other importers show animated activity.
+
+Validated: `shell_navigation`, `shell_motion`, `import_progress`, and
+`layton_module` all pass. The new check covers a background streamed fixture,
+forwarded extraction progress, completed verification, failure preservation,
+and the animated unknown-duration state. Portrait and landscape renders were
+inspected. A live UI drop of the 1 GiB Miracle Mask CCI into an isolated temporary
+library displayed the loading screen and produced the verified installation.
+The Android APK built and passed signature verification. Android document-picker
+return, rotation and suspend/resume still require testing on physical hardware.

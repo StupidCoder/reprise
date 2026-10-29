@@ -78,4 +78,10 @@ void restore(Game& game, const SaveRecord& record);
 // A slot record's field as 16010 reads it (0 the name is text: see there).
 int headerField(const SaveHeader& header, int field);
 
+// The app's checkpoint (a host convenience, not one of the game's slots): the
+// same record in a file of its own (Story::checkpointFile). A damaged or
+// missing file reads as none.
+bool writeCheckpoint(const std::filesystem::path& file, const SaveRecord& record);
+std::optional<SaveRecord> readCheckpoint(const std::filesystem::path& file);
+
 } // namespace picarat::adventure5

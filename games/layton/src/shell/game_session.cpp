@@ -9,6 +9,7 @@
 #include "minigames/a3_car.hpp"
 #include "minigames/a3_parrot.hpp"
 #include "minigames/a4_minigames.hpp"
+#include "platform/audio_pull.hpp"
 #include "platform/host.hpp"
 #include "puzzles/a1_puzzle.hpp"
 #include "puzzles/a3_puzzle_loop.hpp"
@@ -145,7 +146,42 @@ struct GameSession::Shared {
     std::deque<HostInput> events; // stylus and name input, one per frame
     HostInput input;              // the held state and one-frame requests
     std::string error;
+    // Stepping (embedded hosts, step()): the game thread counts the frames it
+    // has finished and says when it waits for the next tick (`idle`) or has
+    // ended; `ready` wakes the host waiting for that.
+    std::condition_variable ready;
+    std::uint64_t frames = 0;
+    bool idle = false, ended = false;
+    // The sound of the game thread's AudioStreams, rendered by step().
+    platform::AudioPull audio;
+
+    // The game thread, once its frame is out: waits for the next tick.
+    void awaitTick(std::unique_lock<std::mutex>& lock) {
+        ++frames;
+        idle = true;
+        ready.notify_all();
+        clock.wait(lock, [&] { return tick || stopped; });
+        idle = false;
+    }
 };
+
+std::thread GameSession::spawn(std::shared_ptr<Shared> shared, std::function<void()> body) {
+    return std::thread([shared, body = std::move(body)] {
+        platform::AudioPull::current = &shared->audio; // its sound is pulled (embedded hosts)
+        try {
+            body();
+        } catch (...) {
+            std::lock_guard lock(shared->mutex);
+            if (shared->error.empty()) {
+                shared->error = "The game stopped unexpectedly.";
+            }
+        }
+        std::lock_guard lock(shared->mutex);
+        shared->ended = true;
+        shared->idle = false;
+        shared->ready.notify_all();
+    });
+}
 
 GameSession::GameSession(std::filesystem::path assets, std::filesystem::path checkpoint, int puzzle,
                          unsigned movieEvent)
@@ -197,7 +233,7 @@ GameSession::GameSession(std::filesystem::path assets, std::filesystem::path che
     if (puzzle > 0) {
         shared_->input.collection = puzzle;
     }
-    worker_ = std::thread([shared = shared_, assets, checkpoint, puzzle, body] {
+    worker_ = spawn(shared_, [shared = shared_, assets, checkpoint, puzzle, body] {
         try {
             AudioOutput audio(assets);
             CheckpointStore saves(checkpoint);
@@ -236,7 +272,7 @@ GameSession::GameSession(std::filesystem::path assets, std::filesystem::path che
                     if (wake && --wake == 0) {
                         audio.sequenced()->resumeSound();
                     }
-                    shared->clock.wait(lock, [&] { return shared->tick || shared->stopped; });
+                    shared->awaitTick(lock);
                     if (shared->stopped) {
                         throw Stop{};
                     }
@@ -285,7 +321,7 @@ GameSession::GameSession(std::filesystem::path assets, std::filesystem::path che
 std::unique_ptr<GameSession> GameSession::adventure3Puzzle(std::filesystem::path pack, int number) {
     std::unique_ptr<GameSession> session(new GameSession());
     session->shared_ = std::make_shared<Shared>();
-    session->worker_ = std::thread([shared = session->shared_, pack, number] {
+    session->worker_ = spawn(session->shared_, [shared = session->shared_, pack, number] {
         try {
             adventure3::Assets assets(pack);
             GameText text(pack);
@@ -321,7 +357,7 @@ std::unique_ptr<GameSession> GameSession::adventure3Puzzle(std::filesystem::path
                         shared->clock.wait(lock,
                                            [&] { return !shared->sleeping || shared->stopped; });
                     }
-                    shared->clock.wait(lock, [&] { return shared->tick || shared->stopped; });
+                    shared->awaitTick(lock);
                     if (shared->stopped) {
                         throw Stop{};
                     }
@@ -364,7 +400,7 @@ std::unique_ptr<GameSession> GameSession::adventure3Puzzle(std::filesystem::path
 std::unique_ptr<GameSession> GameSession::adventure4Puzzle(std::filesystem::path pack, int id) {
     std::unique_ptr<GameSession> session(new GameSession());
     session->shared_ = std::make_shared<Shared>();
-    session->worker_ = std::thread([shared = session->shared_, pack, id] {
+    session->worker_ = spawn(session->shared_, [shared = session->shared_, pack, id] {
         try {
             adventure4::Assets assets(pack);
             std::lock_guard collection(collectionMutex);
@@ -391,7 +427,7 @@ std::unique_ptr<GameSession> GameSession::adventure4Puzzle(std::filesystem::path
                         shared->clock.wait(lock,
                                            [&] { return !shared->sleeping || shared->stopped; });
                     }
-                    shared->clock.wait(lock, [&] { return shared->tick || shared->stopped; });
+                    shared->awaitTick(lock);
                     if (shared->stopped) {
                         throw Stop{};
                     }
@@ -427,11 +463,13 @@ std::unique_ptr<GameSession> GameSession::adventure4Puzzle(std::filesystem::path
 }
 
 std::unique_ptr<GameSession> GameSession::adventure5Story(std::filesystem::path pack,
-                                                          std::filesystem::path saves) {
+                                                          std::filesystem::path saves,
+                                                          std::filesystem::path checkpoint,
+                                                          bool resume) {
     std::unique_ptr<GameSession> session(new GameSession());
     session->shared_ = std::make_shared<Shared>();
     session->shared_->geometry = ScreenGeometry::ctr();
-    session->worker_ = std::thread([shared = session->shared_, pack, saves] {
+    session->worker_ = spawn(session->shared_, [shared = session->shared_, pack, saves, checkpoint, resume] {
         try {
             adventure5::Game game(pack.string(), adventure5::Edition::Fifth);
             game.saves = std::make_shared<adventure5::SaveSlots>(saves); // (slot0..2.sav)
@@ -441,6 +479,13 @@ std::unique_ptr<GameSession> GameSession::adventure5Story(std::filesystem::path 
                 adventure56::SoundPlayer::kRate,
                 [&sound](std::int16_t* stereo, int frames) { sound.render(stereo, frames); });
             adventure5::Story story(game);
+            story.checkpointFile = checkpoint;
+            if (resume) {
+                story.continueFrom = adventure5::readCheckpoint(checkpoint);
+                if (!story.continueFrom) {
+                    throw std::runtime_error("The checkpoint cannot be read.");
+                }
+            }
             const ScreenGeometry g = ScreenGeometry::ctr();
             ctr3d::Target top(g.topWidth, g.topHeight), bottom(g.bottomWidth, g.bottomHeight);
             Bytes bytes(std::size_t(g.frameWidth()) * std::size_t(g.frameHeight()) * 4);
@@ -483,7 +528,7 @@ std::unique_ptr<GameSession> GameSession::adventure5Story(std::filesystem::path 
                         shared->clock.wait(lock,
                                            [&] { return !shared->sleeping || shared->stopped; });
                     }
-                    shared->clock.wait(lock, [&] { return shared->tick || shared->stopped; });
+                    shared->awaitTick(lock);
                     if (shared->stopped) {
                         throw Stop{};
                     }
@@ -538,7 +583,7 @@ std::unique_ptr<GameSession> GameSession::adventure5Puzzle(std::filesystem::path
     std::unique_ptr<GameSession> session(new GameSession());
     session->shared_ = std::make_shared<Shared>();
     session->shared_->geometry = ScreenGeometry::ctr();
-    session->worker_ = std::thread([shared = session->shared_, pack, id, sixth] {
+    session->worker_ = spawn(session->shared_, [shared = session->shared_, pack, id, sixth] {
         try {
             adventure5::Game game(pack.string(),
                                   sixth ? adventure5::Edition::Sixth : adventure5::Edition::Fifth);
@@ -585,7 +630,7 @@ std::unique_ptr<GameSession> GameSession::adventure5Puzzle(std::filesystem::path
                         shared->clock.wait(lock,
                                            [&] { return !shared->sleeping || shared->stopped; });
                     }
-                    shared->clock.wait(lock, [&] { return shared->tick || shared->stopped; });
+                    shared->awaitTick(lock);
                     if (shared->stopped) {
                         throw Stop{};
                     }
@@ -676,7 +721,7 @@ void runAdventure4(const SharedPtr& shared, adventure4::Game& game, picarat::Adv
             if (shared->sleeping) {
                 shared->clock.wait(lock, [&] { return !shared->sleeping || shared->stopped; });
             }
-            shared->clock.wait(lock, [&] { return shared->tick || shared->stopped; });
+            shared->awaitTick(lock);
             if (shared->stopped) {
                 throw Stop{};
             }
@@ -717,7 +762,7 @@ std::unique_ptr<GameSession> GameSession::adventure4Story(std::filesystem::path 
                                                           std::filesystem::path saves) {
     std::unique_ptr<GameSession> session(new GameSession());
     session->shared_ = std::make_shared<Shared>();
-    session->worker_ = std::thread([shared = session->shared_, pack, saves] {
+    session->worker_ = spawn(session->shared_, [shared = session->shared_, pack, saves] {
         try {
             adventure4::Assets assets(pack);
             AudioOutput audio(picarat::SoundLayout::adventure4(pack));
@@ -738,7 +783,7 @@ std::unique_ptr<GameSession> GameSession::adventure4Minigame(std::filesystem::pa
                                                              std::vector<std::uint8_t> progress) {
     std::unique_ptr<GameSession> session(new GameSession());
     session->shared_ = std::make_shared<Shared>();
-    session->worker_ = std::thread([shared = session->shared_, pack, which, progress] {
+    session->worker_ = spawn(session->shared_, [shared = session->shared_, pack, which, progress] {
         // The record goes back however the session ends.
         struct Deliveries {
             Shared& shared;
@@ -783,7 +828,7 @@ std::unique_ptr<GameSession> GameSession::adventure1Puzzle(std::filesystem::path
                                                            std::string language) {
     std::unique_ptr<GameSession> session(new GameSession());
     session->shared_ = std::make_shared<Shared>();
-    session->worker_ = std::thread([shared = session->shared_, pack, id, language] {
+    session->worker_ = spawn(session->shared_, [shared = session->shared_, pack, id, language] {
         try {
             GraphicsAssets assets(pack);
             const adventure1::Catalogue catalogue(pack, language);
@@ -805,7 +850,7 @@ std::unique_ptr<GameSession> GameSession::adventure1Puzzle(std::filesystem::path
                 if (shared->sleeping) {
                     shared->clock.wait(lock, [&] { return !shared->sleeping || shared->stopped; });
                 }
-                shared->clock.wait(lock, [&] { return shared->tick || shared->stopped; });
+                shared->awaitTick(lock);
                 if (shared->stopped) {
                     throw Stop{};
                 }
@@ -878,7 +923,7 @@ GameSession::adventure1Session(std::filesystem::path pack, std::filesystem::path
                                bool resume) {
     std::unique_ptr<GameSession> session(new GameSession());
     session->shared_ = std::make_shared<Shared>();
-    session->worker_ = std::thread([shared = session->shared_, pack, backup, language, movie,
+    session->worker_ = spawn(session->shared_, [shared = session->shared_, pack, backup, language, movie,
                                     minigame, progress, checkpoint, resume] {
         try {
             GraphicsAssets assets(pack);
@@ -895,7 +940,7 @@ GameSession::adventure1Session(std::filesystem::path pack, std::filesystem::path
                 if (shared->sleeping) {
                     shared->clock.wait(lock, [&] { return !shared->sleeping || shared->stopped; });
                 }
-                shared->clock.wait(lock, [&] { return shared->tick || shared->stopped; });
+                shared->awaitTick(lock);
                 if (shared->stopped) {
                     throw Stop{};
                 }
@@ -1002,7 +1047,7 @@ GameSession::adventure3Session(std::filesystem::path pack, std::filesystem::path
     std::unique_ptr<GameSession> session(new GameSession());
     session->shared_ = std::make_shared<Shared>();
     session->worker_ =
-        std::thread([shared = session->shared_, pack, saves, movie, parrot, which, resume] {
+        spawn(session->shared_, [shared = session->shared_, pack, saves, movie, parrot, which, resume] {
             try {
                 adventure3::Assets assets(pack);
                 GameText text(pack);
@@ -1095,7 +1140,7 @@ GameSession::adventure3Session(std::filesystem::path pack, std::filesystem::path
                             shared->clock.wait(
                                 lock, [&] { return !shared->sleeping || shared->stopped; });
                         }
-                        shared->clock.wait(lock, [&] { return shared->tick || shared->stopped; });
+                        shared->awaitTick(lock);
                         if (shared->stopped) {
                             throw Stop{};
                         }
@@ -1181,6 +1226,31 @@ GameSession::~GameSession() {
     if (worker_.joinable()) {
         worker_.join();
     }
+}
+
+bool GameSession::step(std::span<float> stereo, int rate) {
+    {
+        std::unique_lock lock(shared_->mutex);
+        // Until the first frame is out the game is still loading: no step.
+        if (shared_->ended || !shared_->idle) {
+            return false;
+        }
+        const std::uint64_t before = shared_->frames;
+        shared_->tick = true;
+        shared_->clock.notify_one();
+        shared_->ready.wait(lock, [&] {
+            return shared_->ended || (shared_->idle && shared_->frames > before);
+        });
+    }
+    // The frame's sound: the game thread waits, so nothing else calls the
+    // sound now.
+    shared_->audio.render(stereo, rate);
+    return true;
+}
+
+bool GameSession::ended() const {
+    std::lock_guard lock(shared_->mutex);
+    return shared_->ended;
 }
 
 void GameSession::tick() {

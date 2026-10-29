@@ -78,7 +78,7 @@ Record read_record(const fs::path &dir, const fs::path &content, std::string_vie
     return r;
 }
 platform::Image thumbnail(GameModule &game) {
-    const auto source = game.picture();
+    const auto source = game.save_picture();
     if (source.width <= 0 || source.height <= 0)
         throw std::runtime_error("Cannot capture the game picture.");
     const double aspect = std::max(.1, game.pixel_aspect());
@@ -158,6 +158,7 @@ class SavedGame final : public GameModule {
     double step_seconds() const override { return game_->step_seconds(); }
     void tick(const GameInput &in) override { game_->tick(in); }
     platform::Image picture() const override { return game_->picture(); }
+    platform::Image save_picture() const override { return game_->save_picture(); }
     void set_frame_fraction(double fraction) override { game_->set_frame_fraction(fraction); }
     void set_display_pointer(std::optional<std::array<int, 2>> at) override { game_->set_display_pointer(at); }
     double pixel_aspect() const override { return game_->pixel_aspect(); }
@@ -168,9 +169,13 @@ class SavedGame final : public GameModule {
         game_->attach_gpu(surface);
     }
     bool finished() const override { return game_->finished(); }
+    std::vector<std::array<int, 4>> filter_regions() const override { return game_->filter_regions(); }
+    std::string saved_message() const override { return game_->saved_message(); }
+    bool take_menu_request() override { return game_->take_menu_request(); }
     int vhs_level() const override { return game_->vhs_level(); }
     bool draws_pointer() const override { return game_->draws_pointer(); }
     bool captures_mouse() const override { return game_->captures_mouse(); }
+    bool wants_motion() const override { return game_->wants_motion(); }
     void set_canvas(int w, int h) override {
         width_ = w;
         height_ = h;
@@ -234,8 +239,12 @@ class SavedGame final : public GameModule {
 bool persistent_saves(std::string_view game) {
     return game == "fort_apocalypse_c64" || game == "bruce_lee_c64" || game == "wizball_c64" ||
            game == "marble_madness_amiga" || game == "mindwalker_amiga" || game == "wings_of_fury_amiga" ||
-           game == "cannon_fodder_amiga" || game == "spy_mouse_ios" ||
-           game == "tower_of_babel_amiga" || game == "rock_n_roll_amiga";
+           game == "cannon_fodder_amiga" || game == "spy_mouse_ios" || game == "sonic_gg" || game == "sonic2_gg" ||
+           game == "triple_trouble_gg" || game == "tower_of_babel_amiga" || game == "rock_n_roll_amiga" ||
+           // The puzzle adventures with checkpoints: the quick save keeps the last room checkpoint
+           // (games/layton/reprise/saved_checkpoint.hpp), not the exact moment.
+           game == "curious_village_ds" || game == "pandoras_box_ds" || game == "lost_future_ds" ||
+           game == "miracle_mask_3ds";
 }
 std::unique_ptr<GameModule> with_quick_save(const GameEntry &entry, const fs::path &content) {
     if (persistent_saves(entry.id))

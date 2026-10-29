@@ -43,8 +43,12 @@ fs::path pack_path(const fs::path& root) {
 }
 
 bool pack_installed(const fs::path& root) {
+    return pack_current(pack_path(root));
+}
+
+bool pack_current(const fs::path& pack) {
     try {
-        return file_equals(pack_path(root) / manifest_file, manifest);
+        return file_equals(pack / manifest_file, manifest);
     } catch (const std::exception&) {
         return false;
     }
@@ -64,6 +68,18 @@ void validate_pack(const fs::path& p) {
     for (unsigned n = 1; n <= 8; ++n) {
         load_level(p / ("special" + std::to_string(n)));
     }
+}
+
+std::vector<std::pair<std::string, Bytes>> extract_pack(Bytes bytes, ExtractProgress progress) {
+    if (bytes.size() != 262144 || platform::sha256(bytes) != rom_sha256) {
+        throw std::runtime_error("This ROM revision is not supported. Expected Sonic 1 Game Gear "
+                                 "Japan/USA, CRC32 3E31CB8C.");
+    }
+    const Rom rom(std::move(bytes));
+    MemoryWriter out;
+    extract_asset_pack(rom, out, progress);
+    out.write(manifest_file, Bytes(manifest.begin(), manifest.end()));
+    return std::move(out.files);
 }
 
 void import_rom(const fs::path& image, const fs::path& root, ExtractProgress progress) {
@@ -96,12 +112,10 @@ void import_rom(const fs::path& image, const fs::path& root, ExtractProgress pro
         throw std::runtime_error("Could not create import workspace. Try again.");
     }
     staging.owned = true;
-    // Freeze the verified bytes so a changing source file cannot affect extraction.
-    auto snapshot = staging.path / "source.gg";
-    write_file(snapshot, bytes);
-    Rom rom(snapshot);
-    fs::remove(snapshot);
-    extract_asset_pack(rom, staging.path, progress);
+    // The verified bytes in memory: a changing source file cannot affect extraction.
+    const Rom rom(std::move(bytes));
+    FolderWriter folder(staging.path);
+    extract_asset_pack(rom, folder, progress);
     validate_pack(staging.path);
     write_file(staging.path / manifest_file, Bytes(manifest.begin(), manifest.end()));
     const auto destination = pack_path(root);

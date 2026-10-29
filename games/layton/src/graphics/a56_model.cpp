@@ -864,6 +864,7 @@ std::shared_ptr<Model> loadModelFiles(const Pack& pack, const fs::path& folder) 
             for (auto& mesh : model->meshes) {
                 if (xq::hash(mesh.name) == h) {
                     mesh.outlineWidth = width;
+                    mesh.outline = u32(block, 0);
                     std::memcpy(mesh.outlineColour, colour, sizeof colour);
                 }
             }

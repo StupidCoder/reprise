@@ -92,11 +92,15 @@ Launcher::Launcher(Library& library) : library_(library) {
 void Launcher::set_canvas(int width, int height) {
     const bool portrait = width > 0 && height > width;
     const int logical_height = portrait ? std::clamp(int(640.0 * height / width), 800, 1600) : 640;
-    if (portrait_ == portrait && shelf_height_ == logical_height) return;
+    const int logical_width = portrait ? 640 : std::max(640, int(640.0 * std::max(width, 1) / std::max(height, 1)));
+    if (portrait_ == portrait && shelf_height_ == logical_height && shelf_width_ == logical_width) return;
     portrait_ = portrait;
     shelf_height_ = logical_height;
-    columns_ = portrait ? 2 : 3;
-    grid_x = portrait ? 79 : 198;
+    shelf_width_ = logical_width;
+    columns_ = portrait ? 2 : std::max(1, (shelf_width_ - 198 - 24 + gap) / (card_w + gap));
+    manual_scroll_.reset();
+    grid_x = portrait ? 79 : shelf_width_ == 960 ? 198 :
+        std::max(198, 184 + (shelf_width_ - 184 - (columns_ * (card_w + gap) - gap)) / 2);
     grid_y = portrait ? 234 : 126;
     footer_y = portrait ? shelf_height_ - 82 : 558;
     rows_shown_ = std::max(1, (footer_y - grid_y) / (card_h + gap));
@@ -144,6 +148,7 @@ void Launcher::reveal_selection() {
 void Launcher::select(std::size_t game) {
     if (library_.games().empty()) return;
     transition_from_.reset();
+    manual_scroll_.reset();
     hovered_.reset();
     if (selected_ != game) { save_preview_ = {}; previous_save_.reset(); }
     selected_ = std::min(game, library_.games().size() - 1);
@@ -155,6 +160,7 @@ void Launcher::select(std::size_t game) {
 void Launcher::set_filter(int filter) {
     filter_ = std::clamp(filter, 0, filter_count - 1);
     first_row_ = 0;
+    manual_scroll_.reset();
     if (filter_ == 1) {
         for (std::size_t i = 0; i < library_.games().size(); ++i) {
             const auto save = library_.installed(i) && library_.games()[i].start
@@ -187,7 +193,7 @@ void Launcher::move(int columns, int rows) {
 std::string Launcher::status(std::size_t index) const {
     const auto& game = library_.games()[index];
     if (game.integration_pending) return "Coming to Reprise";
-    if (!game.import) return "Planned";
+    if (!importable(game)) return "Planned";
     if (!library_.installed(index)) {
         const auto parts = library_.imported_parts(index);
         return parts.empty() ? "Import your copy" : "Imported " + parts;
@@ -271,7 +277,7 @@ Launcher::Request Launcher::update_input(const platform::Controls& in, double no
                 action = 3;
             if (in.accept)
                 action = detail_focus_;
-            if (action == 0 && entry.import) {
+            if (action == 0 && importable(entry)) {
                 if (!library_.installed(selected_))
                     return Request::choose_image;
                 if (entry.start)
@@ -322,7 +328,7 @@ Launcher::Request Launcher::update_input(const platform::Controls& in, double no
             if(lesson_selected_<lesson_list_.first())lesson_list_.scroll(lesson_selected_-lesson_list_.first());
             if(lesson_selected_>=lesson_list_.first()+3)lesson_list_.scroll(lesson_selected_-lesson_list_.first()-2);
             for (int row = 0; row < lesson_list_.shown(); ++row)
-                if (hit(in, 308, 178 + row * 106, 600, 96)) {
+                if (hit(in, 308, 178 + row * 106, 600 + (portrait_ ? 0 : detail_width() - 960), 96)) {
                     lesson_selected_ = lesson_list_.first() + row;
                     open_lesson(now);
                     return Request::none;
@@ -331,9 +337,9 @@ Launcher::Request Launcher::update_input(const platform::Controls& in, double no
                 open_lesson(now);
         } else if (!about_) {
             const auto pages = previews_.size() + 1;
-            if (in.nav_right || hit(in, 858, 112, 54, 34))
+            if (in.nav_right || hit(in, 858 + (portrait_ ? 0 : detail_width() - 960), 112, 54, 34))
                 page_ = (page_ + 1) % pages;
-            else if (in.nav_left || hit(in, 794, 112, 54, 34))
+            else if (in.nav_left || hit(in, 794 + (portrait_ ? 0 : detail_width() - 960), 112, 54, 34))
                 page_ = (page_ + pages - 1) % pages;
             else if (page_ == 0 && files_.scrollable()) {
                 files_.scroll(int(in.nav_down) - int(in.nav_up) + in.wheel);
@@ -376,13 +382,16 @@ Launcher::Request Launcher::update_input(const platform::Controls& in, double no
                 activate();
             }
         }
-        if (hit(in, portrait_ ? 480 : 798, 20, 138, 36)) pending_choice_ = true;
-        if (hit(in, portrait_ ? 506 : 824, portrait_ ? footer_y + 20 : 578, 112, 38) && !visible_games().empty()) open_details();
+        if (hit(in, portrait_ ? 480 : shelf_width_ - 162, 20, 138, 36)) pending_choice_ = true;
+        if (hit(in, portrait_ ? 506 : shelf_width_ - 136, portrait_ ? footer_y + 20 : 578, 112, 38) && !visible_games().empty()) open_details();
     }
     if (pending_choice_) { pending_choice_ = false; return Request::choose_image; }
     return Request::none;
 }
 Launcher::Request Launcher::update_confirm(const platform::Controls& in, double now) {
+    const int cancel_x = (detail_width() - dialog_w) / 2 + 180;
+    const int confirm_x = cancel_x + 116;
+    const int dialog_button_y = 220 + (detail_height() - 640) / 2 + 142;
     if (in.nav_left || in.nav_right) confirm_focus_ = 1 - confirm_focus_;
     const bool cancel = in.back || hit(in, cancel_x, dialog_button_y, dialog_button_w, dialog_button_h) ||
                         (in.accept && confirm_focus_ == 0);
@@ -399,8 +408,10 @@ Launcher::Request Launcher::update_confirm(const platform::Controls& in, double 
     return Request::none;
 }
 void Launcher::draw_confirm(Image& im) const {
+    const int dialog_x = (im.width - dialog_w) / 2, dialog_y = 220 + (im.height - 640) / 2;
+    const int cancel_x = dialog_x + 180, confirm_x = dialog_x + 296, dialog_button_y = dialog_y + 142;
     const auto& game = library_.games()[selected_];
-    ui::blend_rect(im, 0, 0, platform::ui_width, platform::ui_height, theme().ink, 140);
+    ui::blend_rect(im, 0, 0, im.width, im.height, theme().ink, 140);
     ui::rounded(im, dialog_x, dialog_y, dialog_w, dialog_h, 10, theme().card);
     s::text(im, "Remove imported files?", dialog_x + 24, dialog_y + 20, 21, theme().ink, true);
     s::wrap(im,
@@ -422,14 +433,17 @@ void Launcher::show_message(std::string message, bool ok, double now) {
 void Launcher::import(const std::vector<std::filesystem::path>& images, double now) {
     const auto& games = library_.games();
     for (const auto& image : images) {
-        const auto outcome = library_.import(image, games[selected_].import ? std::optional(selected_) : std::nullopt);
-        if (outcome.game) {
-            close_details(); select(*outcome.game);
-            if (outcome.ok && !outcome.waiting) { import_game_ = *outcome.game; import_time_ = now; }
-        }
-        show_message(outcome.message, outcome.ok, now);
+        const auto outcome = library_.import(image, importable(games[selected_]) ? std::optional(selected_) : std::nullopt);
+        imported(outcome, now);
         if (!outcome.ok) break;
     }
+}
+void Launcher::imported(const Library::Outcome& outcome, double now) {
+    if (outcome.game) {
+        close_details(); select(*outcome.game);
+        if (outcome.ok && !outcome.waiting) { import_game_ = *outcome.game; import_time_ = now; }
+    }
+    show_message(outcome.message, outcome.ok, now);
 }
 void Launcher::show_error(std::string message, double now) { show_message(std::move(message), false, now); }
 
@@ -459,7 +473,7 @@ void Launcher::draw_card(Image& im, std::size_t index, int x, int y, double now)
                     c = ui::mix(c, {gray, gray, gray}, 185);
                     c = ui::mix(c, theme().paper, 45);
                 }
-            const char* label = game.integration_pending ? "Coming to Reprise" : game.import ? "Not imported" : "Planned";
+            const char* label = game.integration_pending ? "Coming to Reprise" : importable(game) ? "Not imported" : "Planned";
             const int w = s::width(label, 12, true) + 18;
             ui::rounded(im, x + 12, y + 108, w, 24, 4, theme().card);
             s::text(im, label, x + 21, y + 111, 12, theme().ink, true);
@@ -467,7 +481,7 @@ void Launcher::draw_card(Image& im, std::size_t index, int x, int y, double now)
     }
     s::clipped(im, game.title, x + 10, y + 143, card_w - 20, 16, theme().ink, true);
     s::text(im, (game.release_year ? std::to_string(game.release_year) + "  /  " : "") + std::string(machine_name(game.machine)), x + 10, y + 165, 12, theme().muted);
-    if (!imported && game.import) s::text(im, "Import your copy to play", x + 10, y + 181, 10, theme().muted);
+    if (!imported && importable(game)) s::text(im, "Import your copy to play", x + 10, y + 181, 10, theme().muted);
     if (index == import_game_ && now >= import_time_ && now - import_time_ < .8) {
         const int glow = reduced_motion_ ? 3 : int(3 + 5 * (1 - std::clamp((now - import_time_) / .8, 0.0, 1.0)));
         ui::rounded(im, x + card_w - 24 - glow, y + 173 - glow, 9 + 2 * glow, 9 + 2 * glow, 7,
@@ -493,8 +507,9 @@ void Launcher::open_lesson(double now) {
     } catch(const std::exception& e){show_error(std::string("Could not open lesson: ")+e.what(),now);}
 }
 void Launcher::draw_lessons(Image& im) const {
+    const int dx = im.width - 960, dy = im.height - 640;
     const bool guide = library_.games()[selected_].id == "mindwalker_amiga";
-    ui::rounded(im,288,102,648,446,10,theme().card);
+    ui::rounded(im,288,102,(648 + dx),(446 + dy),10,theme().card);
     s::text(im, guide ? "How to play Mind Walker" : "Behind the games", 308, 119, 23, theme().ink, true);
     s::text(im,
             guide ? "Choose a sequence, or start with the whole journey."
@@ -503,31 +518,32 @@ void Launcher::draw_lessons(Image& im) const {
     for(int row=0;row<lesson_list_.shown();++row){
         const int index=lesson_list_.first()+row,y=178+row*106;
         const auto& lesson=lessons_for(library_.games()[selected_])[std::size_t(index)];
-        ui::rounded(im,308,y,600,96,6,index==lesson_selected_?theme().pale:theme().paper);
+        ui::rounded(im,308,y,(600 + dx),96,6,index==lesson_selected_?theme().pale:theme().paper);
         s::text(im,std::to_string(index+1)+"  "+lesson.title,322,y+12,19,theme().ink,true);
-        s::wrap(im,lesson.summary,322,y+39,564,2,14);
+        s::wrap(im,lesson.summary,322,y+39,(564 + dx),2,14);
         s::text(im, (guide || library_.installed(selected_)) ? lesson.format : "Import your copy to open",
                 322, y + 77, 12, theme().muted);
     }
-    lesson_list_.draw_bar(im,922,178,4,318,theme().paper,theme().muted);
+    lesson_list_.draw_bar(im,(922 + dx),178,4,318,theme().paper,theme().muted);
     s::text(im,
             guide ? "Available before import. Read the rules without starting a game."
                   : "Illustrated explanations and live experiments share this library.",
-            308, 516, 13, theme().muted);
-    s::text(im, "Up / Down or scroll: choose     Enter or click: open     Esc: details", 24, 582, 14,
+            308, (516 + dy), 13, theme().muted);
+    s::text(im, "Up / Down or scroll: choose     Enter or click: open     Esc: details", 24, (582 + dy), 14,
             theme().muted);
 }
 
 void Launcher::draw_overview(Image &im) const {
+    const int dx = im.width - 960, dy = im.height - 640, extra_picture = dx * 3 / 5;
     const auto &game = library_.games()[selected_];
     const bool installed = library_.installed(selected_);
     ui::fill(im, theme().paper);
     button(im, "<  Library", 24, 22, 104, 36);
     s::text(im, "Game details", 150, 25, 22, theme().ink, true);
-    s::right(im, std::string(machine_name(game.machine)) + (game.release_year ? " / " + std::to_string(game.release_year) : ""), 934, 30,
+    s::right(im, std::string(machine_name(game.machine)) + (game.release_year ? " / " + std::to_string(game.release_year) : ""), (934 + dx), 30,
              15, theme().muted);
     draw_identity(im);
-    if (game.import)
+    if (importable(game))
         button(im, installed ? "Start" : "Import", 24, 374, 114, 40, detail_focus_ == 0);
     else {
         button(im, "Start", 24, 374, 114, 40);
@@ -539,33 +555,35 @@ void Launcher::draw_overview(Image &im) const {
     button(im, "Documentation", 24, 434, 240, 40, detail_focus_ == 2);
     if (installed)
         button(im, "Delete game files", 24, 494, 240, 34, detail_focus_ == 3, true);
-    ui::rounded(im, 316, 106, 620, 180, 9, theme().card);
-    s::wrap(im, game.description, 338, 126, 576, 6, 19, theme().ink);
+    ui::rounded(im, 316, 106, (620 + dx), 180, 9, theme().card);
+    s::wrap(im, game.description, 338, 126, (576 + dx), 6, 19, theme().ink);
     if (game.integration_pending) {
         s::text(im, "Coming to Reprise", 338, 324, 24, theme().ink, true);
-        s::wrap(im, "This game is not available in Reprise yet. You can explore its cover and description while support is being added.", 338, 365, 550, 5, 18, theme().muted);
+        s::wrap(im, "This game is not available in Reprise yet. You can explore its cover and description while support is being added.", 338, 365, (550 + dx), 5, 18, theme().muted);
         return;
     }
-    ui::rounded(im, 316, 306, 620, 242, 9, theme().card);
+    ui::rounded(im, 316, 306, (620 + dx), 242 + dy, 9, theme().card);
     if (save_preview_.image) {
-        ui::rounded(im, 330, 320, 326, 214, 5, {20, 30, 34});
-        ui::picture(im, *save_preview_.image, 336, 326, 314, 202);
+        ui::rounded(im, 330, 320, 326 + extra_picture, 214 + dy, 5, {20, 30, 34});
+        ui::picture(im, *save_preview_.image, 336, 326, 314 + extra_picture, 202 + dy);
     } else {
-        ui::rounded(im, 330, 320, 326, 214, 5, theme().paper);
+        ui::rounded(im, 330, 320, 326 + extra_picture, 214 + dy, 5, theme().paper);
 
     }
-    s::wrap(im, save_preview_.available ? "Pick up where you left off" : "No saved game yet", 678, 326, 234,
+    s::wrap(im, save_preview_.available ? "Pick up where you left off" : "No saved game yet", (678 + extra_picture), 326, (234 + dx - extra_picture),
             2, 18, theme().ink);
-    s::wrap(im, save_preview_.date, 678, 366, 234, 2, 14, theme().muted);
+    s::wrap(im, save_preview_.date, (678 + extra_picture), 366, (234 + dx - extra_picture), 2, 14, theme().muted);
     const std::string help =
         !save_preview_.error.empty() ? save_preview_.error
-        : save_preview_.available ? "Continue restores this moment. Start begins a new game and keeps this "
-                                    "save until you save again."
+        : save_preview_.available ? (!game.continue_note.empty() ? game.continue_note
+                                     : "Continue restores this moment. Start begins a new game and keeps this "
+                                       "save until you save again.")
+        : !game.saves_note.empty() ? game.saves_note
         : persistent_saves(game.id)
             ? "Use Quick save in the pause menu to keep your progress after closing the app."
             : "Persistent saves are not available for this game yet.";
-    s::wrap(im, help, 678, 402, 234, 7, 16, save_preview_.error.empty() ? theme().muted : s::red);
-    s::text(im, "Up / Down: choose action     Enter: open     Esc: library", 24, 582, 14, theme().muted);
+    s::wrap(im, help, (678 + extra_picture), 402, (234 + dx - extra_picture), 7, 16, save_preview_.error.empty() ? theme().muted : s::red);
+    s::text(im, "Up / Down: choose action     Enter: open     Esc: library", 24, (582 + dy), 14, theme().muted);
 }
 void Launcher::draw_identity(Image &im) const {
     const auto &game = library_.games()[selected_];
@@ -575,6 +593,7 @@ void Launcher::draw_identity(Image &im) const {
 }
 
 void Launcher::draw_details(Image& im) const {
+    const int dx = im.width - 960, dy = im.height - 640;
     const auto& game = library_.games()[selected_];
     const bool installed = library_.installed(selected_);
     if (!documentation_) {
@@ -584,8 +603,8 @@ void Launcher::draw_details(Image& im) const {
     ui::fill(im, theme().paper);
     button(im, "<  Details", 24, 22, 104, 36);
     s::text(im, "Documentation", 150, 25, 22, theme().ink, true);
-    s::right(im, std::string(machine_name(game.machine)) + (game.release_year ? " / " + std::to_string(game.release_year) : ""), 934, 30, 15, theme().muted);
-    ui::rect(im, 24, 78, 912, 1, theme().line);
+    s::right(im, std::string(machine_name(game.machine)) + (game.release_year ? " / " + std::to_string(game.release_year) : ""), (934 + dx), 30, 15, theme().muted);
+    ui::rect(im, 24, 78, (912 + dx), 1, theme().line);
     draw_identity(im);
     button(im, "Extracted assets", 24, 374, 240, 40, !about_ && !lessons_);
     button(im, "Development notes", 24, 418, 240, 40, about_);
@@ -594,71 +613,71 @@ void Launcher::draw_details(Image& im) const {
                   side_button_h, lessons_);
         if(lessons_){draw_lessons(im);return;}
     }
-    ui::rounded(im, 288, 102, 648, 446, 10, theme().card);
+    ui::rounded(im, 288, 102, (648 + dx), (446 + dy), 10, theme().card);
     if (about_) {
         s::text(im, "Development notes", 312, 124, 23, theme().ink, true);
-        if (game.history.empty()) s::wrap(im, "Development notes will arrive with this game. This preview does not yet include its documentation.", 312, 174, 594, 4, 19, theme().muted);
-        s::wrap(im, game.history_title, 312, 174, 594, 2, 24, theme().ink);
-        s::wrap(im, game.history, 312, 246, 594, 9, 19, theme().ink);
-        s::wrap(im, "Sources: " + game.history_sources, 312, 488, 594, 3, 13, theme().muted);
-        s::text(im, "Esc: details", 24, 582, 14, theme().muted);
+        if (game.history.empty()) s::wrap(im, "Development notes will arrive with this game. This preview does not yet include its documentation.", 312, 174, (594 + dx), 4, 19, theme().muted);
+        s::wrap(im, game.history_title, 312, 174, (594 + dx), 2, 24, theme().ink);
+        s::wrap(im, game.history, 312, 246, (594 + dx), 9 + dy / 24, 19, theme().ink);
+        s::wrap(im, "Sources: " + game.history_sources, 312, 488 + dy, (594 + dx), 3, 13, theme().muted);
+        s::text(im, "Esc: details", 24, (582 + dy), 14, theme().muted);
         return;
     }
 
     const auto pages = previews_.size() + 1;
-    s::clipped(im, page_ == 0 ? (installed ? "Imported files" : "About this game") : previews_[page_ - 1].title, 308, 116, 460, 20, theme().ink, true);
-    if (pages > 1) { button(im, "<", 794, 112, 54, 34); button(im, ">", 858, 112, 54, 34); }
+    s::clipped(im, page_ == 0 ? (installed ? "Imported files" : "About this game") : previews_[page_ - 1].title, 308, 116, (460 + dx), 20, theme().ink, true);
+    if (pages > 1) { button(im, "<", (794 + dx), 112, 54, 34); button(im, ">", (858 + dx), 112, 54, 34); }
     if (page_ == 0) {
         if (!installed) {
             const auto parts = library_.imported_parts(selected_);
-            s::wrap(im, game.import ? "Drop your own " + game.media + " onto this window, or choose Import your copy." +
+            s::wrap(im, importable(game) ? "Drop your own " + game.media + " onto this window, or choose Import your copy." +
                     (parts.empty() ? std::string() : " Imported so far: " + parts + ".") :
                 "This title is on the roadmap. Import and play will become available in a future release.",
-                312, 190, 592, 5, 18);
+                312, 190, (592 + dx), 5, 18);
 
         } else {
-            s::clipped(im, library_.release(selected_), 308, 151, 600, 13, theme().muted);
+            s::clipped(im, library_.release(selected_), 308, 151, (600 + dx), 13, theme().muted);
             const auto files = library_.installed_files(selected_);
             for (int row = 0; row < files_.shown(); ++row) {
                 const auto& [name, size] = files[std::size_t(files_.first() + row)];
                 const int y = file_list_y + row * file_row;
-                if (row % 2 == 0) ui::rect(im, 304, y, 612, file_row, theme().paper);
-                s::clipped(im, name, 314, y + 2, 408, 14);
-                s::right(im, size_text(size), 900, y + 2, 13, theme().muted);
+                if (row % 2 == 0) ui::rect(im, 304, y, (612 + dx), file_row, theme().paper);
+                s::clipped(im, name, 314, y + 2, (408 + dx), 14);
+                s::right(im, size_text(size), (900 + dx), y + 2, 13, theme().muted);
             }
-            files_.draw_bar(im, 924, file_list_y, 4, file_rows_shown * file_row, theme().paper, theme().muted);
+            files_.draw_bar(im, (924 + dx), file_list_y, 4, file_rows_shown * file_row, theme().paper, theme().muted);
             s::text(im, std::to_string(files.size()) + " files", 308, 470, 13, theme().muted);
             s::wrap(im, details_error_.empty() ? (game.start ? "Original game data from your imported copy. Use the arrows to explore decoded graphics and levels." :
                 "Native gameplay is still being rebuilt. Use the arrows to explore the data decoded so far.") : details_error_,
-                308, 496, 600, 2, 14, details_error_.empty() ? theme().muted : s::red);
+                308, 496, (600 + dx), 2, 14, details_error_.empty() ? theme().muted : s::red);
         }
     } else {
         const auto& preview = previews_[page_ - 1];
-        ui::rounded(im, 304, 160, 616, 370, 5, {20, 30, 34});
+        ui::rounded(im, 304, 160, (616 + dx), (370 + dy), 5, {20, 30, 34});
         if (preview.model) {
-            ui::draw_model(im, 310, 166, 604, 358, *preview.model, model_yaw_, model_pitch_);
-            s::text(im, "Drag to turn", 316, 508, 13, theme().muted);
+            ui::draw_model(im, 310, 166, (604 + dx), (358 + dy), *preview.model, model_yaw_, model_pitch_);
+            s::text(im, "Drag to turn", 316, (508 + dy), 13, theme().muted);
         } else {
-            ui::picture(im, preview.image, 310, 166, 604, 358);
+            ui::picture(im, preview.image, 310, 166, (604 + dx), (358 + dy));
         }
         if (preview.sound) {
             const bool playing = playback_ && playback_->preview == &preview;
             if (playing && !preview.sound->samples.empty()) {
                 // The playhead, across the waveform as ui::picture placed it.
-                double scale = std::min(604.0 / preview.image.width, 358.0 / preview.image.height);
+                double scale = std::min((604.0 + dx) / preview.image.width, (358.0 + dy) / preview.image.height);
                 if (scale >= 1) scale = std::floor(scale);
                 const int dw = std::max(1, int(preview.image.width * scale));
                 const int dh = std::max(1, int(preview.image.height * scale));
-                const int left = 310 + (604 - dw) / 2, top = 166 + (358 - dh) / 2;
+                const int left = 310 + ((604 + dx) - dw) / 2, top = 166 + ((358 + dy) - dh) / 2;
                 const double done = playback_->position / double(preview.sound->samples.size());
                 ui::rect(im, left + int(done * (dw - 1)), top, 2, dh, {255, 214, 120});
             }
-            s::text(im, playing ? "Playing - click to stop" : "Click to play", 316, 508, 13, theme().muted);
+            s::text(im, playing ? "Playing - click to stop" : "Click to play", 316, (508 + dy), 13, theme().muted);
         }
     }
-    ui::rect(im, 24, 558, 912, 1, theme().line);
-    s::text(im, "Left / Right: pages     Up / Down: scroll files     Esc: details", 24, 582, 14, theme().muted);
-    s::right(im, std::to_string(page_ + 1) + " / " + std::to_string(pages), 934, 582, 14, theme().muted);
+    ui::rect(im, 24, (558 + dy), (912 + dx), 1, theme().line);
+    s::text(im, "Left / Right: pages     Up / Down: scroll files     Esc: details", 24, (582 + dy), 14, theme().muted);
+    s::right(im, std::to_string(page_ + 1) + " / " + std::to_string(pages), (934 + dx), (582 + dy), 14, theme().muted);
 }
 
 namespace {
@@ -685,8 +704,9 @@ void dissolve(Image& to, const Image& from, int x, int y, int w, int h, double p
 }
 
 double Launcher::scroll_position(double now) const {
-    if (reduced_motion_) return first_row_;
-    return scroll_from_ + (first_row_ - scroll_from_) * ease((now - scroll_start_) / .24);
+    const double target = manual_scroll_.value_or(first_row_);
+    if (reduced_motion_) return target;
+    return scroll_from_ + (target - scroll_from_) * ease((now - scroll_start_) / .24);
 }
 
 std::optional<std::size_t> Launcher::card_at(int x, int y, double now) const {
@@ -714,10 +734,10 @@ std::array<int, 4> Launcher::cover_bounds(double now) const {
 
 Launcher::Request Launcher::update(const platform::Controls& raw, double now) {
     auto in = raw;
-    // A portrait shelf tap opens on release, leaving room for a vertical swipe.
+    // Shelf taps open on release, leaving room for a continuous vertical drag.
     // SDL supplies the same pointer coordinates for mouse and touch.
-    if (portrait_ && !details_) {
-        if (in.click && in.mouse_y >= grid_y - 8 && in.mouse_y < footer_y - 8) {
+    if (!details_) {
+        if (in.click && in.mouse_x >= grid_x - 8 && in.mouse_y >= grid_y - 8 && in.mouse_y < footer_y - 8) {
             shelf_press_ = {in.mouse_x, in.mouse_y};
             swipe_y_ = in.mouse_y; shelf_dragged_ = false;
             in.click = false;
@@ -726,8 +746,13 @@ Launcher::Request Launcher::update(const platform::Controls& raw, double now) {
             if (in.ui_pointer) {
                 const int y = (*in.ui_pointer)[1];
                 if (std::abs(y - (*shelf_press_)[1]) > 12) shelf_dragged_ = true;
-                const int steps = (swipe_y_ - y) / 70;
-                if (steps) { in.wheel += steps; swipe_y_ -= steps * 70; }
+                if (shelf_dragged_) {
+                    const int rows = (int(visible_games().size()) + columns_ - 1) / columns_;
+                    const double limit = std::max(0.0, (rows * (card_h + gap) - gap - (footer_y - grid_y - 8)) / double(card_h + gap));
+                    manual_scroll_ = std::clamp(scroll_position(now) + (swipe_y_ - y) / double(card_h + gap), 0.0, limit);
+                    scroll_from_ = *manual_scroll_; scroll_start_ = -10;
+                    swipe_y_ = y;
+                }
             }
             if (!in.mouse_held) {
                 if (!shelf_dragged_) {
@@ -738,6 +763,23 @@ Launcher::Request Launcher::update(const platform::Controls& raw, double now) {
             }
         }
     } else shelf_press_.reset();
+    if (!details_) {
+        const double wheel = in.wheel_precise != 0 ? in.wheel_precise : double(in.wheel);
+        if (wheel != 0) {
+            const int rows = (int(visible_games().size()) + columns_ - 1) / columns_;
+            const double limit = std::max(0.0, (rows * (card_h + gap) - gap - (footer_y - grid_y - 8)) / double(card_h + gap));
+            const double position = scroll_position(now);
+            manual_scroll_ = std::clamp(manual_scroll_.value_or(first_row_) + wheel * 54.0 / (card_h + gap), 0.0, limit);
+            scroll_from_ = position; scroll_start_ = now;
+            in.wheel = 0;
+        }
+        if (manual_scroll_ && (in.nav_left || in.nav_right || in.nav_up || in.nav_down || in.page_up || in.page_down || in.accept)) {
+            const double position = scroll_position(now);
+            first_row_ = int(*manual_scroll_);
+            manual_scroll_.reset(); reveal_selection();
+            scroll_from_ = position; scroll_start_ = now;
+        }
+    }
     // Hover never steals keyboard/controller selection; moving the pointer resumes it.
     if (in.nav_left || in.nav_right || in.nav_up || in.nav_down || in.accept) hovered_.reset();
     if (in.ui_pointer != last_pointer_) {
@@ -779,7 +821,7 @@ Launcher::Request Launcher::update(const platform::Controls& raw, double now) {
     } else if (first_row_ != old_row) {
         scroll_from_ = old_scroll; scroll_start_ = now; hovered_.reset();
     }
-    if (old && !portrait_ && key() != before && !reduced_motion_ && request == Request::none) {
+    if (old && !portrait_ && (shelf_width_ == 960 || (was_details && details_)) && key() != before && !reduced_motion_ && request == Request::none) {
         transition_ = was_details != details_ && !interrupted ? Transition::cover
                       : was_assets && documentation_ && !about_ && !lessons_ && page_ > 0 && !chapter_
                           ? Transition::asset
@@ -835,7 +877,7 @@ void Launcher::update_preview(const platform::Controls& raw, double now, Request
         if (in.ui_pointer) in.ui_pointer = map((*in.ui_pointer)[0], (*in.ui_pointer)[1]);
     }
     const Preview* shown = request == Request::none ? shown_preview() : nullptr;
-    const bool in_panel = in.click && in.mouse_x >= 304 && in.mouse_x < 920 && in.mouse_y >= 160 && in.mouse_y < 530;
+    const bool in_panel = in.click && in.mouse_x >= 304 && in.mouse_x < 920 + (portrait_ ? 0 : detail_width() - 960) && in.mouse_y >= 160 && in.mouse_y < 530 + (portrait_ ? 0 : detail_height() - 640);
     // A sound plays only while its own page is shown.
     if (playback_ && playback_->preview != shown) stop_sound();
     if (shown && shown->sound && in_panel) {
@@ -917,16 +959,16 @@ Image Launcher::draw(double now) const {
     }
     if (!portrait_ && !reduced_motion_ && details_ && !documentation_ && save_preview_.image && now - save_fade_start_ < .22) {
         Image previous = result;
-        ui::rect(previous, 336, 326, 314, 202, {20, 30, 34});
-        if (previous_save_) ui::picture(previous, *previous_save_, 336, 326, 314, 202);
-        dissolve(result, previous, 336, 326, 314, 202, ease((now - save_fade_start_) / .22));
+        ui::rect(previous, 336, 326, 314 + (result.width - 960) * 3 / 5, 202 + result.height - 640, {20, 30, 34});
+        if (previous_save_) ui::picture(previous, *previous_save_, 336, 326, 314 + (result.width - 960) * 3 / 5, 202 + result.height - 640);
+        dissolve(result, previous, 336, 326, 314 + (result.width - 960) * 3 / 5, 202 + result.height - 640, ease((now - save_fade_start_) / .22));
     }
     if (transitioning) {
         const double t = ease((now - transition_start_) / duration);
         if (transition_ == Transition::asset)
-            dissolve(result, *transition_from_, 304, 160, 616, 370, t);
+            dissolve(result, *transition_from_, 304, 160, result.width - 344, result.height - 270, t);
         else if (transition_ == Transition::document)
-            dissolve(result, *transition_from_, 288, 102, 648, 446, t, int(std::lround(8 * (1 - t))));
+            dissolve(result, *transition_from_, 288, 102, result.width - 312, result.height - 194, t, int(std::lround(8 * (1 - t))));
         else dissolve(result, *transition_from_, 0, 0, result.width, result.height, t, 0, false);
         if (transition_ == Transition::cover) {
             std::array<int, 4> r{};
@@ -1023,8 +1065,8 @@ Image Launcher::draw_portrait_details() const {
         button(im, "Development", 224, 258, 184, 44, about_);
         if (!lessons_for(game).empty()) button(im, game.id == "mindwalker_amiga" ? "How to play" : "Lessons", 424, 258, 192, 44, lessons_);
     } else {
-        button(im, installed ? "Start" : "Import", 24, 258, 184, 44, detail_focus_ == 0 && bool(game.import));
-        if (!game.import) ui::blend_rect(im, 24, 258, 184, 44, theme().paper, 170);
+        button(im, installed ? "Start" : "Import", 24, 258, 184, 44, detail_focus_ == 0 && importable(game));
+        if (!importable(game)) ui::blend_rect(im, 24, 258, 184, 44, theme().paper, 170);
         button(im, "Continue", 224, 258, 184, 44, detail_focus_ == 1 && save_preview_.available);
         if (!save_preview_.available) ui::blend_rect(im, 224, 258, 184, 44, theme().paper, 170);
         button(im, "Documentation", 424, 258, 192, 44, detail_focus_ == 2);
@@ -1050,7 +1092,9 @@ Image Launcher::draw_portrait_details() const {
             paragraph(save_preview_.available ? "Continue from your saved state" : "No saved game yet", 22, theme().ink);
             if (!save_preview_.date.empty()) paragraph(save_preview_.date, 15, theme().muted);
             paragraph(!save_preview_.error.empty() ? save_preview_.error : save_preview_.available
-                ? "Continue restores this moment. Start begins a new game and keeps this save until you save again."
+                ? (!game.continue_note.empty() ? game.continue_note
+                   : "Continue restores this moment. Start begins a new game and keeps this save until you save again.")
+                : !game.saves_note.empty() ? game.saves_note
                 : persistent_saves(game.id) ? "Use Quick save in the pause menu to keep your progress after closing the app."
                 : "Persistent saves are not available for this game yet.", 18, theme().muted);
         }
@@ -1075,7 +1119,7 @@ Image Launcher::draw_portrait_details() const {
         if (!previews_.empty()) { button(body, "<", 496, y - 6, 48, 42); button(body, ">", 560, y - 6, 48, 42); }
         y += 54;
         if (!page_) {
-            if (!installed) paragraph(game.import ? "Choose Import on the details page to select your own " + game.media + "." : "Import and play will become available in a future release.", 20, theme().muted);
+            if (!installed) paragraph(importable(game) ? "Choose Import on the details page to select your own " + game.media + "." : "Import and play will become available in a future release.", 20, theme().muted);
             else {
                 paragraph(library_.release(selected_), 16, theme().muted);
                 for (const auto& [name, size] : library_.installed_files(selected_)) {
@@ -1176,12 +1220,12 @@ Image Launcher::draw_portrait(double now) const {
 Image Launcher::draw_scene(double now) const {
     if (chapter_) return chapter_->draw();
     if (portrait_) return details_ ? draw_portrait_details() : draw_portrait(now);
-    Image im(platform::ui_width, platform::ui_height);
+    Image im(details_ ? detail_width() : shelf_width_, details_ ? detail_height() : platform::ui_height);
     if (details_) {
         draw_details(im);
         if (!message_.empty() && now - message_time_ < 8) {
-            ui::rounded(im, 300, 480, 624, 60, 6, theme().card);
-            s::wrap(im, message_, 312, 486, 600, 2, 15, message_ok_ ? s::green : s::red);
+            ui::rounded(im, 300, im.height - 160, im.width - 336, 60, 6, theme().card);
+            s::wrap(im, message_, 312, im.height - 154, im.width - 360, 2, 15, message_ok_ ? s::green : s::red);
         }
         if (confirm_remove_) draw_confirm(im);
         return im;
@@ -1201,12 +1245,12 @@ Image Launcher::draw_scene(double now) const {
                 pixel = ui::mix(pixel, theme().paper, alpha);
             }
         }
-    } else ui::rect(im, 0, 0, 960, 68, theme().card);
+    } else ui::rect(im, 0, 0, im.width, 68, theme().card);
     s::reprise(im, 22, 17);
     s::text(im, "Reprise", 69, 13, 31, theme().ink, true);
     ui::rect(im, 195, 21, 1, 28, theme().line);
     s::text(im, "Classic games, rebuilt and revealed.", 212, 27, 16, theme().muted);
-    button(im, "+  Import game", 798, 20, 138, 36, true);
+    button(im, "+  Import game", im.width - 162, 20, 138, 36, true);
     ui::rect(im, 184, 68, 1, 490, theme().line);
     const char* headings[] = {"Your library", "Continue playing", "Commodore classics", "Sonic collection", "Layton collection"};
     const char* subtitles[] = {"Your games. A closer look.", "Pick up where you left off.", "Small machines. Remarkable worlds.", "Speed, colour and a little momentum.", "Every town has a mystery."};
@@ -1240,13 +1284,13 @@ Image Launcher::draw_scene(double now) const {
         draw_card(strip, games[std::size_t(slot)], grid_x + slot % columns_ * (card_w + gap), y, now);
     }
     for (int y = grid_y - 8; y < footer_y - 8; ++y)
-        for (int x = grid_x - 8; x < 940; ++x)
+        for (int x = grid_x - 8; x < im.width - 20; ++x)
             im.put(x, y, strip.pixels[std::size_t(y * strip.width + x)]);
-    if (games.size() > 6) {
+    if (int(games.size()) > columns_ * rows_shown_) {
         const int rows = (int(games.size()) + columns_ - 1) / columns_;
         const int track = card_h * 2 + gap, thumb = track * 2 / rows;
-        ui::rounded(im, 943, grid_y, 4, track, 2, theme().line);
-        ui::rounded(im, 943, grid_y + int(std::lround((track - thumb) * offset / (rows - rows_shown_))), 4, thumb, 2, theme().muted);
+        ui::rounded(im, im.width - 17, grid_y, 4, track, 2, theme().line);
+        ui::rounded(im, im.width - 17, grid_y + int(std::lround((track - thumb) * offset / (rows - rows_shown_))), 4, thumb, 2, theme().muted);
     }
     if (games.empty()) {
         s::text(im, "Your next adventure is waiting", 252, 246, 24, theme().ink, true);
@@ -1257,10 +1301,10 @@ Image Launcher::draw_scene(double now) const {
     ui::rect(im, 0, footer_y, im.width, 1, theme().line);
     const auto& game = library_.games()[selected_];
     s::cover(im, game.id, 24, 576, 100, 46);
-    s::text(im, game.title, 140, 573, 20, theme().ink, true);
+    s::clipped(im, game.title, 140, 573, im.width - 320, 20, theme().ink, true);
     s::text(im, (game.release_year ? std::to_string(game.release_year) + "   /   " : "") + std::string(machine_name(game.machine)) + "   /   " + status(selected_), 140, 602, 13, theme().muted);
-    s::right(im, std::to_string(games.size()) + " games", 796, 586, 13, theme().muted);
-    button(im, "Details", 824, 578, 112, 38);
+    s::right(im, std::to_string(games.size()) + " games", im.width - 164, 586, 13, theme().muted);
+    button(im, "Details", im.width - 136, 578, 112, 38);
     if (!message_.empty() && now - message_time_ < 8) {
         ui::rounded(im, 198, 480, 718, 58, 7, theme().card);
         ui::rect(im, 198, 488, 3, 42, message_ok_ ? s::green : s::red);

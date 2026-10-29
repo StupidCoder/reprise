@@ -6,6 +6,8 @@
 #include "bruce_lee_c64/game/room_chapter.hpp"
 #include "bruce_lee_c64/game/background_article.hpp"
 #include "app/launcher.hpp"
+#include "app/import_screen.hpp"
+#include <future>
 #include "app/pause_menu.hpp"
 #include "platform/type.hpp"
 #include "ui/shelf.hpp"
@@ -41,6 +43,50 @@ platform::Controls click(int x, int y) {
 }
 int main(int argc, char** argv) {
     try {
+        if (argc >= 2 && std::string(argv[1]) == "--import-progress") {
+            const auto root = std::filesystem::temp_directory_path() / ("reprise-import-" + std::to_string(SDL_GetTicksNS()));
+            struct Cleanup { std::filesystem::path path; ~Cleanup() { std::filesystem::remove_all(path); } } cleanup{root};
+            std::filesystem::create_directories(root);
+            const auto source = root / "image.bin";
+            { std::ofstream out(source); out << "fixture"; }
+            app::GameEntry entry;
+            entry.id = "streamed_fixture";
+            entry.title = "Streamed fixture";
+            entry.import_into = [](platform::FileSource&, const std::filesystem::path& folder,
+                                   const app::ImportProgress& progress) {
+                progress("Importing game assets", .25);
+                { std::ofstream out(folder / "assets.bin"); out << "verified asset bytes"; }
+                progress("Importing game assets", 1);
+                return std::string("test release");
+            };
+            app::Library library(root / "library", {entry});
+            std::vector<std::pair<std::string, double>> reports;
+            auto job = std::async(std::launch::async, [&] {
+                return library.import(source, 0, [&](const std::string& phase, double value) {
+                    reports.emplace_back(phase, value);
+                });
+            });
+            check(job.get().ok && library.installed(0), "Background streamed import installs successfully");
+            check(std::find(reports.begin(), reports.end(), std::pair{std::string("Importing game assets"), .25}) != reports.end(),
+                  "Importer reports measured progress");
+            check(std::find(reports.begin(), reports.end(), std::pair{std::string("Verifying imported files"), 1.0}) != reports.end(),
+                  "Verification reports completion");
+            check(reports.back().first == "Finishing installation", "Final installation follows verification");
+            const auto landscape = app::import_screen(1422, 640, "Importing game assets", .42, 1, 0, 1);
+            const auto portrait = app::import_screen(640, 1422, "Verifying imported files", .81, 1, 1, 2);
+            const auto a = app::import_screen(960, 640, "Opening game image", -1, 0, 0, 1);
+            const auto b = app::import_screen(960, 640, "Opening game image", -1, .3, 0, 0, 1);
+            check(std::memcmp(a.pixels.data(), b.pixels.data(), a.pixels.size() * sizeof(platform::Color)) != 0,
+                  "Unmeasured imports keep an animated activity indicator");
+            if (argc > 2) {
+                platform::save_png(landscape, std::string(argv[2]) + "/import-landscape.png");
+                platform::save_png(portrait, std::string(argv[2]) + "/import-portrait.png");
+            }
+            const auto missing = library.import(root / "missing.bin", 0);
+            check(!missing.ok && library.installed(0), "Failed import preserves previous installation");
+            std::cout << "Import progress checks passed\n";
+            return 0;
+        }
         if (argc >= 2 && std::string(argv[1]) == "--motion") {
             const auto root = std::filesystem::temp_directory_path() / ("joyport-motion-" + std::to_string(SDL_GetTicksNS()));
             struct Cleanup { std::filesystem::path path; ~Cleanup() { std::filesystem::remove_all(path); } } cleanup{root};
@@ -187,6 +233,25 @@ int main(int argc, char** argv) {
             portrait_drag.ui_pointer = std::array<int,2>{420,500};
             importing.update(portrait_drag, 15.95);
             check(importing.draw(15.96).width == 640, "Portrait model drag renders safely");
+            {
+                app::Launcher wide(fixture);
+                wide.select(0); wide.set_canvas(2400,1080); wide.open_details(1); wide.draw(0);
+                wide.update(click(1340,125), 1);
+                const auto second = wide.draw(2);
+                const auto pixel = second.pixels[300*second.width+850];
+                check(pixel.r == ui::shelf::green.r && pixel.g == ui::shelf::green.g,
+                      "Wide documentation page arrows use their displayed hit regions");
+                wide.open_assets(3); wide.draw(3);
+                wide.update(click(1200,300), 4);
+                std::vector<float> samples(200);
+                wide.preview_audio(samples,48000);
+                check(std::any_of(samples.begin(),samples.end(),[](float v){return v != 0;}),
+                      "Expanded waveform panel remains interactive at the right edge");
+                wide.open_details(); wide.update(click(50,510),5); wide.draw(6);
+                wide.update(click(700,375),7);
+                check(fixture.installed(0) && wide.update(click(50,390),8) == app::Launcher::Request::play,
+                      "Centred landscape removal dialog has matching Cancel hit bounds");
+            }
             importing.set_canvas(960, 640);
             importing.open_assets(1); importing.draw(16);
             platform::Controls right; right.nav_right = true;
@@ -540,9 +605,15 @@ int main(int argc, char** argv) {
             check(sonic.draw(4).width == 640, "Four Sonic covers render in portrait");
         }
         shell.draw(2);
-        check(shell.update(enter, 2) == Request::none && shell.update(enter, 3) == Request::none, "Preview titles cannot launch or import");
+        // The Sonic games are connected (games/sonic/reprise): details, then the import.
+        check(shell.update(enter, 2) == Request::none && shell.update(enter, 3) == Request::choose_image,
+              "Sonic games open details, then import");
         shell.update(back, 4);
         shell.filter(4); check(library.games()[shell.selected()].collection == app::Collection::layton, "Layton filter selects Layton");
+        // The puzzle adventures are connected too (games/layton/reprise): details, then the import.
+        check(shell.update(enter, 4.2) == Request::none && shell.update(enter, 4.3) == Request::choose_image,
+              "Layton games open details, then import");
+        shell.update(back, 4.4);
         shell.draw(5);
         shell.filter(1);
         check(shell.update(enter, 6) == Request::none, "An empty Continue list cannot open stale selection");
@@ -607,6 +678,77 @@ int main(int argc, char** argv) {
         shell.update(back, 1);
         check(shell.update(click(820, 35), 1) == Request::choose_image, "Global import button must work");
         Module module;
+        // Landscape uses all available width and changes grid columns with it.
+        {
+            app::Launcher responsive(library);
+            responsive.filter(3);
+            responsive.set_canvas(2400, 1080);
+            platform::save_png(responsive.draw(0), std::filesystem::temp_directory_path() / "reprise-wide-shelf.png");
+            check(responsive.draw(0).width == 1422, "Wide landscape fills the display aspect");
+            responsive.update(click(1100, 170), 1);
+            check(library.games()[responsive.selected()].id == "sonic_advance_gba", "Wide landscape exposes a fourth card column");
+            responsive.update(back, 2);
+            responsive.set_canvas(1280, 1024);
+            platform::save_png(responsive.draw(3), std::filesystem::temp_directory_path() / "reprise-narrow-shelf.png");
+            check(responsive.draw(3).width == 800, "Narrow landscape fills the display aspect");
+            responsive.update(click(300, 370), 4);
+            check(library.games()[responsive.selected()].id == "triple_trouble_gg", "Narrow landscape uses two columns");
+            responsive.update(back, 5);
+            check(responsive.update(click(650, 35), 6) == Request::choose_image, "Responsive import button hit bounds match drawing");
+        }
+        // Landscape details and documentation share the full viewport aspect.
+        for (const auto canvas : {std::array<int,2>{2400,1080}, std::array<int,2>{1280,1024}}) {
+            app::Launcher details(library);
+            details.set_canvas(canvas[0], canvas[1]);
+            details.select(0); details.open_details();
+            const auto overview = details.draw(1);
+            check(std::abs(double(overview.width) / overview.height - double(canvas[0]) / canvas[1]) < .002,
+                  "Landscape details fill the window aspect ratio");
+            const auto prefix = std::filesystem::temp_directory_path() /
+                (canvas[0] == 2400 ? "reprise-wide-details" : "reprise-narrow-details");
+            platform::save_png(overview, prefix.string()+".png");
+            details.update(click(80, 450), 2);
+            const auto assets = details.draw(3);
+            check(assets.width == overview.width && assets.height == overview.height,
+                  "Documentation keeps the full landscape canvas");
+            details.update(click(80, 435), 4);
+            const auto history = details.draw(5);
+            platform::save_png(history, prefix.string()+"-notes.png");
+            for (int y = 106; y < 264; ++y) for (int x = 24; x < 264; ++x)
+                check(std::memcmp(&overview.pixels[y*overview.width+x], &history.pixels[y*history.width+x], sizeof(platform::Color)) == 0,
+                      "Cover artwork stays the same size across landscape pages");
+            details.update(click(50, 35), 6);
+            check(details.update(click(50, 390), 7) == Request::choose_image,
+                  "Back from landscape documentation restores working detail actions");
+        }
+        // Small drags move by pixels, not rows, and must never activate a card.
+        {
+            app::Launcher scrolling(library);
+            scrolling.filter(0);
+            scrolling.update({}, 0); scrolling.update({}, 1);
+            const auto before = scrolling.draw(1);
+            auto press = click(500, 400);
+            press.mouse_held = true; press.ui_pointer = std::array<int,2>{500,400};
+            scrolling.update(press, 2);
+            platform::Controls drag;
+            drag.mouse_held = true; drag.ui_pointer = std::array<int,2>{500,370};
+            scrolling.update(drag, 2.1);
+            const auto moved = scrolling.draw(2.1);
+            int equal = 0;
+            for (int y = 160; y < 220; ++y) for (int x = 230; x < 380; ++x)
+                equal += std::memcmp(&moved.pixels[y*960+x], &before.pixels[(y+30)*960+x], sizeof(platform::Color)) == 0;
+            check(equal > 8500, "Thirty-pixel swipe translates the card strip by thirty pixels");
+            drag.mouse_held = false;
+            scrolling.update(drag, 2.2);
+            check(scrolling.draw(3).width == 960, "Dragging does not open a game");
+            platform::Controls wheel;
+            wheel.wheel_precise = .25f;
+            const auto start = scrolling.draw(3);
+            scrolling.update(wheel, 3);
+            const auto end = scrolling.draw(4);
+            check(std::memcmp(start.pixels.data(), end.pixels.data(), start.pixels.size()*sizeof(platform::Color)) != 0,
+                  "Fractional wheel motion is not discarded");
+        }
         // Portrait reflow preserves selection and uses matching input bounds.
         {
             app::Launcher portrait(library);
@@ -626,7 +768,7 @@ int main(int argc, char** argv) {
             check(portrait.draw(5).width == 640, "Back restores portrait shelf without mismatched transition");
             auto selected = portrait.selected();
             portrait.set_canvas(1920, 1080);
-            check(portrait.selected() == selected && portrait.draw(6).width == 960, "Rotation preserves selection");
+            check(portrait.selected() == selected && portrait.draw(6).width == 1137, "Rotation preserves selection");
             portrait.set_canvas(1080, 1920);
             portrait.filter(0);
             platform::Controls press = click(100, 400);

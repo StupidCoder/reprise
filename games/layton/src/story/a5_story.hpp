@@ -34,6 +34,7 @@
 // .analysis/adventure56/docs/story.md.
 #include "import/a56_formats.hpp"
 #include "system/a5_game.hpp"
+#include "system/a5_saves.hpp"
 #include "system/game_types.hpp"
 #include <deque>
 #include <functional>
@@ -143,6 +144,7 @@ public:
     bool initStarted = false; // +0x18 bit 4
     bool resumed = false;     // +0x18 bit 2
     int resumes = 0;
+    std::uint64_t resumeSerial = 0; // which resume of the story's this is (Story::checkpoint)
 
 protected:
     // Starts a block of the newest script on a thread (0x32b780); true
@@ -260,6 +262,17 @@ public:
     std::function<int(int id, std::vector<xq::Value>& values)> remapLoop;
     // The app's boot: the title without the logos.
     bool startAtTitle = false;
+    // The app's checkpoint (a host convenience; the other games have the
+    // same): once a place is ready - the place loop on top and begun, taking
+    // touches, no request waiting, two frames in a row - the game's save
+    // record (saveRecord) goes to this file, once each time the place loop
+    // comes back on top (entering a place, back from an event or a puzzle).
+    // Empty: none written.
+    std::filesystem::path checkpointFile;
+    // Continue from such a record: the game loop restores it and asks for
+    // the place loop at the saved place instead of the title - the title's
+    // continue (10100, then 10001) without its recap event.
+    std::optional<SaveRecord> continueFrom;
 
 private:
     struct Request {
@@ -271,8 +284,13 @@ private:
     void carryOut();
     std::unique_ptr<Loop> make(int id, std::vector<xq::Value> values);
 
+    // Writes the checkpoint once the place is ready (checkpointFile).
+    void checkpoint();
+
     std::vector<std::unique_ptr<Loop>> stack_;
     std::deque<Request> requests_;
+    std::uint64_t resumeSerial_ = 0, checkpointSerial_ = 0;
+    int readyFrames_ = 0;
 };
 
 // A data list's operand as a value.

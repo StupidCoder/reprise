@@ -1,7 +1,10 @@
 #include "app/catalog.hpp"
+#include <algorithm>
 #include "fa_18_interceptor_amiga/entry.hpp"
 #include "spindizzy_worlds_amiga/entry.hpp"
 #include "spy_mouse_ios/reprise/entry.hpp"
+#include "sonic/reprise/entry.hpp"
+#include "layton/reprise/entry.hpp"
 #include "bruce_lee_c64/entry.hpp"
 #include "cannon_fodder_amiga/entry.hpp"
 #include "fort_apocalypse_c64/entry.hpp"
@@ -94,10 +97,6 @@ std::vector<GameEntry> catalog() {
     struct Incoming { const char* id; const char* title; Machine machine;
         Collection collection; const char* description; };
     const Incoming incoming[] = {
-        {"sonic_gg", "Sonic the Hedgehog", Machine::game_gear, Collection::sonic, "Run, leap and search for the Chaos Emeralds through a world of rolling hills, bridges and mechanical hazards."},
-        {"sonic2_gg", "Sonic the Hedgehog 2", Machine::game_gear, Collection::sonic, "Race through mines, soaring skies and dangerous machinery on a quest to rescue Tails."},
-        {"triple_trouble_gg", "Sonic Triple Trouble", Machine::game_gear, Collection::sonic, "Speed through colourful landscapes with Sonic and Tails, exploring branching routes and hunting for hidden emeralds."},
-        {"sonic_advance_gba", "Sonic Advance", Machine::game_boy_advance, Collection::sonic, "Race through colourful landscapes, gather rings and take on giant machines. Familiar speed and exploration find a new home on a handheld screen."},
         {"curious_village_ds", "Curious Village", Machine::nintendo_ds, Collection::layton, "Explore an extraordinary village where every conversation might conceal a puzzle, and every clue brings its central mystery a little closer."},
         {"pandoras_box_ds", "Pandora's Box", Machine::nintendo_ds, Collection::layton, "Board a mysterious train and follow the trail of a peculiar box. A journey of puzzles leads far beyond the next station."},
         {"lost_future_ds", "Lost Future", Machine::nintendo_ds, Collection::layton, "A letter from the future leads to an unfamiliar London. Investigate its streets, solve its puzzles and untangle a mystery of time."},
@@ -115,17 +114,91 @@ std::vector<GameEntry> catalog() {
         game.history_sources = "Engadget, March and July 2011; Wikipedia: Spy Mouse (release date).";
         games.push_back(std::move(game));
     }
+    // BlueStreak's games (games/sonic/reprise), in the Sonic collection's order. The card texts
+    // are the collection's own.
+    {
+        const char* descriptions[] = {
+            "Run, leap and search for the Chaos Emeralds through a world of rolling hills, bridges and mechanical hazards.",
+            "Race through mines, soaring skies and dangerous machinery on a quest to rescue Tails.",
+            "Speed through colourful landscapes with Sonic and Tails, exploring branching routes and hunting for hidden emeralds.",
+            "Race through colourful landscapes, gather rings and take on giant machines. Familiar speed and exploration find a new home on a handheld screen.",
+        };
+        // First release on each platform (docs/catalog-history.md).
+        const int years[] = {1991, 1992, 1994, 2001};
+        struct History { const char* heading; const char* text; const char* sources; };
+        const History history[] = {
+            {"A studio's first game",
+             "The 8-bit Sonic was the first game of Ancient, the studio composer Yuzo Koshiro had founded, and the only Sonic game it made. It was built for the Game Gear, and Sega also had Ancient make a Master System version.",
+             "Wikipedia: Sonic the Hedgehog (8-bit) and Ancient (company)."},
+            {"A bigger cartridge for a bigger adventure",
+             "Aspect developed this 8-bit sequel separately from the Mega Drive game, with its own levels, music and story of rescuing Tails. It was the first four-megabit Game Gear cartridge, the largest the handheld had seen.",
+             "Wikipedia: Sonic the Hedgehog 2 (8-bit video game)."},
+            {"A new rival in a handheld sequel",
+             "Aspect followed Sonic Chaos with Triple Trouble, a Game Gear exclusive. It introduced the treasure hunter known as Fang the Sniper in Japan and Nack the Weasel abroad; early promotional pictures showed him with a gun that the finished game left out.",
+             "Wikipedia: Sonic the Hedgehog: Triple Trouble; List of Sonic the Hedgehog characters."},
+            {"Sonic on a Nintendo handheld",
+             "Sonic Advance was the first Sonic game by Dimps, made with Sonic Team after Sega left the hardware business. It reached Japan in December 2001, around the same time as Sonic Adventure 2: Battle on the GameCube, among the first Sonic games on Nintendo machines.",
+             "Wikipedia: Sonic Advance (and its talk page on the shared first-release date)."},
+        };
+        auto sonic = sonic_reprise::entries();
+        for (std::size_t i = 0; i < sonic.size(); ++i) {
+            sonic[i].description = descriptions[i];
+            sonic[i].release_year = years[i];
+            sonic[i].history_title = history[i].heading;
+            sonic[i].history = history[i].text;
+            sonic[i].history_sources = history[i].sources;
+            games.push_back(std::move(sonic[i]));
+        }
+    }
+    // The puzzle adventures are connected (games/layton/reprise): each card keeps its title,
+    // text, year and collection from the list above.
+    const auto layton = layton_reprise::entries();
+    // Editorial history of the connected adventures (docs/catalog-history.md; never evidence).
+    struct LaytonHistory { const char* id; const char* heading; const char* text; const char* sources; };
+    const LaytonHistory layton_history[] = {
+        {"curious_village_ds", "A puzzle book becomes a game",
+         "Level-5's president Akihiro Hino had grown up with Akira Tago's best-selling puzzle books. The studio started a prototype in 2006 and brought Tago, a psychology professor, in as the puzzle master; his team and the developers worked through the puzzles together at what Level-5 called puzzle camps. The game reached Japan in February 2007.",
+         "Wikipedia: Professor Layton and the Curious Village (development, credits)."},
+        {"pandoras_box_ds", "The sequel came the same year",
+         "Level-5 released the second adventure in Japan in November 2007, nine months after the first. Its downloadable weekly puzzles ran over Nintendo Wi-Fi Connection, and became unavailable when that service closed in May 2014.",
+         "Wikipedia: Professor Layton and the Diabolical Box."},
+        {"lost_future_ds", "The end of the first trilogy",
+         "Released in Japan in November 2008, the third adventure closed the first trilogy. Its Japanese title translates roughly as \"the final time travel\"; it was released in Europe as Lost Future and in North America as Unwound Future in 2010.",
+         "Wikipedia: Professor Layton and the Unwound Future."},
+        {"spectres_call_ds", "Going back to the beginning",
+         "The fourth adventure, released in Japan in November 2009, began a prequel trilogy set before the first game, telling how the professor met his young apprentice. It arrived in Europe two years later, in November 2011, as Spectre's Call.",
+         "Wikipedia: Professor Layton and the Last Specter (release dates)."},
+        {"miracle_mask_3ds", "A launch title for a new handheld",
+         "Level-5 released the fifth adventure in Japan on 26 February 2011, the day the Nintendo 3DS launched there. Western players received it in October 2012, and Japan later got an enhanced download edition with new puzzles.",
+         "Wikipedia: Professor Layton and the Miracle Mask; Nintendo World Report preview."},
+        {"azran_legacy_3ds", "The professor's last leading role",
+         "Released in Japan in February 2013, the sixth adventure completed the prequel trilogy. Level-5's Akihiro Hino said it would be the last game with the professor as its main character; Europe received it in November 2013.",
+         "Wikipedia: Professor Layton and the Azran Legacy; Giant Bomb release list."},
+    };
     for (const auto& item : incoming) {
         GameEntry game;
+        const auto connected = std::find_if(layton.begin(), layton.end(),
+                                            [&](const GameEntry& e) { return e.id == item.id; });
+        if (connected != layton.end()) game = *connected;
         game.id = item.id; game.title = item.title; game.machine = item.machine;
         game.collection = item.collection;
         if (item.collection == Collection::layton) {
             const int years[] = {2007, 2007, 2008, 2009, 2011, 2013};
-            game.release_year = years[&item - incoming - 4];
+            game.release_year = years[&item - incoming];
         }
         // Release metadata comes with the source-project handoff.
-        game.description = item.description; game.integration_pending = true;
-        game.progress = "Coming to Reprise";
+        game.description = item.description;
+        for (const auto& h : layton_history) {
+            if (game.id == h.id) {
+                game.history_title = h.heading;
+                game.history = h.text;
+                game.history_sources = h.sources;
+            }
+        }
+        if (connected == layton.end()) {
+            game.integration_pending = true;
+            game.progress = "Coming to Reprise";
+        }
         games.push_back(std::move(game));
     }
     return games;

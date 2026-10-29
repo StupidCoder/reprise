@@ -8,7 +8,20 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 find_package(SDL3 3.2 CONFIG REQUIRED)
-find_package(Threads REQUIRED)
+
+# Two ways to build this folder:
+# - On its own (the top-level project): the standalone BlueStreak app with its own shell and
+#   host (src/app, src/platform) and its checks.
+# - Inside Reprise (add_subdirectory from Reprise's CMakeLists, which sets
+#   BLUESTREAK_HOST_SHARED to its shared/ folder): only the engine libraries and the embedding
+#   interface (src/embed). The engines are then compiled against Reprise's shared
+#   "platform/..." headers (image, SHA-256 and the host's constants, which match BlueStreak's
+#   copies) and link Reprise's `platform` library; BlueStreak's own host, shell and the
+#   duplicate `platform` target are not built, so Reprise links one host implementation only.
+set(BLUESTREAK_STANDALONE ${PROJECT_IS_TOP_LEVEL})
+if(NOT BLUESTREAK_STANDALONE AND NOT BLUESTREAK_HOST_SHARED)
+    message(FATAL_ERROR "Set BLUESTREAK_HOST_SHARED to the embedding host's shared folder.")
+endif()
 
 if(MSVC)
     set(PROJECT_WARNINGS /W4)
@@ -16,18 +29,27 @@ else()
     set(PROJECT_WARNINGS -Wall -Wextra -Wpedantic)
 endif()
 
-# Every library includes headers relative to src/, e.g. "gamegear/psg.hpp".
-set(SOURCE_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/src)
+# Every library includes headers relative to src/, e.g. "gamegear/psg.hpp". Embedded, the
+# host's shared folder comes first, so "platform/..." names the host's headers.
+if(BLUESTREAK_STANDALONE)
+    set(SOURCE_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/src)
+else()
+    set(SOURCE_ROOT ${BLUESTREAK_HOST_SHARED} ${CMAKE_CURRENT_SOURCE_DIR}/src)
+endif()
 
 # --- platform: host services (window, input, audio, GPU presentation) ---------
-add_library(platform
-    src/platform/host_sdl.cpp
-    src/platform/sha256.cpp
-    src/platform/type.cpp
-    src/platform/resources.cpp)
-target_include_directories(platform PUBLIC ${SOURCE_ROOT})
-target_link_libraries(platform PUBLIC SDL3::SDL3 gamegear)
-target_compile_options(platform PRIVATE ${PROJECT_WARNINGS})
+# Standalone only; embedded, `platform` is the host's own library.
+if(BLUESTREAK_STANDALONE)
+    find_package(Threads REQUIRED)
+    add_library(platform
+        src/platform/host_sdl.cpp
+        src/platform/sha256.cpp
+        src/platform/type.cpp
+        src/platform/resources.cpp)
+    target_include_directories(platform PUBLIC ${SOURCE_ROOT})
+    target_link_libraries(platform PUBLIC SDL3::SDL3 gamegear)
+    target_compile_options(platform PRIVATE ${PROJECT_WARNINGS})
+endif()
 
 # --- gamegear: hardware helpers shared by all Game Gear games ------------------
 add_library(gamegear
@@ -287,6 +309,18 @@ add_library(sonic_advance_gba
 target_include_directories(sonic_advance_gba PUBLIC ${SOURCE_ROOT})
 target_link_libraries(sonic_advance_gba PUBLIC gba platform)
 target_compile_options(sonic_advance_gba PRIVATE ${PROJECT_WARNINGS})
+
+# --- embed: the games inside another application (Reprise); its header needs no engine paths
+add_library(bluestreak_embed src/embed/bluestreak_embed.cpp)
+target_include_directories(bluestreak_embed PRIVATE ${SOURCE_ROOT})
+target_include_directories(bluestreak_embed INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/src/embed)
+target_link_libraries(bluestreak_embed PRIVATE sonic1_gg sonic2_gg triple_trouble_gg sonic_advance_gba
+    gamegear platform)
+target_compile_options(bluestreak_embed PRIVATE ${PROJECT_WARNINGS})
+
+if(NOT BLUESTREAK_STANDALONE)
+    return()
+endif()
 
 # --- app: the BlueStreak shell -------------------------------------------------
 add_executable(bluestreak

@@ -4,7 +4,8 @@ What is left to do before each game is a fully playable re-implementation,
 plus every known bug and difference.
 
 How the games work is in [game.md](game.md). The detailed per-game status
-notes are in `.analysis/` (not in git).
+notes are in `games/sonic/.analysis/` (not in git; moved there from the
+BlueStreak folder on 2026-10-29).
 
 Status as of 0.17.0 (2026-10-29):
 
@@ -16,11 +17,95 @@ Status as of 0.17.0 (2026-10-29):
 | Sonic Advance (GBA) | Playable as Sonic from power-on to the ending; many modes missing |
 | All other library entries | Planned, nothing started |
 
+Since 2026-10-29 all four games also run inside Reprise (catalog IDs
+`sonic_gg`, `sonic2_gg`, `triple_trouble_gg`, `sonic_advance_gba`); see
+"Reprise integration" below. The standalone BlueStreak app still builds.
+
 Each list is ordered by priority. **Bug** marks something that behaves
 wrongly for a player. **Gap** marks something not reconstructed yet.
 **Unverified** marks something written from the code but never compared
 against a run of the original. **Difference** marks a known, accepted
 difference from the original.
+
+---
+
+## Reprise integration (2026-10-29)
+
+How the games are connected: `games/sonic/REPRISE-HANDOFF.md`. Checks and
+results: `docs/VALIDATION.md` in the repository root.
+
+| Catalog ID | In Reprise | Quick saves | Options |
+| --- | --- | --- | --- |
+| `sonic_gg` | Import, start, Continue; the whole game | Persistent (allowlisted) | VHS look, shield transparency, expanded view, enhanced water, scattered rings, LCD screen, level select |
+| `sonic2_gg` | Import, start, Continue; the whole game (gaps as below) | Persistent; only during an act (the module's rule) | VHS look, expanded view, enhanced water, LCD screen, level select |
+| `triple_trouble_gg` | Import, start, Continue; playable to the ending (gaps as below) | Persistent; only during an act | VHS look, expanded view, LCD screen, level select |
+| `sonic_advance_gba` | Import, start; power-on to the ending as Sonic | None: the pause menu says so (not allowlisted) | VHS look |
+
+What each piece maps to:
+
+- **Import.** The cartridge header picks the game (another cartridge:
+  "not this game"); the one supported revision is then checked by SHA-256
+  (another revision or a damaged dump: a message naming the supported one).
+  The pack is extracted in memory and installed by Reprise's library; the
+  game never reads the ROM again. Packs are byte-identical to BlueStreak's.
+- **Takeover.** A standalone BlueStreak data folder beside Reprise's
+  (`NativeReconstruction/BlueStreak`) is read once: current packs are
+  copied; BlueStreak's own folder is left unchanged.
+- **Controls.** Button 1 / GBA A: Space or Z, gamepad south. Button 2 /
+  GBA B: X, gamepad east (new `button2` in Reprise's input contract). Start:
+  Return, gamepad Start (new `start`). During play in the Game Gear games,
+  Start opens Reprise's pause menu (as BlueStreak's shell did;
+  `GameModule::take_menu_request`); Sonic Advance keeps Start for its own
+  pause screen. Esc / gamepad Back or Guide open the menu in every game.
+- **Options.** The expanded view is a gameplay option (it changes which
+  objects are awake): a save keeps the view it was made with. Everything else
+  is presentation (`GameOption::presentation`): a load keeps the player's
+  choice. "Level select" (a page of the options) restarts the game at a
+  start point and stays chosen for the next launch.
+- **Screen effects.** The games are drawn with Reprise's renderer
+  (`gpu_frame_size`/`draw_gpu`) so that the LCD look keeps BlueStreak's
+  device-resolution subpixel stripes and integer scaling. The VHS look is
+  Reprise's filter stage over that frame. With both on, the LCD's colour
+  response, persistence and glow apply first, at the frame's own size (the
+  stripes cannot resolve there and fade out), then the VHS look: no effect
+  runs twice. Save pictures are the raw frame.
+- **Sound.** Each update's samples (PSG or the GBA sound model, 48 kHz) are
+  queued and handed to Reprise's mixer (at most four updates queued).
+- **Previews.** Each act's first seconds (pictures drawn by the engine from
+  the pack), Sonic Advance's power-on at 4, 12 and 30 seconds, and every
+  sound test track (up to 30 s, mono 24 kHz) with its waveform.
+
+Open items:
+
+1. **Gap: touch controls.** None of the games has touch controls yet; on a
+   touch-only device they cannot be played. An on-screen pad (d-pad, 1, 2,
+   Start) is needed, through Reprise's pointer events.
+2. **Gap: Sonic Advance quick saves.** Its game state (scheduler tasks with
+   references between them) has no snapshot yet; see item 18 below.
+3. **Gap: BlueStreak's own quick saves and settings** are not taken over
+   (raw module states without a picture or release check; a different
+   settings file). The takeover says so; new saves are made in Reprise.
+4. **Gap: BlueStreak's sound test and restart-act key (R).** The sound test
+   is now the documentation pages' sound previews (not an interactive player
+   with a waveform scope); restarting an act has no key in Reprise (the pause
+   menu's Restart game restarts from power-on or the chosen start point).
+5. **Difference: the frame after a load** in Sonic 2 and Triple Trouble with
+   the expanded view: until the next update the 160 x 144 view of the moment
+   is shown (the modules work out the view's margins in the update, as in
+   BlueStreak). Play is unaffected.
+6. **Difference: the expanded view's crop.** BlueStreak cropped the logical
+   frame's rounding margin so it filled the window exactly; Reprise shows the
+   whole frame aspect-correct, so up to a pixel of border can remain.
+7. **Difference: loading a save** writes the save's expanded-view choice to
+   the options file (Reprise's rule for gameplay options).
+8. **Unverified:** physical gamepads, Android devices (only the APK build),
+   Windows and Linux. Window checks were scripted: SDL's queue cannot hold a
+   key down, so play through the real window was not driven; play, saves and
+   Start were checked through the module interface (`sonic_checks`).
+9. **Housekeeping:** Triple Trouble's pack format number was raised from 3
+   to 4. Packs written by BlueStreak 0.14/0.15 are one data byte short
+   (a data region's length changed in 0.16 without a new number), so the
+   standalone app now offers a re-import, and Reprise does not take them over.
 
 ---
 
@@ -99,8 +184,8 @@ difference from the original.
 ### Shell features for Sonic Advance
 
 18. Quick saves, a level selector, a sound test (the engine already plays
-    any song) and enhancements. Widescreen and smooth motion need their
-    own design. Enhancements must only upgrade effects the original
+    any song) and enhancements (in Reprise only the VHS look so far).
+    Widescreen and smooth motion need their own design. Enhancements must only upgrade effects the original
     shows.
 
 ### Bugs and differences
@@ -280,7 +365,8 @@ runs L100/L101/X100/X101 exist only in the newer output.
    is SDL 3 and C++20, so first steps are a CI build and a check of the
    file dialogs and the data folder location.
 2. **Sonic Advance in the shell.** It needs per-game feature flags for
-   quick saves, the level selector and the sound test (see above).
+   quick saves, the level selector and the sound test (see above). In
+   Reprise the game simply offers fewer options.
 3. **Engine sharing.** Sharing stays within a lineage. A future Game Gear
    game of the Sonic 2 / Triple Trouble lineage (for example Sonic Chaos)
    should start on `src/gg_engine` with profiles. Sonic 1 and Sonic Advance

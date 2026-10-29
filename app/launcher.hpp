@@ -27,6 +27,8 @@ public:
     // Imports an image (picked or dropped) and reports the outcome on screen.
     // Imports dropped or chosen images in order (several for a multi-disk game).
     void import(const std::vector<std::filesystem::path>& images, double now);
+    // Apply a completed background import on the UI thread.
+    void imported(const Library::Outcome& outcome, double now);
     void show_error(std::string message, double now);
     void show_message(std::string message, bool ok, double now);
     // The selected game (the one to play after Request::play).
@@ -81,7 +83,7 @@ private:
     Request update_portrait_details(const platform::Controls&, double now);
     platform::Image draw_portrait_details() const;
     bool portrait_{};
-    int shelf_height_{640}, columns_{3}, rows_shown_{2};
+    int shelf_width_{960}, shelf_height_{640}, columns_{3}, rows_shown_{2};
     int grid_x{198}, grid_y{126}, footer_y{558};
     platform::Image draw_portrait(double now) const;
     Request update_input(const platform::Controls&, double now);
@@ -92,6 +94,7 @@ private:
     std::optional<std::size_t> card_at(int x, int y, double now) const;
     std::array<int, 4> cover_bounds(double now) const;
     double scroll_from_{}, scroll_start_{-10};
+    std::optional<double> manual_scroll_; // continuous offset, measured in card pitches
     bool reduced_motion_{};
     int sidebar_row_{};
     std::optional<std::size_t> hovered_;
@@ -144,6 +147,8 @@ private:
     int detail_focus_{};
     SavePreview save_preview_;
     std::string preview_game_;
+    int detail_width() const { return portrait_ ? 960 : std::max(960, shelf_width_); }
+    int detail_height() const { return portrait_ ? 640 : int(640.0 * detail_width() / shelf_width_); }
     void draw_overview(platform::Image &) const;
     void draw_identity(platform::Image &) const;
     // Details pages: 0 lists the imported files, the rest show decoded data.

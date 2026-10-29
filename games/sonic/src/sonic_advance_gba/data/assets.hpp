@@ -19,6 +19,8 @@ class Assets {
 public:
     // Copies the data bytes of the verified cartridge image.
     static Assets extract(const Rom& rom);
+    // The pack's data file (data.bin) as bytes.
+    Bytes data_file() const;
     void save(const std::filesystem::path& directory) const;
     static Assets load(const std::filesystem::path& directory);
 

@@ -21,6 +21,6 @@ struct FlowAssets {
 };
 
 FlowAssets extract_flow(const Rom&);
-void save_flow(const FlowAssets&, const std::filesystem::path&);
+void save_flow(const FlowAssets&, PackWriter&);
 FlowAssets load_flow(const std::filesystem::path&);
 } // namespace sonic1_gg

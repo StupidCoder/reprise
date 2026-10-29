@@ -24,15 +24,14 @@ What remains for a complete re-implementation of the fifth adventure
    trail over the fur in Commu; the fur shader's alpha; the shows' multiple
    lights and spot light; the select and tutorial scripts beyond the first
    stage; service 1204 (repeat pulse) is a hypothesis.
-2. **Ruins**: the guide's demonstrations (DX challenge records 133, 139..144)
-   are not ported; the ruins' own draw pool; the block's roll while sliding;
+2. **Ruins**: the guide mode (commands 131..144, item 11) is not ported; the ruins' own draw pool; the block's roll while sliding;
    motion blend frames; leaving the ruins (an extra pop: **hypothesis**).
 3. **Robot game**: the goal, key, fuel-out and bonus stages not compared;
    timing drift from the 30 Hz script cadence.
 4. **Horse ride**: the console draws ~1.6 random numbers per display frame,
    the port one, so the course forks after the masked rider's first random
-   way; material constant colours (6870) not modelled; the ride's lighting
-   is warmer and brighter on the console.
+   way; 6870 now colours the horse's and the mask's outline (its alpha is
+   not drawn); the ride's lighting is warmer and brighter on the console.
 5. **Shop**: stages 2..10 and the end (results) not compared; the fixed
    good's blinking frame is out of phase.
 6. **Wi-Fi menus** (4000/4100), `scrt_mode` (5000) and `scrt_chlg` (5100):
@@ -43,18 +42,77 @@ What remains for a complete re-implementation of the fifth adventure
    (now all zero).
 8. **Puzzle hut**: the list is in place; the hut screen was never compared
    (the pilot solves every puzzle).
-9. **Missing services** seen in the pilot run: 6025, 16551, 5043, 5111, 5120,
-   5400, 6825/6835, 15401/15402, 15701, 16502, 16505, 3404, 3510; script
-   blocks called by hash but absent after item pick-ups.
+9. **Missing services** (looked into 2026-10-29; handlers from the game
+   table `research/l5-handler-tables.tsv`, read in the ROM's code):
+   - *Now implemented*: 6825 / 6835 (0x15fe98 / 0x1601bc: the face and
+     material motion on a layer into a register; 6815 now honours its layer
+     operand too), 3404 / 3504 (0x13f3a8 / 0x13cc24: 3402 / 3502 at scope
+     level 0), 5111 (0x136738: the colour into three registers), 15401 /
+     15402 (0x15e57c / 0x15e3ac: an area's `gmp/gNN.xi` / `.xa`, the latter
+     only with the choice's animation flag; a true second operand evaluates
+     the conditions afresh), 16502 (0x163220: 現在のガイド), 15701 (0x1622f0:
+     a puzzle's place in 2301), 16551 (0x162394: give an item, as
+     Game::giveItem), 3727 (0x14e064: a material motion's length, as
+     3725 / 3726), 6832 / 6834 (0x14d7ec / 0x160270: 6812 / 6814 for the
+     material motion layer; with 3727 the area-map rebuild reaches them). Together these complete the events' area-map rebuild
+     (prog_event EventChangeGmpBuild / EventChangeMapBuild / ...Fade), the
+     puzzle list's numbers (NazobaListStep, menu_jiten), Place_Item and the
+     deepening puzzles' menu (menu_fukamaru).
+   - *Implemented in the second pass (2026-10-29)*: 5120 / 6120 (0x156cb8
+     / 0x1575f4 -> 0x2becfc: the alpha or the colour still changing; each
+     tween's curve byte, +0x98 / +0xbc, stays below 32 while it runs; the
+     scripts wait on it after 5103), 5322 / 5323 (0x135d08 -> 0x35114c /
+     0x135d88 -> 0x2ca584: the alpha of every 2D object of a screen and
+     kind, at once / over frames, as 6322 / 6261 for the 3D ones; 5323's
+     sixth operand is passed on but not read), 6262 (0x14d194 -> 0x32b9a8,
+     a second copy of 6322's code), 6025 (0x12c060 -> 0x1c48e8: a 3D
+     object's kind, +0x76a, below 27), 16505 (0x163280: the current
+     puzzle's id; the puzzle's 2301 record is copied to game +0x194a8, so
+     no store to +0x194ac shows up in a scan; +0x194ae is 16541's type,
+     +0x194c4 16542's title; the ladybug puzzles name motions
+     "n%03d_blue_fly_start_00" with it), 6870 (0x14db74 -> 0x18b204: an
+     outline's colour by the silhouette's name, the .sil block's word 0;
+     the horse ride gives its horse and mask outline "#new_000" (48, 32,
+     32); the alpha, 0.8, is kept but not drawn: *not known* whether the
+     outline blends; the ride itself was not compared again).
+   - *Read, not implemented*: 5043 (0x12bf9c -> 0x2b887c: an animation
+     object's +0x150 player, one named value; 12 uses), 5400 (0x12e21c: the
+     object's virtual +0x28).
+   - Checked after the change: all 150 puzzles (`solve5.sh`), puzzle 1's
+     key frames (`regress5.sh`), the sixth adventure's 168 (`solve6.sh`),
+     and the auto-player to the staff roll (game frame ~1.03M, step 900).
+   - Still missing in the full run: only the ruins loop commands 139..142
+     (2110 to the top loop; counted as 2110139..2110142). They belong to the
+     **guide mode** (item 11), not to the story.
+   - Script blocks called by hash but absent after item pick-ups: open.
 10. **Investigation cursor**: the capped step (`0x2D0FE0`) is not modelled.
     Some coins cannot be picked (the pilot skips them).
-11. **Trial flag** and the console's save creation page at boot: not modelled.
-12. **Saves**: the 0xA08-byte side file (copies of progress ranges, the
+11. **Ruins guide mode** (read 2026-10-29, not ported): the paid hint of
+    the ruins floors. Each floor's `mini/ruin_guide_0N.xs` (loaded after the
+    floor by 0x1d1564; records 5100..5111: the guide character
+    "mirra_00", start cells, an event for a failed demonstration
+    "《ＤＸ》ガイド失敗ミイラ", then routes of 5104 {steps} / 5106 {action
+    1500..1508, row, column, ..., wait} / 5105 steps, 0x44 bytes each) is
+    not read. The ruins loop's guide (+0x4c38c): 139 (0x15f580; with the
+    guide running, 0x1cf218 steps it first) runs 0x1cef58, which sets +0x28
+    (131's value) when Layton stands on a route's start cell, and the script
+    (GuidBtnProc) then shows "obj_btn_guide_begin"; paying a guide coin
+    ("《ＤＸ》ガイドコイン支払い済み") restarts the loop as Run_GuideMode
+    (134, 132) and the mummy walks the route (133 -> 0x1ceb2c, 143, 144).
+    140 {1..3} (0x161544) with the guide on checks flags 0x5de..0x5e1 and
+    may end it (0x1cecb8); 141 {name, n} (0x15ccb0) ends or marks the guide
+    when the named character is the guide's; 142 {value} / {row, column,
+    value} (0x15f714) sets the routes' step bytes +0xc. Without the guide
+    running, 140 and 141 only set +0x4c3b0 to 1 and 142 changes data the
+    story never reads; the button never appears in the port. Jump table of
+    the ruins commands 136..144: 0x1c7554.
+12. **Trial flag** and the console's save creation page at boot: not modelled.
+13. **Saves**: the 0xA08-byte side file (copies of progress ranges, the
     volume) is not written; erasing and copying slots not looked at; 11019
     does not store the game volume.
-13. **Movies**: the right eye (3D) is decoded but not shown; the skip prompt
+14. **Movies**: the right eye (3D) is decoded but not shown; the skip prompt
     is untried.
-14. **Rendering**:
+15. **Rendering**:
     - toon combiner use of the alpha factor;
     - silhouette open edges;
     - only the first sky light is used;
@@ -64,9 +122,9 @@ What remains for a complete re-implementation of the fifth adventure
     - model alpha factor (6875) not blended;
     - the one-row offset of pictures and cells (vs text) against the console
       on some screens.
-15. **Sound hypotheses**: effect envelopes, velocity/volume curves, key ranges;
+16. **Sound hypotheses**: effect envelopes, velocity/volume curves, key ranges;
     voices and 3D-positioned effects not checked on the console.
-16. **Unknown format fields**: XFSA word 0x20, XPCK header words, IMGC header
+17. **Unknown format fields**: XFSA word 0x20, XPCK header words, IMGC header
     bytes 0x0B/0x0E/0x0F and the doubled thumbnail maps, XQ32 block fields and
     command group, 502's table, maths 608/620–622/630/631.
 
@@ -98,3 +156,59 @@ What remains for a complete re-implementation of the fifth adventure
   ruins frame at 930000 stays byte-identical.
 - `ctest` (`a56_xq_tests`, `moflex_tests`, `mobiclip_tests`).
 - When shared 3DS code changes, also run the sixth adventure's `solve6.sh`.
+
+## In Reprise (2026-10-29)
+
+The game runs inside Reprise (catalog id `miracle_mask_3ds`); the integration is
+described in [../reprise.md](../reprise.md).
+
+Connected: import (AKKD unencrypted CCI, streamed: 26 s, ~200 MB memory for
+the 1 GiB image), Start (the title) with the game's own continue from its
+slots (`<data>/progress/miracle_mask_3ds/`), the 400x240 + 320x240 screens in
+both arrangements, the VHS filter per screen, Shift+arrows tilt and X/gamepad
+east shake, the phone's accelerometer as the console's motion sensor (since
+2026-10-29), takeover of Picarat's pack and `akkd-saves`. No imported-data
+previews yet.
+
+**Quick save / Continue (2026-10-29)**: the app's checkpoint, as in the DS
+games. `Story::checkpointFile` (src/story/a5_story.*): once a place is ready -
+the place loop 1300 on top and begun, objects taking touches (2109 off), no
+request waiting, two frames in a row - the game's own save record
+(`saveRecord`, the slots' format) goes to `checkpoint.sav`, once each time the
+place loop comes back on top (entering a place, back from an event or a
+puzzle). `Story::continueFrom`: the game loop restores the record and pushes
+1300 {0, -1} instead of the title - the title's continue (10100, then 10001 2)
+without its recap event; the stack is then `1000 1300` instead of
+`1000 2010 1300` (only matters when the place loop itself ends). The save's
+picture is the frame of the checkpoint (after a fade, the first steady one).
+Checked: an auto-player run (`picarat_a5_story_run` with `A5_CHECKPOINT=FILE`,
+`A5_CONTINUE=1` continues) wrote 127 checkpoints up to step 324; continuing at
+place 1010 (Celebration Boulevard) and at place 3050 (Zirkus Glitzerstern,
+15 solved, objective and goal marker shown) works, and the auto-player plays
+on from there (new places, a puzzle, step 320 → 324); through Reprise:
+continue, quick save with picture, fresh load, damaged and foreign saves.
+Not compared with the console (a host convenience). Ruins floors (loop 6400)
+write no checkpoint: Continue returns to the last place before them.
+Hypothesis to watch: state the title or the recap sets that a direct place
+start lacks (none seen so far).
+
+Not offered in Reprise (Picarat shell features, by decision): music player,
+movie theatre, puzzle mode, minigame free play, the hub's "Continue story".
+Movies, music, puzzles and minigames play as part of normal play.
+
+Remaining for Reprise:
+
+- typed name entry (the touch keyboard works);
+- the accelerometer was built (SDL sensor, as in Picarat) but not yet tried
+  on a phone;
+- the screen filter's CPU fallback path is untested on a renderer without
+  GPU shaders.
+
+Validation:
+
+- Validated on macOS (2026-10-29): `ctest -R layton_module` with
+  `LAYTON_PACKS` (the story starts from the title with picture and sound);
+  the real window driven by `reprise --events` scripts. Android: the APK
+  builds; only Curious Village was run on an emulator (start, touch,
+  rotation). No physical device was used.
+- Not run on Android.

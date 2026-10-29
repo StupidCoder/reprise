@@ -1,6 +1,7 @@
 #pragma once
 #include "app/game_module.hpp"
 #include "collections/theme.hpp"
+#include "platform/file_source.hpp"
 #include "platform/image.hpp"
 #include "ui/model_view.hpp"
 #include <cstdint>
@@ -16,6 +17,9 @@
 // What the launcher knows about a game in the collection. Each game
 // directory provides one entry; the launcher knows nothing else about it.
 namespace app {
+
+// A phase and its measured fraction (negative when work cannot be measured).
+using ImportProgress = std::function<void(const std::string&, double)>;
 
 enum class Machine { c64, amiga, game_gear, nintendo_ds, nintendo_3ds, ios, game_boy_advance };
 
@@ -48,6 +52,10 @@ struct ImportResult {
 struct LegacyCopy {
     // Files to install when the game is not installed yet (empty: none usable).
     std::optional<ImportResult> import;
+    // Or, for large imports (GameEntry::import_into), a folder holding the game's files and
+    // their release: copied file by file into Reprise, never moved or changed.
+    std::optional<std::filesystem::path> folder;
+    std::string folder_release;
     // (source, target in Reprise's data folder): copied when the target does not exist.
     std::vector<std::pair<std::filesystem::path, std::filesystem::path>> copies;
     // For the user: what could not be taken over, and why.
@@ -92,6 +100,14 @@ struct GameEntry {
     // The largest file the importer accepts; larger files are not read for it. Disk and tape
     // images stay under the default; app archives (IPA) are larger.
     std::uintmax_t largest_image{64u << 20};
+    // Importers of large images (cartridge images of hundreds of megabytes and more), used
+    // instead of `import`: reads the image through `image` (random access, never read whole)
+    // and writes the game's files into `folder` (made by the library, empty) instead of
+    // returning them; returns the release. Throws NotThisGame or std::runtime_error as `import`
+    // does. The library hashes the written files for the manifest; at start-up it checks such
+    // an install by its files' sizes (hashing gigabytes at every start would take too long).
+    std::function<std::string(platform::FileSource& image, const std::filesystem::path& folder,
+                              const ImportProgress& progress)> import_into;
 
     // Pictures of the data decoded from an installed content folder; empty
     // when the game has no decoders yet. Throws std::runtime_error when the
@@ -108,6 +124,11 @@ struct GameEntry {
 
     // What can be played so far, for the launcher ("" = the whole game).
     std::string progress;
+    // For the details page, when the defaults would say too much: what Continue restores (a
+    // game whose quick save keeps a checkpoint, not the moment), and how a game without
+    // Reprise quick saves keeps its progress (its own save slots). Empty: the defaults.
+    std::string continue_note;
+    std::string saves_note;
 
     // Editorial history of this platform release; never reconstruction evidence.
     int release_year{};
@@ -119,5 +140,8 @@ struct GameEntry {
     Collection collection{Collection::none};
     bool integration_pending{}; // Catalog preview only, no engine/importer wired yet.
 };
+
+// Whether the game can be imported (by either kind of importer).
+inline bool importable(const GameEntry& game) { return bool(game.import) || bool(game.import_into); }
 
 } // namespace app

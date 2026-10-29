@@ -444,3 +444,12 @@ What was checked:
   to the ROM through the verdict.
 - All 224 puzzles pass the static support check and a fuzz timeline.
 - The automatic player walks from the start to the credits without stand-ins.
+
+## Embedding notes (Reprise, 2026-10-29)
+
+Observations from running the reconstruction inside Reprise, not new
+findings about the original: the game thread is stepped one frame at a time
+by the host, and the sound is rendered a fixed amount per frame (32 728 Hz
+resampled to 48 kHz), so every sound-gated wait follows the frame count
+instead of the device's real-time progress. Reprise's quick save stores the game's automatic checkpoint - the slots' own record format, as `checkpoint.sav` written when PLACE_LOOP is entered - and continues through the game's own load path. It is a checkpoint, not a snapshot of the running machine. Details:
+[../reprise.md](../reprise.md).

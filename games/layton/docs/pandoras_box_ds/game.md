@@ -562,3 +562,12 @@ Research tools live in `.analysis/tools/` (local):
 Native probes: `picarat_story_explorer` (plays the story to the staff roll
 and post-game), `picarat_tea_probe --scene tea|bag|camera|photo|room|hamster`,
 `picarat_g3d_probe`, `picarat_continue_probe` and `picarat_bonus_probe`.
+
+## Embedding notes (Reprise, 2026-10-29)
+
+Observations from running the reconstruction inside Reprise, not new
+findings about the original: the game thread is stepped one frame at a time
+by the host, and the sound is rendered a fixed amount per frame (32 728 Hz
+resampled to 48 kHz), so every sound-gated wait follows the frame count
+instead of the device's real-time progress. Reprise's quick save stores the game's automatic checkpoint - the `L2CP` checkpoint (format 2; format 1 files are refused by the game and open the title) - and continues through the game's own load path. It is a checkpoint, not a snapshot of the running machine. Details:
+[../reprise.md](../reprise.md).

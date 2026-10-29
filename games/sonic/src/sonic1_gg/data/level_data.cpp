@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <fstream>
 #include <iterator>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 
@@ -28,7 +29,9 @@ void write_file(const std::filesystem::path& path, std::span<const std::uint8_t>
     }
 }
 
-Rom::Rom(const std::filesystem::path& path) : bytes_(read_file(path)) {
+Rom::Rom(const std::filesystem::path& path) : Rom(read_file(path)) {}
+
+Rom::Rom(Bytes bytes) : bytes_(std::move(bytes)) {
     // All discovered offsets refer to this exact supplied cartridge revision.
     // Refuse other images rather than silently decode their bytes as this game.
     std::uint32_t crc = 0xffffffff;
@@ -348,29 +351,37 @@ static const std::array<std::pair<const char*, Bytes Level::*>, 31> files = {
      {"emerald.bin", &Level::emerald_patterns},
      {"palette_cycle.bin", &Level::palette_cycle}}};
 
-void save_level(const Level& level, const std::filesystem::path& directory) {
-    std::filesystem::create_directories(directory);
+void FolderWriter::write(const std::string& name, std::span<const std::uint8_t> bytes) {
+    const auto path = root_ / std::filesystem::path(name);
+    std::filesystem::create_directories(path.parent_path());
+    write_file(path, bytes);
+}
+
+void save_level(const Level& level, PackWriter& out, const std::string& folder) {
+    const std::string directory = folder.empty() ? "" : folder + "/";
     Bytes header{'S', 'G', 'G', '2'};
     for (auto value : {level.columns, level.rows, level.camera_left, level.camera_right,
                        level.camera_top, level.camera_bottom, level.spawn_x, level.spawn_y}) {
         header.push_back(value & 255);
         header.push_back(value >> 8);
     }
-    write_file(directory / "level.bin", header);
-    write_file(
-        directory / "level_kind.bin",
+    out.write(directory + "level.bin", header);
+    out.write(
+        directory + "level_kind.bin",
         Bytes{std::uint8_t(level.act), std::uint8_t(level.scene), std::uint8_t(level.music)});
-    write_file(directory / "initial_flags.bin", level.initial_flags);
+    out.write(directory + "initial_flags.bin", level.initial_flags);
     for (auto [name, member] : files) {
-        write_file(directory / name, level.*member);
+        out.write(directory + name, level.*member);
     }
     for (auto& [address, data] : level.object_tables) {
-        write_file(directory / ("table_" + std::to_string(address) + ".bin"), data);
+        out.write(directory + "table_" + std::to_string(address) + ".bin", data);
     }
-    std::ofstream manifest(directory / "manifest.json");
+    std::ostringstream manifest;
     manifest << "{\n  \"format\": \"SGG2\",\n  \"rom_crc32\": \"3e31cb8c\",\n"
              << "  \"level\": " << level.act << ",\n  \"layout_columns\": " << level.columns
              << ",\n  \"layout_rows\": " << level.rows << ",\n  \"block_pixels\": 32\n}\n";
+    const auto text = manifest.str();
+    out.write(directory + "manifest.json", Bytes(text.begin(), text.end()));
 }
 
 Level load_level(const std::filesystem::path& directory) {

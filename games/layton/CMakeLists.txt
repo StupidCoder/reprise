@@ -282,6 +282,27 @@ else()
 endif()
 target_compile_options(picarat_core PRIVATE ${PICARAT_WARNINGS} ${PICARAT_EXACT_FLOAT})
 
+# Embedded in Reprise (its CMakeLists includes this folder with PICARAT_EMBEDDED): the engine and
+# its embedding interface (src/embed) only. The game sessions run as in the app, but their sound
+# is pulled by the host in step with the frames (src/platform/audio_pull.*, host_embed.cpp) and
+# no window, device or shell of Picarat's own is built. The standalone app, its tools and tests
+# stay with the standalone build of this folder.
+if(PICARAT_EMBEDDED)
+  add_library(picarat_embed STATIC
+    src/embed/layton_embed.cpp
+    src/shell/game_session.cpp
+    src/shell/audio_output.cpp
+    src/shell/library.cpp
+    src/shell/minigames.cpp
+    src/shell/utf8.cpp
+    src/platform/audio_pull.cpp
+    src/platform/host_embed.cpp)
+  target_include_directories(picarat_embed PRIVATE src INTERFACE src/embed)
+  target_link_libraries(picarat_embed PRIVATE picarat_core)
+  target_compile_options(picarat_embed PRIVATE ${PICARAT_WARNINGS} ${PICARAT_EXACT_FLOAT})
+  return()
+endif()
+
 # Command-line importer: picarat_import ROM DESTINATION, or --pack for a test pack.
 if(NOT ANDROID)
   add_executable(picarat_import tools/import_rom.cpp)
@@ -293,7 +314,7 @@ endif()
 # Without SDL 3 only the library, the importer and the tests are built.
 find_package(SDL3 3.4 CONFIG)
 if(SDL3_FOUND)
-  add_library(picarat_platform STATIC src/platform/host_sdl.cpp src/platform/type.cpp)
+  add_library(picarat_platform STATIC src/platform/host_sdl.cpp src/platform/type.cpp src/platform/audio_pull.cpp)
   target_include_directories(picarat_platform PUBLIC src)
   target_link_libraries(picarat_platform PUBLIC SDL3::SDL3)
   target_compile_options(picarat_platform PRIVATE ${PICARAT_WARNINGS})
@@ -317,6 +338,7 @@ if(SDL3_FOUND)
     src/shell/puzzle_mode.cpp
     src/shell/self_test.cpp
     src/shell/style.cpp
+    src/shell/utf8.cpp
     src/shell/ui_font_data.cpp
     src/shell/widgets.cpp)
   set(PICARAT_ART

@@ -90,6 +90,18 @@ public:
         // (The save checks and their error loops 7000..7020 are the port's
         // own: see the saves.)
         Loop::resume();
+        if (stage_ == 0 && story_.continueFrom) {
+            // The app's checkpoint: the saved game, then its place (the
+            // title's continue without the recap; the DX flag as below).
+            stage_ = 2;
+            restore(game_, *story_.continueFrom);
+            story_.continueFrom.reset();
+            if (const int dx = game_.flagId(kDxFlag); dx >= 0 && game_.language == 0) {
+                game_.setFlag(dx, true);
+            }
+            story_.push(PlaceLoopId, {Value::ofInt(0), Value::ofInt(-1)});
+            return;
+        }
         if (stage_ == 0) {
             stage_ = 1;
             if (valueInt(values[3]) < 0 && !story_.startAtTitle) {
@@ -1120,6 +1132,7 @@ void Story::frame(const Input& input) {
         if (!t->resumed && !t->resumeWaits()) {
             t->resumed = true;
             t->begun = false;
+            t->resumeSerial = ++resumeSerial_;
             t->resume();
         }
         if (!t->initStarted) {
@@ -1135,6 +1148,23 @@ void Story::frame(const Input& input) {
         t->afterFrame();
     }
     game.endFrame();
+    checkpoint();
+}
+
+void Story::checkpoint() {
+    const Loop* t = top();
+    const bool ready = !checkpointFile.empty() && t && t->id == PlaceLoopId && t->begun &&
+                       !game.objectTouchLocked && requests_.empty() && t->resumeSerial != checkpointSerial_;
+    readyFrames_ = ready ? readyFrames_ + 1 : 0;
+    if (readyFrames_ >= 2) {
+        const bool written = writeCheckpoint(checkpointFile, saveRecord(game));
+        if (debugLog) {
+            debugLog(std::string(written ? "checkpoint" : "checkpoint not written") + " at place " +
+                     std::to_string(game.variable(kPlaceVariable)));
+        }
+        checkpointSerial_ = t->resumeSerial;
+        readyFrames_ = 0;
+    }
 }
 
 Value valueOf(const import::adventure56::DataList& list, const import::adventure56::Operand& o) {
