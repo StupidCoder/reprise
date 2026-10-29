@@ -125,7 +125,9 @@ public:
                  "The energy bar stays full: hazards, gates and shops take nothing from it, and the ball "
                  "never dissolves.", "Cheats"},
                 {"Infinite money", {"Off", "On"}, infinite_money_ ? 1 : 0,
-                 "The purse stays at 9,900 coins: every shop sells.", "Cheats"}};
+                 "The purse stays at 9,900 coins: every shop sells.", "Cheats"},
+                {"Infinite lives", {"Off", "On"}, infinite_lives_ ? 1 : 0,
+                 "A lost ball costs no spare ball: the game only ends when you give up.", "Cheats"}};
     }
     void set_option(std::size_t index, int value) override {
         if (index == 0) mouse_speed_ = std::clamp(value, 0, 2);
@@ -140,6 +142,7 @@ public:
             infinite_money_ = value != 0;
             apply_cheats();
         }
+        if (index == 6) infinite_lives_ = value != 0;
     }
     int vhs_level() const override { return vhs_; }
 
@@ -269,6 +272,7 @@ public:
             }
             if (key == '?') { // $68A36: the '?' key gives up like item 0
                 balls_ = 0;
+                giving_up_ = true;
                 ball_.mode = BallMode::lost;
                 ball_lost();
                 break;
@@ -276,6 +280,7 @@ public:
             switch (use_items(ball_, pocket_, map_, items_, left, right)) {
             case ItemUse::give_up: // $6B5A8: the ball is lost and no balls are left
                 balls_ = 0;
+                giving_up_ = true;
                 ball_.mode = BallMode::lost;
                 ball_lost();
                 break;
@@ -307,7 +312,7 @@ public:
                 sound_->start_music(song_); // $6BDCC
                 // $6BDF8: the energy gains $280 (over $800: $7FF).
                 add_energy();
-                --balls_;
+                if (!infinite_lives_) --balls_;
                 set_balls_message();
                 phase_ = Phase::playing;
             } else if (right_pressed) {
@@ -682,7 +687,7 @@ private:
     void ball_lost() {
         sound_->stop_all(); // $6BB34: every way the loop ends
         if (ball_.mode == BallMode::warped || ball_.level_done) {
-            if (from_code_) { // $6BB48: a game started from a code has no spare balls after its level
+            if (from_code_ && !infinite_lives_) { // $6BB48: a game started from a code has no spare balls after its level
                 balls_ = 0;
                 pocket_.continues = 0;
                 set_balls_message();
@@ -822,7 +827,7 @@ private:
 
     // $6BB3C → $6BDD4 → $6C5F4: a level finished.
     void level_finished() {
-        if (from_code_) { // $6BB48: a game started from a code has no spare balls after its level
+        if (from_code_ && !infinite_lives_) { // $6BB48: a game started from a code has no spare balls after its level
             balls_ = 0;
             pocket_.continues = 0;
             set_balls_message();
@@ -855,7 +860,9 @@ private:
     }
 
     void restart() {
-        --balls_;
+        // (Infinite lives keeps the ball, unless the player gave up.)
+        const bool gave_up = std::exchange(giving_up_, false);
+        if (!infinite_lives_ || gave_up) --balls_;
         if (balls_ < 0) {
             game_over();
             return;
@@ -1084,7 +1091,8 @@ private:
     std::optional<std::vector<std::uint8_t>> saved_; // the quick save in memory
     bool widescreen_{}, smooth_{};
     int vhs_{};
-    bool infinite_energy_{}, infinite_money_{};
+    bool infinite_energy_{}, infinite_money_{}, infinite_lives_{};
+    bool giving_up_{}; // the ball was given up (item 0 or '?'): the game ends even with infinite lives
     int margin_{}, canvas_width_{}, canvas_height_{};
     double frame_fraction_{1.0};
     struct Place {

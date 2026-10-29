@@ -1121,7 +1121,10 @@ the drawing.
     inside the ball (157 of 28,928 pixels).
 - **Pillars:** eight sprites at `$71AA0` + $244·n, attached in pairs.
   - The data is at `$37140` (even) / `$3737C` (odd).
-  - 143 lines from line $2E, HSTART $80, $90, $190, $1A0.
+  - 143 lines from line $2E, HSTART $80, $90, $190, $1A0: display x 0,
+    16, 272 and 288, so they cover columns 0-31 and 272-303 exactly.
+    *Checked:* pixel for pixel against an FS-UAE capture (the port had
+    them one pixel left until 2026-10-29).
 - **Ball blit:** a cookie-cut (minterm $FCA), A = mask, B = picture, 16 rows
   × 5 planes.
 - **Print** (`$6AE16`/`$6AE8A`):
@@ -1338,12 +1341,20 @@ replay the same with any of them).
   - The view draws the map's own columns there (beyond its edges, the
     abyss); the original's 16 columns run on into the next row at the
     right edge, which the original width never shows.
-  - The original's last column, right of the right pillar, is black (its
-    buffer has no tiles there); it stays black at any width.
-  - The pillars move out to the new edges. The name bar's pipes (column
-    80) and the panel's top tube (column 152, six lines) run on. The rest
-    of the bar and the panel stay in the middle, with black beside the
-    panel.
+  - The view's last column (under the right pillar, where its pixels are
+    0) is black in the original (its buffer has no tiles there); it stays
+    black at any width.
+  - The pillars move out to the new edges, and the border's joints with
+    them:
+    - the name bar's corner pieces (columns 0-30 and 275-303, the pipe with
+      its T-joints over the pillars) move out; the gaps up to the boxes are
+      the bar's pipe (a ring every 7 columns), its rings in step with the
+      corner's;
+    - the panel's top tube (rows 0-10, the bottom border with its curved
+      corners) is split in its plain middle (columns 132-170) and stretched
+      there.
+
+    The boxes stay in the middle, with black beside the panel.
   - The title, the ending, the continue screen and the hints are shown in
     the middle of a picture of the same shape.
 - **Smooth motion** (`Module::shown_ball`): pictures between updates show
@@ -1364,7 +1375,10 @@ replay the same with any of them).
     every update, so hazards, gates and energy payments take nothing and
     the ball never dissolves (the hit sounds still play);
   - infinite money: the purse is set to 9,900 (the panel's maximum) around
-    every update and at a level's set-up, so every shop sells.
+    every update and at a level's set-up, so every shop sells;
+  - infinite lives: a lost ball costs no spare ball (a restart, a continue,
+    and a code game's level end keep them); giving up (item 0, '?') still
+    ends the game.
 - **Quick save** (`write_state`/`read_state`): in a level, in play or at its
   start wait (elsewhere the state is empty: not ready). The app keeps it
   on disk (`app::persistent_saves`); on a load the mouse speed, widescreen,

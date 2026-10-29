@@ -81,9 +81,11 @@ private:
     // x from -margin_ to width + margin_ - 1 (the original's x 0 at margin_).
     std::uint8_t& at(int x, int y) { return pixels_[std::size_t(y) * std::size_t(picture_width()) + std::size_t(x + margin_)]; }
     bool inside(int x) const { return x >= -margin_ && x < width + margin_; }
-    // A side column (x < 0 or x >= width) as a repeat of the original's
-    // column `from`, for lines first..last.
-    void run_on(int first, int last, int from);
+    // Widescreen: the original's column shown at x of the name bar (its
+    // corner pieces moved out with the pillars, the gaps tiled with pipe)
+    // and of the panel's top tube (split in its plain middle).
+    int bar_column(int x) const;
+    int tube_column(int x) const;
     void draw_bar(std::string_view level_name, std::string_view bar_text);
     void draw_view(const LevelMap&, const Ball&);
     void draw_panel(const PanelNumbers&);

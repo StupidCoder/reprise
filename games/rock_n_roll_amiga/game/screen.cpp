@@ -12,11 +12,21 @@ constexpr std::uint32_t pillar_even = 0x37140, pillar_odd = 0x3737C; // sprite d
 constexpr int pillar_lines = 0x8F;
 constexpr std::uint32_t frame_colours = 0x73344; // 32 words: the bar's and panel's palette
 constexpr int pillar_first_line = 0x2E - 0x3D; // sprite line $2E, the display starts at $3D
-constexpr int pillar_x[4] = {-1, 15, 271, 287}; // HSTART $80, $90, $190, $1A0 (display x 0 = $81)
-// Widescreen: the plain columns whose pipes run on into the sides.
-constexpr int bar_pipe_column = 80;    // between the level number's box and the name's
-constexpr int panel_tube_column = 152; // the tube along the panel's top
-constexpr int panel_tube_lines = 6;
+// HSTART $80, $90, $190, $1A0: a sprite at HSTART $80 shows from display x 0
+// (an FS-UAE capture matches pixel for pixel; one pixel less cut off the
+// left pillar and left column 303 bare).
+constexpr int pillar_x[4] = {0, 16, 272, 288};
+// Widescreen: the name bar's corner pieces (pipe with the T-joints over the
+// pillars) are columns 0-30 and 275-303, around the boxes. Its pipe rings
+// every 7 columns: a joint at column 77 between the boxes, at 2, 9 … in the
+// left corner and at 279, 286 … in the right one. The panel's top tube
+// (rows 0-10) has its curved corners at both ends and a plain stretch at
+// columns 132-170.
+constexpr int bar_left_corner = 31, bar_right_corner = 275;
+constexpr int bar_joint = 77, bar_pipe_period = 7;
+constexpr int bar_left_joint = 2, bar_right_joint = 279;
+constexpr int tube_lines = 11;
+constexpr int tube_middle = 152;
 
 std::uint32_t low_word(Fixed v) { return std::uint32_t(v) & 0xFFFF; }
 
@@ -90,19 +100,28 @@ void Screen::set_margin(int margin) {
     pixels_.assign(std::size_t(picture_width()) * height, 0);
 }
 
-void Screen::run_on(int first, int last, int from) {
-    for (int y = first; y <= last; ++y) {
-        const std::uint8_t v = at(from, y);
-        for (int x = -margin_; x < 0; ++x) at(x, y) = v;
-        for (int x = width; x < width + margin_; ++x) at(x, y) = v;
-    }
+int Screen::bar_column(int x) const {
+    // Pipe whose joints fall where the moved corner's would continue.
+    const auto pipe = [](int x, int joint) {
+        return bar_joint + (((x - joint) % bar_pipe_period) + bar_pipe_period) % bar_pipe_period;
+    };
+    if (x < bar_left_corner - margin_) return x + margin_;                     // the left corner, moved out
+    if (x < bar_left_corner) return pipe(x, bar_left_joint - margin_);         // pipe up to the first box
+    if (x < bar_right_corner) return x;                                        // the boxes, as they are
+    if (x < bar_right_corner + margin_) return pipe(x, bar_right_joint + margin_);
+    return x - margin_;                                                        // the right corner, moved out
+}
+
+int Screen::tube_column(int x) const {
+    if (x < tube_middle - margin_) return x + margin_;
+    if (x < tube_middle + margin_) return tube_middle;
+    return x - margin_;
 }
 
 void Screen::draw_bar(std::string_view level_name, std::string_view bar_text) {
     const auto& bank = world_->bank;
     for (int y = 0; y < bar_lines; ++y)
-        for (int x = 0; x < width; ++x) at(x, y) = bank.at(x, bar_row + y);
-    if (margin_ > 0) run_on(0, bar_lines - 1, bar_pipe_column);
+        for (int x = -margin_; x < width + margin_; ++x) at(x, y) = bank.at(bar_column(x), bar_row + y);
     print(canvas(), world_->bank, 96, 4, level_name, 2);  // $6B110 → $6AE34: bar + row 4, byte 12
     print(canvas(), world_->bank, 248, 4, bar_text, 2);   // $6AE44: bar + row 4, byte 31
 }
@@ -220,13 +239,11 @@ void Screen::draw_panel(const PanelNumbers& n) {
     const auto& bank = world_->bank;
     const int top = bar_lines + view_lines;
     for (int y = 0; y < panel_lines; ++y)
-        for (int x = 0; x < width; ++x) at(x, top + y) = bank.at(x, panel_row + y);
-    if (margin_ > 0) {
-        for (int y = 0; y < panel_lines; ++y)
-            for (int x = -margin_; x < width + margin_; ++x)
-                if (x < 0 || x >= width) at(x, top + y) = 0;
-        run_on(top, top + panel_tube_lines - 1, panel_tube_column);
-    }
+        for (int x = -margin_; x < width + margin_; ++x) {
+            const bool tube = y < tube_lines; // in widescreen widened; below it, black beside the panel
+            const int from = tube ? tube_column(x) : x;
+            at(x, top + y) = from >= 0 && from < width ? bank.at(from, panel_row + y) : 0;
+        }
     // Places: the destination's bank address, row - 344 and byte × 8.
     const auto time = [&](int y, int seconds, int hundredths) {
         const auto t = clock_digits(seconds);

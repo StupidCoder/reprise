@@ -77,8 +77,10 @@ Finished, in order:
     click), widescreen up to 21:9, smooth motion between updates and
     quick save, each checked headless (pictures after a load equal the
     running game's).
-18. The VHS look, cheats (infinite energy and money), and quick saves kept
-    on disk by the app.
+18. The VHS look, cheats (infinite energy, money and lives), and quick saves
+    kept on disk by the app; in widescreen the border's corner pieces move
+    out with the pillars. The pillars sat one pixel too far left; fixed
+    against a capture.
 
 ## Remaining tasks
 
