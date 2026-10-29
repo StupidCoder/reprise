@@ -1358,8 +1358,18 @@ replay the same with any of them).
     camera's limits are whole cells), but an in-between place where the
     camera stops at its limit can: the port keeps it, or the ball would
     jump 16 pixels left for a frame.
+- **VHS look:** the host's screen filter (`app::screen_filter_option`).
+- **Cheats** (the pause menu's "Cheats" page, kept with a quick save):
+  - infinite energy: the energy and the panel's bar are set full around
+    every update, so hazards, gates and energy payments take nothing and
+    the ball never dissolves (the hit sounds still play);
+  - infinite money: the purse is set to 9,900 (the panel's maximum) around
+    every update and at a level's set-up, so every shop sells.
 - **Quick save** (`write_state`/`read_state`): in a level, in play or at its
-  start wait (elsewhere the state is empty: not ready). It keeps the ball,
+  start wait (elsewhere the state is empty: not ready). The app keeps it
+  on disk (`app::persistent_saves`); on a load the mouse speed, widescreen,
+  smooth motion and VHS look keep the player's current choice, while the
+  cheats come from the save. It keeps the ball,
   the pocket, the map's changing parts (cells, countdowns, block, tile
   table, animation counters), the items, the level load area and the
   module's own counters. Loading sets the level up as at its start (the

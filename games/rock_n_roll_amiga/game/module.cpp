@@ -10,6 +10,7 @@
 #include "rock_n_roll_amiga/game/screen.hpp"
 #include "rock_n_roll_amiga/sound/game_sound.hpp"
 #include "state/archive.hpp"
+#include "ui/vhs.hpp"
 #include <algorithm>
 #include <cmath>
 #include <string>
@@ -108,15 +109,23 @@ public:
     bool captures_mouse() const override { return true; } // steered by the mouse counters' movement
 
     std::vector<app::GameOption> options() const override {
+        // The mouse speed and the presentation options keep the player's
+        // choice when a quick save is loaded; the cheats come with the save.
         return {{"Mouse speed", {"Normal", "Slow", "Fast"}, mouse_speed_,
                  "Mouse counts per point the mouse moves: 1, 1/2 or 2. The ball pushes hardest from two "
-                 "counts an update on."},
+                 "counts an update on.", {}, true},
                 {"Widescreen", {"Off", "On"}, widescreen_ ? 1 : 0,
                  "Fills the window to its edges, up to 21:9, and shows more of the level left and right. "
-                 "The game plays the same."},
+                 "The game plays the same.", {}, true},
                 {"Smooth motion", {"Off", "On"}, smooth_ ? 1 : 0,
                  "The ball and the view glide at the display's own rate instead of stepping 50 times a "
-                 "second. The game plays the same."}};
+                 "second. The game plays the same.", {}, true},
+                app::screen_filter_option(vhs_),
+                {"Infinite energy", {"Off", "On"}, infinite_energy_ ? 1 : 0,
+                 "The energy bar stays full: hazards, gates and shops take nothing from it, and the ball "
+                 "never dissolves.", "Cheats"},
+                {"Infinite money", {"Off", "On"}, infinite_money_ ? 1 : 0,
+                 "The purse stays at 9,900 coins: every shop sells.", "Cheats"}};
     }
     void set_option(std::size_t index, int value) override {
         if (index == 0) mouse_speed_ = std::clamp(value, 0, 2);
@@ -125,6 +134,21 @@ public:
             set_canvas(canvas_width_, canvas_height_);
         }
         if (index == 2) smooth_ = value != 0;
+        if (index == 3) vhs_ = std::clamp(value, 0, ui::vhs_levels - 1);
+        if (index == 4) infinite_energy_ = value != 0;
+        if (index == 5) {
+            infinite_money_ = value != 0;
+            apply_cheats();
+        }
+    }
+    int vhs_level() const override { return vhs_; }
+
+    // The cheats (additions): the energy and the purse topped up around
+    // each update (the panel follows the energy at the update's start).
+    void apply_cheats() {
+        if (phase_ == Phase::front_end) return;
+        if (infinite_energy_) pocket_.energy = pocket_.shown_energy = 0x7FF;
+        if (infinite_money_) pocket_.money = 9900; // the panel's maximum ($26AC)
     }
     void set_frame_fraction(double fraction) override { frame_fraction_ = std::clamp(fraction, 0.0, 1.0); }
 
@@ -192,7 +216,9 @@ public:
             before_ = Place{ball_.camera_x, ball_.camera_y, ball_.view_x, ball_.view_y, level_index_, true};
             sound_->tick(); // $68940: the loop's first call
             move_counters(input, counts_x, counts_y);
+            apply_cheats();
             update_ball(ball_, pocket_, map_, world(), mouse_);
+            apply_cheats();
             if (ball_.clock.seconds != clock_seen_) { // a second ended: $6F270 drew the digits
                 clock_seen_ = ball_.clock.seconds;
                 panel_seconds_ = std::max(clock_seen_ - 1, 0);
@@ -602,6 +628,7 @@ private:
         sound_->stop_channels();
         sound_->load_world(level.world);
         sound_->start_music(song_);
+        apply_cheats();
         // The panel's record and high score are drawn at set-up only ($6F1A6, $6EDCE).
         shown_record_ = scores_.record(level_index_);
         shown_high_score_ = scores_.high_score();
@@ -1056,6 +1083,8 @@ private:
     bool f1_held_{}, f3_held_{};
     std::optional<std::vector<std::uint8_t>> saved_; // the quick save in memory
     bool widescreen_{}, smooth_{};
+    int vhs_{};
+    bool infinite_energy_{}, infinite_money_{};
     int margin_{}, canvas_width_{}, canvas_height_{};
     double frame_fraction_{1.0};
     struct Place {

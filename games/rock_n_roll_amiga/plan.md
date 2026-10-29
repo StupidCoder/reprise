@@ -77,6 +77,8 @@ Finished, in order:
     click), widescreen up to 21:9, smooth motion between updates and
     quick save, each checked headless (pictures after a load equal the
     running game's).
+18. The VHS look, cheats (infinite energy and money), and quick saves kept
+    on disk by the app.
 
 ## Remaining tasks
 
@@ -102,6 +104,9 @@ Done: touch input, widescreen, smooth motion and quick save (game.md, "The
 port's additions"). Left:
 - [ ] Try them in the app on a touch device and at 120 Hz: they are checked
   headless only (touch through the runner's finger steps).
+- [ ] Quick saves anywhere: outside a level (title, results, notices,
+  prompts) saving reports "not available", as the state is kept for levels
+  only.
 
 ### Verification
 
