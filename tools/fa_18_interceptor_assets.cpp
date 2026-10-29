@@ -681,6 +681,7 @@ int weapon_check(const std::filesystem::path& content, const std::filesystem::pa
     const auto tables = game::read_flight_tables(assets.program);
     const game::Weapons weapons(assets.program, tables);
     const game::Autopilot autopilot(assets.program, tables);
+    const game::ShotHits shot_hits(assets.program, tables);
     struct Line {
         Frame frame;
         std::vector<std::uint8_t> objs, shots;
@@ -730,6 +731,7 @@ int weapon_check(const std::filesystem::path& content, const std::filesystem::pa
         s.life = o.s16(0x28);
         s.moved = o.s16(0x24) != 0;
         s.hit = flags & 2;
+        s.ex = o.s32(0x18); s.ey = o.s32(0x1C); s.ez = o.s32(0x20);
         return std::pair{s, (flags & 1) != 0};
     };
     int compared = 0, matched = 0;
@@ -799,6 +801,21 @@ int weapon_check(const std::filesystem::path& content, const std::filesystem::pa
             check(n + "pilot", m.pilot, want.pilot); check(n + "26", m.body.ground_drag, want.body.ground_drag);
             ++compared_here;
         }
+        // The rounds' hit test against record 4 when it is in use (the
+        // practice's lead, `gun1.jsonl`), as the frame starts.
+        std::vector<game::WorldObject> targets;
+        if (now.objs[std::size_t(3 * 0x200 + 1)] & 0x40) {
+            game::WorldObject w;
+            const std::vector<std::uint8_t> bytes = record(now, 3);
+            w.craft = aircraft_from(Frame{0, bytes, now.frame.globals});
+            w.craft.player = false;
+            w.record = 4;
+            w.shape_type = 3; // (the lead's F-16 shape, `$11D0AA`)
+            w.scale = Record{bytes}.u8(0x7D) & 15;
+            w.damage = Record{bytes}.u8(0x3C);
+            targets.push_back(w);
+        }
+        int cannon_hits = 0;
         for (int slot = 0; slot < 10; ++slot) {
             auto [was, was_on] = shot_from(now, slot);
             const auto [want, is_on] = shot_from(next, slot);
@@ -811,11 +828,27 @@ int weapon_check(const std::filesystem::path& content, const std::filesystem::pa
                 // (The spread reads the frame counter as the frame started.)
                 s = weapons.fired(want.kind, player, std::uint16_t(now.frame.number));
             }
-            game::Weapons::fly_shot(s);
+            if (!targets.empty() && !s.hit && shot_hits.test(s, targets, cannon_hits, {player.x, player.y, player.z})) {
+                s.hit = true;
+                s.life = 2;
+            } else {
+                game::Weapons::fly_shot(s);
+            }
             const std::string n = "s" + std::to_string(slot) + ((was_on && was.life >= 1) ? "." : "+");
             check(n + "x", s.x, want.x); check(n + "y", s.y, want.y); check(n + "z", s.z, want.z);
             check(n + "vx", s.vx, want.vx); check(n + "vy", s.vy, want.vy); check(n + "vz", s.vz, want.vz);
             check(n + "life", s.life, want.life); check(n + "hit", s.hit, want.hit);
+            ++compared_here;
+        }
+        if (!targets.empty() && (next.objs[std::size_t(3 * 0x200 + 1)] & 0x40)) {
+            const Record want{record(next, 3)};
+            check("r4damage", targets[0].damage & 15, want.u8(0x3C) & 15);
+            {
+                // The level the drawer took: its model's byte +1 against +$7B.
+                const auto model = shot_hits.drawn_model(targets[0], {player.x, player.y, player.z});
+                check("r4hitbyte", model ? assets.program.u8(model + 1) : 0xFF, Record{record(now, 3)}.u8(0x7B));
+            }
+            if (!(Record{record(now, 3)}.u16(0) & 0x0600)) check("r4crash", targets[0].craft.state & 0x0200, want.u16(0) & 0x0200);
             ++compared_here;
         }
         if (compared_here == 0) continue;
@@ -1291,7 +1324,7 @@ int hit_probe(const std::filesystem::path& content) {
     std::vector<game::WorldObject> bogey;
     for (auto& o : objects) if ((o.craft.type & 0xF0) == 0x10) bogey.push_back(o);
     if (bogey.empty()) return 1;
-    const game::ShotHits hits(assets.program);
+    const game::ShotHits hits(assets.program, tables);
     for (int axis = 0; axis < 3; ++axis) {
         std::string line;
         for (int d = -400; d <= 400; d += 16) {
@@ -1302,7 +1335,7 @@ int hit_probe(const std::filesystem::path& content) {
             s.x -= 0; // (eighths of zero: tested where it stands, eight times)
             auto copy = bogey;
             int n = 0;
-            line += hits.test(s, copy, n) ? '#' : '.';
+            line += hits.test(s, copy, n, {bogey[0].craft.x, bogey[0].craft.y, bogey[0].craft.z - (200 << 8)}) ? '#' : '.';
         }
         std::printf("axis %d: %s\n", axis, line.c_str());
     }

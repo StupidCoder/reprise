@@ -1579,18 +1579,39 @@ eighths of its first move (+$18) and at each is tested (`$11B29A`):
 ships by their hull (`$11B4A8`), others by their hit model (`$11B572`:
 +$7B, the drawn model's byte +1 — high nibble taken off the scale
 nibble, low the entry of `$12DC64`, bit 7 none — a list of faces, three
-point offsets into the turned points each: bit 14 the normal as the cross
-product of the two edges over 16, else as the difference of the second
-and third point; inside when every face's dot with the round's way from
-the first point is at least 0). A hit stops the round there (sparks,
-life 2, `$1075A6`), adds a cannon hit to the log (+$3C) and one to the
-record's damage (+$3C low nibble); the third crashes it (an aircraft
-spins, role 1). The port: the records in record order stand for the
-drawer's list (**hypothesis**: the original's are those drawn this frame,
-nearest last), the nearest detail level's model for +$7B, and the ships'
-hull test as their box (**hypothesis**). Not checked against a recording
-(no rounds hitting a record recorded); `fa_18_interceptor_assets
-hitprobe` shows the bogey's hit volume (about 48 units long, its body).
+point offsets into the record's turned points (+$A4, the drawn model's)
+each: bit 14 the normal as the cross product of the two edges over 16,
+else as the difference of the second and third point; inside when every
+face's dot with the round's way from the first point is at least 0).
+None hit after eight: the whole move (+$C) is taken off again
+(`$11B2EA`) — since the rounds' fall shortens +$C, the round ends $100
+higher per frame of fall than it started. A hit stops the round there
+(sparks, life 2, `$1075A6`), adds a cannon hit to the log (+$3C) and one
+to the record's damage (+$3C low nibble); the third crashes it (an
+aircraft spins, role 1) and leaves the count at 2.
+
+The drawn model is the detail level the drawer takes (`$111D8C`): the
+first level whose threshold (16-unit steps, >> `$13ADA8`) is beyond the
+distance `$13AE30` (by the zoom `$13AD32` / $80). The F-16 (type 3), for
+instance: level 0 (17 points, hit byte $00) below 23, level 1 (10
+points, $21: hit model 1 at one shift less) below 40, then 104 and 384.
+
+Checked (2026-10-29) with the practice's lead (record 4, the F-16 shape)
+standing at a poked place ahead of the player and `$13AB96` poked to 1
+so Return selects the gun (`work/ref/gun1-3.jsonl`, `flightcap.py
+--objs`; scratchpad scripts place the record and fire): 254 units ahead
+(level 0: hits, damage 1, 2, the crash, the explosion, the record gone),
+452 ahead (level 1: hits at its nose, which level 0's model would miss)
+and 254 ahead 30 up (a near miss: no hits). `weaponcheck`: every round,
+hit, damage count and crash, and the port's level against the recorded
++$7B, equal in all 47, 42 and 44 frames. **Hypotheses left:** the
+drawer's distance taken as the length estimate of the place less the
+player's in 16-unit steps (x and z the flat pair), `$13ADA8` 0; the
+records in record order for the drawer's list (records not drawn — out
+of view — are tested too); the ships' hull test as their box. A record
+the port spawns but the original never links into its map is not drawn
+there and cannot be hit (a record poked in by hand was neither drawn nor
+hit).
 
 ### The missions' flow (2026-10-29)
 

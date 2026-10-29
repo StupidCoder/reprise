@@ -1416,7 +1416,7 @@ private:
         }
         weapons_.move_shots(aircraft_, outside_, std::uint16_t(ticks_), sounds_, [&](Shot& shot) {
             int hits = 0;
-            const bool hit = shot_hits_.test(shot, objects_, hits);
+            const bool hit = shot_hits_.test(shot, objects_, hits, {aircraft_.x, aircraft_.y, aircraft_.z});
             pilot_.cannon_hits = std::uint16_t(pilot_.cannon_hits + hits);
             return hit;
         });
@@ -2217,7 +2217,7 @@ private:
     std::uint32_t list_start_ = 0;      // `$13AA2A`
     std::int8_t level_ = 0;             // `$13AB97` (the demo: 0)
     Radar radar_;
-    ShotHits shot_hits_{assets_.program};
+    ShotHits shot_hits_{assets_.program, tables_};
     int destroyed_ = 0;                 // `$13AB9B`: the list's aircraft destroyed
     std::int16_t player_distance_ = 0;  // the player's +$4A (`$1183E2`)
     bool radar_outside_ = false;

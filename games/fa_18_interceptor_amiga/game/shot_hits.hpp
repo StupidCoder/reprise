@@ -16,14 +16,22 @@ namespace interceptor::game {
 
 class ShotHits {
 public:
-    explicit ShotHits(const amiga::LoadedImage& program) : program_(program) {}
+    ShotHits(const amiga::LoadedImage& program, const FlightTables& tables) : program_(program), tables_(tables) {}
 
     // True when the round hit a record (it then stands where it hit).
-    bool test(Shot& shot, std::vector<WorldObject>& objects, int& cannon_hits) const;
+    // `viewer`: where the scene was drawn from (the detail levels go by its
+    // distance).
+    bool test(Shot& shot, std::vector<WorldObject>& objects, int& cannon_hits,
+              const std::array<std::int32_t, 3>& viewer) const;
+    // The model the drawer draws a record with from `viewer` (`$111D8C`:
+    // the first level whose threshold, in 16-unit steps, is beyond the
+    // distance); 0 when none is drawn.
+    std::uint32_t drawn_model(const WorldObject& o, const std::array<std::int32_t, 3>& viewer) const;
 
 private:
-    bool inside(const Shot& shot, const WorldObject& o) const;
+    bool inside(const Shot& shot, const WorldObject& o, std::uint32_t model) const;
     const amiga::LoadedImage& program_;
+    const FlightTables& tables_;
 };
 
 } // namespace interceptor::game

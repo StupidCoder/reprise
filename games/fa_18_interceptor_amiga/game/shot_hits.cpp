@@ -1,5 +1,6 @@
 #include "fa_18_interceptor_amiga/game/shot_hits.hpp"
 #include "fa_18_interceptor_amiga/data/shapes.hpp"
+#include "fa_18_interceptor_amiga/game/attitude.hpp"
 #include <cstdlib>
 
 namespace interceptor::game {
@@ -14,13 +15,36 @@ constexpr i32 large_box = 0x800;               // for models marked $10 at +7
 
 } // namespace
 
-bool ShotHits::inside(const Shot& s, const WorldObject& o) const {
+std::uint32_t ShotHits::drawn_model(const WorldObject& o, const std::array<std::int32_t, 3>& viewer) const {
     const auto& m = program_;
-    const auto shape = data::read_shape(m, o.shape_type);
-    if (!shape.model) return false;
-    // +$7B: the drawn model's byte +1 (the port takes the nearest level's):
-    // the high nibble less of the scale, the low the hit model; bit 7 none.
-    const std::uint8_t hit = m.u8(shape.model + 1);
+    const std::uint32_t record = 0x115F4C + std::uint32_t(o.shape_type) * 20;
+    const std::uint32_t base = m.u32(record + 4);
+    std::uint32_t at = m.u32(record + 8);
+    // The distance in 16-unit steps (`$13AE30` by `$1108C4`; hypothesis:
+    // from the viewer's place, at zoom 1).
+    const auto size = [](std::int32_t d) { return std::uint16_t(std::abs(d) >> 12); };
+    const int distance = length_estimate(tables_, size(o.craft.x - viewer[0]), size(o.craft.z - viewer[2]), size(o.craft.y - viewer[1]));
+    for (int guard = 0; guard < 8; ++guard) {
+        const std::uint16_t w = m.u16(at);
+        if (w & 0x8000) return w == 0xFFFF ? 0 : base + (w & 0xFFF);
+        if ((w & 0x3FFF) > distance) return base + (m.u16(at + ((w & 0x4000) ? 2 : 4)) & 0xFFF);
+        if (w & 0x4000) {
+            at += 6;
+        } else {
+            const std::uint16_t link = m.u16(at + 2);
+            if (link & 0x8000) return 0;
+            at = base + link;
+        }
+    }
+    return 0;
+}
+
+bool ShotHits::inside(const Shot& s, const WorldObject& o, std::uint32_t model) const {
+    const auto& m = program_;
+    if (!model) return false;
+    // +$7B: the drawn model's byte +1: the high nibble less of the scale,
+    // the low the hit model; bit 7 none.
+    const std::uint8_t hit = m.u8(model + 1);
     if (hit & 0x80) return false;
     int shift = (o.scale & 15) - (hit >> 4);
     if (shift < 0) shift = 0;
@@ -28,7 +52,7 @@ bool ShotHits::inside(const Shot& s, const WorldObject& o) const {
     // The model's points turned by the view matrix / 64, products over 256
     // (`$112006`, as the drawer leaves them at +$A4).
     const auto point = [&](int offset) {
-        const std::uint32_t at = shape.model + 10 + std::uint32_t(offset);
+        const std::uint32_t at = model + 10 + std::uint32_t(offset);
         const i32 p[3] = {m.s16(at), m.s16(at + 2), m.s16(at + 4)};
         std::array<i16, 3> out{};
         for (std::size_t r = 0; r < 3; ++r) {
@@ -69,7 +93,8 @@ bool ShotHits::inside(const Shot& s, const WorldObject& o) const {
     return false;
 }
 
-bool ShotHits::test(Shot& s, std::vector<WorldObject>& objects, int& cannon_hits) const {
+bool ShotHits::test(Shot& s, std::vector<WorldObject>& objects, int& cannon_hits,
+                    const std::array<std::int32_t, 3>& viewer) const {
     const auto& m = program_;
     int tested = 0;
     for (auto& o : objects) {
@@ -88,8 +113,10 @@ bool ShotHits::test(Shot& s, std::vector<WorldObject>& objects, int& cannon_hits
             std::abs((a.y >> 8) - (s.y >> 8)) >= box ||
             std::abs(i16(i16((a.z & 0x3FFFFF) >> 8) - i16((s.z & 0x3FFFFF) >> 8))) >= box)
             continue;
-        // Eight eighths of the move ($11B29A); none hit: back where it was.
-        const Shot start = s;
+        const std::uint32_t model = drawn_model(o, viewer);
+        // Eight eighths of the first move ($11B29A); none hit: back by the
+        // whole move (+$C, which the rounds' fall has made shorter than the
+        // eight eighths: `$11B2EA`).
         bool hit = false;
         for (int step = 0; step < 8 && !hit; ++step) {
             s.x += s.ex;
@@ -97,12 +124,12 @@ bool ShotHits::test(Shot& s, std::vector<WorldObject>& objects, int& cannon_hits
             s.z += s.ez;
             // (Ships, marked: `$11B4A8`'s hull test - here their box,
             // hypothesis.)
-            hit = marked || inside(s, o);
+            hit = marked || inside(s, o, model);
         }
         if (!hit) {
-            s.x = start.x;
-            s.y = start.y;
-            s.z = start.z;
+            s.x -= s.vx;
+            s.y -= s.vy;
+            s.z -= s.vz;
             continue;
         }
         if (marked) return true;
