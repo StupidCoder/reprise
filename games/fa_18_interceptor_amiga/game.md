@@ -884,12 +884,41 @@ against `work/ref/out1.png` (front view on runway 1): the same picture but 3
 rows higher — the original's screen carried a leftover shake offset
 (`$13ABC8` = 3; the shakes, `$119AFE`, run only in the cockpit view).
 
+**Sound from outside** (`$104F14`, `$10530E`): only the textegn pair
+(`$109E46`), period $320 − 2t − t/2 − t/4 (t the throttle with the
+turn's share, as in the cockpit), volume a quarter less; events: start
+(period, volume), afterburner on (+$20, $3F), off (+$20, volume),
+catapult (the thump at $3F), boom (+$16, $3F); otherwise the glide
+(`$109EFA`, 32 ticks). The volume (`$105354`, while the camera follows
+the aircraft, `$13AAA5`): by the position folded to 0-4 (4 − |position −
+4|… positions above 4 count as 8 − position): 0 and 1 → v/2 + v/8, 2 →
+v − v/4, 3 → v − v/8, 4 (in front) unchanged; by the distance: 1 → v −
+v/8, 2 → v − v/4, 3 → v/2 + v/8, 4 → v/2; then a quarter less without
+the afterburner, at least 1. Without following (`$13AE32`): v × 32 /
+`$13AE32`, at most $54. The gear sound from outside at volume 5 (10 in
+the cockpit, `$104B08`). A view key asks for the engine's update at once
+(`$13ABA0` = $FF, `$10E52E`), even when the view stays. Checked:
+`work/ref/ov1.jsonl` (outside, front, throttle steps and view keys),
+148 of 149 frames' calls equal (the miss: a key that left the position
+as it was, which the recording cannot show the port).
+
+**The view from above** (key M, `$10ECE0`; `$13AA9D` = 1): the camera
+at the aircraft's x and z at the height `$13AF32` (kept in `$13A954`
+between uses; `[` / `]` step it by $2000000 between $1000000 and
+$8000000 in 32-bit units), looking straight down with the start map's
+matrix, the view down to row $B3 = 179. `$11FD40` draws a grid over it:
+24 lines along z (x from the 16-bit coordinate $F680 in steps of $1C0,
+half a degree of longitude; z from $23E0 to $EF60) and 16 along x (z
+from $FEB0 in steps of $230; x from $1440 to $EA40), colour 8, every
+other line labelled with the panel's number drawer (colour 2): the
+first set 115 on at the line's clipped bottom end (12 left, 5 up), the
+second 34 on at its left end. Checked against `work/ref/above.png`
+(runway 1): equal but for the carrier and the sea's specks.
+
 Below the view (row $A7 = 167, `$13AC74`) colour 3 with "HDG nnn" (three
 digits with zeros, $126AB2: heading (+$68 >> 3) / 10), "nnn KTS", "nnnnn
 FT" on row 184. Not rebuilt: the fly-in states (also the start map's
-descent), the tower view (`$13AA9D`, its height `$13AF32` from $1000000
-to $8000000 by the same keys), the look directions in the cockpit, the
-outside views' sound rules.
+descent), the look directions in the cockpit.
 
 ### The view in the cockpit
 

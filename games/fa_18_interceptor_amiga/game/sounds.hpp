@@ -52,6 +52,12 @@ public:
     void set_active(bool on) { active_ = on; }
     // $13AB79 above 5: the pilot blacking out hears the engine at half volume.
     void set_blackout(bool on) { blackout_ = on; }
+    // The outside view ($13AA75, $13ABA2): the engine heard from outside.
+    void set_view(bool outside, int position, int distance) {
+        outside_ = outside;
+        view_position_ = position;
+        view_distance_ = distance;
+    }
     // The gear key: its sound starts at the next update ($10E98E).
     void gear_moved();
 
@@ -113,6 +119,8 @@ private:
     std::int8_t beep_lock_ = 0;   // $13AB7A: seconds without the warnings' beeps
     std::uint32_t warnings_ = 0;  // $13AE44
     bool blackout_ = false;
+    bool outside_ = false;
+    int view_position_ = 0, view_distance_ = -1;
     bool active_ = true;
 };
 

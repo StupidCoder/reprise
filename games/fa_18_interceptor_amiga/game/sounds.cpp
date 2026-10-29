@@ -35,7 +35,7 @@ void Sounds::update(const Aircraft& a) {
 
     // The gear's sound: started by the key, stopped by the second counter.
     if (gear_seconds_ & 0x80) {
-        gear(10);
+        gear(outside_ ? 5 : 10); // ($104B08)
         gear_seconds_ &= 0x7F;
     } else if (gear_seconds_ == 1) {
         stop_gear();
@@ -87,9 +87,30 @@ void Sounds::update(const Aircraft& a) {
                     throttle = i16(throttle + roll);
                     if (throttle > 120) throttle = 120;
                 }
+                const bool burning = a.motion & flag::afterburner;
+                if (outside_) {
+                    // $104F14: from outside only the textegn pair, its
+                    // pitch a little lower, its volume a quarter less.
+                    volume -= volume >> 2;
+                    constexpr int loud = 0x3F;
+                    const int period = i16(0x320 - 2 * throttle - (throttle >> 1) - (throttle >> 2));
+                    switch (e) {
+                    case EngineSound::start: engine_outside(period, volume); break;
+                    case EngineSound::afterburner_on: engine_outside(period + 0x20, loud); break;
+                    case EngineSound::afterburner_off: engine_outside(period + 0x20, volume); break;
+                    case EngineSound::catapult:
+                        if (thump_) thump(loud);
+                        else engine_outside(period + 0x16, loud);
+                        break;
+                    case EngineSound::boom: engine_outside(period + 0x16, std::min(loud * 2, 0x3F)); break;
+                    default: glide(period, volume, glide_ticks); break;
+                    }
+                    event_ = EngineSound::none;
+                    if (restart_in_ > 0 && --restart_in_ == 0 && !burning) event_ = EngineSound::start;
+                    return;
+                }
                 if (volume < 0x28) volume = 0x28;
                 const int period = i16(0x310 - 2 * throttle - (throttle >> 2));
-                const bool burning = a.motion & flag::afterburner;
                 switch (e) {
                 case EngineSound::start:
                     if (!burning) engine_cockpit(period, volume);
@@ -123,8 +144,22 @@ void Sounds::update(const Aircraft& a) {
 int Sounds::engine_volume(const Aircraft& a, int throttle) const {
     if (throttle == 0) return (a.motion & flag::on_ground) && a.airspeed != 0 ? 12 : 0;
     if (restart_in_ != 0) return 0x3F;
-    const int v = throttle > 8 ? 0x3F - (i16(0x78 - throttle) >> 2) : 0x3C - (i16(0x78 - throttle) >> 1);
-    return blackout_ ? v >> 1 : v; // ($1054A8)
+    int v = throttle > 8 ? 0x3F - (i16(0x78 - throttle) >> 2) : 0x3C - (i16(0x78 - throttle) >> 1);
+    if (!outside_) return blackout_ ? v >> 1 : v; // ($1054A8)
+    // $105354: from outside, quieter by the camera's place (ahead of the
+    // aircraft loudest) and distance, a quarter less without the
+    // afterburner.
+    const auto most = [](int x) { return (x >> 1) + (x >> 3); }; // $1054E6
+    const int side = view_position_ > 4 ? std::max(0, 8 - view_position_) : view_position_;
+    if (side <= 1) v = most(v);
+    else if (side == 2) v -= v >> 2;
+    else if (side == 3) v -= v >> 3;
+    if (view_distance_ == 1) v -= v >> 3;
+    else if (view_distance_ == 2) v -= v >> 2;
+    else if (view_distance_ == 3) v = most(v);
+    else if (view_distance_ == 4) v >>= 1;
+    if (!(a.motion & flag::afterburner)) v -= v >> 2;
+    return v > 0 ? v : 1;
 }
 
 // $105502: the wind's volume from the airspeed.

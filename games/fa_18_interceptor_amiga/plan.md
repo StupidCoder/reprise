@@ -52,16 +52,16 @@ from drawing, and must still respect the passes' model rule).
    contact were rebuilt with the flight. Object collisions and collision
    proximity come with task 7. Open: what landing on water does
    (ditching: a crash here, not traced).
-6. **Other views** — done 2026-10-29 for the outside camera: keypad 0
-   (the original's keypad Enter) toggles it, starting in front of the
-   aircraft; keypad 4 / 6 step round the aircraft, 8 above, 2 behind;
-   Ctrl with = / - the distance (the original's `[` / `]`); the
-   original's offsets, chase and level look-at (checked against the
-   running original), the F/A-18's shape and ground shadow, the HDG /
-   KTS / FT line. Left: the camera's fly-in states (and the start map's
-   descent to the aircraft), the tower view (`$13AA9D`), the cockpit
-   look directions (`$13AA97`), the outside views' sound rules, which
-   shape the F-16 uses.
+6. **Other views** — done 2026-10-29: the outside camera (keypad 0 for
+   the original's keypad Enter, starting in front; keypad 4 / 6 round
+   the aircraft, 8 above, 2 behind; Ctrl with = / - the distance, the
+   original's `[` / `]`) with the original's offsets, chase and level
+   look-at, the F/A-18's shape and shadow, the outside sound rules
+   (checked against a recording), and the view from above with its grid
+   (V for the original's M, which Reprise keeps for mute). Left: the
+   camera's fly-in states (`$13AAA6`, and the start map's descent to the
+   aircraft), the cockpit look directions (`$13AA97`), which shape the
+   F-16 uses.
 7. **Moving objects**: the carrier (free-flight places 4-5, the deck,
    catapult and its thump, arrestor hook), other aircraft, missiles,
    parachutes; their object records and flight paths.

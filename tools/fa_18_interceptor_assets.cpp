@@ -511,6 +511,14 @@ int sound_check(const std::filesystem::path& content, const std::filesystem::pat
         const auto& next = lines[k + 1].frame;
         log.clear();
         const auto g = global(now);
+        {
+            // The view; a view key asks for the engine's update at once
+            // ($10E52E: $13ABA0 = $FF when it was 0).
+            const int view = g.s8(at(0x13AA75));
+            const auto next_g = global(next);
+            sounds.set_view(view != 0, next_g.s8(at(0x13ABA2)), next_g.s8(at(0x13AA75)));
+            if (g.u8(at(0x13ABA2)) != next_g.u8(at(0x13ABA2))) sounds.event(game::EngineSound::update);
+        }
         auto a = aircraft_from(now);
         const auto end = aircraft_from(next);
         bool flying = (g.u16(at(0x13ABBC)) & 0x40) != 0;

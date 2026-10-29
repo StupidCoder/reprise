@@ -33,7 +33,7 @@ constexpr int menu_palette = 0;
 // Keys of the C64-style matrix the host gives (GameInput::c64_keys).
 namespace key {
 constexpr int backspace = 0, return_key = 1, g = 26, b = 28, z = 12, minus = 43, period = 44, comma = 47,
-              equals = 53, tab = 63;
+              equals = 53, tab = 63, v = 31;
 constexpr int digits[10] = {35, 56, 59, 8, 11, 16, 19, 24, 27, 32}; // 0 .. 9
 // The characters of the matrix's keys, for the call sign (0: none).
 constexpr char characters[64] = {
@@ -179,8 +179,11 @@ public:
                 self.position = {mix(before_.x, aircraft_.x) / 256.0, mix(before_.y, aircraft_.y) / 256.0,
                                  mix(before_.z, aircraft_.z) / 256.0};
                 self.body = aircraft_.body;
-                scene_.draw(frame, width / 2 - 1, outside_bottom, outside_camera(t), {self});
-                cockpit_.draw_outside(frame, margin_, readings);
+                const int bottom = above_ ? 0xB3 : outside_bottom; // ($13AC74)
+                const auto view = outside_camera(t);
+                scene_.draw(frame, width / 2 - 1, bottom, view, {self});
+                if (above_) grid(frame, view, width / 2 - 1, bottom);
+                cockpit_.draw_outside(frame, margin_, readings, bottom + 1);
                 return to_image(frame, image, *palette);
             }
             scene_.draw(frame, width / 2 - 1, Cockpit::view_bottom, camera(before_, aircraft_, t));
@@ -457,7 +460,16 @@ private:
             was = now;
             return pressed;
         };
+        if (edge(input.c64_keys[key::v], v_was_)) {
+            // $10ECE0 (the original's M): the view from straight above the
+            // aircraft at the height `$13AF32` (kept between uses, $13A954),
+            // or back to the outside camera.
+            above_ = !above_;
+            outside_ = true;
+            chase_set_ = false;
+        }
         if (edge(input.fire2, pad_was_[0])) {
+            above_ = false;
             // $10E3B8 / $1041E8: the outside view starts in front of the
             // aircraft ($13ABA2 = 4) at the nearest distance ($13AA75 = -1).
             outside_ = !outside_;
@@ -469,16 +481,27 @@ private:
         }
         const bool left = edge(input.left2, pad_was_[1]), right = edge(input.right2, pad_was_[2]);
         const bool up = edge(input.up2, pad_was_[3]), down = edge(input.down2, pad_was_[4]);
-        const bool nearer = edge(input.ctrl_keys[key::equals], pad_was_[5]);
-        const bool farther = edge(input.ctrl_keys[key::minus], pad_was_[6]);
+        bool nearer = edge(input.ctrl_keys[key::equals], pad_was_[5]);
+        bool farther = edge(input.ctrl_keys[key::minus], pad_was_[6]);
+        sounds_.set_view(outside_, position_, distance_);
         if (!outside_) return;
         if (left) position_ = position_ >= 8 ? 1 : (position_ + 1) % 8;
         if (right) position_ = position_ >= 8 ? 7 : (position_ + 7) % 8;
         if (up) position_ = 8;
         if (down) position_ = 0;
+        if (above_) {
+            // $10E582 / $10E608: the height in steps of $2000000 (32-bit).
+            if (nearer) above_height_ = std::max(above_height_ - 0x2000000 / 256.0, 0x1000000 / 256.0);
+            if (farther) above_height_ = std::min(above_height_ + 0x2000000 / 256.0, 0x8000000 / 256.0);
+            nearer = farther = false;
+        }
         // $10E5AE / $10E634: the distances -1, 1, 2, 3, 4.
         if (nearer) distance_ = distance_ <= 1 ? -1 : distance_ - 1;
         if (farther) distance_ = distance_ < 0 ? 1 : std::min(4, distance_ + 1);
+        sounds_.set_view(outside_, position_, distance_);
+        // ($10E52E, $10E5BA: a view key asks for the engine's update now,
+        // even when the view stays the same.)
+        if (left || right || up || down || nearer || farther) sounds_.event(EngineSound::update);
     }
 
     // $11D8F2 / $11DD2C: the outside camera's place: the offset of its
@@ -514,9 +537,91 @@ private:
         for (std::size_t i = 0; i < 3; ++i) chase_[i] += (target[i] - chase_[i]) / 2;
     }
 
-    // The outside camera looks at the aircraft, level.
+    // $11FD40: the view from above carries a grid of half degrees: 24
+    // lines along z (x from the 16-bit coordinate $F680 in steps of $1C0,
+    // from z $23E0 to $EF60) and 16 along x (z from $FEB0 in steps of $230,
+    // x $1440 to $EA40), colour 8, every other one labelled (115 on, 34
+    // on) with the panel's number drawer at its clipped end (the bottom
+    // end of the first set, the left of the second).
+    void grid(IndexedImage& frame, const Camera& view, int centre, int bottom) const {
+        const auto project = [&](double x, double z) {
+            const double dx = x - view.position[0], dy = -view.position[1], dz = z - view.position[2];
+            const auto& m = view.matrix;
+            const double xc = m[0] * dx + m[1] * dy + m[2] * dz, yc = m[3] * dx + m[4] * dy + m[5] * dz,
+                         zc = m[6] * dx + m[7] * dy + m[8] * dz;
+            return std::array<double, 2>{centre - 160 * xc / zc, 90 - 90 * yc / zc};
+        };
+        // A line clipped to the view (Liang-Barsky); its ends, if any.
+        const auto clipped = [&](std::array<double, 2> a, std::array<double, 2> b)
+            -> std::optional<std::array<std::array<double, 2>, 2>> {
+            double t0 = 0, t1 = 1;
+            const double dx = b[0] - a[0], dy = b[1] - a[1];
+            const double p[4] = {-dx, dx, -dy, dy};
+            const double q[4] = {a[0], frame.width - 1 - a[0], a[1], bottom - a[1]};
+            for (int i = 0; i < 4; ++i) {
+                if (p[i] == 0) {
+                    if (q[i] < 0) return std::nullopt;
+                    continue;
+                }
+                const double r = q[i] / p[i];
+                if (p[i] < 0) t0 = std::max(t0, r);
+                else t1 = std::min(t1, r);
+                if (t0 > t1) return std::nullopt;
+            }
+            return std::array<std::array<double, 2>, 2>{{{a[0] + t0 * dx, a[1] + t0 * dy}, {a[0] + t1 * dx, a[1] + t1 * dy}}};
+        };
+        const auto draw = [&](std::array<std::array<double, 2>, 2> e) {
+            const int steps = int(std::max(std::abs(e[1][0] - e[0][0]), std::abs(e[1][1] - e[0][1]))) + 1;
+            for (int i = 0; i <= steps; ++i)
+                frame.put(int(e[0][0] + (e[1][0] - e[0][0]) * i / steps), int(e[0][1] + (e[1][1] - e[0][1]) * i / steps), 8);
+        };
+        const auto label = [&](int value, int x, int y) {
+            const auto t = std::to_string(value);
+            int left = (x & ~3) + 8; // ($127640: 4-pixel steps, 8 on)
+            for (char c : t) {
+                const auto* glyph = assets_.small_font.glyph(c);
+                if (glyph)
+                    for (int r = 0; r < assets_.small_font.rows && r < int(glyph->size()); ++r)
+                        for (int b = 0; b < 4; ++b)
+                            if ((*glyph)[std::size_t(r)] & (0x80 >> b)) frame.put(left + b, y + r, 2);
+                left += 4;
+            }
+        };
+        const auto world = [](int word) { return double(std::int16_t(word)) * 256; };
+        int value = 0x73;
+        for (int count = 24, i = 0; count > 0; --count, ++i) {
+            const double x = world(0xF680 + 0x1C0 * i);
+            const auto e = clipped(project(x, world(0x23E0)), project(x, world(0xEF60)));
+            if (e) {
+                draw(*e);
+                const int lx = std::min(int((*e)[1][0]) - 12, 0x12C), ly = int((*e)[1][1]) - 5;
+                if ((count & 1) && ly >= 8 && lx >= 8) label(value, lx, ly);
+            }
+            if (count & 1) ++value;
+        }
+        value = 0x22;
+        for (int count = 16, i = 0; count > 0; --count, ++i) {
+            const double z = world(0xFEB0 + 0x230 * i);
+            const auto e = clipped(project(world(0x1440), z), project(world(0xEA40), z));
+            if (e) {
+                draw(*e);
+                const int lx = std::max(int((*e)[0][0]), 0), ly = std::clamp(int((*e)[0][1]) - 1, 4, 0xAF);
+                if (count & 1) label(value, lx, ly);
+            }
+            if (count & 1) ++value;
+        }
+    }
+
+    // The outside camera looks at the aircraft, level; from above it looks
+    // straight down like the start map.
     Camera outside_camera(double t) const {
         Camera c;
+        if (above_) {
+            c.position = {(before_.x + (aircraft_.x - before_.x) * t) / 256.0, above_height_,
+                          (before_.z + (aircraft_.z - before_.z) * t) / 256.0};
+            c.matrix = {0xA8 / 256.0, 0, 0, 0, 0, 0xFC / 256.0, 0, -0x80 / 256.0, 0};
+            return c;
+        }
         for (std::size_t i = 0; i < 3; ++i) c.position[i] = chase_was_[i] + (chase_[i] - chase_was_[i]) * t;
         const double ax = (before_.x + (aircraft_.x - before_.x) * t) / 256.0;
         const double ay = (before_.y + (aircraft_.y - before_.y) * t) / 256.0;
@@ -585,6 +690,8 @@ private:
     std::array<double, 3> chase_{}, chase_was_{};
     bool chase_set_ = false;
     std::array<bool, 7> pad_was_{};
+    bool above_ = false, v_was_ = false;      // $13AA9D: the view from above
+    double above_height_ = 0x3000000 / 256.0; // $13AF32 / $13A954
     static constexpr int outside_bottom = 0xA7;
     Phase phase_ = Phase::flying;
     bool flying_ = true;          // $13ABBC bit 6: the flight runs
