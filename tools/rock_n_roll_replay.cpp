@@ -97,7 +97,9 @@ std::vector<Row> read_recording(const std::string& path, bool& loop_left, std::v
                                 name == "drained" || name == "latch" || name == "frozen" || name == "done" ||
                                 name == "pending" || name == "crumblecount" || name.rfind("ac", 0) == 0 || name == "blkcount" || name == "blkdir" ||
                                 name == "blkvalue" || name == "warpflag" ||
-                                name == "snddelay" || name == "sndquiet" || name == "bridgelatch"
+                                name == "snddelay" || name == "sndquiet" || name == "bridgelatch" ||
+                                name == "pot" || name == "cia" || name == "item" || name == "itemlatch" ||
+                                name == "repairarm" || name == "bombtime" || name == "mapdepth" || name == "shownenergy"
                             ? std::int64_t(v)
                             : std::int64_t(std::int32_t(std::uint32_t(v)));
         }
@@ -250,7 +252,9 @@ int compare(const game::Ball& b, const Row& r, bool all, std::int64_t update) {
                               {"shopspot", b.shop_spot}, {"carried", b.carried}, {"maxvx", b.max_speed_x},
                               {"minvx", b.min_speed_x}};
         for (const auto& f : more) {
-            if (r.at(f.name) != f.native) {
+            // The ball flags are bytes in the logged words' high half ($719E8, $719EA): compare set or not.
+            const bool flag = std::string(f.name) == "iceproof" || std::string(f.name) == "protect";
+            if (flag ? (r.at(f.name) != 0) != (f.native != 0) : r.at(f.name) != f.native) {
                 std::printf("update %lld: %s native %llx original %llx\n", (long long)update, f.name,
                             (unsigned long long)(std::uint32_t)f.native, (unsigned long long)(std::uint32_t)r.at(f.name));
                 ++differing_saved;
@@ -335,6 +339,26 @@ void save_wav16(const std::filesystem::path& file, std::span<const float> stereo
     platform::write_file(file, wav);
 }
 
+// The items, when the recording logs them.
+int compare_items(const game::Ball& b, const game::Pocket& p, const game::Items& items, const Row& r, std::int64_t update) {
+    if (!r.count("item")) return 0;
+    int differing = 0;
+    const auto check = [&](const char* name, std::int64_t native) {
+        if (r.at(name) == native) return;
+        std::printf("update %lld: %s native %llx original %llx\n", (long long)update, name, (unsigned long long)native,
+                    (unsigned long long)r.at(name));
+        ++differing;
+    };
+    check("item", items.selected);
+    check("itemlatch", items.right_latch ? 1 : 0);
+    check("repairarm", b.repair_armed ? 1 : 0);
+    check("bombtime", b.bomb_timer);
+    if (b.bomb_timer != 0 || r.at("bombtime") != 0) check("bombcell", b.bomb_cell + 0x73BA8);
+    check("mapdepth", p.map_depth);
+    check("shownenergy", p.shown_energy);
+    return differing;
+}
+
 // The block's slide state, when the recording logs it.
 int compare_block(const game::LevelMap& map, const Row& r, std::int64_t update) {
     if (!r.count("blkcount")) return 0;
@@ -401,6 +425,7 @@ int main(int argc, char** argv) {
             }
             game::Ball ball;
             game::Pocket pocket;
+            game::Items items;
             int bad_updates = 0;
             std::size_t checked = 0;
             for (std::size_t k = 0; k < recordings.size() && bad_updates == 0; ++k) {
@@ -412,12 +437,24 @@ int main(int argc, char** argv) {
                 if (rows.size() < 2) throw std::runtime_error("A recording has fewer than two updates.");
                 if (k == 0) {
                     ball = ball_from(rows.front());
+                    ball.clock.limit = map.time_limit; // (rows do not log it)
                     pocket = pocket_from(rows.front());
                     if (rows.front().count("acur")) { // the animations as the original had them
                         map.animation.set_cursor(int(rows.front().at("acur")));
                         for (int i = 0; i < game::TileAnimator::slots; ++i)
                             map.animation.set_slot_counter(i, std::uint16_t(rows.front().at("ac" + std::to_string(i))));
                         map.animation.show_all(map.tiles);
+                    }
+                    if (rows.front().count("item")) { // the items as the original had them
+                        const auto& r = rows.front();
+                        items.selected = int(r.at("item"));
+                        items.right_latch = r.at("itemlatch") & 1;
+                        ball.repair_armed = r.at("repairarm") & 1;
+                        ball.bomb_timer = int(r.at("bombtime"));
+                        ball.bomb_spot = r.at("bombspot") ? long(r.at("bombspot")) - 0x73BA8 : -1;
+                        ball.bomb_cell = r.at("bombcell") ? long(r.at("bombcell")) - 0x73BA8 : -1;
+                        pocket.map_depth = int(r.at("mapdepth"));
+                        pocket.shown_energy = int(r.at("shownenergy"));
                     }
                     if (rows.front().count("snddelay")) { // the sound state as the original had it
                         const auto& r = rows.front();
@@ -462,11 +499,22 @@ int main(int argc, char** argv) {
                 for (std::size_t n = 0; n + 1 < rows.size(); ++n) {
                     for (const auto& poke : pokes) {
                         if (poke.after_row != rows[n].at("update")) continue;
-                        if (poke.address == 0x719C2) pocket.money = int(poke.value); // the money
+                        if (poke.address == 0x719C2) pocket.money = int(poke.value);            // the money
+                        else if (poke.address == 0x719C6) pocket.repair_sets = int(poke.value); // repair sets
+                        else if (poke.address == 0x71A1C) pocket.bombs = int(poke.value);       // bombs
+                        else if (poke.address == 0x719B2) pocket.rescues = int(poke.value);     // rescues (hourglasses)
+                        else if (poke.address == 0x719EA) ball.protective = poke.value != 0;    // the protective flag only
+                        else if (poke.address == 0x6D87E) map.reward_count = std::uint16_t(poke.value); // the reward countdown
+                        else if (poke.address == 0x6F45A) pocket.energy = int(poke.value);       // the energy
+                        else if (poke.address == 0x719CA) ball.clock.seconds = int(poke.value & 0xFFFF); // the clock's seconds
                         else throw std::runtime_error("The recording pokes an address the replay does not know.");
                     }
                     const auto joy = std::uint16_t(rows[n].at("joy"));
                     game::update_ball(ball, pocket, map, world, {std::uint8_t(joy & 0xFF), std::uint8_t(joy >> 8)});
+                    if (rows[n].count("pot")) { // $68A02 at the update's end, with the buttons the recorder gave it
+                        const bool left = !(rows[n].at("cia") & 0x40), right = !(rows[n].at("pot") & 0x0400);
+                        game::use_items(ball, pocket, map, items, left, right);
+                    }
                     ++checked;
                     int sound_differences = 0;
                     if (has_sounds) { // the sound effects asked for in this update, in order
@@ -486,7 +534,8 @@ int main(int argc, char** argv) {
                             compare(ball, rows[n + 1], all, rows[n].at("update")) +
                             compare_pocket(pocket, rows[n + 1], rows[n].at("update")) +
                             compare_animation(map.animation, rows[n + 1], rows[n].at("update")) +
-                            compare_block(map, rows[n + 1], rows[n].at("update")) > 0) {
+                            compare_block(map, rows[n + 1], rows[n].at("update")) +
+                            compare_items(ball, pocket, items, rows[n + 1], rows[n].at("update")) > 0) {
                         ++bad_updates;
                         if (!all) break;
                     }
@@ -497,7 +546,10 @@ int main(int argc, char** argv) {
                     const auto joy = std::uint16_t(rows.back().at("joy"));
                     game::update_ball(ball, pocket, map, world, {std::uint8_t(joy & 0xFF), std::uint8_t(joy >> 8)});
                     ++checked;
-                    if (!left_loop()) {
+                    // A reward or hint notice ($6D8CE, $69DFA) waits for the
+                    // button in the middle of the update: the recorder sees
+                    // the loop stop there too.
+                    if (!left_loop() && !ball.reward_due && !ball.hint_bought) {
                         std::printf("update %lld: the original left the level loop, the native ball is not lost\n",
                                     (long long)rows.back().at("update"));
                         ++bad_updates;
@@ -541,10 +593,14 @@ int main(int argc, char** argv) {
             map.animation = game::TileAnimator(assets.program); // counters from 0 (recordings do not log them)
             map.animation.set_world(level.world);
             game::Ball ball = game::Ball::at_start(map);
-            ball.camera_x = game::Fixed(std::stoi(argv[4]) - 7) << 16;
-            ball.camera_y = game::Fixed(std::stoi(argv[5]) - 3) << 16;
-            ball.view_x = 0x90000;
-            ball.view_y = 0x30000;
+            // Near the map's top or left edge the camera stops at 0 and the
+            // ball moves in the view instead.
+            const int column = std::stoi(argv[4]), row = std::stoi(argv[5]);
+            const int cx = std::max(column - 7, 0), cy = std::max(row - 3, 0);
+            ball.camera_x = game::Fixed(cx) << 16;
+            ball.camera_y = game::Fixed(cy) << 16;
+            ball.view_x = game::Fixed(column + 2 - cx) << 16;
+            ball.view_y = game::Fixed(row - cy) << 16;
             game::Pocket pocket;
             const int updates = std::stoi(argv[6]);
             struct Step { int a, b, dx, dy; };
@@ -565,10 +621,11 @@ int main(int argc, char** argv) {
                 // The ball's top-left in map pixels (the cell under it is
                 // two columns left of camera + view).
                 const auto px = [](game::Fixed c, game::Fixed v) { return double(c + v) / 4096.0; };
-                std::printf("%3d x %7.2f y %7.2f vx %6x vy %6x contact %d,%d centre %d mode %d\n", n,
+                std::printf("%3d x %7.2f y %7.2f vx %6x vy %6x contact %d,%d centre %d mode %d block %d/%d\n", n,
                             px(ball.camera_x, ball.view_x) - 32, px(ball.camera_y, ball.view_y),
                             unsigned(ball.speed_x) & 0xFFFFFF, unsigned(ball.speed_y) & 0xFFFFFF,
-                            ball.contact_rows, ball.contact_columns, ball.centre_cell, int(ball.mode));
+                            ball.contact_rows, ball.contact_columns, ball.centre_cell, int(ball.mode),
+                            map.block.direction, map.block.count);
             }
             return 0;
         }
@@ -651,7 +708,8 @@ int main(int argc, char** argv) {
             // module headless with mouse moves, buttons and held keys
             // (GameInput::c64_keys index N) per update, saving pictures after
             // update N and placing the ball before update N (hex 16.16 values,
-            // as a recording's first row: camera, view, speed).
+            // as a recording's first row: camera, view, speed)
+            // [@N:money=HEX …] (the pocket's money before update N).
             auto game = game::start(platform::utf8_path(argv[2]));
             const int updates = std::stoi(argv[3]);
             struct Step { int a, b, dx, dy; bool l, r, f; int key; };
@@ -660,6 +718,7 @@ int main(int argc, char** argv) {
             std::string wav_out; // wav=FILE: the module's audio, 48 kHz stereo
             struct Place { int at; std::uint32_t v[6]; };
             std::vector<Place> places;
+            std::vector<std::pair<int, int>> money;
             for (int i = 5; i < argc; ++i) {
                 Step st{};
                 st.key = -1;
@@ -673,6 +732,10 @@ int main(int argc, char** argv) {
                 if (std::sscanf(argv[i], "@%d:place=%x,%x,%x,%x,%x,%x", &pl.at, &pl.v[0], &pl.v[1], &pl.v[2], &pl.v[3], &pl.v[4],
                                 &pl.v[5]) == 7) {
                     places.push_back(pl);
+                    continue;
+                }
+                if (unsigned m = 0; std::sscanf(argv[i], "@%d:money=%x", &st.a, &m) == 2) {
+                    money.emplace_back(st.a, int(m));
                     continue;
                 }
                 if (std::sscanf(argv[i], "@%d=%511s", &st.a, shot) == 2) {
@@ -712,6 +775,8 @@ int main(int argc, char** argv) {
                     if (pl.at == n && !game::place_ball(*game, std::int32_t(pl.v[0]), std::int32_t(pl.v[1]), std::int32_t(pl.v[2]),
                                                         std::int32_t(pl.v[3]), std::int32_t(pl.v[4]), std::int32_t(pl.v[5])))
                         std::fprintf(stderr, "update %d: no level to place the ball in\n", n);
+                for (const auto& [at, m] : money)
+                    if (at == n && !game::set_money(*game, m)) std::fprintf(stderr, "update %d: no level for the money\n", n);
                 game->tick(input);
                 if (!wav_out.empty()) {
                     std::vector<float> frame(960 * 2);

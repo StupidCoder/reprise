@@ -212,6 +212,7 @@ void play(Ball& b, int sound) { b.sounds.push_back(sound); }
 
 void start_fall(Ball& b, int cell) {
     b.fall_cell = cell;
+    b.rescue_chosen = true; // $6CA2A: the item choice becomes the rescue
     if (b.level_done) { // $6CB40: into the exit
         b.sound_delay = 0;
         play(b, 0x18);
@@ -420,7 +421,7 @@ void step_on(Ball& b, Pocket&, LevelMap& map, long index, std::uint8_t next) {
                 const auto& list = map.crumble_switched ? map.crumble_list_switched : map.crumble_list;
                 apply_changes(map, list);
                 map.crumble_count = 0xFFFF;
-                if (list.empty()) b.reward_due = true; // $6D8CE when the list is empty
+                if (list.empty()) b.reward_due = true, b.notice_sound_at = b.sounds.size(); // $6D8CE when the list is empty
             }
         }
     }
@@ -676,7 +677,7 @@ void apply_cell(Ball& b, Pocket& pocket, LevelMap& map, long index, std::uint8_t
         if (!pay(b, pocket, map.cell(index + 1))) return;
         close_shop(map, index);
         if (v == 0x47) ++pocket.continues;
-        else b.hint_bought = true;
+        else b.hint_bought = true, b.notice_sound_at = b.sounds.size();
     } else if (v == 0x46) { // hourglass shop ($6E102)
         if (!centre || !pay(b, pocket, map.cell(index + 1))) return;
         close_shop(map, index);
@@ -724,11 +725,12 @@ void apply_cell(Ball& b, Pocket& pocket, LevelMap& map, long index, std::uint8_t
         }
     } else if (v == 0x24) { // $6D880: smashed, counts toward the reward
         if (centre && map.reward_count != 0xFFFF) {
-            play(b, 0x0B); // $6D876/$6D8C4
             if (--map.reward_count == 0) {
                 b.reward_due = true;
+                b.notice_sound_at = b.sounds.size(); // the reward comes before the sound
                 map.reward_count = 0x1FFF;
             }
+            play(b, 0x0B); // $6D8C4
             map.left_behind = 0x25;
             map.clear(index);
         }
@@ -1087,6 +1089,7 @@ void tick_bomb(Ball& b, LevelMap& map) {
         each([&](long index, int) { map.set(index, 0xDA); });
         play(b, 0x0D); // $6BFA4
         map.animation.set_counter(0xDA, 0x800); // $6BFE6: the flames' animation from its burning frames
+        map.animation.set_cursor(0);            // $6BFEC: and the animations' turn back to the first slot
     }
     if (b.bomb_timer == 0) each([&](long index, int k) { map.set(index, map.after_bomb[std::size_t(k)]); });
 }
@@ -1160,6 +1163,10 @@ void continue_after_fall(Ball& b) {
 }
 
 ItemUse use_items(Ball& b, Pocket& pocket, LevelMap& map, Items& items, bool left, bool right) {
+    if (b.rescue_chosen) { // set during the update, before this end of it
+        items.selected = 10;
+        b.rescue_chosen = false;
+    }
     if (right) { // held: nothing else this update ($6B54A)
         if (!items.right_latch) {
             items.right_latch = true;
@@ -1196,8 +1203,8 @@ ItemUse use_items(Ball& b, Pocket& pocket, LevelMap& map, Items& items, bool lef
         break;
     case 10: // $6B5BC: in the first 40 updates of a fall
         if (b.fall_updates != 0 && b.fall_updates <= 40 && pocket.rescues != 0) { // (a falling ball counts them)
-            b.mode = BallMode::rescued;
-            b.rescue_updates = 0;
+            b.mode = BallMode::rescued; // (the rescue's counter goes on: entering again does not restart it)
+            play(b, 0x02); // $6B5FE
         }
         break;
     default:

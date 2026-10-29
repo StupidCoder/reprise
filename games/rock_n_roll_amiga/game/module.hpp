@@ -21,5 +21,8 @@ std::unique_ptr<app::GameModule> start(const std::filesystem::path& content);
 // not in a level.
 bool place_ball(app::GameModule&, std::int32_t camera_x, std::int32_t camera_y, std::int32_t view_x, std::int32_t view_y,
                 std::int32_t speed_x, std::int32_t speed_y);
+// Research and tests only: the money in the pocket (the recorder's poke of
+// $719C2). False when the game is not in a level.
+bool set_money(app::GameModule&, int money);
 
 } // namespace rocknroll::game

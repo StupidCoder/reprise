@@ -414,10 +414,11 @@ friction +400 a frame) and rec3.
   - The picture is `$30D50` + ((counter >> 2) & $FE) while that is ≤ 14.
     After that, friction 400, contact on, and the ball is lost (`$6FDEA`).
 - **Fall start** (`$6CA26`): the speed is pushed out of the cell it fell
-  from (bit $2000 set on the size, with signs by cell 1–4). The timer
-  `$6B4F4` = 10.
-- **Rescued** (`$6C488`): masks from `$32650`, one every 8 updates, then
-  back to the continue point.
+  from (bit $2000 set on the size, with signs by cell 1–4). The item
+  choice `$6B4F4` := 10 (`$6CA2A`), so the left button rescues at once.
+- **Rescued** (`$6C488`, sound 2 at `$6B5FE`): masks from `$32650`, one
+  every 8 updates, then back to the continue point. The mask counter
+  `$6C486` is cleared when a rescue ends, not when one starts.
 - **Energy out** (`$6C3CC`): the fall, with masks from `$34BD0` (the ball
   dissolves).
 
@@ -559,7 +560,14 @@ the drawing.
   - $45: a hint (`$69DFA`, after `$6B8E6`);
   - $46: an hourglass, `$719B2` + 1 up to 9, centre only (the rescue item's
     count);
-  - $47: an extra ball (`$719B6` + 1).
+  - $47: one more continue (`$719B6` + 1).
+- *Checked:* the ice-proof ball (ice2, level 2: 300 coins at $35), four
+  speed purchases in a row up to $400 (speed3, level 3: 100 coins each),
+  a $47 continue in level 8's flame room (xball8: 900 coins, with a flame
+  drain of $C0 before it), the protective ball (protect1, level 3) and a
+  hint (hint11, level 11). Hint shops are at level 11 (63,31), 18 (1,67),
+  20 (1,68), 24 (64,47), 29 (48,24) and 30 (61,22); level 8's list has
+  no shop.
 - **Bought balls** last $800 updates (`$6F45C`, the panel's extra bar).
   - `$6B166`, first in each update, counts `$6F4FC` down. When (time − 1)
     reaches 0, the state goes back to normal (the time stays 1).
@@ -587,7 +595,11 @@ the drawing.
     the count := $1FFF, with the cell kept;
   - otherwise the cell := $25.
 - **$24** (`$6D880`): the count − 1. At 0, the reward `$6D8CE` (a per-level
-  routine, table `$78008`) and the count := $1FFF. The cell := $25 always.
+  routine, table `$78008`) and the count := $1FFF. The cell := $25 always,
+  and sound $B follows.
+  - The reward runs in the middle of the update. Its message waits for the
+    button, and only then does the update go on (sound $B, the rest of the
+    rules).
 - **Other counters:** repair sets placed on $14, and blocks that sink into
   $14 (`$6B470`; the hints call blocks "small balls"), also count `$6D80E`
   down.
@@ -628,8 +640,16 @@ the drawing.
 - **In the view** (rewards, the warp): the view is cleared (`$6B8E6`) and
   the program waits for the left button's release. Then sound $18, and the
   texts of a 0-ended pointer list.
-- **The wait** (`$6AB46`), as on the results: colours 1–7 $EE0, colour 1
-  flashing, until a press, then the release.
+- **The wait** (`$6AB46`), as on the results: the channels stop
+  (`$70A32`), then after the release colours 1–7 $EE0 and colour 1
+  flashing (`$6B9F4`) until a press, then the release.
+  - `$6B9F4` asks for sounds $18 and $17 and stops the channels at once.
+    They are not heard, but they set the player's effect priority and
+    time. The overview map's wait (`$6B768`) does the same.
+- *Checked:* reward1 (level 25, a full-energy reward from the last $24
+  cell) logs sounds 5, $18, $18, $17 before the wait; the capture's
+  message matches the port's. hint11 (level 11) logs $12 (the purchase),
+  $18, $18, $17; the hint screen's text and layout match the port's.
 - **Hints** (`$69DFA`, bought at a $45 shop): only in the levels numbered
   8, 11, 18, 20, 24, 29 and 30 (lists `$69AE6`, `$69B1A`, `$69B4E`,
   `$69B82`, `$69BB6`, `$69BEA`, `$69C1E`). Each tells how to reach that
@@ -711,6 +731,9 @@ the drawing.
   - "OUT OF TIME" (1, 5) is shown in the cleared view for 15 delays
     (`$6ABB2`, about 1.4 s), and the music stops.
   - Then comes a restart, with no prompt.
+  - *Checked:* time4 (level 4, limit 150 s, the seconds poked to 148): the
+    seconds reach the limit in update 95 with the ball still, and the ball
+    is lost in the same update.
 - **Set-up** (`$6C778`): step 2, the limit from +$1C6, the hourglass text
   from +$1C0, and `$6EC9C` from +$1DC.
 
@@ -739,6 +762,8 @@ the drawing.
   - `$6BE8A`: at 90, 80, 60 and 30, the 3 × 3 cells become $DA (flames) and
     `$7164C` := $800.
   - At 0, the cells take the header's 9 bytes from +$1CA.
+  - Each time the flames start, the animations' cursor goes back to the
+    first slot (`$6BFEC`).
 
 ### The overview map (item 2, `$6B67E`)
 
@@ -832,6 +857,10 @@ the drawing.
   - block2: the second block sinks and the secret warp follows on the same
     update, 47 updates;
   - block3: a slide with the whole map compared at the end, 89 updates.
+- *Checked* in level 21 (code 210099300012): block4, a block sinking into
+  $21 (149 updates), and block5, a vertical push that is blocked (119
+  updates). In level 28 (code 280099910082): block6, a block pushed up
+  into $24 and sliding (direction 1, 79 updates, end map equal).
 
 ## After a lost ball (`$6BB86`)
 
@@ -1204,10 +1233,10 @@ the drawing.
   | --- | --- |
   | 0 | a bounce |
   | 1 | a fall starts |
-  | 2 | giving up |
+  | 2 | a rescue starts (`$6B5FE`) |
   | 3 | a key, a find or a map piece |
   | 4 | a lock opens |
-  | 5 | a coin, a reward |
+  | 5 | a coin, a reward (before its message) |
   | 6 | into the exit (after $18) |
   | 8 | a wall breaks |
   | 9 | a teleport |
@@ -1223,7 +1252,7 @@ the drawing.
   | $13 | the bomb item used |
   | $15/$17 | bridge ends, alternating |
   | $17 $16 | a bridge ride starts |
-  | $18 | after a delay (`$68AE6`: 50 after a lock, 40 after a gate's hit, 30 after an energy loss; counted at `$68AEA`); also at notices and the exit |
+  | $18 | after a delay (`$68AE6`: 50 after a lock, 40 after a gate's hit, 30 after an energy loss; counted at `$68AEA`); also at notices, at the start of every button wait (with $17, `$6B9F4`) and the exit |
 
 - **The bridge latch** (`$6D130`): set by the ride's start sounds, and
   cleared by any end piece among the four cells under the ball (before the
@@ -1308,14 +1337,29 @@ The port keeps these, because they are part of how the game plays:
   - `play.py tolevel NAME` goes from the title through name entry.
   - `play.py tocode CODE` starts the level a code gives. It enters the
     name RAINBOW ARTS, then the twelve digits; for level 7 the code is
-    070000070070.
+    070000070070. Any level's: digits 1–2 the level, 11–12 the same two
+    reversed, 5–8 summing to the level (11: 110000290011, 28:
+    280099910082).
+  - `play.py start [DX]` moves the mouse by DX (default −3) until the
+    clock runs. Where the start is near an edge, use a small DX (1).
 - **The input patch** (research only): the game's absolute reads of JOY0DAT,
   POTGOR and CIA-A PRA (37 instructions) are pointed at `$7C100`/`$7C102`/
   `$7C105`. Keys are poked into `$70BD8`.
 - **Recordings:** `play.py record N 'a-b:dx,dy[,l|r] …' OUT [COL,ROW]
   [N:ADDR=HEX]` stops at each loop top, moves the mouse counters and logs
   the state.
-  - COL,ROW places the ball first. A poke can follow, such as money.
+  - COL,ROW places the ball first, with COL,ROW its top-left cell (the
+    camera stops at 0 near the edges). Pokes can follow: the money
+    `$719C2`, repair sets `$719C6`, bombs `$71A1C`, hourglasses `$719B2`,
+    the protective flag `$719EA`, the reward countdown `$6D87E`, the energy
+    `$6F45A` and the seconds `$719CA`; the replay applies the same.
+  - A run that stops in a notice (a reward, a hint) ends with "loop left";
+    the replay accepts it when the native update asked for one.
+  - The recorder removes an earlier attempt's `.endmap`: a run that stops
+    early writes none.
+  - Once, a long run of sound $11 (959 steps of the energy bar in one
+    update) logged 962 calls: the stub seems to report a breakpoint again
+    now and then. Short runs log exactly (the same drop of $C0, twice).
   - Newer recordings also save the original's map (`<run>.txt.map`). Since
     block1 they also save the map at the last row (`<run>.txt.endmap`),
     which the replay compares at the end.
@@ -1324,13 +1368,22 @@ The port keeps these, because they are part of how the game plays:
     `warpflag`).
 - **Replay:** `tools/rock_n_roll_replay ball <run>` replays a recording
   natively and compares every logged field. `harness/regress.sh` runs all
-  of them.
-  - 36 runs: rail1, ice1, fall2, arrow3, slope1, fall3, finds2, lock2,
+  of them, with Reprise's build of the tool (the harness folder is reached
+  through a symlink; an old build lies beside the real folder).
+  - `rock_n_roll_replay probe <content> <level> COL ROW N [a-b:dx,dy …]`
+    runs the native rules from the same placement and prints the ball and
+    the block per update: a cheap way to plan a recording.
+  - Level files are named by their number in hex (`rnr_content/1b` is
+    level 28); the level table `$7855E` maps levels to files.
+  - 52 runs: rail1, ice1, fall2, arrow3, slope1, fall3, finds2, lock2,
     fall4+cont4, bridge1, beam2, shop3, shop4, clock1, mud1, glass1,
     switch1, exit1, crumble1, lockcap1, gate1–3, flame1, arc1, corner1–2,
-    snd1–4 (level 1), block1–3 (level 7), fan1–2 (level 3, code
-    030000030030).
-  - 5,911 updates, all equal.
+    snd1–4, repair1, rescue1 (level 1), block1–3 (level 7), fan1–2,
+    protect1, wall1, cross1, rev1, speed3 (level 3, code 030000030030),
+    bomb1, ice2 (level 2), time4 (level 4), xball8 (level 8), hint11
+    (level 11), block4–5 (level 21), reward1 (level 25), block6 (level
+    28).
+  - 8,382 updates, all equal.
   - Since snd1, recordings also log the sound delay, the energy-sound flag
     and the bridge latch and pair, and every effect call.
   - Since gate1, recordings also log the animation cursor and counters
@@ -1349,7 +1402,7 @@ The port keeps these, because they are part of how the game plays:
   - held keys `a-b:key=N` (a `GameInput::c64_keys` index);
   - pictures `@N=file.png`;
   - a ball placement `@N:place=cx,cy,vx,vy,sx,sy` (hex, as a recording's
-    first row);
+    first row) and the money `@N:money=HEX`;
   - the fire button (`f` among the buttons), which types a space;
   - `wav=FILE`: the module's audio, with the loudness per second printed.
 - **Front end checks against FS-UAE captures (2026-10-29):**

@@ -53,6 +53,14 @@ Finished, in order:
     player's state is equal at every frame for 1,500 frames of the title
     song and of level 1's; the effect calls match in snd1-4 (36 runs,
     5,911 updates, all equal).
+15. Verification in later levels: the items (repair, rescue, bomb), the
+    shops (protective, ice-proof, speed, a continue, a hint), a reward with
+    its notice, bridge crossings and reversal, blocks pushed vertically
+    (blocked, sinking, sliding) and the time running out, each against a
+    recording (52 runs, 8,382 updates, all equal). Found on the way: a fall
+    selects the rescue item, sound 2 is the rescue, the flames reset the
+    animation cursor, and notices play $18 (and $18/$17 when the wait
+    starts) with the rest of the update's sounds after the notice.
 
 ## Remaining tasks
 
@@ -98,31 +106,30 @@ compared with the original is under "Verification".
 
 ### Verification
 
-- [ ] Compare with captures of the original:
-  - the rewards' and the warp's messages;
-  - a hint screen (its colours: the port uses the panel's palette);
-  - "OUT OF TIME".
-
-  Their texts and order come from the program's lists; the rewards are
-  checked against no recording yet.
+- [x] Captures of the original: the full-energy reward's and the warp's
+  messages, and level 11's hint screen, match the port's texts and layout.
+- [ ] A capture of "OUT OF TIME": time4 checks the rule, but the message
+  (1.4 s) was gone before the harness took its picture.
 
 - [ ] The gate hit (−$140 when a gate's counter is 0 or $100) and the
   $B9/$AE-group drains are rebuilt from the code. No recording has the
   ball on such a cell at the right moment yet (arc1 crossed $B9 without a
   drain).
-- [ ] Recordings for the item uses (bomb, repair set, rescue, pause). They
-  are rebuilt from the code only, because level 1 has no shops. Needs
-  pokes or a later level.
-- [ ] Bridge crossings $E3 and the reversing pieces $E4-$E7: rebuilt from
-  the code, not recorded (level 18 has many).
-- [ ] A vertical block push (directions 1 and 3) and a block sinking into
-  $21: rebuilt from the code, not recorded (level 7 has only horizontal
-  tracks; levels 21 and 29 have others).
-- [ ] Recordings outside levels 1, 3 and 7, among them:
+- [x] Item uses: repair1 (a repair set and the warp), rescue1, bomb1. The
+  pause item is not recorded.
+- [x] Bridge crossings $E3 and the reversing pieces $E4-$E7 (cross1, rev1).
+- [x] Blocks: a vertical push that is blocked (block5), one that slides up
+  (block6, level 28) and a block sinking into $21 (block4). A downward
+  slide (direction 3) is not recorded.
+- [x] Shops and bought balls: protect1, ice2, speed3 (four purchases up to
+  the limit), xball8 ($47), hint11; a reward from the $24 countdown
+  (reward1).
+- [ ] Still unrecorded outside level 1:
   - the $23 teleport;
-  - the $24/$26 countdowns and the warp;
-  - speed shops and bought balls;
-  - breakable walls with the protective ball.
+  - the $26 countdown and its warp in a recording that reaches 0;
+  - a breakable wall actually breaking: in wall1 the protective ball
+    bounces before its centre reaches the wall cell (not yet understood);
+  - the pause item.
 - [ ] The energy-out dissolve (`$6C3CC`), compared with a capture.
 - [ ] Level 28 (file $1B): the map is larger than its file, and the
   original reads on into whatever memory lies behind the file (game.md,
@@ -142,9 +149,14 @@ compared with the original is under "Verification".
   speed (`records.cpp`, `results_flash_colour`). The original changes it
   many times a frame.
 - Effect calls are checked against recordings for bounces, falls, keys,
-  locks and bridges; the others are placed from the code's call sites only
-  (coins, teleports, switches, countdowns, gates, flames, repairs, blocks,
-  crumbling floor, energy, purchases, the bomb).
+  locks, bridges, coins, purchases, energy, flames, repairs, the rescue,
+  the bomb and blocks. The reward's and the hint's sounds were read off
+  the original's log and matched by hand (the replay stops at the
+  notice). The others are placed from the code's call sites only
+  (countdowns, teleports, switches, gates, crumbling floor).
+- Sounds asked for during a notice's wait are cut by the channel stop
+  that follows at once. The port makes the same calls in the same order
+  but has not compared the player's state across a notice.
 - The panel's clock digits did not match the FS-UAE capture. Everything
   else in the panel matched. The likely cause is the lag above (the capture
   was taken mid-second); this has not been checked.

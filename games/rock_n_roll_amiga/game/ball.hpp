@@ -147,6 +147,7 @@ struct Ball {
     // the delay after which $18 follows ($68AE6, counted down at $68AEA).
     std::vector<int> sounds;
     int sound_delay{};
+    bool rescue_chosen{};             // $6CA2A: a fall chose item 10 (the parachute); the caller's Items take it
     bool energy_sound_quiet{};        // $6E254: this drop's sound already played (gate hit, purchase)
     bool bridge_latch{};              // $6D130: the ride's start sounds played
     int bridge_end_sound{0x15}, bridge_end_other{0x17}; // $6D132/$6D13A, swapped at each end
@@ -165,6 +166,9 @@ struct Ball {
     // Events for the game: a secret warp (the level ends, $69F8A) and the
     // level's reward ($6D8CE, table $78008), not carried out here.
     bool secret_warp{}, reward_due{};
+    // The sounds asked for before the reward or hint: those routines run in
+    // the middle of the update, so the update's later sounds follow them.
+    std::size_t notice_sound_at{};
     bool teleported{};                // this update, $6F8B8 (the picture flashes)
 
     // Where "continue" puts the ball back ($6C476: camera and view, saved by

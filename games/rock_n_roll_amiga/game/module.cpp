@@ -11,6 +11,7 @@
 #include "rock_n_roll_amiga/sound/game_sound.hpp"
 #include <algorithm>
 #include <string>
+#include <utility>
 
 namespace rocknroll::game {
 namespace {
@@ -149,25 +150,31 @@ public:
             sound_->tick(); // $68940: the loop's first call
             move_counters(input, counts_x, counts_y);
             update_ball(ball_, pocket_, map_, world(), mouse_);
-            for (const int n : ball_.sounds) sound_->effect(n); // $70A9C, where the rules call it
-            ball_.sounds.clear();
             zero_key_ = key == '0' || (zero_key_ && input.c64_keys[35]);
             view_flash_ = false;
-            if (ball_.reward_due) { // $6D8CE, called from the cell rule
-                ball_.reward_due = false;
-                if (give_reward()) break;
+            if (ball_.reward_due || ball_.hint_bought) {
+                // The reward ($6D8CE, from the cell rule) and the hint
+                // ($69DFA, from the $45 shop) run in the middle of the update:
+                // the sounds after them wait for the notice to end.
+                const auto at = std::min(ball_.notice_sound_at, ball_.sounds.size());
+                for (std::size_t i = 0; i < at; ++i) sound_->effect(ball_.sounds[i]);
+                ball_.sounds.erase(ball_.sounds.begin(), ball_.sounds.begin() + std::ptrdiff_t(at));
+                const bool reward = std::exchange(ball_.reward_due, false);
+                const bool hint = std::exchange(ball_.hint_bought, false);
+                if ((reward && give_reward()) || (hint && show_hint())) {
+                    sounds_after_notice_ = std::move(ball_.sounds);
+                    ball_.sounds.clear();
+                    break;
+                }
             }
-            if (ball_.hint_bought) { // $69DFA, from the $45 shop
-                ball_.hint_bought = false;
-                if (show_hint()) break;
-            }
+            for (const int n : ball_.sounds) sound_->effect(n); // $70A9C, where the rules call it
+            ball_.sounds.clear();
             extra_drawn_ = extra_drawn_ || ball_.kind_running;
             if (ball_.mode == BallMode::lost || ball_.mode == BallMode::warped) {
                 ball_lost();
                 break;
             }
             if (key == '?') { // $68A36: the '?' key gives up like item 0
-                sound_->effect(0x02);
                 balls_ = 0;
                 ball_.mode = BallMode::lost;
                 ball_lost();
@@ -175,7 +182,6 @@ public:
             }
             switch (use_items(ball_, pocket_, map_, items_, left, right)) {
             case ItemUse::give_up: // $6B5A8: the ball is lost and no balls are left
-                sound_->effect(0x02);
                 balls_ = 0;
                 ball_.mode = BallMode::lost;
                 ball_lost();
@@ -224,8 +230,11 @@ public:
             // $6AB46: wait for the button's release, then (colours flashing,
             // $6B9F4) for a press, then for its release.
             ++wait_frames_;
-            if (wait_stage_ == 0 && !left) wait_stage_ = 1, wait_frames_ = 0;
-            else if (wait_stage_ == 1 && left) wait_stage_ = 2;
+            if (wait_stage_ == 0 && !left) {
+                wait_stage_ = 1;
+                wait_frames_ = 0;
+                flash_sounds();
+            } else if (wait_stage_ == 1 && left) wait_stage_ = 2;
             else if (wait_stage_ == 2 && !left) {
                 if (phase_ == Phase::results) next_level();
                 else if (phase_ == Phase::notice) finish_notice();
@@ -251,6 +260,7 @@ public:
                     overview_.marker = true;
                     wait_stage_ = left ? 4 : 3;
                     wait_frames_ = 0;
+                    flash_sounds();
                 }
             } else if (wait_stage_ == 3 && left) {
                 wait_stage_ = 4;
@@ -313,6 +323,11 @@ public:
         ball_.speed_x = speed_x;
         ball_.speed_y = speed_y;
         phase_ = Phase::playing;
+        return true;
+    }
+    bool set_money(int money) {
+        if (phase_ != Phase::waiting && phase_ != Phase::playing) return false;
+        pocket_.money = money;
         return true;
     }
 
@@ -497,7 +512,16 @@ private:
 
     // In-view notices (rewards, the warp) and the hints' own screen, both
     // waiting like the results ($69EF6/$69F1A → $6AB46).
+    // $6B9F4: the colours start to flash, with two sounds that $70A32 cuts
+    // at once (they still change the player's effect priority and time).
+    void flash_sounds() {
+        sound_->effect(0x18);
+        sound_->effect(0x17);
+        sound_->stop_channels();
+    }
+
     void show_notice(std::vector<ScreenText> texts, AfterNotice then, bool full_screen = false) {
+        sound_->effect(0x18); // $69F0A/$69F2E, once the button is up
         sound_->stop_channels(); // $6AB46
         notice_ = std::move(texts);
         after_notice_ = then;
@@ -508,6 +532,8 @@ private:
     }
 
     void finish_notice() {
+        for (const int n : sounds_after_notice_) sound_->effect(n); // the rest of the update's sounds
+        sounds_after_notice_.clear();
         switch (after_notice_) {
         case AfterNotice::play:
             phase_ = Phase::playing;
@@ -536,19 +562,23 @@ private:
         switch (routine) {
         case 0x6D8F6: // 500 coins
             pocket_.money += 500;
+            sound_->effect(5);
             texts = 0x69CA6;
             break;
         case 0x6D914: // 1,500 points, shown as 15.000
             pocket_.score += 1500;
+            sound_->effect(5);
             texts = 0x69C8A;
             break;
         case 0x6D932: // full energy, after the message
+            sound_->effect(5);
             texts = 0x69C52;
             then = AfterNotice::full_energy;
             break;
         case 0x6D956: // an extra ball
             ++balls_;
             set_balls_message();
+            sound_->effect(5);
             texts = 0x69C6E;
             break;
         default: // $6D8EC: colour 0 white for a moment, nothing else
@@ -766,6 +796,7 @@ private:
     std::vector<ScreenText> results_;
     std::vector<ScreenText> notice_;
     AfterNotice after_notice_{};
+    std::vector<int> sounds_after_notice_; // the rest of the update that showed the notice
     bool notice_full_screen_{};
     int warp_target_{};
     bool view_flash_{};
@@ -796,6 +827,11 @@ bool place_ball(app::GameModule& game, std::int32_t camera_x, std::int32_t camer
                 std::int32_t speed_x, std::int32_t speed_y) {
     auto* module = dynamic_cast<Module*>(&game);
     return module && module->place(camera_x, camera_y, view_x, view_y, speed_x, speed_y);
+}
+
+bool set_money(app::GameModule& game, int money) {
+    auto* module = dynamic_cast<Module*>(&game);
+    return module && module->set_money(money);
 }
 
 } // namespace rocknroll::game
