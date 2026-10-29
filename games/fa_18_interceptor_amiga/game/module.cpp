@@ -79,7 +79,7 @@ public:
     double step_seconds() const override {
         const bool blanks =
             in_front_ ? front_.fast() : (phase_ == Phase::ready && !ready_done_) || phase_ == Phase::fade_in || phase_ == Phase::fade_out ||
-            ((phase_ == Phase::briefing || phase_ == Phase::landed) && !text_.done());
+            (phase_ == Phase::briefing && !text_.done()) || phase_ == Phase::landed;
         return blanks ? 1.0 / 50 : 1.0 / ticks_per_second;
     }
     double pixel_aspect() const override { return 1.0; }
@@ -115,18 +115,12 @@ public:
             front_.to_menu();
             return;
         }
-        if (pressed(key::tab) && phase_ != Phase::end_wait && phase_ != Phase::end_text) {
+        if (pressed(key::tab) && phase_ != Phase::end_wait && phase_ != Phase::end_text && phase_ != Phase::fade_out) {
+            // Esc ($101854): the flight stops, the screen fades out and the
+            // selection starts again ($101A96): free flight's start map,
+            // the qualification's catapult ("RE-POSITION ON CATAPULT").
             remember_keys(input);
-            if (mode_ == FlightMode::demo || mode_ == FlightMode::qualification) {
-                // ($101A96: Esc starts the selection again - for the
-                // qualification "RE-POSITION ON CATAPULT".)
-                begin(FlightStart{carrier_place, 0x11, mode_});
-                return;
-            }
-            // Esc: free flight's start map again.
-            leave_flight();
-            sounds_.ambience(8);
-            front_.to_start_map();
+            start_again();
             return;
         }
         before_ = aircraft_;
@@ -429,7 +423,7 @@ private:
             return;
         }
         if (mode_ == FlightMode::qualification) {
-            begin_qualification();
+            begin_qualification(start.again);
             return;
         }
         fade_ = 15;
@@ -480,10 +474,21 @@ private:
         phase_ = Phase::fade_in;
     }
 
+    // $101854 / $103B24: the flight stops, the screen fades out (`$13AB91`
+    // 0), then the selection starts again (`$101A96`).
+    void start_again() {
+        flying_ = false;
+        fade_ticks_ = 0;
+        phase_ = Phase::fade_out;
+    }
+
     // The qualification ($102252): on the carrier's catapult with three
-    // aircraft, the screen fading in, the briefing (the first time: it
-    // follows the security check, once a session), "READY TO LAUNCH".
-    void begin_qualification() {
+    // aircraft, the screen fading in, then - chosen from the menu, after
+    // the security check (`$1027C8`, `$13AB1B` clear) - the briefing
+    // (`$101CC0`), then "READY TO LAUNCH". Started again (Esc, a landing)
+    // the check and the briefing are left out.
+    void begin_qualification(bool again) {
+        brief_ = !again;
         place_ = carrier_place;
         aircraft_type_ = 0x11;
         aircraft_left_ = 3; // ($1020BC)
@@ -547,8 +552,9 @@ private:
             // (`$1093F2`), then the frames before the text ($101BD0).
             if (++fade_ticks_ % 3 == 0 && fade_ < 15) ++fade_;
             if (fade_ == 15) {
-                if (mode_ == FlightMode::qualification && !briefed_) {
-                    briefed_ = true;
+                if (mode_ == FlightMode::qualification && brief_) {
+                    // ($101CD4: the sound update stops while it is typed.)
+                    sounds_.set_active(false);
                     text_.clear();
                     text_.queue(qualification_text);
                     phase_ = Phase::briefing;
@@ -562,6 +568,7 @@ private:
         case Phase::briefing:
             if (!text_.done() && text_.tick()) sounds_.click();
             if (text_.done() || briefing_key_) {
+                sounds_.set_active(true); // ($101D18)
                 text_.clear();
                 text_.queue(launch_text);
                 countdown_ = 5;
@@ -569,19 +576,33 @@ private:
             }
             break;
         case Phase::landed:
-            // The texts typed over the stopped view, a moment, then the
-            // selection again ($103B24, $101A96).
+            // The texts typed over the stopped view ($103AA8), 100 passes
+            // of the main loop ($13ADC6 = $64), then the selection again
+            // ($103B24). With `$13AA85` clear a pass neither draws nor
+            // waits for the frame cap (`$101140`): its length is the
+            // machine's. Port decision: the A500's, about 6 passes a
+            // blank (the demo's recording: 18 a fade step of 3 blanks),
+            // so 17 blanks.
             if (!text_.done()) {
                 if (text_.tick()) sounds_.click();
-                if (text_.done()) countdown_ = 5;
+                if (text_.done()) countdown_ = 0x64 / 6;
             } else if (countdown_ < 0) {
-                begin_qualification();
+                start_again();
             }
             break;
         case Phase::fade_out:
-            // ($1093F2: a step down every second blank.)
+            // ($1093F2: a step down every second blank.) Then $101A96 /
+            // $101AE2: the demo starts itself again; anything else goes back
+            // to its chosen line in the menu ($101E04, `$13AB1B` set).
             if (++fade_ticks_ % 2 == 0 && fade_ > 0) --fade_;
-            if (fade_ == 0) begin_demo();
+            if (fade_ == 0) {
+                if (mode_ == FlightMode::demo) {
+                    begin_demo();
+                } else {
+                    leave_flight();
+                    front_.again(mode_ == FlightMode::qualification ? 5 : 2);
+                }
+            }
             break;
         case Phase::descent:
             descend();
@@ -621,9 +642,7 @@ private:
                 // $10EF08 / $101854: the recording's end pauses the flight
                 // and starts the selection again.
                 replay_ended_ = false;
-                flying_ = false;
-                fade_ticks_ = 0;
-                phase_ = Phase::fade_out;
+                start_again();
                 break;
             }
             if (aircraft_.state & flag::crashed) {
@@ -1325,7 +1344,7 @@ private:
     int fade_ = 15, fade_ticks_ = 0;    // $13AB90: the screen's fade step (15: full)
     std::uint16_t replay_game_ = 0, replay_view_ = 0; // `$13AC86`, `$13AC88`: last frame's key events
     bool replay_ended_ = false;
-    bool briefed_ = false;              // the qualification's briefing shown this session
+    bool brief_ = false;                // the qualification's briefing comes (`$13AB1B` clear)
     bool briefing_key_ = false;         // a key during the briefing
     int radar_range_ = 0xD;             // +$63 low nibble: 9, B, D (2, 10, 40 miles; key R)
     bool ecm_ = false;                  // $13ABA5 (key J)

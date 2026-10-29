@@ -1254,22 +1254,46 @@ Menu item 1 therefore waits for the missions' objects (task 11).
 ### Qualification (menu item 5, 2026-10-29)
 
 Mode 9 (`$102252`): the carrier's catapult (free flight's object list,
-the carrier at rest), three aircraft, the screen fading in, then (only
-after the security check, i.e. once a session: later starts skip both)
-block 73, the briefing, typed over the view until done or a key
-(`$101CC0`, `$101D06`), then "READY TO LAUNCH" and the flight. Each
-frame (`$118AA8`, while the flight runs) the player's aircraft standing
-(+$6E 0) on the deck with the hook down and a wire caught (+2 & $C080 =
-$C080) qualifies: `$13AA88` = $FF, the flight stops, and the end
+the carrier at rest), three aircraft, the screen fading in (`$10234C`),
+then the security check (`$1027C8`; skipped when `$13AB1B` is set, and
+by the port always: copy protection). A passed check (`$1197CA`:
+`$13AB9C` 1) leads mode 9 to `$101CC0`: with `$13AB1B` clear - chosen
+from the menu - block 73, the briefing, is typed (the sound update off,
+`$13AA85` 0) until done or a key (`$101D06`); then, or at once when
+`$13AB1B` is set, "READY TO LAUNCH" (`$102D58`) and the flight. Nothing
+on the way clears the screen: the briefing is typed over the view, like
+the other texts.
+
+Each frame (`$118AA8`, while the flight runs) the player's aircraft
+standing (+$6E 0) on the deck with the hook down and a wire caught (+2 &
+$C080 = $C080) qualifies: `$13AA88` = $FF, the flight stops, and the end
 procedure (`$1031F4`, `$1032C2`) sets config +0 (qualified), writes
-`config` (`$10858A`), types blocks 74 ("LANDING SUCCESSFUL ... PREPARE TO
-BE RE-LAUNCHED") and 83 ("(SHIFT ESC) TO RETURN TO MAIN MENU") over the
-stopped view (about 3 s, `$103AA8`), waits a moment (`$103B24`) and starts
-the selection again (`$101A96`: fade-in, "READY TO LAUNCH"). Esc
-re-positions on the catapult the same way; Shift-Esc returns to the menu.
-Seen on the original by pokes (the motion bits on the deck); the
-briefing's screen itself was not captured (the port types it over the
-view like the other texts: hypothesis).
+`config` (`$10858A`), sets `$13AB1B`, and types blocks 74 ("LANDING
+SUCCESSFUL ... PREPARE TO BE RE-LAUNCHED") and 83 ("(SHIFT ESC) TO RETURN
+TO MAIN MENU") over the stopped view (`$103AA8`). Then 100 passes
+(`$13ADC6` = $64, `$103B24`), the screen fades out (`$13AB91` 0) and
+the selection starts again.
+
+Starting again (`$101854` for Esc, `$103B24`): the flight stops, the
+screen fades out (a step every second blank), `$101A96` stops the
+sounds and returns to the menu's chosen-item screen (`$101E04`: palette
+0, the item's line, 150 frames since the check counts as passed, 210
+only from the menu with the tune), then the item starts afresh
+(`$10201E`) - for free flight its start map, for the qualification the
+catapult without the briefing ("RE-POSITION ON CATAPULT"); after the
+maneuvers' demo (2) it starts as their practice ($7D, `$101AF4`), the
+demo (`$13AB3B` 3) starts itself without the menu. Shift-Esc (`$101838`)
+clears `$13AB1B` and goes to the main menu.
+
+Timing: while `$13AA85` is clear a main-loop pass neither draws nor
+waits for the frame cap (`$101140` skips both), so the 100 passes after
+the landing texts last as long as the machine takes - on the A500 about
+6 passes a blank (the demo's recording: 18 passes a fade step of 3
+blanks). Port decision: 17 blanks.
+
+Checked on the original (pokes of the motion bits on the deck): the
+landing's texts over the view, the fade, the chosen line and the new
+launch.
 
 ### The F-16 (2026-10-29)
 

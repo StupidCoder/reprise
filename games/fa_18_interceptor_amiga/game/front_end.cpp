@@ -141,16 +141,30 @@ void FrontEnd::choose(const FrontKeys& keys) {
     default: return;
     }
     if (d != 7) sounds_.menu_key();
-    choice_ = d;
+    again_ = false;
+    show_chosen(d, line);
+}
+
+void FrontEnd::again(int item) {
+    static constexpr int lines[] = {0, 101, 102, 103, 104, 105};
+    if (item < 1 || item > 5) return;
+    palette_ = menu_palette; // ($101B3A)
+    again_ = true;
+    show_chosen(item, lines[item]);
+}
+
+// $101E04: only the chosen line, the tune fading out; 210 frames (150
+// without the tune or once the security check was passed).
+void FrontEnd::show_chosen(int item, int line) {
+    choice_ = item;
     // (The demo, 1, flies mission 3 from its moving carrier with a bogey:
     // it waits for the missions' objects, task 11; its replay is built.)
-    unbuilt_ = d != 2 && d != 5;
-    // $101E04: only the chosen line again, the tune fading out.
+    unbuilt_ = item != 2 && item != 5;
     text_.clear();
     text_.set_line_spacing(12);
     text_.queue(line);
     sounds_.set_tune_target(0);
-    countdown_ = sounds_.has_tune() ? 0xD2 : 0x96;
+    countdown_ = sounds_.has_tune() && !again_ ? 0xD2 : 0x96;
     go(Screen::chosen);
 }
 
@@ -253,7 +267,7 @@ std::optional<FlightStart> FrontEnd::tick(const FrontKeys& keys) {
             } else if (choice_ == 5) {
                 // $102252: the qualification, from the carrier's catapult.
                 sounds_.ambience(8);
-                return FlightStart{3, 0x11, FlightMode::qualification};
+                return FlightStart{3, 0x11, FlightMode::qualification, again_};
             } else {
                 sounds_.ambience(8);
                 to_start_map();

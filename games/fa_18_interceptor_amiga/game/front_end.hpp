@@ -41,6 +41,9 @@ struct FlightStart {
     int place = 0;         // 0-2: the runways, 3 the carrier ($13AB38)
     int aircraft = 0x11;   // $11 the F/A-18, $10 the F-16 ($13AB39)
     FlightMode mode = FlightMode::free_flight;
+    // Started again (Esc, a qualifying landing): the security check counts
+    // as passed (`$13AB1B`) and the qualification's briefing is left out.
+    bool again = false;
 };
 
 class FrontEnd {
@@ -53,8 +56,11 @@ public:
     void set_carrier(std::array<std::int32_t, 2> xz) { carrier_ = xz; }
     // $101A70: back to the main menu (Shift-Esc, the end of free flight).
     void to_menu();
-    // Free flight's start map again (Esc in flight).
+    // Free flight's start map again.
     void to_start_map();
+    // $101A96 → $101E04 (Esc, a qualifying landing): the chosen item's
+    // line again for 150 frames, then the item starts again.
+    void again(int item);
 
     // One frame; the start of free flight when the player has chosen it.
     std::optional<FlightStart> tick(const FrontKeys& keys);
@@ -83,6 +89,7 @@ private:
 
     void go(Screen s) { screen_ = s; }
     void menu_screen();
+    void show_chosen(int item, int line);
     void flight_log();
     void choose(const FrontKeys& keys);
     data::TextBlock block(int number) const;
@@ -98,6 +105,7 @@ private:
     int frame_ = 0;               // frames on this screen
     int choice_ = 0;              // $13AB96: the menu item
     bool unbuilt_ = false;        // the chosen item is not rebuilt yet
+    bool again_ = false;          // `$13AB1B`: started again, the check passed
     int place_ = -1;              // $13AB38, chosen
     bool asking_aircraft_ = false;// $13AA81
     int palette_ = 0;             // which of the game's palettes shows

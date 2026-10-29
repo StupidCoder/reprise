@@ -93,7 +93,8 @@ from drawing, and must still respect the passes' model rule).
    positions were corrected at the same time (from the original's tables).
 10. **Demo, training and qualification** — partly done 2026-10-29:
     qualification (5) is built (briefing, catapult, the qualifying
-    landing, the pilot record, the re-launch). The demo (1) has its
+    landing, the pilot record, the re-launch through the fade-out and the
+    chosen line; Esc the same way, also in free flight). The demo (1) has its
     replay, key events, fades and up/down looks built and checked against
     the original's data, but waits for mission 3's world (its sailing
     carrier and the bogey: task 11) - menu item 1 still returns to the
