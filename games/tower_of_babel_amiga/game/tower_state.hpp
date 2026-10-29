@@ -81,6 +81,8 @@ public:
     int end_reason{};          // 1 completed, 3 all spiders destroyed, 4 Grabber destroyed
     int blink{};               // $FC0: 6 down to 0 each frame
     int frame{};               // $FBE: frames since the tower started (animation, rotating objects)
+    bool started{};            // $11E6 >= 0: a direct command started the tower
+    int time_left{};           // $121A: seconds left, 4 BCD digits (0 = no limit)
     // Tower options the objects read: footstep sounds ($A6 = 0; hypothesis:
     // a sound setting), mines leave a hole ($E2A >= 0: flag 8 clear), the
     // time bombs' speed ($E2E: + 1-4 a frame towards 800).
@@ -92,6 +94,14 @@ public:
     // >= 0 up), the cells they change ($11E8, $1210 of them).
     int forcer_frames{}, forcer_direction{};
     std::vector<CellIndex> forcer_cells;
+
+    // The tower as $13278 unpacks it from its record: cells in the bordered
+    // layout, objects placed in their slots with their kind's type, shape,
+    // heading and flags, the four cameras, empty programs, the first spider
+    // the tower has selected, the timer, the objective and the end cleared.
+    static TowerState unpack(const data::Tower&, const data::Memory& program);
+    // The cells as the view draws them.
+    TowerMap map() const;
 
     // Events several rules share.
     void explode(int slot);          // the object becomes a particle cloud (type $1A, 32 frames)

@@ -12,7 +12,7 @@ constexpr std::uint32_t meteor_images = 0x34280; // $D1A4: 8 frames of $140
 // Program tables.
 constexpr std::uint32_t moon_mask = 0xCF36;      // 16 row masks (1 = keep the sky)
 constexpr std::uint32_t band_lines = 0x8ACA;     // per sky type an offset to a 0-ended line list
-constexpr std::uint32_t panel_palette = 0x2BF8;  // $23F2(a6): 15 colours from line $82
+constexpr std::uint32_t panel_palette = 0x2D3E;  // $2538(a6): per panel style 15 colours from line $82
 // Lightning's flash: which of the 18 colours turn white ($136CE).
 constexpr std::uint32_t flash_mask = 0x1D448;
 
@@ -161,7 +161,7 @@ void draw_sky(Canvas& canvas, const SkySettings& sky, SkyState& s, int heading, 
     }
 }
 
-FramePalette frame_palette(const data::Tower& tower, const data::Memory& program, bool flash) {
+std::array<data::Colour, 48> tower_palette(const data::Tower& tower, const data::Memory& program, int panel_style) {
     // The 48 colours the copper reads: the tower's 18, the sky gradient
     // (15), the panel's 15.
     std::array<data::Colour, 48> all{};
@@ -186,8 +186,13 @@ FramePalette frame_palette(const data::Tower& tower, const data::Memory& program
             all[std::size_t(18 + i)] = c;
         }
     }
-    for (std::size_t i = 0; i < 15; ++i) all[33 + i] = program.u16(panel_palette + std::uint32_t(i) * 2);
+    // $AC44: the panel style's colours.
+    for (std::size_t i = 0; i < 15; ++i)
+        all[33 + i] = program.u16(panel_palette + std::uint32_t(panel_style * 0x1E) + std::uint32_t(i) * 2);
+    return all;
+}
 
+FramePalette copper_palette(const std::array<data::Colour, 48>& all, int sky_type, bool flash, const data::Memory& program) {
     // Lightning's palette ($136C2): some of the 18 turn white.
     std::array<data::Colour, 48> base = all;
     if (flash) {
@@ -207,6 +212,10 @@ FramePalette frame_palette(const data::Tower& tower, const data::Memory& program
         p.colour7.push_back({program.u16(at), all[entry++]});
     p.colour7.push_back({0x48, base[16]});
     return p;
+}
+
+FramePalette frame_palette(const data::Tower& tower, const data::Memory& program, bool flash) {
+    return copper_palette(tower_palette(tower, program, 0), tower.settings[3], flash, program);
 }
 
 } // namespace babel::view

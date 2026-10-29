@@ -64,5 +64,10 @@ struct FramePalette {
     std::vector<std::pair<int, data::Colour>> colour7; // (screen line, colour) in order
 };
 FramePalette frame_palette(const data::Tower&, const data::Memory& program, bool flash);
+// The same in two steps, for fades: the 48 colours the game keeps (the
+// tower's 18, the sky gradient's 15, the panel style's 15), and what the
+// copper shows from them (`all` as faded so far).
+std::array<data::Colour, 48> tower_palette(const data::Tower&, const data::Memory& program, int panel_style);
+FramePalette copper_palette(const std::array<data::Colour, 48>& all, int sky_type, bool flash, const data::Memory& program);
 
 } // namespace babel::view

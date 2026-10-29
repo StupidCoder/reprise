@@ -3,6 +3,7 @@
 #include "tower_of_babel_amiga/data/model.hpp"
 #include "tower_of_babel_amiga/data/shape.hpp"
 #include "tower_of_babel_amiga/data/preview.hpp"
+#include "tower_of_babel_amiga/front/module.hpp"
 #include "tower_of_babel_amiga/import/disk_import.hpp"
 #include <string>
 
@@ -50,9 +51,11 @@ app::GameEntry entry() {
         .media = "the disk image (ADF)",
         .import = import::import_disk,
         .previews = previews,
-        .progress = "Disk import (the packed program unpacked, every data range checked) and decoded data: the "
-                    "title screen and all 153 towers (117 standard, 9 tutorial, 18 demonstration and the empty "
-                    "custom group) with their maps, objects and colours. Nothing playable yet.",
+        .start = front::start,
+        .progress = "The front end (title, credits, name, menus, tower chooser and information) and playing a "
+                    "tower with the panel, programs, cameras and every object, the pause menus, the scores and the "
+                    "end screens with their demonstrations; the demo sequence. Not yet: effect sounds, high scores, "
+                    "saved positions, the tower designer, custom groups from disk.",
     };
 }
 

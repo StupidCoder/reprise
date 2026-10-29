@@ -108,50 +108,183 @@ The jump table of `bra.w` at $E1E8–$E314 is the program's internal API.
   - the hook at $12(a6) is called with (x/2, y/2, buttons); menus use it ($113E8).
 - **Level 4 ($865A), audio:** segment lists and effect channels.
 
+### Timing
+
+- **The game's clock:** CIA-A timer B runs continuously with $1BF8 E-clock ticks (set by stage 1 at $6002A), so it interrupts about 99.07 times a second. Each interrupt adds 1 to $28(a6) ($8634). Measured on the reference: about 2 per video frame.
+- **A game frame:** $87EE waits until $28(a6) ≥ 14, clears it and swaps the buffers. So a game frame lasts at least 14 ticks, 0.1413 s (about 7.1 a second). If drawing takes longer the frame is longer; the port runs at the nominal rate (no slowdown).
+- **A timer second:** the play loop counts $FC0 down from 6 each frame, and the timer ticks when it wraps. So a "second" is 7 game frames (0.989 s).
+- **Menus and fades** run at the video frame rate: a fade is 16 vertical blanks; the hover highlight is updated in the vertical blank.
+
 ### Screen and copper
 
 - **Screen:** 320 × 200 in 4 planes, $1F40 apart. Buffers are at $16(a6) and +$7D00; $87EE swaps them.
-- **The original's frame rate:** a game frame lasts at least 14 video frames (the counter $28(a6)). So the game updates at most about 3.6 times a second (hypothesis, not yet measured).
+- **Display:** it starts at line $2(a6) = $29 (the Setup page's "Screen Y position" moves it in steps of $18; $9BE8). Copper WAITs are relative to it.
 - **Copper list modes:** $88EA builds the list at $3B5C in one of four modes, chosen by $6(a6):
-  - 0: plain 16 colours;
-  - 1: sky bands on colour 7, and the panel palette from line $82;
-  - 2: the same with the tower's colours;
-  - 3: the title's three colour bands.
-- **Display window:** set at $8B30.
+  - 0: plain 16 colours (the menus);
+  - 1: 16 colours, colours 7 and 8 changed at line $48;
+  - 2: the game: colours 0–7 and 9–15 from the palette, colour 8 from colour 17, colour 7 changed down the sky (below), then the panel's colours from line $82;
+  - 3: the title's three colour bands, changed at lines $36 and $71.
+- **The palette:** the copper reads the current 48 colours at $622(a6). In the game they are the tower's 18 colours (0–17), the sky gradient (18–32, $646(a6)) and the panel's 15 (33–47, $664(a6)). A fade ($1252C) moves all 48.
+- **Fades ($125B2, $1255C):** per component, start × 16 + 7, then 16 steps of (target − start), one a vertical blank; shown is the value / 16. Fade out is a fade to the black palette $25B6(a6).
+
+### Drawing kit
+
+- **Pens ($892(a6) + 16 × n):** two rows of four plane words. Fills ($11532, $11590) use the row of the screen line's parity; lines ($14DE6), points ($14F7A) and text use the first row only.
+- **Rectangles:** fill $11532 (inclusive x0..x1, y0..y1, masks $13DF8 / $13E1C); frame $11A6C (four lines); XOR with a pen $116C8 (the menus' highlight).
+- **Lines ($14DE6):** from the left end; the longer axis steps each point, the shorter when the error (starting at half the longer side) runs out.
+- **Bevelled box ($11AA6):** the inside (2 pixels in) in the pen, a corner of shading in the next two pens, the frame in pen 1 and a short top-right line in pen 2.
+- **Windows ($11B40 / $11B7E):** a stack of boxes that keep what was under them: whole 16-pixel columns from x0's to the one before x1 rounded up (a box ending on a column's first pixel leaves that column out), then filled in the given pen, framed in pen 15, with a line 11 pixels below the top.
+- **Pictures ($11862):** 16-colour pictures, per row and per 16-pixel column the four plane words, drawn at x & ~15.
+- **The panel's images ($AD50):** blitted from the panel set. The image table $303E has 8 bytes an image (offset in the set, width in words, modulo, rows); the four planes are stored one after the other. The table $3008 gives each button's place (a byte offset in a plane).
+
+### Text
+
+- **The font:** 256 glyphs of 9 bytes in the title data at $1C050 (width, then 8 rows). Set bits are drawn in the ink pen ($4BF(a6)), clear ones in the paper pen ($4BE(a6)), so a glyph paints its whole cell. Digits are glyphs $8A–$93; $80 is a blank, $83 / $84 an empty and a filled radio button, $7C the edit cursor, $7F ©.
+- **Layout codes ($11D20):**
+
+  | Code | Effect |
+  | --- | --- |
+  | $1F x.w y.w | move to (x, y) |
+  | $1B x.w | move to x |
+  | $1E n / $1D n | ink pen / paper pen |
+  | $1C | ink 15 on paper 0 |
+  | $0D | new line: x 0, y + 12 |
+  | $0B / $0A | up / down 8 |
+  | $09 / $08 | right / left 8 |
+  | other < $20 | ignored |
+
+- **Centring ($12058):** x = (320 − width) / 2, where the width counts every byte as a glyph, layout codes too.
+- **Numbers ($11E7E–$11EEA):** 8 down to 2 digits with leading zeros, by repeated subtraction; $11C64 writes one without them.
+- **Numbered texts ($11D04):** word offsets at $7138(a6) from $670A(a6). $66 + the end reason are the end screens' messages, $6C + the bomb speed the speed's name.
+- **A6-relative texts** are used directly by their address (for example $4AB7(a6), the main menu).
+
+### Menus
+
+- **Click areas:** 10-byte records (pen, flags, x0, y0, x1, y1 in low-res pixels), ended by a negative first byte. Flags: bit 0 highlight by XOR with pen 15, bit 1 highlight by a frame in the record's pen (unlit: pen 0), bit 5 the area is everything outside the box, bit 6 lit now.
+- **Choosing ($112EA):** the choice is set to −1, the vertical-blank hook ($113E8 → $11404) lights the area under the pointer and stores its number (the last one that matches); the loop waits for the left button held while a choice is set; then the highlights are cleared ($113F2: as if the pointer were far outside). Most screens first wait for the buttons to be let go ($11318).
+- **Quirk:** bit 6 lives in the program's own copy of the record. Clearing highlights with the pointer "far away" leaves an outside-area lit, and it stays marked lit until the next use (nothing is drawn for those).
+- **Yes/No ($110D2):** a window (76, 72)-(243, 125) with the title text, "Are You Sure?" and Yes; a click on Yes (144, 108)-(176, 119) is yes, anywhere outside the window no.
+- **Radio buttons ($113C2):** a list of (x, y) words ended by a negative x; the chosen one is glyph $84.
+- **The name editor ($12096):** a record (x, y, most characters, rightmost x, length, cursor, digits only, click box, text). Keys: printable characters insert at the cursor while the line ends left of the rightmost x; Delete (8) and Del ($7F); Escape clears; codes 1–4 move the cursor; Return ends. A click in the box moves the cursor, a click outside ends. The hook redraws the line with the cursor glyph in ink 3.
 
 ### Front end
 
-- **Order of screens:** the crack's intro, the protection text, the manual language (1–3), the word prompt, the title (logo, globe, sampled music), "Please Enter Your Name", then the main menu.
-- **Main menu ($8B9C):**
-  - Menu items are 10-byte records: flags.w, then x0, y0, x1, y1 in low-res pixels. They are reached through the pointer $E02(a6); the selection loop is $112EA, and the choice comes back in $E00(a6).
-  - Choices are dispatched at $8E48: Play Game $8EAE, Save/Load a Position $A6B6, View/Update High Scores $A81E, Tower Designer $E386, Demo Sequence $E2F4, Restart Game.
-- **Play Game** offers Standard, Custom or Tutorial; the game type is $11DE(a6): 0 standard (group $1140(a6)), 1 custom, 2 tutorial; demonstrations use types ≥ 4.
-- **Choose Tower** shows nine towers A–I in a 3 × 3 grid, the neighbouring groups at the sides, and the percent complete. Its buttons are at $A542.
-- **Information on Tower** ($A12A) shows the name, author, the spiders available and the objective text.
-- **Starting a tower:** $13278 unpacks the tower, then $E274 and $9F84 start it.
+**Order:** the crack's intro, the protection text, the manual's language (1–3), the word prompt, the title, the credits, the player's name, then the main menu. The port leaves out the crack, the protection and the disk loads.
 
-### The game screen
+- **Title ($7EF6):** copper mode 3; the title music starts; the logo (20 words × 35 at (0, 10)) and the globe (10 × 133 at (80, 61)); fade in the title palette $2498(a6). It waits until the music ends, then loads the main data.
+- **Credits ($15A2E):** bands 2–3 fade to black. Then, alternating: the credits text $490D(a6) and the globe, each faded in to $24D8(a6) / $2498(a6) and shown for 100 waits of 11 ticks (about 11 s), until Space. Then everything fades to black.
+- **Name ($8BD6):** a framed box (54, 76)-(265, 128) under "Please Enter Your Name:", the editor at (82, 110), at most 28 characters. No name: one of eight names from $52D1(a6) ("Fred Bloggs", …) by the CIA clock. Then all progress, the group and the score are cleared.
+- **Main menu ($8D84):** title bar, boxes in rows 1–6 ($11AF6 with $7E), texts $4AB7(a6), the header (name and score in a bevelled bar, $A0DA), menu $3878(a6). Restart Game asks Yes/No and goes back to the name.
+- **Game types ($8EAE):** menu $38C2(a6): Standard (not once every tower is solved, $1142(a6) = 0), Custom (menu $3818: use the current group, use the designer's contents, load a group, back), Tutorial, Main Menu. After a game type the main menu comes back.
+- **Chooser ($A2DA, $A542, menu $38EC):**
+  - The towers are 32 × 32 pictures at $283C0 + tower × $800 + state × $200: 0 solved, 1 closed, 2 open, 3 open and chosen. They sit at (112 + 32 × column, 50 + 32 × row).
+  - **Standard:** a tower is open when a neighbour is solved (the masks at $8E52: the 3 × 3 grid's neighbours), and A, B, C are open while nothing in the group is solved. The arrows at (48, 82) and (240, 82) use one picture set ($2CDC0, states 0 off, 1 on, 2 chosen): left for any group but 0, right once 7 of the group are solved and the group is below 12. OK on an arrow moves to the next or last group.
+  - **Tutorial:** all nine open. **Custom:** all not yet solved.
+  - **The bar** below shows the chosen tower's name, or where an arrow leads ($4C9E / $4CB8). The group number and the percent of the 117 solved (rounded up, except 99) are shown for Standard.
+  - Progress is a byte per tower ($1144(a6) standard, $11B9 custom, $11C2 tutorial): $FF solved, otherwise the count of tries (a lost tower +2 up to $63, a restart +1 up to $64).
+- **Information ($A396):** four bevelled boxes: the name ("Not Named"), the author ("Anonymous"), the spiders ("Zapper, Pusher and Grabber", "No Spiders Present!") and the task ($A12A). OK plays.
+- **The task ($A12A):** "Collect n Klondike(s)", " and" (more follows) or " within" (time limit), "Destroy n object(s)", "a timelimit of n second(s)", centred one under the other; with nothing to do, three lines telling the designer to fix it.
 
-- **The 3D view:** filled polygons, dithered colours, and a copper sky gradient on colour 7.
-- **The panel:**
-  - spider select (Zapper, Pusher, Grabber), Fire, the turn and move arrows;
-  - the cameras N E S W, Pause;
-  - Stop/In, Run/Out, Run All, Write, Delete, Clear;
-  - a program strip.
+### The game screen ($969A)
+
+- **Drawing:** fade out; copper mode 2; clear; the panel ($AC44: the panel style's 15 colours into the palette, every button); the view's frame (15, 15)-(304, 128) in pen 15; the title bar with the tower's name centred; one view; fade in the tower's 48 colours.
+- **The panel's buttons:** the click areas at $31DE (27 × x0, y0, x1, y1, inclusive-exclusive), only below line $84:
+
+  | Buttons | Meaning |
+  | --- | --- |
+  | 0–3 | cameras N E S W |
+  | 4–6 | Zapper, Pusher, Grabber |
+  | 7, 8 | forward, back |
+  | 9, 10 | turn left, right |
+  | 11 | Fire |
+  | 12 | Pause |
+  | 13–18 | Stop/In, Run/Out, Run All, Write, Delete, Clear |
+  | 19–26 | the program strip |
+
+- **Lit buttons:** each button has an unlit and a lit image (image 2 × button + lit). Lit are: the chosen camera or spider ($1554); the move under way ($1558); the turn, Fire or Pause ($155C); the program button ($1560). The strip shows the program $1564 points to: command c in place i is image (c + 19) × 2, lit at the cursor. The vertical-blank hook $AB5A redraws a light when it changes.
+
+### The panel ($ADFC)
+
+Polled once a game frame. It sees no clicks, only the left button held at that moment, so a held button repeats once its lockout runs out.
+
+- **Lockouts** (game frames), counted down each poll: choosing $154C; turns and Fire $154E (at 0 the light goes off); moves $1550; programs $1552 (at 0, unless the program is being written or running alone, its light goes off and its mode becomes −1). A spider standing still clears its move light.
+- **A click in the view** (inside the view's window) asks the next view for a pick ($7EC = 0): each top face drawn that changes the pixel under the pointer makes its cell's object the one picked ($DB28 / $E040). The next poll selects that object if it is a spider.
+- **Choosing a camera or spider** (buttons 0–6; not the one chosen, not during the lockout): it becomes the active one; its program's lights show, the strip shows its program; lockout 4.
+- **While writing a program** ($156A + 16n mode 3), choosing hands it over:
+  - from a camera to a spider: the spider gets the commands and the camera's heading, and the camera's program is cleared;
+  - from a spider to a camera: the camera stores a copy.
+  - The writing stops; lockout 4. Choosing another spider from a spider just selects it.
+- **Pause** (button 12): unless the tower is ending, its light goes on and the loop leaves for the pause menu ($14EA = 0).
+- **Nothing else** works for a camera when the tower forbids cameras (flag 4), or for a spider that is gone.
+- **Commands while writing:** they go in at the cursor (the rest move up, the eighth falls off); the cursor moves on; lockout 4.
+- **A spider's direct commands:**
+  - Forward / back (lockout $1550): start the tower; forward walks in the heading ($B510), back reverses or rides ($B4B4); the light shows; done: lockout 8 and the move is shown as under way, else lockout 1.
+  - Turns (lockout $154E): left / right, lockout 4.
+  - Fire: starts the tower; the spider's beam ($B66E); lockout 8, or 1 and the sound $31AA(a6) when nothing happened.
+- **A camera's commands:**
+  - forward / back raise and lower it by $80 (within $80..$FFF);
+  - left / right move its sideways offset (+$14) by $80 (within −$1000..$1000);
+  - Stop/In and Run/Out move its depth offset (+$16) by $100 (within −$3A40..−$640).
+  - Its place is its offsets turned by its heading ($B44C). With linked cameras (option $1110 = 0) all four follow, each turned a quarter more, at the same height ($B478). Cameras do not fire.
+- **Program buttons for a spider:**
+  - Stop: the mode −1.
+  - Run: starts the tower, mode 1 from the start (position −1).
+  - Run All: starts the tower and all three spiders' programs.
+  - Write: mode 3, the cursor at 0.
+  - Delete: removes the command before the cursor and stops the writing.
+  - Clear: empties the program.
+  - Lockout 8 for Stop, Run, Run All, Delete and Clear; Run, Run All and Delete wait for it.
+- **The strip** (buttons 19–26) puts the cursor at that place.
+- **Starting:** any move, Fire or Run starts the tower ($11E6 = 0); turning, choosing and writing do not.
 
 ### The play loop ($9968)
 
-Each game frame runs, in order:
+- **Before the start:** each frame: $FC0 counts down; pens 23–24 invert ($AB44); panel; logic ($BC7A); behaviour ($BEE4); view ($D432, overlays included); READY ($151CC); swap; sounds. When the panel starts the tower, the freeze counter $11E4 goes from −1 to 0.
+- **Running:** each frame: the frame counter $FBE + 1; $FC0 counts down. When it wraps (every 7 frames) and the tower has a time limit and is not ending:
+  - under 30 seconds, a warning sound ($314E(a6), under 10 $317C(a6));
+  - the BCD seconds $121A drop by 1;
+  - at 0 the end begins with reason 2 (out of time).
 
-1. $AB44: inverts object pens 23 and 24 (a blink);
-2. $ADFC: panel input, polled once per game frame;
-3. $BC7A: object logic (programs and moves);
-4. $BEE4: each object's own behaviour and its animation frame;
-5. $D432: the 3D view;
-6. $87EE: the buffer swap;
-7. $15342: sounds.
+  Then the same steps as before the start, without READY.
+- **The end:** a win or loss sets the countdown $11E0 = $FC0 + $15 (21–27 frames) and the reason $11E2. When the countdown runs out the loop ends:
+  - a won tower plays the jingle $3AF2 and waits for it;
+  - otherwise the sound $3120(a6) plays.
+- **No view:** when the active spider is gone, or a camera is active where cameras are forbidden, the view shows white noise instead ($D804). The window is cleared, and (lockout + 2) × $360 dots are drawn from three counters ($88A–$88E) that move on each frame.
+- **Pause:** the loop leaves; the menu bar $4FD6(a6) replaces the title line (menu $3986: Setup, View, Info, Exit, and the Pause button to go on).
+  - **Setup ($9AC4):** Backwards Allowed, Link Cameras, Show Compass/Info and Show Timer (Top, Base, No), and the screen's place on the monitor (ignored by the port).
+  - **View ($9C68):** View Offset (left, centre, right: $FBC = (n − 1) × $30), View Height ($FB8 = n × $30 + $58), View Distance ($FBA from $9F7C: −16, $1B0, $228), Sights, Panel Style (loads panel set n from disk, $334 + $24 n).
+    - Sights need the centre, normal view; choosing them sets it; the farthest distance forces the centre.
+    - Closing applies the view ($9F84) and redraws the panel in its style.
+  - **Info ($9FB6):** whether cameras are allowed, whether mines destroy the floor, the time bomb speed (Slow, Medium, Fast), and Show Task (the task in a window).
+  - **Exit ($A060):** Abandon Tower (reason 5) or Restart Tower (6: one more try counted, the tower unpacked again), each after Yes/No.
+  - Back in the tower, the title line shows the name again and the Pause light goes off.
 
-**Before the start:** a READY loop runs ($151CC draws READY). The first direct move (for example forward) starts the tower: $11E6 = 0, then $11E4 = 0. Programs alone do not start it.
+### After a tower
+
+- **Solved (standard game, $92EC):**
+  - **The bonuses:** the tower bonus 100, the retry bonus 100 − 4 × tries (at least 0), and the survivor bonus 10 for each spider the tower has that is still there. The tower's byte becomes $FF.
+  - **The screen:** a demonstration runs above (interlude n mod 6 with a counter $FD6 that rises each time), with a bevelled box in pen 6, "Tower Completed" and the three bonuses.
+  - **Counting:** after 4 frames each bonus is counted into the score in chunks of 20 (halved when the rest is smaller), a chunk a game frame, with 3 frames between bonuses.
+  - Then OK. In group 0 the program checks the disk once 7 towers are solved (left out).
+- **All 117 solved ($95A0):** "Unbelievable! Amazing! …" and the final score; Standard is closed from then on.
+- **Not solved, or another game type ($97AA):** a demonstration (won: 0–5, lost: 6–11) with a box in pen 6 or 3 and the message $66 + reason ("Tower Completed / Congratulations", "Out Of Time", "All Spiders Destroyed", "Grabber Destroyed", "Attempt Abandoned"); then OK.
+- **The OK button** lights (XOR over (136, 184)-(183, 195)) while the pointer is on it ($98B6); the demonstration runs on until it is clicked.
+
+### Demonstrations ($158AA, $15922)
+
+- **Setup:** the 18 towers of the demonstration group. Each is unpacked as game type 5 and starts at once (the clock running); the camera is fixed facing north.
+- **Each game frame:**
+  - the turn and move lockouts are cleared;
+  - when the active spider stands still, its script's next byte ($FE4(a6) + 16 × demo) is read;
+  - low 3 bits: 0 nothing, 1–5 the buttons forward, back, left, right, Fire (through the panel's command code, $AF3C), 6 a jump on the spot (progress 16, state 12). A 0 byte ends the script.
+- **The camera:**
+  - x = spider x × $CD / 256 and y = spider y × $140 / 256 + h, where h starts at $120;
+  - z = spider z − 8 h;
+  - h changes each frame by 2 × (the last byte as signed >> 6).
+- **No overlays** are drawn (game type ≥ 4). The panel band under a demonstration takes the menu colours $23F2(a6).
+- **Demo Sequence ($15780):** demonstrations 12–17 in turn, with the logo at (0, $90) below the view.
+  - A click in the view's left half goes back one, in the right half on one; a click below line $80 or Space ends.
+  - When a script ends, the next demonstration starts.
 
 ### Randomness
 
@@ -199,8 +332,9 @@ bits are used.
 - 5: no time limit ($A1B4/$A22E).
 - 6: no lightning.
 - 7: no meteors.
-- 8: Proximity Mines leave no hole ($E2A).
-- 3, 4 and 9 are open.
+- 4: cameras may not be used ($E22: the panel ignores them, the view shows noise; Info says "Cameras not allowed").
+- 8: Proximity Mines leave no hole ($E2A; Info: "Mines don't destroy floor").
+- 3 and 9 are open.
 
 **Cells:** floor by floor, then row (z), then column (x). Each 3-bit code
 becomes a cell byte by the table $1375A: 00 C0 C8 E0 F0 30 E8 00. The bytes
@@ -336,7 +470,10 @@ to the ground shows up as "slots" 52–54. Slots 4–6 are the spiders; slots
   - floor gone $300C;
   - hop $3068;
   - thaw $2FB0;
-  - convertor hum $31D8.
+  - convertor hum $31D8;
+  - a shot that does nothing $31AA;
+  - the timer under 30 seconds $314E, under 10 $317C;
+  - a tower lost or abandoned $3120.
 
 ### Other main-data ranges
 
@@ -622,6 +759,13 @@ Both are kept in the re-implementation.
 - **Meteor plane mix-up ($D2B4):** in a meteor's first partial word, plane 3 takes plane 0's bits.
 - **Freezer counter:** zapping a Freezer whose +$1C ≠ 0 always adds 1 to the freeze counter $11E4, even after the Freezer has already thawed and added its own 1. The counter then stays at 1, and the next Freezer only lowers it to 0, so it stops nothing.
 
+## Copy protection (left out)
+
+- **At start:** the program asks for a word from the manual (page, paragraph, line, word; the language chosen first). The cracked copy accepts any word.
+- **Delayed check (hypothesis):** the View page ($9CF0) hashes the text at $4550(a6). Two sums, × $1D and × $15B over the characters after leading spaces, are added and XORed with $1288. It compares the result with a table at $6E38(a6) indexed by $2C(a6), and on a mismatch clears memory in a stride and returns into it. On the reference, with a made-up word, the machine crashed right after the View page (once; the program counter was in the Kickstart ROM).
+- **Disk checks** before panel loads, and once group 0 has 7 solved towers: the sum of block $AA must be $29CF849D.
+- **Anti-tamper:** checksum loops in many routines (main menu, text drawer, interludes) jump over code that clears memory. All of this is left out.
+
 ## The re-implementation
 
 **Namespace:** `babel`, under `games/tower_of_babel_amiga`.
@@ -633,14 +777,19 @@ Both are kept in the re-implementation.
 | `import/` | the decruncher (byte-equal to the machine's memory at $7A5E); the importer, which identifies the release by the loader's SHA-256 and checks the program and six block ranges (title, main, panel1–3, music) by SHA-256 |
 | `data/` | decoders: title pictures, tower records, shapes, sampled pieces, effect waveforms; the launcher previews and the shared 3D model viewer |
 | `game/` | `tower_map` (cells with shape flags, lit columns $CCA8, colour pattern $CD90); `tower_state` (the running tower in the rules' bordered layout: object map, objects, programs, panel lights, forcers, objective, freeze counter); `rules` (programs, moves, firing); `behaviour.cpp` (each type's update); `animation` (the frame choice as a pure function of state and frame counter) |
-| `view/` | `polygon` (the clipper, the filler, see-through and outlined fills); `tower_view` (camera, projection, traversal, faces, objects, particles); `sky`; `overlay` |
+| `game/panel` | the panel's rules ($ADFC): choosing, direct commands, cameras, program editing, lockouts |
+| `view/` | `polygon` (the clipper, the filler, see-through and outlined fills); `tower_view` (camera, projection, traversal, faces, objects, particles, the pointer's pick); `sky` (incl. the 48-colour game palette and its copper view); `overlay` |
+| `front/` | `screen` (the 320 × 200 picture, pens, rectangles, lines, bevelled boxes, windows, pictures, the font and layout codes, menus' click areas, the copper modes); `play` (the game screen and the play loop, demonstrations); `front_end` (every screen from the title to the end screens, as coroutines that wait for vertical blanks, `flow.hpp`); `module` (the shell's game module: mouse, keys, picture, sampled pieces) |
 
-**Assets tool:** `tower_of_babel_assets import | export | viewcheck | animcheck | framecheck | logiccheck | objectcheck`.
+**Assets tool:** `tower_of_babel_assets import | export | viewcheck | animcheck | framecheck | logiccheck | objectcheck | panelcheck | drive`. `drive` runs the front end headless from a script (frames, move, click, key, shot).
 
 **Design choices:**
 - **Drawing from state:** the view is drawn from game state by the native renderer, never by copying the original's 320-pixel output. That leaves room for widescreen.
 - **Tick rate:** the rules run at the original's tick rate, apart from drawing, so positions can later be interpolated up to 120 Hz.
-- **Cell numbering:** native cell index = original index + 100. The native grid includes the ground row as floor −1.
+- **Cell numbering:** native cell index = original index + 100. The native grid includes the ground row as floor −1. The cameras' +$14 / +$16 are kept as raw offsets.
+- **Frames:** the module ticks at the PAL frame rate (50 Hz); a game frame runs whenever 14 timer ticks (709379 / 7160 Hz) have built up, the rest carried over. The front end's waits (fades, menus, the name editor) are in vertical blanks as in the original.
+- **Clicks:** a press between two game frames counts as held at the next poll, at the place it was made. The original only sees the button when it polls (a quick click can be missed).
+- **Left out:** the crack, the copy protection, the disk loads and disk checks, the screen-position settings. The credits also end on a click (the original: Space only).
 
 ### How it was checked
 
@@ -665,7 +814,17 @@ by frame:
   - a Freezer (63 frames stopped), a Wiper (3 cells);
   - a Klondike vanishing, a Convertor with a Bonus Flag.
 
+- **The panel (`panelcheck`, harness/panelrec.py):** the poll $ADFC from the recorded variables, with the mouse set at each poll. 0 differences in 304 frames covering choosing spiders and cameras, camera moves and zooms, writing and deleting, the strip, clearing, a camera's program handed to a spider, turns, moves, Fire and Run All.
+- **Front end (`drive`, harness/fe/*.txt, compared by harness/fe/cmp.py with screen.py captures):**
+  - pixel-identical: the credits, the name prompt, the main menu, the game types, the chooser (with a tower chosen, and after a win with A solved and B, D open), the information pages of towers A and B, the Setup page, the game panel with a written program, the win screen's box and score (230 on tower A);
+  - the demonstration after a win: the view identical to the reference's frame at the same moment;
+  - the title differed only by the reference renderer's 3-line offset (since fixed: the display starts at $29, not $2C).
+- **The timer (harness/fe/timecheck.cpp):** "The Lift Is Guarded" counts 160 BCD seconds down in 1,120 frames and ends with reason 2.
+- **Played through:** tower A solved by the program Fire Fire Fire for the Grabber (the score screen as the original's); Restart and Abandon from the Exit page.
+
 **Harness notes for the reference:**
+- **Display:** screen.py now takes the display's first line from $2(a6) ($29); earlier captures were drawn 3 lines high.
+- **Avoid the View page** on the reference: with a made-up manual word the machine crashed after it (above).
 - **Panel clicks:** in play the panel is polled once per game frame, so a click must hold the button for about 20 video frames. A 3-frame hold or an early click leaves the game at READY.
 - **Keys:** go in through $692(a6).
 - **Mouse:** a breakpoint at $806C in the vertical blank, then pokes to the pointer $814/$816 and $E9C/$E9E and the buttons $EA0.

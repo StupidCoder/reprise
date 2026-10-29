@@ -1,3 +1,5 @@
+#include "tower_of_babel_amiga/game/panel.hpp"
+#include "tower_of_babel_amiga/front/front_end.hpp"
 // Tower of Babel research tool: imports the disk image into a content folder
 // and exports the decoded data (.analysis/tower_of_babel_amiga/formats.md).
 //
@@ -101,8 +103,10 @@ babel::game::TowerState state_from(const Vars& v) {
     for (int n = 0; n < TowerState::objects_max; ++n) {
         const int r = 0x15DA + n * 32;
         auto& o = t.objects[std::size_t(n)];
+        // Cells are kept 100 on (a ground row first); the cameras' +$14 / +$16 are offsets.
+        const int shift = n < 4 ? 0 : 100;
         o = {v.s16(r), v.u32(r + 2), v.s16(r + 6), v.s16(r + 8), v.s16(r + 10), v.s16(r + 12), v.s16(r + 14),
-             v.s16(r + 16), v.s16(r + 18), v.s16(r + 20) ? v.s16(r + 20) + 100 : 0, v.s16(r + 22) ? v.s16(r + 22) + 100 : 0,
+             v.s16(r + 16), v.s16(r + 18), v.s16(r + 20) ? v.s16(r + 20) + shift : 0, v.s16(r + 22) ? v.s16(r + 22) + shift : 0,
              v.s16(r + 24), v.s16(r + 26), v.s16(r + 28), v.s16(r + 30)};
         if (o.type == 0xD && o.counter_1c != 0) o.counter_1c += 100; // a Lizard's +$1C is a cell
     }
@@ -347,10 +351,143 @@ int view_check(const babel::data::Assets& assets, const Dump& d, int group, int 
 
 } // namespace
 
+// Research: the panel poll $ADFC against panelrec.py's recording: the
+// button under the recorded pointer (or a click in the view), the native
+// poll from the recorded variables, then everything the poll may change.
+int panel_check(const babel::data::Assets& assets, const std::filesystem::path& file) {
+    using namespace babel::game;
+    const Rules rules(assets.program);
+    std::ifstream in(file);
+    int x = 0, y = 0, b = 0, frames = 0, bad = 0;
+    std::string before_hex, after_hex;
+    const auto bytes = [](const std::string& h) {
+        std::vector<std::uint8_t> v(h.size() / 2);
+        for (std::size_t i = 0; i < v.size(); ++i) v[i] = std::uint8_t(std::stoi(h.substr(2 * i, 2), nullptr, 16));
+        return v;
+    };
+    const auto button_at = [&](int px, int py) {
+        for (int i = 0; i < buttons; ++i) {
+            const std::uint32_t a = 0x31DE + std::uint32_t(i) * 8;
+            if (px >= assets.program.u16(a) && px < assets.program.u16(a + 4) && py >= assets.program.u16(a + 2) &&
+                py < assets.program.u16(a + 6))
+                return i;
+        }
+        return -1;
+    };
+    while (in >> x >> y >> b >> before_hex >> after_hex) {
+        ++frames;
+        const Vars before{bytes(before_hex)}, after{bytes(after_hex)};
+        TowerState native = state_from(before);
+        Panel panel;
+        panel.set_waits({before.s16(0x154C), before.s16(0x154E), before.s16(0x1550), before.s16(0x1552), before.s16(0x1554)});
+        Panel::Input input;
+        if (b & 2) {
+            if (y >= 0x84) input.button = button_at(x, y);
+            else input.view_click = true;
+        }
+        const Panel::Settings settings{before.s16(0x1110) == 0, before.s16(0xE22) < 0};
+        panel.poll(native, rules, settings, input, -1);
+        const TowerState original = state_from(after);
+        std::vector<std::string> diffs;
+        const auto check = [&](const std::string& what, long a, long o) {
+            if (a != o) diffs.push_back(what + " original " + std::to_string(o) + " native " + std::to_string(a));
+        };
+        for (CellIndex i = 0; i < 500; ++i) {
+            check("cell " + std::to_string(i), native.cell(i), original.cell(i));
+            if (i >= 100) check("object at " + std::to_string(i), native.object_at(i), original.object_at(i));
+        }
+        for (int n = 0; n < TowerState::objects_max; ++n) {
+            const auto& p = native.objects[std::size_t(n)];
+            const auto& q = original.objects[std::size_t(n)];
+            const std::string o = "slot " + std::to_string(n) + " ";
+            check(o + "type", p.type, q.type); check(o + "x", p.x, q.x); check(o + "y", p.y, q.y); check(o + "z", p.z, q.z);
+            check(o + "heading", p.heading, q.heading); check(o + "state", p.state, q.state);
+            check(o + "progress", p.progress, q.progress); check(o + "cell", p.cell, q.cell); check(o + "target", p.target, q.target);
+            check(o + "flags", p.flags, q.flags); check(o + "1c", p.counter_1c, q.counter_1c);
+        }
+        for (int n = 0; n < 7; ++n) {
+            const auto& p = native.programs[std::size_t(n)];
+            const auto& q = original.programs[std::size_t(n)];
+            const std::string s = "program " + std::to_string(n) + " ";
+            check(s + "command", p.command, q.command); check(s + "mode", p.mode, q.mode); check(s + "position", p.position, q.position);
+            for (int k = 0; k < 8; ++k) check(s + "step " + std::to_string(k), p.commands[std::size_t(k)], q.commands[std::size_t(k)]);
+        }
+        check("active", native.active, original.active);
+        check("panel move", native.panel.move, original.panel.move);
+        check("panel turn", native.panel.turn, original.panel.turn);
+        check("panel program", native.panel.program, original.panel.program);
+        if (original.panel.program_record != -1) check("panel record", native.panel.program_record, original.panel.program_record);
+        const auto w = panel.waits();
+        check("select wait", w.select, after.s16(0x154C));
+        check("turn wait", w.turn, after.s16(0x154E));
+        check("move wait", w.move, after.s16(0x1550));
+        check("program wait", w.program, after.s16(0x1552));
+        check("selected", w.selected, after.s16(0x1554));
+        check("started", native.started || before.s16(0x11E6) >= 0, after.s16(0x11E6) >= 0);
+        check("pause", panel.pause_requested(), after.s16(0x14EA) >= 0);
+        check("klondikes", native.klondikes, original.klondikes);
+        check("destroyed", native.destroyed, original.destroyed);
+        if (!diffs.empty() && ++bad <= 8) {
+            std::printf("frame %d (%d,%d %d):", frames, x, y, b);
+            for (std::size_t i = 0; i < diffs.size() && i < 6; ++i) std::printf(" [%s]", diffs[i].c_str());
+            std::printf("\n");
+        }
+    }
+    std::printf("panel: %d of %d frames differ\n", bad, frames);
+    return 0;
+}
+
+// Research: runs the front end headless from a script of lines:
+//   frames N | move X Y | click X Y [HOLD] | hold X Y N | key C (ret, bs, esc, space or a character) | shot FILE
+int drive(const babel::data::Assets& assets, const std::filesystem::path& script, const std::filesystem::path& out) {
+    babel::front::FrontEnd fe(assets);
+    babel::front::FrontEnd::Input in;
+    in.pointer = true;
+    std::ifstream file(script);
+    std::string line;
+    long frame = 0;
+    const auto step = [&](int n) {
+        for (int i = 0; i < n; ++i, ++frame) {
+            fe.vblank(in);
+            in.key = 0;
+        }
+    };
+    std::filesystem::create_directories(out);
+    while (std::getline(file, line)) {
+        std::istringstream words(line);
+        std::string what;
+        if (!(words >> what) || what[0] == '#') continue;
+        if (what == "frames") { int n = 0; words >> n; step(n); }
+        else if (what == "move") { words >> in.x >> in.y; step(1); }
+        else if (what == "click" || what == "hold") {
+            int hold = 3; words >> in.x >> in.y >> hold;
+            in.left = true; step(hold); in.left = false; step(1);
+        } else if (what == "key") {
+            std::string k; words >> k;
+            in.key = k == "ret" ? 13 : k == "bs" ? 8 : k == "esc" ? 27 : k == "space" ? ' ' : k[0];
+            step(1);
+        } else if (what == "shot") {
+            std::string name; words >> name;
+            platform::save_png(fe.screen().image(), out / name);
+            std::printf("frame %ld: %s\n", frame, name.c_str());
+            std::fflush(stdout);
+        }
+    }
+    return 0;
+}
+
 int main(int argc, char** argv) {
     using namespace babel::data;
     const std::string command = argc > 1 ? argv[1] : "";
     try {
+        if (command == "panelcheck" && argc == 4) {
+            const auto assets = load_assets(platform::utf8_path(argv[2]));
+            return panel_check(assets, platform::utf8_path(argv[3]));
+        }
+        if (command == "drive" && argc == 5) {
+            const auto assets = load_assets(platform::utf8_path(argv[2]));
+            return drive(assets, platform::utf8_path(argv[3]), platform::utf8_path(argv[4]));
+        }
         if (command == "import" && argc == 4) {
             const auto result = babel::import::import_disk(platform::read_file(platform::utf8_path(argv[2])));
             const auto out = platform::utf8_path(argv[3]);

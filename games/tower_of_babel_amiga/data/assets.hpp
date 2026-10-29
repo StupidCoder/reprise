@@ -108,6 +108,7 @@ struct Assets {
     Memory program; // $800 onwards
     Memory main;    // at $1C5F0
     Memory music;   // at $1C5F0 (title time)
+    Memory title_memory; // at $18200: the title images and the font
     std::array<std::vector<std::uint8_t>, 3> panels;
     TitleScreen title;
     std::vector<TowerGroup> groups;

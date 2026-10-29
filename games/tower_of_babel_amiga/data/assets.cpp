@@ -199,7 +199,8 @@ Assets load_assets(const std::filesystem::path& content) {
     for (std::size_t i = 0; i < assets.panels.size(); ++i) {
         assets.panels[i] = platform::read_file(content / ("panel" + std::to_string(i + 1)));
     }
-    const Memory title(title_base, platform::read_file(content / "title"));
+    assets.title_memory = Memory(title_base, platform::read_file(content / "title"));
+    const Memory& title = assets.title_memory;
 
     auto& screen = assets.title;
     screen.logo = read_picture(title.bytes(logo_at, 20 * 35 * 8), 20, 35);

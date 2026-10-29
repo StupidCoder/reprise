@@ -30,6 +30,10 @@ public:
     TowerMap(const data::Tower&, std::span<const std::uint8_t> colour_patterns);
     // The same with the program's table.
     TowerMap(const data::Tower&, const data::Memory& program);
+    // An empty map, to fill with `set` (the running tower's cells).
+    TowerMap() = default;
+    void set(int floor, int x, int z, std::uint8_t value) { cells_[std::size_t(floor)][std::size_t(z)][std::size_t(x)] = value; }
+    void set_ground_lit(int x, int z, bool lit) { ground_[std::size_t(z)][std::size_t(x)] = lit; }
 
     // Cells outside the tower (x or z outside 0-7, floors above 3) are empty.
     std::uint8_t at(int floor, int x, int z) const;

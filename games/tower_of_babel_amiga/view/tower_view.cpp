@@ -65,9 +65,10 @@ class Frame {
 public:
     Frame(Canvas& canvas, const Window& window, const Pens& pens, const game::TowerMap& map, const Camera& cam, int cx,
           int cy, const LiftHeight& lift_height, const ObjectAt& objects, const data::Memory* program,
-          const data::Memory* main)
+          const data::Memory* main, Pick* pick)
         : canvas_(canvas), window_(window), pens_(pens), map_(map), cam_(cam), cx_(cx), cy_(cy), turn_{cam.heading},
-          lift_height_(lift_height), objects_(objects), program_(program), main_(main), p_(project_rows(cam, cx, cy)) {}
+          lift_height_(lift_height), objects_(objects), program_(program), main_(main), pick_(pick),
+          p_(project_rows(cam, cx, cy)) {}
 
     std::uint8_t at(int f, int c, int v) const {
         if (c < 0 || c > 7 || v < 0 || v > 7) return 0;
@@ -140,7 +141,7 @@ public:
                     if (cell & lift) { lift_below(k, c, v, f, cell, true); continue; }
                     left_face(k, c, v, f, cell);
                     front_face(k, c, v, f, cell);
-                    top_face(k, c, f, cell);
+                    top_face(k, c, v, f, cell);
                     object(k, c, v, f, cell);
                 }
                 for (int i = 0, c = 0; i <= left_cells; ++i, ++c) {
@@ -149,7 +150,7 @@ public:
                     if (cell & lift) { lift_below(k, c, v, f, cell, false); continue; }
                     right_face(k, c, v, f, cell);
                     front_face(k, c, v, f, cell);
-                    top_face(k, c, f, cell);
+                    top_face(k, c, v, f, cell);
                     object(k, c, v, f, cell);
                 }
             }
@@ -224,9 +225,24 @@ private:
         polygon({{x(k + 1, c), u(k + 1, f)}, {x(k + 1, c + 1), u(k + 1, f)}, {x(k, c + 1), u(k, f)}, {x(k, c), u(k, f)}},
                 pen(under, cell, false));
     }
-    void lift_top_face(int k, int c, std::uint8_t cell, const Platform& p) {
-        polygon({{x(k, c), p.far}, {x(k, c + 1), p.far}, {x(k + 1, c + 1), p.near}, {x(k + 1, c), p.near}},
-                pens_.pens[std::size_t(lift_top + ((cell & lit) ? 1 : 0))]);
+    void lift_top_face(int k, int c, int v, int f, std::uint8_t cell, const Platform& p) {
+        picking(c, v, f, [&] {
+            polygon({{x(k, c), p.far}, {x(k, c + 1), p.far}, {x(k + 1, c + 1), p.near}, {x(k + 1, c), p.near}},
+                    pens_.pens[std::size_t(lift_top + ((cell & lit) ? 1 : 0))]);
+        });
+    }
+    // $DB28 / $E040: while a pick is asked for, a top face that changes the
+    // pixel under the pointer makes its cell the one picked (later faces,
+    // nearer ones, win). A face drawn in the colour already there picks nothing.
+    template <class Draw> void picking(int c, int v, int f, Draw draw) {
+        const bool test = pick_ != nullptr && pick_->x >= 0 && pick_->x < canvas_.width && pick_->y >= 0 &&
+                          pick_->y < canvas_.height;
+        const std::uint8_t before = test ? canvas_.at(pick_->x, pick_->y) : 0;
+        draw();
+        if (test && canvas_.at(pick_->x, pick_->y) != before) {
+            pick_->floor = f;
+            turn_.cell(c, v, pick_->cell_x, pick_->cell_z);
+        }
     }
 
     void lift_above(int k, int c, int v, int f, std::uint8_t cell, bool right_of_centre) {
@@ -244,7 +260,7 @@ private:
         lift_side(k, c, v, f, cell, p, right_of_centre);
         lift_front(k, c, v, f, cell, p);
         if (p.top) {
-            lift_top_face(k, c, cell, p);
+            lift_top_face(k, c, v, f, cell, p);
             object(k, c, v, f, cell);
         }
     }
@@ -458,11 +474,13 @@ private:
     }
 
     // $DAB2: the top of a slab at or below eye height (lit when nothing is above).
-    void top_face(int k, int c, int f, std::uint8_t cell) {
+    void top_face(int k, int c, int v, int f, std::uint8_t cell) {
         if (cell & full_height) return;
         auto index = top + ((cell & lit) ? 1 : 0);
-        polygon({{x(k, c), t(k, f)}, {x(k, c + 1), t(k, f)}, {x(k + 1, c + 1), t(k + 1, f)}, {x(k + 1, c), t(k + 1, f)}},
-                pen(index, cell, false));
+        picking(c, v, f, [&] {
+            polygon({{x(k, c), t(k, f)}, {x(k, c + 1), t(k, f)}, {x(k + 1, c + 1), t(k + 1, f)}, {x(k + 1, c), t(k + 1, f)}},
+                    pen(index, cell, false));
+        });
     }
 
     Canvas& canvas_;
@@ -476,6 +494,7 @@ private:
     const ObjectAt& objects_;
     const data::Memory* program_;
     const data::Memory* main_;
+    Pick* pick_;
     Projection p_;
 };
 
@@ -512,12 +531,12 @@ Camera spider_camera(int x, int y, int z, int heading, int offset, int height, i
 
 void TowerView::draw(Canvas& canvas, const Window& window, int centre_x, int centre_y, const game::TowerMap& map,
                      const Camera& camera, const LiftHeight& lift_height, const ObjectAt& objects,
-                     const std::function<void(Canvas&)>& sky) const {
+                     const std::function<void(Canvas&)>& sky, Pick* pick) const {
     // $1191C: the view is cleared to colour 7, the sky and ground colour the
     // copper changes line by line.
     for (int y = window.top; y <= window.bottom; ++y)
         for (int x = window.left; x <= window.right; ++x) canvas.set(x, y, 7);
-    Frame frame(canvas, window, pens_, map, camera, centre_x, centre_y, lift_height, objects, program_, main_);
+    Frame frame(canvas, window, pens_, map, camera, centre_x, centre_y, lift_height, objects, program_, main_, pick);
     frame.ground_shadows();
     if (sky) sky(canvas);
     frame.cells();

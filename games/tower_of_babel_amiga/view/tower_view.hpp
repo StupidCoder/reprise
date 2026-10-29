@@ -66,6 +66,13 @@ using ObjectAt = std::function<const SceneObject*(int floor, int x, int z)>;
 // any; lifts without one show their platform at the floor's level.
 using LiftHeight = std::function<std::optional<int>(int floor, int x, int z)>;
 
+// A pick asked for at a point of the canvas (the mouse in the view): the
+// cell whose top face, drawn last, changed that pixel (floor -1: none).
+struct Pick {
+    int x{}, y{};
+    int floor{-1}, cell_x{}, cell_z{};
+};
+
 class TowerView {
 public:
     explicit TowerView(const Pens& pens) : pens_(pens) {}
@@ -77,7 +84,8 @@ public:
     // (centre_x, centre_y) (160, 72 in the original's 320-pixel screen).
     void draw(Canvas&, const Window&, int centre_x, int centre_y, const game::TowerMap&, const Camera&,
               const LiftHeight& lift_height = {}, const ObjectAt& objects = {},
-              const std::function<void(Canvas&)>& sky = {}) const; // sky: drawn after the ground shadows
+              const std::function<void(Canvas&)>& sky = {}, // sky: drawn after the ground shadows
+              Pick* pick = nullptr) const;
 
 private:
     Pens pens_;
