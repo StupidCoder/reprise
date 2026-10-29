@@ -37,6 +37,15 @@ struct FuelCosts {
     template <class A> void persist(A& ar) { ar(first_visit, unknown, death, alien); }
 };
 
+// The port's cheats (the pause menu's "Cheats" page; all off is the
+// original game). Not part of the saved state: the options are.
+struct Cheats {
+    bool infinite_fuel{};      // the fuel never goes down (jewels still add)
+    bool no_fall_deaths{};     // below the world: back on the last floor; hard landings harmless
+    bool harmless_creatures{}; // Pacs, pyramids and boinks take no fuel
+    bool stopped_timers{};     // "Die if elapse" timers stand still
+};
+
 // What a world's play keeps from level to level.
 struct Progress {
     int world{};                      // $251C
@@ -69,6 +78,7 @@ struct Progress {
     // Sound requests since the module last took them (the block at $36D2).
     std::vector<ObjectEvents::Sound> sounds;
     int heard_last{-1};               // $2080/$2084: the object and effect channel 2 plays (object × 256 + effect)
+    Cheats cheats;                    // (not saved)
 
     // $16D44 for a world's start and $10E1E (the difficulty's fuel costs).
     void start_world(const data::Memory& main, int number, int difficulty);

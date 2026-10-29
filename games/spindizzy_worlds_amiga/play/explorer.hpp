@@ -85,6 +85,7 @@ struct Death {
     int hint;          // the death's clue ($15FC0, shown once per kind of death); −1 none
     int becomes;       // the explorer's next object kind: −2 lost (a pause, then −3), −3 respawn
     bool costs_energy; // $2060(a5) is taken from the energy $206C(a5) (the respawn takes $10 more)
+    bool fall{};       // a fall: below the world or a hard landing (the "No falling deaths" cheat)
 };
 
 struct TickEvents {

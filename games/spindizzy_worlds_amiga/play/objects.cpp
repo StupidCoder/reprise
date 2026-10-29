@@ -480,6 +480,7 @@ void LevelObjects::tick_heads(LevelObject& o, ObjectWorld& w, ObjectEvents& even
 
 void LevelObjects::tick_timer(LevelObject& o, ObjectWorld& w, ObjectEvents& events) { // $15346
     if (w.timer_expired) return;
+    if (w.deadly_timers_stopped && (high(o.word2c) & 0x40)) return; // the cheat: a deadly one stands still
     if (w.timer >= 8) {
         w.timer = std::uint16_t(w.timer - 8);
         if ((w.timer & 0xFF) == 0) { // $1538E: a tick each second, quieter as it runs out
@@ -570,7 +571,7 @@ void LevelObjects::tick_boink(LevelObject& o, ObjectWorld& w, ObjectEvents& even
     }
     if (!touches(o, w.explorer)) return;
     events.clue = 2;                // "Getting crushed destroys craft"
-    events.fuel_cost += 0x30;       // $152E2
+    events.creature_cost += 0x30;   // $152E2
     events.sounds.push_back({1, 5, 0x40});
     events.sounds.push_back({0, 0x20, 0x40});
     o.popping = true;               // $14800 → $147E8
@@ -640,7 +641,7 @@ void LevelObjects::tick_pac(LevelObject& o, ObjectWorld& w, ObjectEvents& events
             return;
         }
         events.clue = 5;
-        events.fuel_cost += w.alien_cost;
+        events.creature_cost += w.alien_cost;
         events.sounds.push_back({1, 0x1E, 0x40}); // $156F2
         w.explorer.arrival_ticks = std::int16_t(w.explorer.arrival_ticks + 0xF);
         o.popping = true; // $147E8
@@ -706,7 +707,7 @@ void LevelObjects::tick_pyramid(LevelObject& o, ObjectWorld& w, ObjectEvents& ev
         hear(o, events, 0x23, loudness(o, w.explorer, false)); // $15922
         if (!touches(o, w.explorer)) return;
         events.clue = 5;
-        events.fuel_cost += w.alien_cost + 0x10; // $1593A
+        events.creature_cost += w.alien_cost + 0x10; // $1593A
         o.popping = true;
         o.count = 1;
         o.step = 0;

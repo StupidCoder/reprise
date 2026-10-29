@@ -977,6 +977,135 @@ int main(int argc, char** argv) {
             const auto assets = load_assets(platform::utf8_path(argv[2]));
             return route(assets, std::stoi(argv[3]), argv[4], platform::utf8_path(argv[5]), argc == 7 ? std::stoi(argv[6]) : 1);
         }
+        if (command == "cheatcheck" && argc == 3) {
+            // cheatcheck <content>: each cheat's situation run with the cheat
+            // off and on (EasyDizzy 1 and 6, Tutorial 1), natively.
+            using namespace spindizzy;
+            const auto assets = load_assets(platform::utf8_path(argv[2]));
+            const auto surfaces = play::read_surfaces(assets.main);
+            struct Run { play::Progress progress; std::unique_ptr<play::LevelPlay> lp; };
+            auto start = [&](int world, int level, play::Cheats cheats) {
+                auto r = std::make_unique<Run>();
+                r->progress.start_world(assets.main, world, 0);
+                r->progress.level = level;
+                r->progress.cheats = cheats;
+                r->lp = std::make_unique<play::LevelPlay>(assets, surfaces, r->progress);
+                return r;
+            };
+            auto step = [](Run& r) { r.lp->tick(0); r.lp->take_clue(); r.lp->frame(true); };
+            auto whole = [](const Run& r) { return r.progress.fuel >> 16; };
+            int failures = 0;
+            auto report = [&](const char* what, bool ok, const std::string& detail) {
+                std::printf("%-20s %s  %s\n", what, ok ? "ok  " : "FAIL", detail.c_str());
+                failures += !ok;
+            };
+            { // Infinite fuel: a fall off Tutorial 1 (its respawn costs fuel) and
+              // a Pac's touches in EasyDizzy 1, against the same runs without it.
+                int lost_off = 0, lost_on = 0, lowest_margin = 0;
+                for (const int world : {23, 31}) {
+                    auto off = start(world, 1, {}), on = start(world, 1, {.infinite_fuel = true});
+                    for (int i = 0; i < 50; ++i) { step(*off); step(*on); }
+                    const int before_off = whole(*off), before_on = whole(*on);
+                    int lowest = before_on;
+                    for (int i = 0; i < 300; ++i) {
+                        for (auto* r : {off.get(), on.get()}) {
+                            if (world == 23 && i == 0) { r->progress.explorer.x = 0x1F80; r->progress.explorer.y = 0x1F80; }
+                            if (world == 31)
+                                for (const auto& o : r->lp->objects().objects())
+                                    if (o.alive && !o.popping && o.kind == world::ObjectKind::pac) {
+                                        r->progress.explorer.x = o.x; r->progress.explorer.y = o.y; r->progress.explorer.z = o.z;
+                                        break;
+                                    }
+                            step(*r);
+                        }
+                        lowest = std::min(lowest, whole(*on));
+                    }
+                    lost_off += before_off - whole(*off);
+                    lost_on += before_on - whole(*on);
+                    lowest_margin = std::min(lowest_margin, lowest - before_on);
+                }
+                report("Infinite fuel", lost_off > 0 && lowest_margin == 0,
+                       "fuel lost off " + std::to_string(lost_off) + " / on " + std::to_string(lost_on) +
+                           " (never below its start: " + (lowest_margin == 0 ? "yes" : "no") + ")");
+            }
+            { // No falling deaths: the explorer put beyond the world's edge.
+                auto off = start(23, 1, {}), on = start(23, 1, {.no_fall_deaths = true});
+                for (int i = 0; i < 50; ++i) { step(*off); step(*on); } // stand firmly first (the respawn point)
+                const auto home = on->progress.explorer;
+                for (auto* r : {off.get(), on.get()}) {
+                    r->progress.explorer.x = 0x1F80;
+                    r->progress.explorer.y = 0x1F80;
+                    r->progress.explorer.arrival_ticks = 0; // set again by a death or a respawn
+                }
+                bool off_died = false, on_died = false, back = false;
+                const int fuel_off = whole(*off), fuel_on = whole(*on);
+                for (int i = 0; i < 400; ++i) {
+                    step(*off); step(*on);
+                    off_died |= off->progress.explorer.arrival_ticks > 0;
+                    on_died |= on->progress.explorer.arrival_ticks > 0;
+                    back |= on->progress.explorer.respawn_x == home.respawn_x && std::abs(on->progress.explorer.x - home.respawn_x) < 0x100 &&
+                            std::abs(on->progress.explorer.y - home.respawn_y) < 0x100;
+                }
+                const int drain_off = fuel_off - whole(*off), drain_on = fuel_on - whole(*on);
+                report("No falling deaths", off_died && !on_died && back && drain_on < drain_off,
+                       std::string("off: respawned ") + (off_died ? "yes" : "no") + ", fuel -" + std::to_string(drain_off) +
+                           "; on: back on its floor " + (back ? "yes" : "no") + ", arrival " + (on_died ? "yes" : "no") +
+                           ", fuel -" + std::to_string(drain_on));
+            }
+            { // Harmless aliens: the explorer put on a Pac (EasyDizzy 1) every tick.
+                auto off = start(31, 1, {}), on = start(31, 1, {.harmless_creatures = true});
+                int popped_off = 0, popped_on = 0;
+                const int fuel_off = whole(*off), fuel_on = whole(*on);
+                for (int i = 0; i < 200; ++i) {
+                    for (auto* r : {off.get(), on.get()}) {
+                        for (const auto& o : r->lp->objects().objects())
+                            if (o.alive && !o.popping && o.kind == world::ObjectKind::pac) {
+                                r->progress.explorer.x = o.x; r->progress.explorer.y = o.y; r->progress.explorer.z = o.z;
+                                break;
+                            }
+                        step(*r);
+                    }
+                }
+                for (const auto& o : off->lp->objects().objects()) popped_off += o.kind == world::ObjectKind::pac && (o.popping || !o.alive);
+                for (const auto& o : on->lp->objects().objects()) popped_on += o.kind == world::ObjectKind::pac && (o.popping || !o.alive);
+                const int lost_off = fuel_off - whole(*off), lost_on = fuel_on - whole(*on);
+                report("Harmless aliens", popped_on > 0 && popped_off > 0 && lost_on < lost_off,
+                       "pacs popped off " + std::to_string(popped_off) + " / on " + std::to_string(popped_on) + "; fuel lost off " +
+                           std::to_string(lost_off) + " / on " + std::to_string(lost_on));
+            }
+            { // Stopped timers: EasyDizzy 1's deadly timer, 2,000 ticks.
+                auto off = start(31, 1, {}), on = start(31, 1, {.stopped_timers = true});
+                const auto timer = on->progress.timer;
+                for (int i = 0; i < 2000 && !off->lp->ended(); ++i) step(*off);
+                for (int i = 0; i < 2000; ++i) step(*on);
+                report("Stopped timers", off->progress.game_over && !on->progress.game_over && on->progress.timer == timer,
+                       std::string("off: game over ") + (off->progress.game_over ? "yes" : "no") + "; on: game over " +
+                           (on->progress.game_over ? "yes" : "no") + ", timer " + std::to_string(on->progress.timer >> 8) + " s");
+            }
+            { // All worlds open: which worlds the Easy cluster's map can bring to
+              // the front by steering, without and with the cheat.
+                auto reach = [&](bool open) {
+                    std::map<int, std::string> reached;
+                    for (const int bits : {1, 2, 4, 8, 5, 6, 9, 10})
+                        for (int n = 0; n < 400; n += 2) {
+                            game::WorldMap map(assets, true, 0x9F800000, view::ClusterView::Turn{});
+                            map.middle_open = open;
+                            int world = -1;
+                            for (int i = 0; i < n; ++i) map.frame(std::uint8_t(bits));
+                            for (int i = 0; i < 40 && world < 0; ++i) world = map.frame(0); // settle
+                            for (int i = 0; i < 3 && world < 0; ++i) world = map.frame(0x80);
+                            if (world >= 0 && !reached.count(world)) reached[world] = std::to_string(bits) + ":" + std::to_string(n);
+                        }
+                    return reached;
+                };
+                const auto off = reach(false), on = reach(true);
+                std::string list;
+                for (const auto& [w, how] : on) list += " " + std::to_string(w) + "(" + how + ")";
+                report("All worlds open", !off.count(31) && on.count(31), "map reaches with the cheat:" + list +
+                       (off.count(31) ? "; without it world 31 too" : "; without it not 31"));
+            }
+            return failures ? 1 : 0;
+        }
         if (command == "playcheck" && argc == 4) {
             const auto assets = load_assets(platform::utf8_path(argv[2]));
             return play_check(assets, platform::utf8_path(argv[3]));

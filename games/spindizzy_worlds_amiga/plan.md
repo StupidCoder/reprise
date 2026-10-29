@@ -190,6 +190,9 @@ rate apart from drawing.
 - [x] Smooth motion (2026-10-29): explorer, objects and view drawn
       between frames.
 - [x] The VHS look (the framework's screen filter).
+- [x] Cheats (2026-10-29): infinite fuel, no falling deaths, harmless
+      aliens, stopped (deadly) timers, all worlds open; `cheatcheck`.
+- [ ] More cheat ideas: level skip, full reserve, hidden exits shown.
 - [ ] Widescreen on the front-end screens (title, menus, maps): they are
       centred on black.
 - [ ] Mod loading of world files.

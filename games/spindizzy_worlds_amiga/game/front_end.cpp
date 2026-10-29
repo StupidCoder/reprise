@@ -236,7 +236,13 @@ int WorldMap::frame(std::uint8_t joystick) {
         if (!fire) released_ = true;
         return -1;
     }
-    chosen_ = cluster_.update(assets_.main, planets_, shown_);
+    // The cheat: the middle planet (at 0, 0, 0: the cluster's last world)
+    // when no other is more than 6 nearer, which the original's nearest-
+    // first rule never allows while the ring's worlds remain.
+    int middle = -1;
+    for (std::size_t i = 0; middle_open && i < planets_.size(); ++i)
+        if (shown_[i] && planets_[i].x == 0 && planets_[i].y == 0 && planets_[i].z == 0) middle = int(i);
+    chosen_ = cluster_.update(assets_.main, planets_, shown_, true, middle, 6);
     cluster_.steer(joystick);
     if (!fire) { released_ = true; return -1; }
     if (!released_ || chosen_ < 0) return -1;

@@ -43,6 +43,7 @@ struct ObjectWorld {
     std::int16_t* turn_side{};              // $15618: the Pacs' shared turn toggle (±2, in the code)
     int alien_cost{};                       // $2062
     int* palette{};                         // $207E: the level palette shown (0-3)
+    bool deadly_timers_stopped{};           // the "Stopped timers" cheat
     bool running{true};                     // $2498: the level loop goes on
 };
 
@@ -60,7 +61,8 @@ struct ObjectEvents {
     bool clue_always{};     // the message's bit 7: shown again
     bool timer_death{};     // the timer elapsed with "Die if elapse" ($15374)
     std::uint16_t timer_word{}; // then its record's word +$2C (flags, seconds)
-    int fuel_cost{};        // whole fuel units a creature took ($152E2)
+    int fuel_cost{};        // whole fuel units a spark took ($15C70)
+    int creature_cost{};    // whole fuel units a creature took ($152E2, $156F2, $1593A)
     // Sound requests for the effects player ($36D2 + channel; volume −1:
     // the volume word is not written).
     struct Sound { // effect −1: the volume only

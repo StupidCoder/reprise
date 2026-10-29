@@ -63,8 +63,11 @@ public:
     // One frame's planets ($11686): turned and projected, sorted far to
     // near; the nearest is the chosen one ($1445A), whose picture counter
     // moves ($16A50). Returns its index, or −1. Without `choose` (the map
-    // after a world, $11838) nothing is chosen.
-    int update(const data::Memory& main, const std::vector<Planet>&, const std::vector<bool>& shown, bool choose = true);
+    // after a world, $11838) nothing is chosen. `prefer` (the "All worlds
+    // open" cheat): that planet is chosen instead when none is more than
+    // `slack` nearer than it.
+    int update(const data::Memory& main, const std::vector<Planet>&, const std::vector<bool>& shown, bool choose = true,
+               int prefer = -1, int slack = 0);
 
     // $16A86: the planet at `index` (the world just done, kind −7) breaks
     // up: $16ADE steps its frames ($10058 over the list $16B38) `steps`

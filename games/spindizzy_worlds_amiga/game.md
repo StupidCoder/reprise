@@ -186,7 +186,12 @@ list at $119EE (" Beginners! " … "  Tutorial  " = 23 … " EasyDizzy  " =
 World 7/8") have no records. Level ids run 1–15 with gaps.
 
 World 22 ("Spindizzy!") is gated ($1177A: world $16 needs bits 0–21 of
-$24AE(a5) = the other worlds done; world $1F tests bits 23–28).
+$24AE(a5) = the other worlds done; world $1F tests bits 23–28). The gate
+is a second guard: each cluster's last world is its middle planet (the
+Easy list $1195E: world 31 at 0, 0, 0, the six others in a ring in the
+same plane), and the map chooses the nearest planet, which the middle
+one never is while ring planets remain (a search over 3,200 steerings
+from the face-on start: worlds 23-28 only).
 
 ### Level record
 
@@ -1381,6 +1386,25 @@ the same with any choice); off by default.
   more than two cells (or 32 view pixels) is shown as it is. Animation
   frames still change at the game's rate.
 - **VHS look**: the framework's screen filter over the picture.
+
+Cheats (the pause menu's Cheats page, saved with the game's options;
+each switches one rule off and nothing else; `cheatcheck` runs each
+situation with the cheat off and on):
+
+- **Infinite fuel**: the fuel taken in once a frame ($10E96) never goes
+  below what it was; jewels still add. Deadly timers still end the game.
+- **No falling deaths**: the two fall deaths (below the world, $12C22,
+  and the hard landing, $12F0A) do nothing; below the world the explorer
+  is put back where it last stood firmly ($24CC), at rest, at no cost.
+  Other deaths in the same tick still happen.
+- **Harmless aliens**: the fuel taken by a boink ($152E2), a Pac ($156F2)
+  or a pyramid ($1593A) is not charged; they still pop, show their clue
+  and make their sound. Sparks still cost fuel.
+- **Stopped timers**: a timer with "Die if elapse" ($15346, flag $40)
+  does not count; timers that travel ("Elapse Dest", the bonus levels'
+  way out) still run.
+- **All worlds open**: the map's choice is the middle planet while no
+  other is more than 6 nearer, and $1177A's gate is skipped.
 
 The pillars are drawn when the picture is shown, over the held texts
 too (they are hardware sprites in the original, independent of the

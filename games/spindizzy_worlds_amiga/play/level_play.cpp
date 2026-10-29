@@ -133,6 +133,7 @@ ObjectWorld LevelPlay::object_world() {
     w.turn_side = &p.turn_side;
     w.palette = &palette_;
     w.alien_cost = p.costs.alien;
+    w.deadly_timers_stopped = p.cheats.stopped_timers;
     w.running = running_;
     return w;
 }
@@ -233,6 +234,7 @@ void LevelPlay::tick(std::uint8_t joystick) {
     if (phase_ == ExplorerPhase::playing) settle_explorer(e, events);
     if (happened.clue >= 0) show_clue(happened.clue, happened.clue_always);
     if (happened.fuel_cost) add_whole(p.fuel_change, -happened.fuel_cost);
+    if (happened.creature_cost && !p.cheats.harmless_creatures) add_whole(p.fuel_change, -happened.creature_cost);
     if (happened.timer_death) {
         timer_dying_ = true;
         timer_word_ = happened.timer_word;
@@ -271,7 +273,25 @@ void LevelPlay::tick(std::uint8_t joystick) {
             reserve_message_ = happened.travel->reserve_fuel_message;
         }
     }
-    if (!events.deaths.empty() && phase_ == ExplorerPhase::playing) die(events.deaths.back());
+    if (!events.deaths.empty() && phase_ == ExplorerPhase::playing) {
+        if (!p.cheats.no_fall_deaths) {
+            die(events.deaths.back());
+            return;
+        }
+        // The cheat: the last death that is not a fall; a fall below the
+        // world puts the explorer back where it last stood firmly, at no
+        // cost; a hard landing does nothing.
+        const auto other = std::find_if(events.deaths.rbegin(), events.deaths.rend(), [](const Death& d) { return !d.fall; });
+        if (other != events.deaths.rend()) {
+            die(*other);
+        } else if (std::any_of(events.deaths.begin(), events.deaths.end(), [](const Death& d) { return d.becomes == -3; })) {
+            e.x = with_low(e.respawn_x, 0x80);
+            e.y = with_low(e.respawn_y, 0x80);
+            e.z = with_low(e.respawn_z, 0x40);
+            e.vx = e.vy = e.vz = 0;
+            moved_ = true; // the view follows at once ($14202)
+        }
+    }
 }
 
 bool LevelPlay::turn(int direction) {
@@ -343,6 +363,7 @@ void LevelPlay::frame(bool slow) {
     p.jewel_fuel = 0;
     std::int32_t fuel = p.fuel + p.fuel_change - ((level_flags_ & 0x2000) ? 0 : p.drain);
     p.fuel_change = 0;
+    if (p.cheats.infinite_fuel) fuel = std::max(fuel, p.fuel); // the cheat: gains only
     if (fuel < 0) {
         fuel = 0;
         p.game_over = true; // $10E8C: $2490 set; the explorer's tick then dies

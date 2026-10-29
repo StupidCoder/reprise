@@ -131,7 +131,8 @@ void ClusterView::steer(std::uint8_t joystick) {
     }
 }
 
-int ClusterView::update(const data::Memory& main, const std::vector<Planet>& planets, const std::vector<bool>& shown, bool choose) {
+int ClusterView::update(const data::Memory& main, const std::vector<Planet>& planets, const std::vector<bool>& shown, bool choose,
+                        int prefer, int slack) {
     if (break_removed_) breaking_ = -1;
     // $16704: sine and cosine of the three angles ($1673A: cos = 64 entries on).
     auto sincos = [&](std::int32_t angle) {
@@ -162,6 +163,10 @@ int ClusterView::update(const data::Memory& main, const std::vector<Planet>& pla
     // $1440E: farthest first; the nearest is the chosen one ($1445A).
     std::stable_sort(placed_.begin(), placed_.end(), [](const Placed& a, const Placed& b) { return a.sort < b.sort; });
     chosen_ = placed_.empty() || !choose ? -1 : placed_.back().index;
+    if (chosen_ >= 0 && prefer >= 0) {
+        const auto at = std::find_if(placed_.begin(), placed_.end(), [&](const Placed& p) { return p.index == prefer; });
+        if (at != placed_.end() && int(placed_.back().sort) - int(at->sort) <= slack) chosen_ = prefer;
+    }
     if (chosen_ >= 0) ++spin_[std::size_t(chosen_)];
     return chosen_;
 }

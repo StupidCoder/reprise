@@ -143,7 +143,25 @@ public:
                  "The explorer, the moving objects and the view glide at the display's own rate instead of "
                  "stepping 50 times a second. The game plays the same.",
                  {}, true},
-                app::screen_filter_option(vhs_)};
+                app::screen_filter_option(vhs_),
+                cheat("Infinite fuel", progress_.cheats.infinite_fuel,
+                      "The fuel never goes down: not with time, falls, hard landings, aliens or sparks. Jewels still add "
+                      "to it. Deadly timers still end the game."),
+                cheat("No falling deaths", progress_.cheats.no_fall_deaths,
+                      "Falling off the world puts the explorer back where it last stood firmly, at no cost, and a hard "
+                      "landing does no harm. Deadly floors, ice and timers still kill."),
+                cheat("Harmless aliens", progress_.cheats.harmless_creatures,
+                      "Pac aliens, pyramids and boinks still move and still pop when touched, but take no fuel."),
+                cheat("Stopped timers", progress_.cheats.stopped_timers,
+                      "A deadly timer stands still. Timers that take the explorer somewhere (a bonus level's end) still "
+                      "run, since they are the way out."),
+                cheat("All worlds open", open_worlds_,
+                      "The cluster's last world, the planet in its middle, can be entered before the others are done: "
+                      "turn the cluster up or down until the map names the middle world, then press fire. "
+                      "Finishing worlds counts as usual for the planets' break-up and the ending.")};
+    }
+    static app::GameOption cheat(std::string name, bool on, std::string description) {
+        return {std::move(name), {"Off", "On"}, on ? 1 : 0, std::move(description), "Cheats"};
     }
     void set_option(std::size_t index, int value) override {
         if (index == 0) {
@@ -152,6 +170,12 @@ public:
         }
         if (index == 1) smooth_ = value != 0;
         if (index == 2) vhs_ = std::clamp(value, 0, ui::vhs_levels - 1);
+        auto& c = progress_.cheats;
+        if (index == 3) c.infinite_fuel = value != 0;
+        if (index == 4) c.no_fall_deaths = value != 0;
+        if (index == 5) c.harmless_creatures = value != 0;
+        if (index == 6) c.stopped_timers = value != 0;
+        if (index == 7) open_worlds_ = value != 0;
     }
     int vhs_level() const override { return vhs_; }
     void set_frame_fraction(double fraction) override { fraction_ = std::clamp(fraction, 0.0, 1.0); }
@@ -257,11 +281,13 @@ public:
             }
             break;
         case Stage::map: {
+            map_->middle_open = open_worlds_;
             const int world = map_->frame(joystick);
             turn_ = map_->turn();
             if (world < 0) break;
             // $1177A: world $16 needs the Hard worlds 0-21 done, $1F the Easy 23-28.
-            if ((world == 0x1F && (worlds_left_ & 0x1F800000)) || (world == 0x16 && (worlds_left_ & 0x003FFFFF))) {
+            // (Not with the "All worlds open" cheat.)
+            if (!open_worlds_ && ((world == 0x1F && (worlds_left_ & 0x1F800000)) || (world == 0x16 && (worlds_left_ & 0x003FFFFF)))) {
                 map_->refuse();
                 break;
             }
@@ -481,7 +507,9 @@ private:
         worlds_left_ = g.worlds_left;
         worlds_done_ = g.worlds_done;
         records_ = g.records;
+        const auto cheats = progress_.cheats;
         progress_ = play::Progress{};
+        progress_.cheats = cheats;
         progress_.clues_left = g.clues_left;
         progress_.fuel = g.fuel;
         progress_.reserve = g.reserve;
@@ -542,6 +570,7 @@ private:
     std::int32_t world_start_fuel_{}, world_start_reserve_{}; // what $16D44 restores for a retry
     // The port's presentation options (not saved with the game).
     bool widescreen_{}, smooth_{};
+    bool open_worlds_{}; // the "All worlds open" cheat
     int vhs_{};
     int canvas_width_{}, canvas_height_{}, margin_{};
     double fraction_{1.0};

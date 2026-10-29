@@ -463,7 +463,7 @@ void settle_explorer(Explorer& explorer, TickEvents& events) {
         if (impact > 0 && (impact -= 0x30) > 0) {
             if (impact > 0x3C) {
                 explorer.contact = 0;
-                events.deaths.push_back({6, -2, true});
+                events.deaths.push_back({6, -2, true, true});
             } else {
                 events.landing_volume = std::min(impact / 2 + 0x20, 0x40);
             }
@@ -477,7 +477,7 @@ void settle_explorer(Explorer& explorer, TickEvents& events) {
         explorer.respawn_z = explorer.z;
     }
     // $12C22: below the world.
-    if (word(explorer.z + 0x1000) < 0) events.deaths.push_back({3, -3, false});
+    if (word(explorer.z + 0x1000) < 0) events.deaths.push_back({3, -3, false, true});
 }
 
 } // namespace spindizzy::play

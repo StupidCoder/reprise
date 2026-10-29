@@ -85,6 +85,9 @@ public:
     WorldMap(const data::Assets&, bool easy, std::uint32_t worlds_left, const view::ClusterView::Turn&, int breaking = -1);
     // −1 still choosing, else the world number entered.
     int frame(std::uint8_t joystick);
+    // The "All worlds open" cheat (not state): the world in the cluster's
+    // middle is chosen while no ring planet is much nearer than it.
+    bool middle_open{};
     // $11838: the map after a world for $40 − $36B2 + 1 frames, the done
     // planet breaking up (its frames stepped once a frame plus once each
     // for $36B2 ≥ $10 and ≥ $20); the joystick still turns the cluster,
