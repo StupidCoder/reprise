@@ -1,9 +1,9 @@
 // The VHS look (shared/ui/vhs.cpp) as a fragment shader for SDL's GPU renderer: the same tape,
 // drawn while the game's frame is composed instead of on the CPU. The frame-wide state comes
 // from ui::vhs_frame() as uniforms; everything per line and per pixel is worked out here the
-// way ui::vhs() does it, over an output grid of twice the source's size.
+// way ui::vhs() does it, over the fixed 720 x 480 virtual video grid.
 //
-// Built into SPIR-V (Vulkan) and MSL (Metal) by tools/build_shaders.sh; the results are in
+// Built into SPIR-V (Vulkan) and MSL (Metal) by tools/build_shaders.py; the results are in
 // vhs_frag.hpp. SDL's conventions: the drawn texture at sampler slot 0 (set 2), the uniforms
 // at slot 0 (set 3), the vertex colour and texture coordinate at locations 0 and 1.
 #version 450
@@ -15,7 +15,7 @@ layout(location = 0) out vec4 o_color;
 layout(set = 2, binding = 0) uniform sampler2D u_texture;
 
 layout(set = 3, binding = 0, std140) uniform Tape {
-    vec4 size_wear;  // source width, height, wear, dropouts per frame
+    vec4 size_wear;  // virtual signal width, height, wear, dropouts per frame
     vec4 picture;    // slip, roll, saturation, brightness
     vec4 tear;       // centre (< 0: none), half height, shift, top of the tracking band
     vec4 misc;       // rolling bar line, chroma delay, head-switching lines, chroma radius
@@ -35,7 +35,11 @@ float hash(uint a, uint b, uint c) {
 }
 
 vec3 source(int x, int y) {
-    return texelFetch(u_texture, ivec2(x, y), 0).rgb;
+    // Identical centre-based virtual-signal sampling to the CPU implementation.
+    const ivec2 extent = textureSize(u_texture, 0);
+    const ivec2 signal = ivec2(size_wear.xy);
+    const ivec2 pixel = min(extent - 1, ((ivec2(x, y) * 2 + 1) * extent) / (signal * 2));
+    return texelFetch(u_texture, pixel, 0).rgb;
 }
 
 float luma(vec3 c) {

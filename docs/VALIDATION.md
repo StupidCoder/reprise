@@ -147,3 +147,41 @@ The new README distinguishes connected gameplay, prototypes, asset viewers and
 Sonic/Layton catalog previews. All 19 required documentation pairs are present.
 Source-file review excludes local research symlinks, images, saves, build outputs
 and signing material. Physical Android filter performance remains unverified.
+
+## Fixed VHS video raster (2026-10-29)
+
+VHS now samples every game's picture into a 360×240 virtual signal and renders
+a 720×480 raster with scanline gaps. Grain, chroma smear, jitter, tracking,
+dropouts and rolling bands all use that fixed grid. This is a stylised progressive
+CRT/VHS look, not an exact PAL/NTSC or interlaced tape simulation. Presentation
+preserves the game's display aspect ratio and pointer mapping; filter-off is unchanged.
+
+`screen_effect_check` checks that equivalent pictures at native and doubled
+resolution acquire identical effects at all four levels, then compares CPU and
+GPU rendering across six frames per level. Metal comparison passed with zero
+pixels outside tolerance. Full app/Android rebuilds were blocked during this
+change by an unrelated in-progress Rock ’n Roll `Screen::draw` interface mismatch.
+The shell tests also cover fixed raster dimensions, aspect ratio and pointer mapping.
+
+## Shared GPU VHS presentation (2026-10-29)
+
+Software-rendered game frames now upload their original picture and use the
+same host GPU screen-effect stage as GPU-rendered games. CPU filtering remains
+for offline captures and compatibility fallback only. VHS requests a 720×480
+GPU render target and nearest-neighbour upscaling; other effects may leave the
+processing raster unset to render directly at display resolution. Menus and
+notifications are composited afterwards at display resolution.
+
+The Metal `screen_effect_check` compared direct shading against the intermediate
+at 1920×1280 and 3024×1834 window output sizes: all four strengths at frame 241
+were pixel-identical. Uploaded software pictures and GPU-drawn pictures likewise
+matched exactly. The existing six-frame-per-strength GPU/CPU comparison passed.
+The shader already quantises its entire output to the virtual video grid; the
+intermediate therefore removes repeated shading without reducing its current
+detail. This equivalence is specific to this shader and nearest sampling; a
+future continuous CRT mask or other display-resolution effect needs a separate
+assessment. These checks measure appearance, not Android frame rate or battery use.
+
+To repeat the larger window comparison, run
+`build/screen_effect_check '' /tmp/reprise-filter-check large`. The test asserts
+that the software-picture route actually selected a GPU shader.

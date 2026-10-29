@@ -181,10 +181,10 @@ int run(const Options& options) {
     // Mouse movement not yet given to a tick (captured mouse games).
     float pending_dx = 0, pending_dy = 0;
     // Shows the current frame: a GPU-drawn game draws into the host's target, any other game
-    // gives its picture (with the launcher's effects).
+    // uploads its picture; both receive the host's GPU filter before UI overlays.
     auto present = [&](const platform::Image* overlay, bool dim, const platform::Image* note, float opacity,
                        int offset) {
-        shown = app::shown_picture(*game, frames_run);
+        shown = app::shown_picture(*game, frames_run, false);
         if (const auto size = game->gpu_frame_size()) {
             // The filter stage (the VHS look) over the game's frame only: note and overlay
             // stay sharp at the window's resolution.
@@ -193,7 +193,9 @@ int run(const Options& options) {
                                   [&](const platform::GpuFrame& frame) { game->draw_gpu(frame); }, overlay, dim, note,
                                   opacity, offset, effect ? &*effect : nullptr);
         } else {
-            host.present_game(shown.image, game->pixel_aspect(), overlay, dim, note, opacity, offset);
+            const auto effect = ui::vhs_effect(frames_run, game->vhs_level(), shown.image.width, shown.image.height);
+            host.present_game(shown.image, game->pixel_aspect(), overlay, dim, note, opacity, offset,
+                              game->vhs_level() > 0 ? &effect : nullptr);
         }
     };
     // A game's options stay as the player set them, also for the next

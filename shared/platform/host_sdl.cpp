@@ -34,6 +34,7 @@ struct Host::Implementation {
     // compiled for the GPU renderer (a null state: the renderer cannot run that shader), and
     // how the last effect was applied.
     SDL_Texture* effect_source{};
+    SDL_Texture* effect_output{};
     int effect_width{}, effect_height{};
     struct CompiledShader {
         SDL_GPUShader* shader{};
@@ -69,6 +70,7 @@ struct Host::Implementation {
             if (compiled.state) SDL_DestroyGPURenderState(compiled.state);
             if (compiled.shader && device) SDL_ReleaseGPUShader(device, compiled.shader);
         }
+        SDL_DestroyTexture(effect_output);
         SDL_DestroyTexture(effect_source);
         SDL_DestroyTexture(texture);
         SDL_DestroyTexture(overlay_texture);
@@ -440,8 +442,18 @@ void Host::present(const Image& image) {
     i.present_frame();
 }
 
-void Host::present_game(const Image& frame, double pixel_aspect, const Image* overlay, bool dim, const Image* note, float note_opacity, int note_offset) {
+void Host::present_game(const Image& frame, double pixel_aspect, const Image* overlay, bool dim, const Image* note, float note_opacity, int note_offset, const ScreenEffect* effect) {
     auto& i = *impl_;
+    if (effect) {
+        // Upload software pictures, then use precisely the same GPU filter stage.
+        i.upload(frame);
+        SDL_SetTextureScaleMode(i.texture, SDL_SCALEMODE_NEAREST);
+        present_game_gpu(frame.width, frame.height, pixel_aspect,
+            [&](const GpuFrame& target) {
+                SDL_RenderTexture(target.renderer, i.texture, nullptr, nullptr);
+            }, overlay, dim, note, note_opacity, note_offset, effect);
+        return;
+    }
     i.ui_shown = false;
     i.upload(frame);
     SDL_SetTextureScaleMode(i.texture, SDL_SCALEMODE_NEAREST);
@@ -512,6 +524,28 @@ void Host::present_game_gpu(int width, int height, double pixel_aspect,
             SDL_Log("Screen effect: %s (%s renderer)", path.c_str(), SDL_GetRendererName(i.renderer));
         }
         i.effect_path = path;
+        if (state && effect->raster_width > 0 && effect->raster_height > 0) {
+            if (i.effect_output && (i.effect_output->w != effect->raster_width ||
+                                    i.effect_output->h != effect->raster_height)) {
+                SDL_DestroyTexture(i.effect_output);
+                i.effect_output = nullptr;
+            }
+            if (!i.effect_output) {
+                i.effect_output = SDL_CreateTexture(i.renderer, SDL_PIXELFORMAT_RGBA8888,
+                    SDL_TEXTUREACCESS_TARGET, effect->raster_width, effect->raster_height);
+                if (!i.effect_output) throw std::runtime_error(SDL_GetError());
+                SDL_SetTextureScaleMode(i.effect_output, SDL_SCALEMODE_NEAREST);
+            }
+            SDL_SetRenderTarget(i.renderer, i.effect_output);
+            SDL_SetRenderLogicalPresentation(i.renderer, 0, 0, SDL_LOGICAL_PRESENTATION_DISABLED);
+            SDL_SetRenderScale(i.renderer, 1.0f, 1.0f);
+            SDL_SetRenderViewport(i.renderer, nullptr);
+            SDL_SetGPURenderState(i.renderer, state);
+            SDL_RenderTexture(i.renderer, shown, nullptr, nullptr);
+            SDL_SetGPURenderState(i.renderer, nullptr);
+            shown = i.effect_output;
+            state = nullptr;
+        }
         SDL_SetRenderTarget(i.renderer, nullptr);
         SDL_SetRenderLogicalPresentation(i.renderer, 0, 0, SDL_LOGICAL_PRESENTATION_DISABLED);
         SDL_SetRenderScale(i.renderer, 1.0f, 1.0f);

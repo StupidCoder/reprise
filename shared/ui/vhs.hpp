@@ -4,8 +4,9 @@
 #include <cstdint>
 
 // A worn VHS tape played on an old CRT, over a game's finished picture. The
-// picture comes back twice the size (room for scanlines and the tape's
-// sub-pixel wobble), with:
+// picture is sampled into a fixed virtual video signal, then returned at
+// 720 x 480 with 240 progressive picture lines and scanline gaps. This is a
+// stylised CRT/VHS model, independent of game and window resolution, with:
 // - colour carried as on tape: luma sharpened with a little ringing, chroma
 //   at low bandwidth (smeared and late), so colour edges bleed;
 // - the tape's wobble: a per-line jitter, a wavy tracking band at the
@@ -21,21 +22,23 @@
 namespace ui {
 
 constexpr int vhs_levels = 5;
+constexpr int vhs_signal_width = 360, vhs_signal_height = 240;
+constexpr int vhs_video_width = vhs_signal_width * 2, vhs_video_height = vhs_signal_height * 2;
 
 platform::Image vhs(const platform::Image& picture, long frame, int level);
 
-// The tape's state for one whole frame of a `width` x `height` picture: what does not change
+// The tape's state for one whole frame of the fixed virtual signal: what does not change
 // from line to line. vhs() works from it, and so does the host's GPU version of the look
 // (ui/shaders/vhs.frag), so both show the same tape.
 struct VhsFrame {
     float wear{};          // master amount (0: off)
     float dropouts{};      // dropout streaks per frame
-    int chroma_radius{};   // chroma smear, in source pixels either side
-    float chroma_delay{};  // how late the chroma arrives, in source pixels
+    int chroma_radius{};   // chroma smear, in virtual signal samples either side
+    float chroma_delay{};  // how late the chroma arrives, in virtual signal samples
     std::uint32_t frame{}; // the frame number, for the per-line noise
     float time{};          // the same as a float, for the moving waves
     float slip{};          // the whole picture's sideways slip
-    float roll{};          // the vertical hold letting go (source lines)
+    float roll{};          // the vertical hold letting go (virtual signal lines)
     float saturation{}, brightness{};
     float tear_centre{-1}, tear_half{}, tear_shift{}; // a tear (centre < 0: none)
     int head_lines{};      // head-switching noise at the bottom
@@ -43,11 +46,11 @@ struct VhsFrame {
     float bar_at{};        // the slow rolling bar's line
 };
 
-VhsFrame vhs_frame(long frame, int level, int width, int height);
+VhsFrame vhs_frame(long frame, int level);
 
 // The look as the host's screen effect over a frame of `width` x `height` (a GPU-drawn game's
 // logical size): the shader with this frame's tape, and vhs() for where no shader runs. The
-// picture shown is twice that size, as vhs() makes it.
+// source dimensions affect image sampling only; all faults use the fixed video grid.
 platform::ScreenEffect vhs_effect(long frame, int level, int width, int height);
 
 } // namespace ui

@@ -48,7 +48,8 @@ constexpr std::array<Strength, vhs_levels> strengths{{
 
 } // namespace
 
-VhsFrame vhs_frame(long frame, int level, int sw, int sh) {
+VhsFrame vhs_frame(long frame, int level) {
+    constexpr int sw = vhs_signal_width, sh = vhs_signal_height;
     level = std::clamp(level, 0, vhs_levels - 1);
     const auto& k = strengths[std::size_t(level)];
     VhsFrame t;
@@ -86,8 +87,17 @@ platform::Image vhs(const platform::Image& in, long frame, int level) {
     if (level == 0 || in.width <= 0 || in.height <= 0) {
         return in;
     }
-    const int sw = in.width, sh = in.height;
-    const VhsFrame t = vhs_frame(frame, level, sw, sh);
+    constexpr int sw = vhs_signal_width, sh = vhs_signal_height;
+    const VhsFrame t = vhs_frame(frame, level);
+    // Sample the game into video space before any tape processing. Centre-based
+    // nearest sampling preserves low-resolution pixel boundaries and matches the
+    // shader exactly; no noise or smear is ever indexed in game pixels.
+    platform::Image signal(sw, sh);
+    for (int y = 0; y < sh; ++y) for (int x = 0; x < sw; ++x) {
+        const int sx = std::min(in.width - 1, int((std::int64_t(2 * x + 1) * in.width) / (2 * sw)));
+        const int sy = std::min(in.height - 1, int((std::int64_t(2 * y + 1) * in.height) / (2 * sh)));
+        signal.pixels[y * sw + x] = in.pixels[std::size_t(sy) * in.width + sx];
+    }
     const float a = t.wear;
     const int w = sw * 2, h = sh * 2;
     platform::Image out(w, h);
@@ -99,7 +109,7 @@ platform::Image vhs(const platform::Image& in, long frame, int level) {
     std::vector<float> Y(std::size_t(sw * sh)), I(Y.size()), Q(Y.size());
     std::vector<float> line_y(static_cast<std::size_t>(sw)), sum_i(static_cast<std::size_t>(sw) + 1), sum_q(sum_i.size());
     for (int y = 0; y < sh; ++y) {
-        const auto* src = in.pixels.data() + std::size_t(y * sw);
+        const auto* src = signal.pixels.data() + std::size_t(y * sw);
         float* ly = Y.data() + std::size_t(y * sw);
         float* li = I.data() + std::size_t(y * sw);
         float* lq = Q.data() + std::size_t(y * sw);
@@ -148,9 +158,8 @@ platform::Image vhs(const platform::Image& in, long frame, int level) {
             syf += float(sh);
         }
         const int sy = std::min(sh - 1, int(syf));
-        // The tape's faults are its own lines' (two for each line of the
-        // picture), not the game's. Where this one sits sideways (source
-        // pixels):
+        // Tape faults follow the virtual raster's lines. Horizontal
+        // displacement is measured in virtual signal samples.
         const auto line = std::uint32_t(oy);
         float jitter = slip + (hash(line, f / 2, 71) - 0.5f) * 0.9f * a;
         bool noisy_line = false;
@@ -234,19 +243,21 @@ platform::Image vhs(const platform::Image& in, long frame, int level) {
     return out;
 }
 
-platform::ScreenEffect vhs_effect(long frame, int level, int width, int height) {
+platform::ScreenEffect vhs_effect(long frame, int level, int /*width*/, int /*height*/) {
     static const platform::FragmentShader shader{"vhs", shaders::vhs_spirv, shaders::vhs_msl};
     level = std::clamp(level, 0, vhs_levels - 1);
-    const VhsFrame t = vhs_frame(frame, level, width, height);
+    const VhsFrame t = vhs_frame(frame, level);
     // The shader's uniform block (std140: five vec4 and one uvec4).
     const std::array<float, 20> values{
-        float(width), float(height), t.wear, t.dropouts,
+        float(vhs_signal_width), float(vhs_signal_height), t.wear, t.dropouts,
         t.slip, t.roll, t.saturation, t.brightness,
         t.tear_centre, t.tear_half, t.tear_shift, t.track_top,
         t.bar_at, t.chroma_delay, float(t.head_lines), float(t.chroma_radius),
         t.time, 0, 0, 0};
     const std::array<std::uint32_t, 4> clock{t.frame, 0, 0, 0};
     platform::ScreenEffect effect;
+    effect.raster_width = vhs_video_width;
+    effect.raster_height = vhs_video_height;
     effect.shader = &shader;
     effect.uniforms.resize(sizeof(values) + sizeof(clock));
     std::memcpy(effect.uniforms.data(), values.data(), sizeof(values));

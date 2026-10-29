@@ -193,18 +193,18 @@ std::vector<app::GameOption> Module::options() const {
              {"Off", "On"},
              smooth_ ? 1 : 0,
              "Smooth banking; tanks, mines and shells glide instead of jumping a character at "
-             "a time, and tanks rock over rough ground. The game plays the same."},
+             "a time, and tanks rock over rough ground. The game plays the same.", "", true},
             {"Widescreen",
              {"Off", "On"},
              widescreen_ ? 1 : 0,
              "Fills the window to its edges and shows more of the map left and right, up to "
-             "21:9. The game plays exactly the same."},
+             "21:9. The game plays exactly the same.", "", true},
             {"VHS tape",
              {"Off", "Light", "Medium", "Heavy", "Broken"},
              vhs_,
              "The picture as from a worn video tape: bleeding colour, wobbling lines, a "
              "tracking band, dropouts and noise; Heavy and Broken add tears, fading colour and "
-             "a slipping vertical hold."},
+             "a slipping vertical hold.", "", true},
             {"Infinite lives",
              {"Off", "On"},
              options_.infinite_lives ? 1 : 0,

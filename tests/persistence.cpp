@@ -1,5 +1,6 @@
 #include "app/catalog.hpp"
 #include "app/quick_save.hpp"
+#include "app/saved_options.hpp"
 #include "platform/files.hpp"
 #include "platform/host.hpp"
 #include "platform/sha256.hpp"
@@ -93,6 +94,46 @@ struct Fake : app::GameModule {
     int vhs_level() const override { return vhs; }
 };
 int main(int argc, char **argv) try {
+    if (argc == 3 && std::string(argv[1]) == "--fort-options") {
+        const auto root = fs::temp_directory_path() /
+            ("reprise-fort-options-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        const auto content = root / "games/fort_apocalypse_c64";
+        fs::create_directories(content);
+        fs::copy(argv[2], content, fs::copy_options::recursive | fs::copy_options::overwrite_existing);
+        const auto catalog = app::catalog();
+        const auto entry = std::find_if(catalog.begin(), catalog.end(), [](const auto& e) { return e.id == "fort_apocalypse_c64"; });
+        check(entry != catalog.end(), "Fort Apocalypse catalog entry");
+        auto game = app::with_quick_save(*entry, content);
+        game->set_canvas(1920, 1080);
+        advance(*game, 0, 30);
+        check(game->save(), game->save_error()); // old save, before enabling enhancements
+        auto set = [&](std::string_view name, int value) {
+            const auto options = game->options();
+            for (std::size_t i = 0; i < options.size(); ++i)
+                if (options[i].name == name) { game->set_option(i, value); return; }
+            throw std::runtime_error("Missing option " + std::string(name));
+        };
+        set("Smooth motion", 1); set("Widescreen", 1); set("VHS tape", 2);
+        const auto preferences = root / "options.txt";
+        platform::write_text(preferences, app::options_text(*game));
+        game.reset(); // simulate quitting: only files survive
+        game = app::with_quick_save(*entry, content);
+        app::restore_options(*game, preferences);
+        const auto expected = app::options_text(*game);
+        check(game->vhs_level() == 2, "Fresh launch restores saved preferences");
+        check(game->load(), game->save_error()); // Continue from an older save
+        check(app::options_text(*game) == expected, "Continue must preserve Fort visual preferences");
+        game->set_canvas(1920, 1080);
+        game->tick({});
+        const auto picture = game->picture();
+        check(std::abs(double(picture.width) * game->pixel_aspect() / picture.height - 1920.0 / 1080.0) < .02,
+              "Restored widescreen matches the canvas aspect ratio");
+        check(game->load(), game->save_error());
+        check(app::options_text(*game) == expected, "Quick load must preserve Fort visual preferences");
+        fs::remove_all(root);
+        std::cout << "Fort Apocalypse preferences survive restart, Continue and quick load\n";
+        return 0;
+    }
     if (argc == 4 && std::string(argv[1]).starts_with("--mind-")) {
         const bool record = std::string(argv[1]) == "--mind-record";
         check(record || std::string(argv[1]) == "--mind-restore", "Mind Walker test mode");

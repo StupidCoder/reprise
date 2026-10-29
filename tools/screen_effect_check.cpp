@@ -84,9 +84,28 @@ Difference compare(const platform::Image& a, const platform::Image& b) {
 
 int main(int argc, char** argv) try {
     const platform::Image picture = argc > 1 && *argv[1] ? load_png(platform::utf8_path(argv[1])) : test_card();
+    // Equivalent native pictures must have identical video-space defects.
+    platform::Image doubled(picture.width * 2, picture.height * 2);
+    for (int y = 0; y < doubled.height; ++y)
+        for (int x = 0; x < doubled.width; ++x)
+            doubled.put(x, y, picture.pixels[std::size_t(y / 2) * picture.width + x / 2]);
+    for (int level = 1; level < ui::vhs_levels; ++level) {
+        const auto a = ui::vhs(picture, 241, level);
+        const auto b = ui::vhs(doubled, 241, level);
+        if (a.width != ui::vhs_video_width || a.height != ui::vhs_video_height ||
+            compare(a, b).mean != 0)
+            throw std::runtime_error("VHS must be independent of native picture resolution");
+    }
+    std::puts("Native-resolution independence: PASSED (all four levels)");
     const fs::path out = argc > 2 ? platform::utf8_path(argv[2]) : fs::temp_directory_path() / "screen-effect-check";
     fs::create_directories(out);
     platform::Host host("Screen effect check");
+    if (argc > 3) {
+        int count = 0;
+        SDL_Window** windows = SDL_GetWindows(&count);
+        if (count > 0) SDL_SetWindowSize(windows[0], 1512, 945);
+        SDL_free(windows);
+    }
     SDL_Texture* source = nullptr;
     auto draw = [&](const platform::GpuFrame& frame) {
         if (!source) {
@@ -104,7 +123,26 @@ int main(int argc, char** argv) try {
         host.present_game_gpu(picture.width, picture.height, 1.0, draw, nullptr, false, nullptr, 1.0f, 0, effect);
         return load_png(file);
     };
+    // Present once before measuring, so a requested window resize has settled.
+    shoot(nullptr, out / "warmup.png");
     bool ok = true;
+    // Compare direct display shading, fixed-raster shading, and uploaded software frames.
+    for (int level = 1; level < ui::vhs_levels; ++level) {
+        auto effect = ui::vhs_effect(241, level, picture.width, picture.height);
+        effect.raster_width = effect.raster_height = 0;
+        const auto direct = shoot(&effect, out / ("direct-" + std::to_string(level) + ".png"));
+        effect.raster_width = ui::vhs_video_width;
+        effect.raster_height = ui::vhs_video_height;
+        const auto raster = shoot(&effect, out / ("raster-" + std::to_string(level) + ".png"));
+        host.capture_next_frame(out / "software.png");
+        host.present_game(picture, 1.0, nullptr, false, nullptr, 1.0f, 0, &effect);
+        ok = ok && host.screen_effect_path().find("GPU shader") == 0;
+        const auto software = load_png(out / "software.png");
+        const auto d = compare(direct, raster), upload = compare(raster, software);
+        std::printf("%dx%d level %d: intermediate mean %.6f, far %.6f; software mean %.6f\n",
+                    direct.width, direct.height, level, d.mean, d.share_far, upload.mean);
+        ok = ok && d.mean <= 1.5 && d.share_far <= .02 && upload.mean == 0;
+    }
     std::printf("renderer: %s\n", host.renderer_name().c_str());
     // Off: exactly the picture, scaled (compared with itself drawn twice: the bypass is the
     // unfiltered path; a change between two frames would mean state leaking from an effect).

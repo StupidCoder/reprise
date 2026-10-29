@@ -83,3 +83,13 @@ Finished, in order:
 - The enemy helicopter's banking and the prisoners' running stay as in the
   original under smooth motion.
 - VHS look: checked on rendered previews, not in the app window.
+
+## Presentation preferences (2026-10-29)
+
+Fixed Continue/quick load overriding persisted smooth motion, widescreen and VHS
+choices with the options from an older save. These three options are presentation
+preferences; gameplay-affecting options still restore from the save. Existing
+settings and save files remain compatible. Regression: `persistence_checks
+--fort-options <imported-fort-folder>` uses a temporary copy, saves with defaults,
+changes preferences, destroys/recreates the module, restores settings from disk,
+and verifies both Continue and repeated quick load retain the chosen presentation.

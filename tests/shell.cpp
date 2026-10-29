@@ -640,6 +640,27 @@ int main(int argc, char** argv) {
             check(portrait.draw(8).width == 640, "Swiping a card must not open details");
             platform::save_png(portrait.draw(8), std::filesystem::temp_directory_path() / "reprise-portrait-check.png");
         }
+        // The same picture encoded at two native resolutions must acquire the
+        // same video-space faults. This catches game-pixel noise and smear.
+        {
+            platform::Image low(32, 24), doubled(64, 48);
+            for (int y = 0; y < 24; ++y) for (int x = 0; x < 32; ++x) {
+                const platform::Color c{std::uint8_t(x * 7), std::uint8_t(y * 9), std::uint8_t((x+y)%2 * 200), 255};
+                low.put(x,y,c);
+                for (int dy=0;dy<2;++dy) for (int dx=0;dx<2;++dx) doubled.put(x*2+dx,y*2+dy,c);
+            }
+            for (int level = 1; level < ui::vhs_levels; ++level) {
+                const auto a = ui::vhs(low, 241, level), b = ui::vhs(doubled, 241, level);
+                check(a.width == 720 && a.height == 480, "VHS uses a fixed virtual video raster");
+                check(a.pixels.size() == b.pixels.size() && std::memcmp(a.pixels.data(), b.pixels.data(), a.pixels.size()*sizeof(platform::Color)) == 0,
+                      "VHS noise, scanlines and chroma must not depend on native resolution");
+            }
+            check(ui::vhs(low, 1, 0).width == 32, "Filter off retains native raster");
+            app::ShownPicture shown{platform::Image(720,480), 320,200};
+            check(std::abs(shown.display_pixel_aspect(1.2)*720/480 - 1.2*320/200) < .000001,
+                  "Virtual raster retains the original displayed aspect");
+            check(shown.to_picture({360,240}) == std::array<int,2>{160,100}, "Virtual raster retains pointer mapping");
+        }
         app::PauseMenu menu;
         using Action = app::PauseMenu::Action;
         menu.show(0); menu.show_options();

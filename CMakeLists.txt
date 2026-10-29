@@ -485,7 +485,7 @@ target_link_libraries(marble_madness_replay PRIVATE marble_madness_amiga)
 target_compile_options(marble_madness_replay PRIVATE ${PROJECT_WARNINGS})
 
 if(BUILD_TESTING)
-    add_executable(persistence_checks tests/persistence.cpp app/catalog.cpp app/quick_save.cpp)
+    add_executable(persistence_checks tests/persistence.cpp app/catalog.cpp app/quick_save.cpp app/saved_options.cpp)
     target_link_libraries(persistence_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga spindizzy_worlds_amiga spy_mouse_ios ui)
     target_compile_options(persistence_checks PRIVATE ${PROJECT_WARNINGS})
     add_test(NAME persistent_saves COMMAND persistence_checks)

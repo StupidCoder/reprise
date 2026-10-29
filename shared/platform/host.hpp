@@ -79,6 +79,8 @@ struct FragmentShader {
 // on the GPU; elsewhere the frame is read back once and `cpu` makes the shown picture (the
 // same look, slower). Presentation only: nothing here reaches the game.
 struct ScreenEffect {
+    // Optional fixed processing raster; zero draws the shader directly at display size.
+    int raster_width{}, raster_height{};
     const FragmentShader* shader{};
     std::vector<std::uint8_t> uniforms;     // the shader's uniforms for this frame
     std::function<Image(const Image&)> cpu; // the frame's picture -> the picture to show
@@ -148,10 +150,11 @@ public:
     // (ui_width x ui_height, with transparency) is letterboxed on top; `dim`
     // darkens the frame under it. A `note` (device pixels, with
     // transparency) is drawn unscaled in the frame's top-right corner, above
-    // the game and without taking the mouse.
+    // the game and without taking the mouse. An effect uses the shared GPU
+    // stage after uploading the picture, with a CPU fallback if unavailable.
     void present_game(const Image& frame, double pixel_aspect, const Image* overlay = nullptr,
                       bool dim = false, const Image* note = nullptr, float note_opacity = 1.0f,
-                      int note_offset = 0);
+                      int note_offset = 0, const ScreenEffect* effect = nullptr);
     // A frame the game draws itself (GpuFrame): its logical size (`width` x `height`, the units
     // of pointer positions) is shown aspect-correct like present_game's frames; the game draws
     // into a target of the shown size in device pixels, so nothing is scaled twice or read

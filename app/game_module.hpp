@@ -156,12 +156,19 @@ public:
 };
 
 // The picture the player sees: the game's own picture with the launcher's
-// effects on top (the VHS look, which doubles its size). `frame` counts the
+// effects on top (the VHS look, which uses a fixed virtual video raster). `frame` counts the
 // frames run, for the look's moving noise.
 struct ShownPicture {
     platform::Image image{1, 1};
     int picture_width{1}, picture_height{1}; // the game's own picture
     bool gpu{}; // drawn by the game itself (gpu_frame_size): `image` is unused
+
+    // A video-space effect may replace the raster dimensions. Keep the original
+    // displayed aspect ratio; pointer conversion below likewise uses both grids.
+    double display_pixel_aspect(double original) const {
+        return original * double(picture_width) * image.height /
+               (double(std::max(picture_height, 1)) * std::max(image.width, 1));
+    }
 
     // A point over the shown picture (as the host reports the mouse) in
     // pixels of the game's own picture.
@@ -172,7 +179,9 @@ struct ShownPicture {
     }
 };
 
-inline ShownPicture shown_picture(const GameModule& game, long frame) {
+// Runtime presentation requests an unfiltered picture for the host GPU stage.
+// Offline captures may still request the deterministic CPU implementation.
+inline ShownPicture shown_picture(const GameModule& game, long frame, bool cpu_filter = true) {
     if (const auto size = game.gpu_frame_size()) {
         // (Not drawn here: the host draws GPU games into its own target, with their effect from
         // screen_effect. The size maps the pointer one to one.)
@@ -181,7 +190,7 @@ inline ShownPicture shown_picture(const GameModule& game, long frame) {
     auto picture = game.picture();
     const int width = std::max(picture.width, 1), height = std::max(picture.height, 1);
     const int level = game.vhs_level();
-    if (level > 0) picture = ui::vhs(picture, frame, level);
+    if (cpu_filter && level > 0) picture = ui::vhs(picture, frame, level);
     return {std::move(picture), width, height};
 }
 
