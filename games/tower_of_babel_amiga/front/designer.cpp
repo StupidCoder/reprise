@@ -1192,6 +1192,7 @@ Flow FrontEnd::mouse_page(bool style) {
         co_await select(style ? style_areas : scaling_areas, c);
         if (c == 0) break;
         (style ? mouse_style_ : mouse_scaling_) = c - 1;
+        screen_.mouse_style = mouse_style_; // $11320: the sprites' colours
     }
     screen_.close_window();
 }

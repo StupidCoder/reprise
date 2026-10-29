@@ -572,6 +572,13 @@ int drive(const babel::data::Assets& assets, const std::filesystem::path& script
             std::string k; words >> k;
             in.key = k == "ret" ? 13 : k == "bs" ? 8 : k == "esc" ? 27 : k == "space" ? ' ' : k[0];
             step(1);
+        } else if (what == "margin") {
+            int m = 0; words >> m; fe.set_margin(m);
+        } else if (what == "pshot") { // the shown picture: widescreen margin as set, smooth at FRACTION (or not: -1)
+            std::string name; double f = -1; words >> name >> f;
+            platform::save_png(fe.picture(fe.margin(), f >= 0, std::max(f, 0.0)), out / name);
+            std::printf("frame %ld: %s\n", frame, name.c_str());
+            std::fflush(stdout);
         } else if (what == "shot") {
             std::string name; words >> name;
             platform::save_png(fe.screen().image(), out / name);

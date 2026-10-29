@@ -73,8 +73,75 @@ FrontEnd::FrontEnd(const data::Assets& assets, std::filesystem::path saves)
     runner_.start(run());
 }
 
-void FrontEnd::vblank(const Input& input) {
+view::Canvas FrontEnd::wide_picture(int margin, double alpha) const {
+    // The screen in the middle, the title line stretched to the full width,
+    // the view drawn again across it with its frame.
+    const int w = Screen::width + 2 * margin;
+    const auto& base = screen_.canvas();
+    view::Canvas canvas(w, Screen::height);
+    for (int y = 0; y < Screen::height; ++y)
+        for (int x = 0; x < Screen::width; ++x) canvas.set(x + margin, y, base.at(x, y));
+    if (margin > 0) {
+        const auto edge = base.at(0, 0), fill = base.at(1, 1);
+        for (int y = 0; y < 12; ++y) {
+            for (int x = 0; x < margin; ++x) {
+                const bool frame = y == 0 || y == 11 || x == 0;
+                canvas.set(x, y, frame ? edge : fill);
+                canvas.set(w - 1 - x, y, frame ? edge : fill);
+            }
+            if (y > 0 && y < 11) {
+                if (base.at(0, y) == edge) canvas.set(margin, y, fill);
+                if (base.at(Screen::width - 1, y) == edge) canvas.set(margin + Screen::width - 1, y, fill);
+            }
+        }
+    }
+    if (active_play_->shows_view()) {
+        active_play_->redraw(canvas, margin, alpha);
+        if (margin > 0) {
+            const auto colour = base.at(15, 15);
+            for (int x = 15; x <= w - 16; ++x) canvas.set(x, 15, colour), canvas.set(x, 128, colour);
+            for (int y = 15; y <= 128; ++y) canvas.set(15, y, colour), canvas.set(w - 16, y, colour);
+        }
+    }
+    return canvas;
+}
+
+platform::Image FrontEnd::picture(int margin, bool smooth, double fraction) const {
+    const bool live = active_play_ && screen_.copper == CopperMode::game;
+    if (margin == 0 && (!smooth || !live || play_paused_)) return screen_.image();
+    const int w = Screen::width + 2 * margin;
+    const auto& base = screen_.canvas();
+    if (!live) { // other screens in the middle, black beside them
+        view::Canvas canvas(w, Screen::height);
+        for (int y = 0; y < Screen::height; ++y)
+            for (int x = 0; x < Screen::width; ++x) canvas.set(x + margin, y, base.at(x, y));
+        return screen_.image_of(canvas, margin);
+    }
+    if (play_paused_) {
+        // The wide picture as the pause began (drawn once more at the frame
+        // itself), with what the menus have drawn since over it.
+        if (!paused_wide_ || wide_.width != w) {
+            const auto now = screen_.canvas();
+            wide_ = wide_picture(margin, 1.0);
+            for (int y = 0; y < Screen::height; ++y)
+                for (int x = 0; x < Screen::width; ++x)
+                    if (now.at(x, y) != paused_screen_.at(x, y)) wide_.set(x + margin, y, paused_screen_.at(x, y));
+            paused_wide_ = true;
+        }
+        auto canvas = wide_;
+        for (int y = 0; y < Screen::height; ++y)
+            for (int x = 0; x < Screen::width; ++x)
+                if (base.at(x, y) != paused_screen_.at(x, y)) canvas.set(x + margin, y, base.at(x, y));
+        return screen_.image_of(canvas, margin);
+    }
+    const double alpha = smooth ? std::clamp((ticks_ + fraction * ticks_per_vblank) / 14.0, 0.0, 1.0) : 1.0;
+    return screen_.image_of(wide_picture(margin, alpha), margin);
+}
+
+void FrontEnd::vblank(const Input& raw) {
     previous_ = in_;
+    Input input = raw;
+    input.x -= margin_; // the game's own picture is in the middle
     in_ = input;
     if (in_.left && !previous_.left) {
         clicked_ = true;
@@ -1029,6 +1096,12 @@ Flow FrontEnd::play_tower(const data::Tower& tower, int game_type, int& reason, 
         // $969A: the game screen, faded in from black.
         co_await fade_out();
         Play play(assets_, screen_, tower, settings_, game_type);
+        active_play_ = &play;
+        struct Forget {
+            Play*& play;
+            ~Forget() { play = nullptr; }
+        } forget{active_play_};
+        play_paused_ = false;
         last_tower_ = tower;
         if (frozen) play.freeze_enemies();
         sound(SoundEvent::Kind::stop); // the unpacker ($135C6)
@@ -1064,8 +1137,12 @@ Flow FrontEnd::play_tower(const data::Tower& tower, int game_type, int& reason, 
                 co_return;
             }
             sound(SoundEvent::Kind::pause);
+            paused_screen_ = screen_.canvas();
+            paused_wide_ = false;
+            play_paused_ = true;
             co_await wait_release();
             co_await pause_menu(play, leave);
+            play_paused_ = false;
             if (leave != 0) break;
             play.resume();
             sound(SoundEvent::Kind::resume);
@@ -1224,6 +1301,7 @@ Flow FrontEnd::exit_page(int game_type, int& leave) {
 void FrontEnd::start_interlude(int index) {
     const auto& tower = assets_.groups.at(14).towers.at(std::size_t(index % 18));
     interlude_ = std::make_unique<Play>(assets_, screen_, tower, settings_, 5);
+    active_play_ = interlude_.get();
     last_tower_ = tower;
     sound(SoundEvent::Kind::stop);
     interlude_->start_demo(index % 18);
@@ -1265,6 +1343,7 @@ Flow FrontEnd::interlude_ok() {
     co_await fade_out();
     screen_.copper = CopperMode::plain;
     interlude_.reset();
+    active_play_ = nullptr;
 }
 
 Flow FrontEnd::won_screen(int letter, int tries) {
@@ -1370,6 +1449,7 @@ Flow FrontEnd::demo_sequence() {
                 sound(SoundEvent::Kind::pause);
                 co_await fade_out();
                 interlude_.reset();
+                active_play_ = nullptr;
                 screen_.copper = CopperMode::plain;
                 co_return;
             }
@@ -1379,6 +1459,7 @@ Flow FrontEnd::demo_sequence() {
                     co_await wait_release();
                     co_await fade_out();
                     interlude_.reset();
+                    active_play_ = nullptr;
                     screen_.copper = CopperMode::plain;
                     co_return;
                 }

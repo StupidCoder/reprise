@@ -36,6 +36,15 @@ public:
     void vblank(const Input&);
 
     const Screen& screen() const { return screen_; }
+    // The picture to show: the screen as the game drew it, or, while a tower
+    // or demonstration runs, its view drawn again `margin` columns wider on
+    // each side (widescreen) and between game frames (smooth motion;
+    // `fraction`: of the vertical blank since the last). Menus and other
+    // screens are centred.
+    platform::Image picture(int margin, bool smooth, double fraction) const;
+    // The pointer as the game sees it, for a picture `margin` columns wider.
+    int margin() const { return margin_; }
+    void set_margin(int m) { margin_ = m; }
     // A sampled piece to start this frame (0 the title music, 1 the jingle), or none.
     std::optional<int> take_piece() { return std::exchange(piece_, std::nullopt); }
     bool piece_playing() const { return piece_frames_ > 0; }
@@ -164,6 +173,13 @@ private:
     int completed_mask(int game_type, int& count) const; // $8E6C
 
     const data::Assets& assets_;
+    Play* active_play_{};     // the tower or demonstration being played, if any
+    bool play_paused_{};      // its pause menu is open
+    int margin_{};
+    mutable view::Canvas wide_{320, 200}; // the wide picture as the pause began
+    mutable bool paused_wide_{};
+    view::Canvas wide_picture(int margin, double alpha) const;
+    view::Canvas paused_screen_{320, 200}; // the screen as the pause began: what the menus change shows over the wide view
     DataDisk disk_;
     Screen screen_;
     FlowRunner runner_;

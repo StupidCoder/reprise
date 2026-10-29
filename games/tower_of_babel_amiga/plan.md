@@ -14,7 +14,8 @@ Playable in the shell from the title:
 - the score screen and the end screens with their demonstrations, and the demo sequence;
 - saved positions, the high score table and loading a custom group, on a folder that stands for the data disk;
 - the tower designer with all its menus, pages, checks and the test of a tower;
-- the title music, the jingle and every sound effect (envelopes, the lifts' hum, the towers' background sounds).
+- the title music, the jingle and every sound effect (envelopes, the lifts' hum, the towers' background sounds);
+- widescreen (up to 21:9) and smooth motion, as options.
 
 Checked against the original, frame by frame or pixel by pixel:
 
@@ -27,18 +28,13 @@ Checked against the original, frame by frame or pixel by pixel:
 
 ## Remaining tasks
 
-### 1. Loose ends (next)
+The original is complete, and both planned enhancements are in. What is left are limits of the host:
 
-- **Keys in the menus:** Escape in Setup (resets the screen position), the editor's cursor keys (codes 1-4).
+- **Keys:** Escape (the Setup page's reset of the screen position, the editors' clear) is Reprise's own menu key, and the host reports A and D as left and right, so the editors' cursor keys (codes 1-4) aren't offered.
 - **Capital letters in names:** the shell reports keys without Shift, so names are lower case.
-- **Quick save** (`write_state`) is not offered; saved positions cover the original's own saving.
-- **The designer's cell cursor:** the original draws it as a hardware sprite. The port draws a white box; find the sprite's image and colours.
-- **Mouse Scaling and Mouse Style:** kept, without effect (the host's pointer). Decide whether to use them.
-
-### 2. Enhancements (after the original is complete)
-
-- **Widescreen:** the view is drawn from game state, so widen the frustum, then check the sky, stars and overlays at the new width.
-- **Smooth motion up to 120 Hz:** interpolate spider, object and camera positions between game ticks (`GameModule::set_frame_fraction`).
+- **Quick save** (`write_state`) is not offered: the front end's state lives in its coroutines. Saved positions cover the original's own saving.
+- **Mouse Scaling and Mouse Style** are kept without effect, as the host draws the pointer. Mouse Style still colours the designer's cursor.
+- **Widescreen:** clicks in the view's widened sides select nothing.
 
 ## Not yet covered by a check
 
@@ -64,6 +60,8 @@ These run in native code but have not been compared with the original yet:
   - the effects' sound itself: only the channel state was compared; the shared Paula model renders it.
 
 ## Known bugs
+
+- **Widescreen:** the stars beyond the original's columns repeat its field (the original has no stars there to show).
 
 - **Native:**
   - The moon's animation phase after the menus can differ from the original's. It moves on only when drawn ($E44), and the port's front end draws the view a different number of times before a tower. Not yet confirmed by a check.

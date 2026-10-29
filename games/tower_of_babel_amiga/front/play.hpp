@@ -78,6 +78,14 @@ public:
     void draw_title(); // $994E: the tower's name on the top line
     void redraw_panel() { draw_panel(); }
 
+    // The view drawn again for the display: `margin` columns more on each
+    // side (widescreen; the canvas is 320 + 2 x margin wide, the original's
+    // picture in the middle), objects and camera `alpha` of the way from the
+    // frame before to this one (smooth motion). Nothing is changed; the noise
+    // picture is left as it is.
+    void redraw(view::Canvas&, int margin, double alpha) const;
+    bool shows_view() const { return !noise_; }
+
     const game::TowerState& state() const { return state_; }
     game::TowerState& state() { return state_; }
     int end_reason() const { return state_.end_reason; } // 1 won, 2 time out, 3 all spiders, 4 Grabber
@@ -90,6 +98,10 @@ public:
 private:
     void one_frame(const Pointer&, bool ready);
     void draw_view(const Pointer&, bool ready, const view::Camera* fixed = nullptr);
+    void remember(); // the positions this frame starts from (smooth motion)
+    std::array<int, 3> position_at(int slot, double alpha) const;
+    view::Camera camera_at(double alpha) const;
+    void render(view::Canvas&, int margin, double alpha, view::SkyState&, view::Pick*) const;
     void draw_noise();       // $D804: no picture (spider gone, cameras forbidden)
     void draw_panel();       // $AB5A / $AC44: every button in its state
     void apply_view_settings(); // $9F84
@@ -106,7 +118,12 @@ private:
     view::Pens pens_;
     view::SkySettings sky_settings_;
     view::SkyState sky_;
-    std::map<std::uint32_t, data::Shape> shapes_;
+    mutable std::map<std::uint32_t, data::Shape> shapes_;
+    view::SkyState sky_drawn_;        // the sky as this frame was drawn from it
+    bool noise_{}, ready_{};
+    std::optional<view::Camera> fixed_, before_fixed_; // a demonstration's camera
+    std::array<std::array<int, 3>, game::TowerState::objects_max> before_{};
+    int before_active_{-1}, before_heading_{};
     std::vector<std::uint32_t> sounds_;
     bool running_{};      // past the READY loop ($99C2)
     bool even_frame_{true}; // the buffer the frame draws into ($20(a6) = 0)

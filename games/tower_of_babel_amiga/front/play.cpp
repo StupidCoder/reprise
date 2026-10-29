@@ -1,5 +1,7 @@
 #include "tower_of_babel_amiga/front/play.hpp"
 #include "tower_of_babel_amiga/view/overlay.hpp"
+#include <cmath>
+#include <cstdlib>
 
 namespace babel::front {
 namespace {
@@ -142,6 +144,7 @@ void Play::one_frame(const Pointer& pointer, bool ready) {
         }
     }
     state_.backwards_allowed = settings_.backwards_allowed;
+    remember();
     panel_.poll(state_, rules_, {settings_.link_cameras, tower_.flags[4]}, input, picked_);
     if (panel_.fire_failed()) sounds_.push_back(sound_no_effect);
     rules_.step(state_);
@@ -183,6 +186,7 @@ void Play::demo_frame() {
         for (auto& row : pens_.object[std::size_t(n)].rows)
             for (auto& c : row) c = std::uint8_t(15 - c);
     panel_.clear_command_waits();
+    remember();
     auto& spider = state_.objects[std::size_t(state_.active)];
     if (spider.progress == 0) {
         const int b = assets_.program.u8(var(0xFE4) + std::uint32_t(demo_ * 16 + demo_step_));
@@ -216,32 +220,84 @@ void Play::demo_frame() {
 void Play::draw_view(const Pointer& pointer, bool ready, const view::Camera* fixed) {
     const auto& t = state_;
     const auto& active = t.objects[std::size_t(t.active)];
-    if (!fixed && ((t.active < 4 && tower_.flags[4]) || (t.active >= 4 && active.type >= 0x1A))) {
+    noise_ = !fixed && ((t.active < 4 && tower_.flags[4]) || (t.active >= 4 && active.type >= 0x1A));
+    if (noise_) {
         draw_noise();
         volume_offset_ = 0;
         return;
     }
-    const auto camera = fixed ? *fixed
-                        : t.active >= 4
-                            ? view::spider_camera(active.x, active.y, active.z, active.heading, view_offset_, view_height_, view_distance_)
-                            : view::spider_camera(active.x, active.y, active.z, active.heading, 0, 0, 0);
+    if (fixed) fixed_ = *fixed;
+    const auto camera = camera_at(1.0);
     // $AB22: seen from a camera, sounds are quieter the farther it is.
     volume_offset_ = !fixed && t.active < 4 ? (std::int16_t(camera.z) + 0x640) / 0x377 - 2 : fixed ? volume_offset_ : 0;
     view::SkyEffects::advance(sky_, sky_settings_, camera.heading, even_frame_);
     if (sky_.thunder) sounds_.push_back(sound_thunder);
     if (sky_.crack) sounds_.push_back(sound_crack);
     screen_.flash = sky_.flash;
+    ready_ = ready;
+    sky_drawn_ = sky_; // as the frame draws it (drawing moves the moon on)
+    view::Pick pick{pointer.x, pointer.y};
+    const bool picking = panel_.pick_requested();
+    render(screen_.canvas(), 0, 1.0, sky_, picking ? &pick : nullptr);
+    if (picking) picked_ = pick.floor >= 0 ? t.object_at(game::cell_index(pick.floor, pick.cell_x, pick.cell_z)) : -1;
+}
+
+void Play::remember() {
+    for (std::size_t n = 0; n < before_.size(); ++n) {
+        const auto& o = state_.objects[n];
+        before_[n] = {o.x, o.y, o.z};
+    }
+    before_active_ = state_.active;
+    before_heading_ = state_.objects[std::size_t(state_.active)].heading;
+    before_fixed_ = fixed_;
+}
+
+std::array<int, 3> Play::position_at(int slot, double alpha) const {
+    const auto& o = state_.objects[std::size_t(slot)];
+    const auto& b = before_[std::size_t(slot)];
+    const std::array<int, 3> now{o.x, o.y, o.z};
+    if (alpha >= 1.0) return now;
+    std::array<int, 3> p{};
+    for (std::size_t k = 0; k < 3; ++k) {
+        if (std::abs(now[k] - b[k]) > 0x300) return now; // a jump (an exchange, a new tower): no glide
+        p[k] = b[k] + int(std::lround((now[k] - b[k]) * alpha));
+    }
+    return p;
+}
+
+view::Camera Play::camera_at(double alpha) const {
+    if (fixed_) {
+        const auto& c = *fixed_;
+        if (alpha >= 1.0 || !before_fixed_) return c;
+        const auto& b = *before_fixed_;
+        const auto mix = [&](int from, int to) { return std::int16_t(from + int(std::lround((to - from) * alpha))); };
+        return {mix(b.x, c.x), mix(b.y, c.y), mix(b.z, c.z), c.heading};
+    }
+    const int slot = state_.active;
+    const auto& o = state_.objects[std::size_t(slot)];
+    // A camera or spider newly chosen, or turned, is not glided to.
+    const bool glide = slot == before_active_ && o.heading == before_heading_;
+    const auto p = position_at(slot, glide ? alpha : 1.0);
+    return slot >= 4 ? view::spider_camera(p[0], p[1], p[2], o.heading, view_offset_, view_height_, view_distance_)
+                     : view::spider_camera(p[0], p[1], p[2], o.heading, 0, 0, 0);
+}
+
+void Play::render(view::Canvas& canvas, int margin, double alpha, view::SkyState& sky, view::Pick* pick) const {
+    const auto& t = state_;
+    const auto camera = camera_at(alpha);
+    const view::Window window{view_window.left, view_window.right + 2 * margin, view_window.top, view_window.bottom};
 
     // The objects as the view draws them.
     std::vector<view::SceneObject> objects(game::TowerState::objects_max);
     for (int n = 0; n < game::TowerState::objects_max; ++n) {
         const auto& o = t.objects[std::size_t(n)];
         auto& s = objects[std::size_t(n)];
+        const auto p = position_at(n, alpha);
         s.slot = n;
         s.type = o.type;
-        s.x = o.x;
-        s.y = o.y;
-        s.z = o.z;
+        s.x = p[0];
+        s.y = p[1];
+        s.z = p[2];
         s.moving = o.progress != 0;
         s.particle_count = o.counter_1a;
         s.second_cloud = (o.flags & 2) != 0;
@@ -264,21 +320,34 @@ void Play::draw_view(const Pointer& pointer, bool ready, const view::Camera* fix
     const view::LiftHeight lift_height = [&](int f, int x, int z) -> std::optional<int> {
         const int n = t.object_at(game::cell_index(f, x, z));
         if (n < 0) return std::nullopt;
-        return t.objects[std::size_t(n)].y;
+        return objects[std::size_t(n)].y;
     };
     const auto draw_sky = [&](view::Canvas& c) {
-        view::draw_sky(c, sky_settings_, sky_, camera.heading, assets_.program, assets_.main, pens_.object);
+        view::draw_sky(c, sky_settings_, sky, camera.heading, assets_.program, assets_.main, pens_.object, view_window.left + margin);
+        if (margin == 0) return;
+        // Widescreen: the stars go on beyond the original's 288 columns, the
+        // same field again on each side (no moon, meteor or bolt there).
+        auto settings = sky_settings_;
+        settings.moon_heading = (camera.heading + 1) & 3;
+        for (const int shift : {-288, 288}) {
+            auto copy = c;
+            auto state = sky;
+            state.meteor_visible = false;
+            state.bolt_column.reset();
+            view::draw_sky(copy, settings, state, camera.heading, assets_.program, assets_.main, pens_.object,
+                           view_window.left + margin + shift);
+            const int x0 = shift < 0 ? window.left : view_window.right + margin + 1, x1 = shift < 0 ? view_window.left + margin - 1 : window.right;
+            for (int y = window.top; y <= window.bottom; ++y)
+                for (int x = x0; x <= x1; ++x) c.set(x, y, copy.at(x, y));
+        }
     };
-    view::Pick pick{pointer.x, pointer.y};
-    const bool picking = panel_.pick_requested();
     const auto map = t.map();
     view::TowerView(pens_, assets_.program, assets_.main)
-        .draw(screen_.canvas(), view_window, 160, 72, map, camera, lift_height, object_at, draw_sky, picking ? &pick : nullptr);
-    if (picking) picked_ = pick.floor >= 0 ? t.object_at(game::cell_index(pick.floor, pick.cell_x, pick.cell_z)) : -1;
+        .draw(canvas, window, 160 + margin, 72, map, camera, lift_height, object_at, draw_sky, pick);
 
     if (game_type_ < 4) { // $D7EC: no overlays in demonstrations
         view::OverlayState o;
-        o.ready = ready;
+        o.ready = ready_;
         o.blink = t.blink;
         o.info = settings_.info == 0 ? view::Corner::off : settings_.info == 1 ? view::Corner::bottom : view::Corner::top;
         o.timer = settings_.timer == 0 ? view::Corner::off : settings_.timer == 2 ? view::Corner::top : view::Corner::bottom;
@@ -291,8 +360,14 @@ void Play::draw_view(const Pointer& pointer, bool ready, const view::Camera* fix
         o.destroy_needed = t.destroy_needed;
         o.time_limit = tower_.has_time_limit();
         o.time_left = t.time_left;
-        view::draw_overlay(screen_.canvas(), o, assets_.program, assets_.main);
+        view::draw_overlay(canvas, o, assets_.program, assets_.main, margin);
     }
+}
+
+void Play::redraw(view::Canvas& canvas, int margin, double alpha) const {
+    if (noise_) return;
+    auto sky = sky_drawn_;
+    render(canvas, margin, alpha, sky, nullptr);
 }
 
 void Play::draw_noise() {

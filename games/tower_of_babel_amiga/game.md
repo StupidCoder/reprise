@@ -903,6 +903,16 @@ Both are kept in the re-implementation.
 - **Cell numbering:** native cell index = original index + 100. The native grid includes the ground row as floor −1. The cameras' +$14 / +$16 are kept as raw offsets.
 - **Frames:** the module ticks at the PAL frame rate (50 Hz); a game frame runs whenever 14 timer ticks (709379 / 7160 Hz) have built up, the rest carried over. The front end's waits (fades, menus, the name editor) are in vertical blanks as in the original.
 - **Clicks:** a press between two game frames counts as held at the next poll, at the place it was made. The original only sees the button when it polls (a quick click can be missed).
+- **Widescreen (option):** the picture is 320 + 2m columns, m chosen so the window shows up to 21:9. Only a running tower or demonstration widens:
+  - its view is drawn again across the wider window (the projection's centre m further right). The traversal already draws every column, so the sides need nothing new;
+  - the title line and the view's frame stretch with it;
+  - the star field repeats beside the original's 288 columns (no moon, meteor or bolt there); the overlays stay where they were relative to the middle;
+  - the panel, the menus and every other screen stay 320 wide in the middle, with black beside them;
+  - in the pause menu the wide picture is drawn once more at the paused frame, and what the menus draw shows over it;
+  - the pointer is taken m columns in from the left. A click in the view's widened sides selects nothing (the pick is the game frame's, in the original 288 columns).
+- **Smooth motion (option):** each game frame keeps the positions it starts from. The display draws the view again with every object, lift and the camera that far between them (the timer's ticks since the frame, out of 14). A newly chosen or turned camera, and any jump of more than $300, are not glided. The view is shown one game frame late; the rules don't change.
+- **Both options** draw from the game's state without changing it: the sky as the frame drew it (its moon animation would otherwise move on), the noise picture as it is.
+- **The designer's cell cursor** is drawn from sprite 1's image ($2AFE(a6)) in the mouse style's colours 17–19 ($2B4E(a6)).
 - **Left out:** the crack, the copy protection, the disk loads and disk checks, the screen-position settings (kept in saved positions), the data disk's own format and its errors. The credits also end on a click (the original: Space only).
 
 ### How it was checked
@@ -944,6 +954,7 @@ by frame:
   - The designer screen, its four menus and 14 pages pixel-identical with the reference: Options, Effects, Sound, Moon, Behaviour, Finishing Conditions, Scroll, Rotate, Copy Level, Designer Setup, Statistics, the Support and Spider Path checks with their animation (harness/fe/designer.txt).
   - Then placing and taking objects with their messages ("Spider already placed"), a change of floor, Get Tower with the tower's name and its question, and the Colours page (harness/fe/designer2.txt). In all 27 shots the only difference is the cell cursor, a sprite the reference renderer doesn't draw.
   - harness/fe/refrun.py runs the same scripts on the reference, so both machines take the same steps.
+- **Widescreen and smooth motion (harness/fe/wide_smooth.txt):** with both off, 275 pictures (game, win screen, 260 demonstration frames) unchanged by the view's refactoring. With them on: a walk changes the view every display frame, and the pause menu composes without seams.
 - **The timer (harness/fe/timecheck.cpp):** "The Lift Is Guarded" counts 160 BCD seconds down in 1,120 frames and ends with reason 2.
 - **Played through:** tower A solved by the program Fire Fire Fire for the Grabber (the score screen as the original's); Restart and Abandon from the Exit page.
 

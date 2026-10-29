@@ -63,9 +63,11 @@ public:
     void icon8(const data::Memory&, std::uint32_t address, int x, int y);
     // $14FF2: a 2 x 2 dot (the moon's place) at an even x.
     void dot(int x, int y, int pen);
-    // The designer's cell cursor (a hardware sprite there): a 16 x 16 box
-    // drawn over the picture, or none.
+    // The designer's cell cursor: hardware sprite 1 ($2AFA(a6): 16 rows of
+    // two plane words) over the picture at (x, y), in sprite colours 17-19
+    // of the mouse style (table $2B4E(a6)), or none.
     std::optional<std::array<int, 2>> marker;
+    int mouse_style{};
     // Copies `rows` lines of 16-pixel columns from (x, y) (the panel blits).
     void copy_block(std::span<const std::uint8_t> planes, int x, int y, int width_words, int rows);
 
@@ -100,7 +102,10 @@ public:
     bool flash{};
     void set_palette(const data::Memory& program, std::uint32_t address, int count = 48);
 
-    platform::Image image() const;
+    platform::Image image() const { return image_of(canvas_, 0); }
+    // The same from a wider canvas (widescreen: the picture `margin` columns
+    // in from its left edge).
+    platform::Image image_of(const view::Canvas&, int margin) const;
 
 private:
     struct SavedBox {

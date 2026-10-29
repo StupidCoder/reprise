@@ -309,7 +309,8 @@ void Screen::set_palette(const data::Memory& program, std::uint32_t address, int
     for (int i = 0; i < count && i < int(palette.size()); ++i) palette[std::size_t(i)] = program.u16(address + std::uint32_t(i) * 2);
 }
 
-platform::Image Screen::image() const {
+platform::Image Screen::image_of(const view::Canvas& source, int margin) const {
+    const int width = source.width;
     platform::Image image(width, height);
     std::array<data::Colour, 16> colours{};
     std::copy_n(palette.begin(), 16, colours.begin());
@@ -331,13 +332,21 @@ platform::Image Screen::image() const {
             if (y == 0x82) // the panel's colours
                 for (std::size_t i = 0; i < 15; ++i) colours[i + 1] = palette[33 + i];
         }
-        for (int x = 0; x < width; ++x) image.put(x, y, data::to_color(colours[canvas_.at(x, y) & 15]));
+        for (int x = 0; x < width; ++x) image.put(x, y, data::to_color(colours[source.at(x, y) & 15]));
     }
     if (marker) {
-        const auto [mx, my] = *marker;
-        for (int i = 0; i < 16; ++i)
-            for (const auto [x, y] : {std::array<int, 2>{mx + i, my}, {mx + i, my + 15}, {mx, my + i}, {mx + 15, my + i}})
-                if (x >= 0 && x < width && y >= 0 && y < height) image.put(x, y, platform::Color{255, 255, 255});
+        const int mx = (*marker)[0] + margin, my = (*marker)[1];
+        const auto& p = assets_.program;
+        const std::uint32_t colours = var(0x2B4E) + std::uint32_t(mouse_style * 2) * 8;
+        for (int r = 0; r < 16; ++r) {
+            const unsigned a = p.u16(var(0x2AFE) + std::uint32_t(r) * 4), b = p.u16(var(0x2B00) + std::uint32_t(r) * 4);
+            for (int i = 0; i < 16; ++i) {
+                const int v = int(a >> (15 - i) & 1) | int(b >> (15 - i) & 1) << 1;
+                const int x = mx + i, y = my + r;
+                if (v != 0 && x >= 0 && x < width && y >= 0 && y < height)
+                    image.put(x, y, data::to_color(p.u16(colours + std::uint32_t(v) * 2)));
+            }
+        }
     }
     return image;
 }

@@ -36,13 +36,40 @@ public:
         : assets_(data::load_assets(content)), front_(std::make_unique<FrontEnd>(assets_, content / "saves")), effects_(assets_) {}
 
     double step_seconds() const override { return 1.0 / 50; } // a PAL frame; game frames are 14 CIA ticks
-    double pixel_aspect() const override { return 1.0; }
     int vhs_level() const override { return vhs_; }
 
-    std::vector<app::GameOption> options() const override { return {app::screen_filter_option(vhs_)}; }
-    void set_option(std::size_t index, int value) override {
-        if (index == 0) vhs_ = std::clamp(value, 0, 4);
+    std::vector<app::GameOption> options() const override {
+        return {{"Widescreen", {"Off", "On"}, widescreen_ ? 1 : 0,
+                 "The tower's view as wide as the window allows, up to 21:9; the title line and the view's frame "
+                 "stretch with it, the panel and the menus stay in the middle. The game plays the same."},
+                {"Smooth motion", {"Off", "On"}, smooth_ ? 1 : 0,
+                 "Spiders, objects, lifts and the camera glide at the display's own rate instead of stepping "
+                 "about 7 times a second. The view is shown one game frame late. The game plays the same."},
+                app::screen_filter_option(vhs_)};
     }
+    void set_option(std::size_t index, int value) override {
+        if (index == 0) {
+            widescreen_ = value != 0;
+            set_canvas(canvas_width_, canvas_height_);
+        }
+        if (index == 1) smooth_ = value != 0;
+        if (index == 2) vhs_ = std::clamp(value, 0, 4);
+    }
+    // Widescreen: as many more columns as the window's shape gives, from the
+    // original's 320 up to 21:9.
+    void set_canvas(int width, int height) override {
+        canvas_width_ = width;
+        canvas_height_ = height;
+        int margin = 0;
+        if (widescreen_ && width > 0 && height > 0) {
+            // Square pixels: a window of aspect a shows a x 200 columns.
+            const double columns = std::clamp(200.0 * width / height, 320.0, 200.0 * 21 / 9);
+            margin = std::max(0, int(columns - 320) / 2);
+        }
+        front_->set_margin(margin);
+    }
+    void set_frame_fraction(double fraction) override { fraction_ = std::clamp(fraction, 0.0, 1.0); }
+    double pixel_aspect() const override { return 1.0; }
 
     void tick(const app::GameInput& input) override {
         FrontEnd::Input in;
@@ -85,7 +112,7 @@ public:
         }
     }
 
-    platform::Image picture() const override { return front_->screen().image(); }
+    platform::Image picture() const override { return front_->picture(front_->margin(), smooth_, fraction_); }
 
     void audio(std::span<float> stereo, int sample_rate) override {
         std::fill(stereo.begin(), stereo.end(), 0.0f);
@@ -117,6 +144,9 @@ private:
     std::array<bool, 64> keys_{};
     bool space_{}, playing_{};
     int vhs_{};
+    bool widescreen_{}, smooth_{};
+    int canvas_width_{}, canvas_height_{};
+    double fraction_{};
 };
 
 } // namespace
