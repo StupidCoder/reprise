@@ -1328,6 +1328,19 @@ player moves (`$1172AA`), flying role 35-38's climb, then "TRIGGER FOR:
 record 4 again (`$117170`: its record copied, offset (9, 1, -97)). A
 dead leftover (`$117254`) once recorded the player's control bytes into
 the maneuvers' scripts ("PATTERN EXHAUSTED" after $1FD frames).
+Practice starts like free flight at runway 3 (`$102CE0` → `$10D51E`,
+the map camera `$10D400` and its descent, "READY FOR TAKEOFF"), with one
+aircraft, after briefing 10. Record 4 is placed 72 units ahead of the
+player (`$11D10A` → `$10D460`), type $10, +$2C −1 (no target point),
+role 0. Seen on the original (`work/ref/prac.jsonl`, `flightcap.py
+--objs`): record 4 goes to role 6 for a frame, then (the player's
+airspeed not 0, +2 bit 0 set) role 35 with full throttle bits; at
+airspeed $840 role 36 (60 frames). The recording's player, at full
+afterburner right behind it on the runway, got "WARNING: TURBINE
+FAILURE" (message $14, blinking) and the flight ended (one aircraft).
+So the practice needs the objects' effects on each other (`$11B6AA`:
+proximity and collision, open since step 7); its end text when record 4
+is lost is block 72 (`$1032AA`).
 
 ### Qualification (menu item 5, 2026-10-29)
 

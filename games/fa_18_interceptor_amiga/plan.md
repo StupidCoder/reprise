@@ -97,9 +97,11 @@ from drawing, and must still respect the passes' model rule).
     are built. The demo (1) has its replay, key events, fades and up/down
     looks, but waits for mission 3's world (its sailing carrier and the
     bogey: task 11); menu item 1 still returns to the menu. Left: the
-    practice (4) - read (game.md "The maneuvers"), not built; a recording
-    of the break turn's and the aileron roll's roles (39/40/2/7, 11-13 from
-    their start) to check them too.
+    practice (4) - read (game.md "The maneuvers"), not built: it needs
+    the objects' effects on each other first (`$11B6AA`: proximity, jet
+    wash ("TURBINE FAILURE" behind record 4), collisions; block 72 when
+    record 4 is lost); a recording of the break turn's and the aileron
+    roll's roles (39/40/2/7, 11-13 from their start) to check them too.
 11. **Missions**: the six selectable missions and the advanced mission
     chain, briefings, outcomes, the log's records.
 12. **Dusk and night**: palettes 3-9 (the fades).
