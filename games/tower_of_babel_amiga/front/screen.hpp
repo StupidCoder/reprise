@@ -3,6 +3,7 @@
 #include "tower_of_babel_amiga/view/canvas.hpp"
 #include "platform/image.hpp"
 #include <array>
+#include <optional>
 #include <cstdint>
 #include <span>
 #include <string_view>
@@ -22,6 +23,7 @@ constexpr std::uint32_t var(std::uint32_t offset) { return 0x806 + offset; }
 // The 16 colours shown, and how the copper changes them down the screen.
 enum class CopperMode {
     plain,  // mode 0: colours 0-15 of the palette (menus)
+    split,  // mode 1: the same, colours 7 and 8 from 16 and 17 below line $48 (the designer)
     game,   // mode 2: the tower's view (colour 7 bands, panel colours from line $82)
     title,  // mode 3: three bands of 16 (lines $36 and $71)
 };
@@ -55,6 +57,15 @@ public:
 
     // $11862: a picture in the program's format at (x & ~15, y).
     void picture(const data::Memory&, std::uint32_t address, int x, int y, int width_words, int rows);
+    // $11134: a 16 x 16 icon, per row a keep mask and four plane words, at any x.
+    void icon16(const data::Memory&, std::uint32_t address, int x, int y);
+    // $111F6: an 8 x 8 icon, per row a keep mask and four plane bytes.
+    void icon8(const data::Memory&, std::uint32_t address, int x, int y);
+    // $14FF2: a 2 x 2 dot (the moon's place) at an even x.
+    void dot(int x, int y, int pen);
+    // The designer's cell cursor (a hardware sprite there): a 16 x 16 box
+    // drawn over the picture, or none.
+    std::optional<std::array<int, 2>> marker;
     // Copies `rows` lines of 16-pixel columns from (x, y) (the panel blits).
     void copy_block(std::span<const std::uint8_t> planes, int x, int y, int width_words, int rows);
 

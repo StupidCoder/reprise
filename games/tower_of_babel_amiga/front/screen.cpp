@@ -142,6 +142,37 @@ void Screen::picture(const data::Memory& memory, std::uint32_t address, int x, i
         }
 }
 
+void Screen::icon16(const data::Memory& memory, std::uint32_t address, int x, int y) {
+    for (int r = 0; r < 16 && y + r < height; ++r) {
+        const std::uint32_t row = address + std::uint32_t(r) * 10;
+        const unsigned keep = memory.u16(row);
+        for (int b = 0; b < 16; ++b) {
+            if (keep >> (15 - b) & 1) continue;
+            int c = 0;
+            for (int p = 0; p < 4; ++p) c |= int(memory.u16(row + 2 + std::uint32_t(p) * 2) >> (15 - b) & 1) << p;
+            put(x + b, y + r, std::uint8_t(c));
+        }
+    }
+}
+
+void Screen::icon8(const data::Memory& memory, std::uint32_t address, int x, int y) {
+    for (int r = 0; r < 8 && y + r < height; ++r) {
+        const std::uint32_t row = address + std::uint32_t(r) * 5;
+        const unsigned keep = memory.u8(row);
+        for (int b = 0; b < 8; ++b) {
+            if (keep >> (7 - b) & 1) continue;
+            int c = 0;
+            for (int p = 0; p < 4; ++p) c |= int(memory.u8(row + 1 + std::uint32_t(p)) >> (7 - b) & 1) << p;
+            put(x + b, y + r, std::uint8_t(c));
+        }
+    }
+}
+
+void Screen::dot(int x, int y, int pen_index) {
+    for (int r = 0; r < 2; ++r)
+        for (int b = 0; b < 2; ++b) put((x & ~1) + b, y + r, pen(pen_index).colour((x & ~1) + b, r));
+}
+
 void Screen::copy_block(std::span<const std::uint8_t> planes, int x, int y, int width_words, int rows) {
     // Four planes one after the other, each `rows` lines of `width_words` words.
     const std::size_t plane_bytes = std::size_t(width_words) * std::size_t(rows) * 2;
@@ -292,12 +323,21 @@ platform::Image Screen::image() const {
         if (copper == CopperMode::title) {
             const int band = y >= 0x71 ? 2 : y >= 0x36 ? 1 : 0;
             std::copy_n(palette.begin() + band * 16, 16, colours.begin());
+        } else if (copper == CopperMode::split && y == 0x48) {
+            colours[7] = palette[16];
+            colours[8] = palette[17];
         } else if (copper == CopperMode::game) {
             while (next7 < game.colour7.size() && game.colour7[next7].first <= y) colours[7] = game.colour7[next7++].second;
             if (y == 0x82) // the panel's colours
                 for (std::size_t i = 0; i < 15; ++i) colours[i + 1] = palette[33 + i];
         }
         for (int x = 0; x < width; ++x) image.put(x, y, data::to_color(colours[canvas_.at(x, y) & 15]));
+    }
+    if (marker) {
+        const auto [mx, my] = *marker;
+        for (int i = 0; i < 16; ++i)
+            for (const auto [x, y] : {std::array<int, 2>{mx + i, my}, {mx + i, my + 15}, {mx, my + i}, {mx + 15, my + i}})
+                if (x >= 0 && x < width && y >= 0 && y < height) image.put(x, y, platform::Color{255, 255, 255});
     }
     return image;
 }

@@ -1,3 +1,4 @@
+#include "tower_of_babel_amiga/design/tower_design.hpp"
 #include "tower_of_babel_amiga/front/effects.hpp"
 #include "tower_of_babel_amiga/game/panel.hpp"
 #include "tower_of_babel_amiga/front/front_end.hpp"
@@ -564,6 +565,9 @@ int drive(const babel::data::Assets& assets, const std::filesystem::path& script
         else if (what == "click" || what == "hold") {
             int hold = 3; words >> in.x >> in.y >> hold;
             in.left = true; step(hold); in.left = false; step(1);
+        } else if (what == "rclick") {
+            int hold = 3; words >> in.x >> in.y >> hold;
+            in.right = true; step(hold); in.right = false; step(1);
         } else if (what == "key") {
             std::string k; words >> k;
             in.key = k == "ret" ? 13 : k == "bs" ? 8 : k == "esc" ? 27 : k == "space" ? ' ' : k[0];
@@ -590,6 +594,27 @@ int main(int argc, char** argv) {
         if (command == "fxcheck" && argc == 4) {
             const auto assets = load_assets(platform::utf8_path(argv[2]));
             return fx_check(assets, platform::utf8_path(argv[3]));
+        }
+        if (command == "designcheck" && argc == 3) {
+            // Research: every tower record unpacked as the designer does and
+            // packed again must come back as it was.
+            const auto assets = load_assets(platform::utf8_path(argv[2]));
+            const std::uint32_t groups[4][2] = {{0x5E0D2, 18}, {0x5F512, 9}, {0x5FF32, 9}, {0x61372, 117}};
+            int same = 0, differ = 0;
+            for (const auto& g : groups)
+                for (std::uint32_t i = 0; i < g[1]; ++i) {
+                    const auto rec = assets.main.bytes(g[0] + i * 0x120, 0x120);
+                    auto d = babel::design::TowerDesign::from_record(rec);
+                    std::array<std::uint8_t, 0x120> out{};
+                    if (!d.to_record(out)) { ++differ; std::printf("$%X: too many objects\n", g[0] + i * 0x120); continue; }
+                    if (std::equal(out.begin(), out.end(), rec.begin())) { ++same; continue; }
+                    ++differ;
+                    int first = 0;
+                    while (out[std::size_t(first)] == rec[std::size_t(first)]) ++first;
+                    std::printf("$%X (%s): first difference at byte %d\n", g[0] + i * 0x120, babel::design::TowerDesign::text(d.name).c_str(), first);
+                }
+            std::printf("records: %d the same, %d differ\n", same, differ);
+            return 0;
         }
         if (command == "drive" && argc == 5) {
             const auto assets = load_assets(platform::utf8_path(argv[2]));

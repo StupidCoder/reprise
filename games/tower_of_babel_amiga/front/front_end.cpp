@@ -122,6 +122,13 @@ Flow FrontEnd::game_frame_wait() {
 }
 
 Flow FrontEnd::fade(const std::array<data::Colour, 48>& target, int first, int count) {
+    if (fast_fades_) { // $12628: at once, then two frames
+        for (int i = first; i < first + count; ++i) current_[std::size_t(i)] = target[std::size_t(i)];
+        screen_.palette = current_;
+        co_await next_frame();
+        co_await next_frame();
+        co_return;
+    }
     // $125B2 / $1255C: each component in 16 steps of (target - start) / 16,
     // from start * 16 + 7, one step a frame.
     std::array<std::array<int, 3>, 48> value{}, step{};
@@ -246,7 +253,7 @@ Flow FrontEnd::name_entry() {
     score_ = 0;
 }
 
-void FrontEnd::draw_editor(const LineEditor& e) {
+void FrontEnd::draw_editor(const LineEditor& e, bool with_cursor) {
     // $12304: the line cleared, the text with the cursor ("|" in pen 3)
     // before the character it stands at, then a blank.
     screen_.fill(e.x, e.y, e.right, e.y + 7, 0);
@@ -255,7 +262,7 @@ void FrontEnd::draw_editor(const LineEditor& e) {
     screen_.cursor.paper = 0;
     screen_.cursor.ink = 15;
     for (int i = 0;; ++i) {
-        if (i == e.cursor) {
+        if (with_cursor && i == e.cursor) {
             screen_.cursor.ink = 3;
             screen_.glyph(0x7C);
             screen_.cursor.ink = 15;
@@ -302,6 +309,7 @@ Flow FrontEnd::edit_name() {
             else break;
         }
     }
+    draw_editor(e, false);
     name_ = e.text;
     co_await wait_release();
 }
@@ -671,8 +679,11 @@ Flow FrontEnd::main_menu() {
                 if (yes) co_return;
                 break;
             }
-            default: // the Tower Designer: not rebuilt yet
-                co_await wait_release();
+            case 3:
+                co_await designer();
+                redraw = true;
+                break;
+            default:
                 break;
             }
         }
@@ -990,8 +1001,10 @@ Flow FrontEnd::custom_game() {
             });
             if (!loaded) continue;
         }
-        if (choice == 1) { // the designer's contents (the empty default group until it is rebuilt)
-            custom_towers_ = assets_.groups.at(15).towers;
+        if (choice == 1) { // the designer's nine towers ($9046)
+            if (designer_group_.empty()) custom_towers_ = assets_.groups.at(15).towers;
+            else
+                for (std::size_t i = 0; i < 9; ++i) custom_towers_[i] = data::decode_tower(designer_group_[i]);
             custom_progress_.fill(0);
         }
         selected_ = -1;
@@ -1011,11 +1024,13 @@ Flow FrontEnd::custom_game() {
     }
 }
 
-Flow FrontEnd::play_tower(const data::Tower& tower, int game_type, int& reason) {
+Flow FrontEnd::play_tower(const data::Tower& tower, int game_type, int& reason, bool frozen) {
     for (;;) {
         // $969A: the game screen, faded in from black.
         co_await fade_out();
         Play play(assets_, screen_, tower, settings_, game_type);
+        last_tower_ = tower;
+        if (frozen) play.freeze_enemies();
         sound(SoundEvent::Kind::stop); // the unpacker ($135C6)
         play.draw_screen();
         co_await fade(play.target_palette());
@@ -1209,6 +1224,7 @@ Flow FrontEnd::exit_page(int game_type, int& leave) {
 void FrontEnd::start_interlude(int index) {
     const auto& tower = assets_.groups.at(14).towers.at(std::size_t(index % 18));
     interlude_ = std::make_unique<Play>(assets_, screen_, tower, settings_, 5);
+    last_tower_ = tower;
     sound(SoundEvent::Kind::stop);
     interlude_->start_demo(index % 18);
     interlude_->draw_demo_screen();

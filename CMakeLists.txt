@@ -295,7 +295,9 @@ add_library(tower_of_babel_amiga
     games/tower_of_babel_amiga/data/model.cpp
     games/tower_of_babel_amiga/data/preview.cpp
     games/tower_of_babel_amiga/data/shape.cpp
+    games/tower_of_babel_amiga/design/tower_design.cpp
     games/tower_of_babel_amiga/front/data_disk.cpp
+    games/tower_of_babel_amiga/front/designer.cpp
     games/tower_of_babel_amiga/front/effects.cpp
     games/tower_of_babel_amiga/front/front_end.cpp
     games/tower_of_babel_amiga/front/module.cpp

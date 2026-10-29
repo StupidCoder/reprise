@@ -1,5 +1,6 @@
 #pragma once
 #include "tower_of_babel_amiga/data/assets.hpp"
+#include "tower_of_babel_amiga/design/tower_design.hpp"
 #include "tower_of_babel_amiga/front/data_disk.hpp"
 #include "tower_of_babel_amiga/front/flow.hpp"
 #include "tower_of_babel_amiga/front/play.hpp"
@@ -72,8 +73,10 @@ private:
         int box_x0{}, box_y0{}, box_x1{}, box_y1{};
         std::string text;
         int cursor{};
+        bool digits{}; // only 0-9 ($C(a5) set)
     };
-    void draw_editor(const LineEditor&);
+    Flow edit_field(LineEditor&); // $12096 on a record: until Return or a click outside its box
+    void draw_editor(const LineEditor&, bool cursor = true);
     bool edit_key(LineEditor&, int key, int end_x); // false: Return
     void edit_click(LineEditor&, int x);
     Flow edit_name();           // $12096 on the name record $E46
@@ -98,7 +101,7 @@ private:
     Flow custom_game();         // $8FE4
     Flow choose_tower(int game_type, int& choice); // $A2DA + $A542 + menu $38EC
     Flow information(const data::Tower&, int letter, bool& play); // $A396
-    Flow play_tower(const data::Tower&, int game_type, int& reason); // $969A
+    Flow play_tower(const data::Tower&, int game_type, int& reason, bool frozen = false); // $969A
     Flow pause_menu(Play&, int& leave);  // $9704: Setup, View, Info, Exit
     Flow setup_page();          // $9AC4
     Flow view_page();           // $9C68
@@ -109,6 +112,46 @@ private:
     Flow end_screen(int game_type, int reason);   // $97AA
     Flow demo_sequence();       // $15780
     Flow interlude_ok();        // $948C: OK clicked while the demonstration runs
+
+    // --- the tower designer (front/designer.cpp)
+    Flow designer();            // $E386
+    void designer_screen();     // $10BDE: palette, title line, texts, the object palette
+    void designer_views();      // $E3A8: floor plans, view window, password, spiders, floor boxes, the chosen kind
+    void draw_plans();          // $10E44
+    void draw_view_window();    // $10EFA
+    void draw_palette_icon(int slot); // $1108A
+    void draw_palette_cursor(); // $10D0C
+    void designer_message(int message); // $10D70
+    void draw_password();       // $10CD2
+    void draw_spiders();        // $10C60
+    void draw_floor_boxes();    // $10C1A
+    void designer_edit(bool left); // $1098E
+    void letter_grid(int y);    // $E538
+    void tower_name_window(int slot); // $EC84
+    Flow choose_slot(int title_x0, int y0, int y1, std::uint32_t title, std::uint32_t areas, std::uint32_t question, int& slot);
+    Flow tower_unlocked(const std::array<std::uint8_t, data::tower_record_size>&, int letter, bool& allowed); // $EBD2
+    Flow designer_file(bool& exit);
+    Flow designer_options();
+    Flow designer_toolbox();
+    Flow designer_extras();
+    Flow effects_page();        // $ED56
+    Flow sound_page();          // $EE0C
+    Flow moon_page();           // $EEB2
+    Flow behaviour_page();      // $F008
+    Flow finishing_page();      // $F0B0
+    Flow text_page(int y0, std::uint32_t title, LineEditor&); // Name Tower, Tower's Author ($F27E, $F2AE)
+    Flow test_design();         // Play/View Tower ($F2DE)
+    Flow colours_page();        // $F38E
+    Flow scroll_page(bool rotate, bool& done); // $F978 / $FA9E
+    Flow level_page(bool swap, bool& done); // $FBB0 / $FC76
+    Flow designer_setup();      // $1027E
+    Flow statistics_page();     // $10384
+    Flow support_page();        // $104AE
+    Flow path_page();           // $10614
+    Flow mouse_page(bool style);// $1082E / $1087C
+    void snapshot();            // $108D0: the undo copy
+    void unpack_design(const std::array<std::uint8_t, data::tower_record_size>&); // $13024
+    std::array<std::uint8_t, data::tower_record_size> pack_design() const;      // $12E4A
 
     void header();              // $A0DA: the name and score bar
     void menu_boxes(int rows);  // $11AF6
@@ -155,6 +198,24 @@ private:
     std::vector<Score> scores_;    // $122E: ten, sorted (room for 21 while merging)
     LineEditor file_name_{0xAC, 0x6E, 8, 0xFE, 0xAC, 0x6C, 0xFF, 0x77, {}, 0}; // $F7E
     std::vector<data::Tower> custom_towers_; // the custom group ($60952)
+    bool fast_fades_{};    // $500: fades are instant (the designer)
+    std::optional<data::Tower> last_tower_; // the tower the game unpacked last ($13278)
+    // The designer's state.
+    design::TowerDesign design_;
+    std::string time_text_;            // $F58: the time limit as typed
+    std::vector<std::array<std::uint8_t, data::tower_record_size>> designer_group_; // $5F512
+    std::array<std::uint8_t, data::tower_record_size> undo_{};
+    bool undo_ready_{};                // $E14 = 0
+    int floor_{};                      // $DA8
+    int slot_{};                       // $DAA: the palette slot
+    std::array<std::int8_t, 24> palette_{}; // $DB8: the kind each slot shows
+    int hover_x_{8}, hover_y_{8};      // $DAC, $DAE: the view window's cell under the pointer
+    bool depth_cue_{true}, enemy_movement_{true}, auto_repeat_{true}, confirm_replace_{true}, bright_{}; // $E08-$E12
+    bool painting_{};                  // $E0E bit 7: hold to paint floor
+    int colour_{};                     // $DB4
+    bool whole_tower_{true};           // $DB6 = 0
+    int mouse_scaling_{1}, mouse_style_{}; // $11D0, $11D2 (no effect with the host's pointer)
+    std::array<data::Colour, 18> previous_colours_{}; // $2616
     std::unique_ptr<Play> interlude_;
     long shown_bonus_[3]{}; // $1222-$1226 while counting
     int survivors_{};      // spiders left at the end of the last tower

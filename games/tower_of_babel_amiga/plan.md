@@ -13,6 +13,7 @@ Playable in the shell from the title:
 - the pause menus (Setup, View, Info, Exit with Abandon and Restart);
 - the score screen and the end screens with their demonstrations, and the demo sequence;
 - saved positions, the high score table and loading a custom group, on a folder that stands for the data disk;
+- the tower designer with all its menus, pages, checks and the test of a tower;
 - the title music, the jingle and every sound effect (envelopes, the lifts' hum, the towers' background sounds).
 
 Checked against the original, frame by frame or pixel by pixel:
@@ -21,24 +22,20 @@ Checked against the original, frame by frame or pixel by pixel:
 - the rules and every object's behaviour;
 - the panel's poll;
 - the sound channels' starts and envelope ticks;
-- the front end's screens and tower A played to its score.
+- the front end's screens and tower A played to its score;
+- the designer's screens, and its packing of every tower record.
 
 ## Remaining tasks
 
-### 1. The rest of the front end
+### 1. Loose ends (next)
 
-- **Locked towers and their passwords ($D9E):** find where the password is asked. The chooser opens towers by neighbours only.
-- **Keys in the menus:** Escape in Setup (resets the screen position), the editor's cursor keys (codes 1–4).
+- **Keys in the menus:** Escape in Setup (resets the screen position), the editor's cursor keys (codes 1-4).
 - **Capital letters in names:** the shell reports keys without Shift, so names are lower case.
 - **Quick save** (`write_state`) is not offered; saved positions cover the original's own saving.
+- **The designer's cell cursor:** the original draws it as a hardware sprite. The port draws a white box; find the sprite's image and colours.
+- **Mouse Scaling and Mouse Style:** kept, without effect (the host's pointer). Decide whether to use them.
 
-### 2. Tower designer ($E386) (next)
-
-- Editing cells, objects and colours, the designer's object list ($6F10), the name, author, password and task fields; its menus (the numbered texts $3A–$56: colour names, checks such as "No Grabber").
-- Saving custom towers: the original's format and where it writes them; map them to Reprise storage. "Use Designer Contents" then uses them.
-- The full object kind → designer name mapping.
-
-### 3. Enhancements (after the original is complete)
+### 2. Enhancements (after the original is complete)
 
 - **Widescreen:** the view is drawn from game state, so widen the frustum, then check the sky, stars and overlays at the new width.
 - **Smooth motion up to 120 Hz:** interpolate spider, object and camera positions between game ticks (`GameModule::set_frame_fraction`).
@@ -50,6 +47,13 @@ These run in native code but have not been compared with the original yet:
 - **Objects and animation:** a Proximity Mine leaving a hole (tower flag 8, $E2A ≥ 0); a time bomb speed ($E2E) other than tower A's; both Forcers' animation frames, the Watcher's idle frames and the spiders' reversed-ride frame ($1218); the convertor in either direction.
 - **The sky:** sky type 3 (no line list), the sights overlay, and towers with their own lightning or meteors (only checked by poking tower A's flags).
 - **The panel:** a click in the view selecting a spider (the pick); the noise view ($D804, a spider gone or cameras forbidden).
+- **The designer:**
+  - Put / Swap, the password question, Lock;
+  - the Colours page's presets and steps;
+  - Play/View Tower;
+  - the lift and block messages, Clear Level / Clear All, Undo, and the disk commands.
+
+  They ran headless, but weren't compared side by side with the original. The menus, 14 pages, Get Tower, the Colours page and the spider messages were.
 - **The data disk:** the requester with files in it, the error box and the Replace question, compared with the original's (the reference has no data disk).
 - **Screens not compared:** the Info and Exit pages, the Yes/No requester, the lost-tower screens, the final "all towers solved" screen and the demo sequence. They were drawn from the same code paths, but never side by side with the original's; the View page only up to the reference's crash (game.md, "Copy protection").
 - **The timer:** its warning sounds and the time-out compared with the original.
@@ -69,17 +73,12 @@ These run in native code but have not been compared with the original yet:
 
 ## Open research questions
 
-- **Tower record fields:**
-  - $E2E's full range;
-  - $E34–$E42 (only $E38, sky type, and the moon fields are known);
-  - flags 3 and 9;
-  - the last 4 bits ($A4–$A8(a6)).
+- **Tower record fields:** $E2E's full range (the designer offers 0–2); flag 9.
 - **Main data ranges:**
-  - $1C7D0 (designer map icons?);
+  - $1C7D0: the designer's 16 x 16 object icons ($A0 bytes each, +$2A a darker floor);
   - $283C0 / $2CDC0 / $2D3C0: the chooser's pictures are known; the rest are open;
   - the panel set's full layout ($23BC0): the button images are known.
 - **Object pens 23 and 24** are inverted every game frame ($AB44): the blink. Find which objects use them.
-- **Footsteps:** find what $A6 = 0 means exactly; the "no footsteps" reading is a hypothesis (6 towers set it).
 - **Copy protection:** confirm that the View page's hash is the delayed manual-word check (hypothesis), with the right word on the reference.
 - **Disk blocks** $538–$6DF are never read ($540 onward is noise).
 - **Ghidra seeds:** add the jump table entries $E2CC–$E310.

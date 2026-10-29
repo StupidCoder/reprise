@@ -9,6 +9,7 @@ namespace {
 
 const char* prefix(FileKind k) {
     switch (k) {
+    case FileKind::tower: return "tower.";
     case FileKind::group: return "group.";
     case FileKind::position: return "position.";
     case FileKind::scores: return "scores.";
@@ -46,7 +47,7 @@ int DataDisk::files() const {
     std::error_code error;
     for (const auto& e : std::filesystem::directory_iterator(folder_, error)) {
         const auto f = e.path().filename().string();
-        for (const auto k : {FileKind::group, FileKind::position, FileKind::scores})
+        for (const auto k : {FileKind::tower, FileKind::group, FileKind::position, FileKind::scores})
             if (f.rfind(prefix(k), 0) == 0) ++n;
     }
     return n;
@@ -65,6 +66,20 @@ bool DataDisk::write(FileKind k, const std::string& name, const std::vector<std:
     if (!out) return false;
     out.write(reinterpret_cast<const char*>(bytes.data()), std::streamsize(bytes.size()));
     return bool(out);
+}
+
+bool DataDisk::remove(FileKind k, const std::string& name) const {
+    std::error_code error;
+    return std::filesystem::remove(file(k, name), error);
+}
+
+bool DataDisk::erase() const {
+    bool all = true;
+    for (const auto k : {FileKind::tower, FileKind::group, FileKind::position, FileKind::scores})
+        for (const auto& n : names(k)) all = remove(k, n) && all;
+    std::error_code error;
+    std::filesystem::create_directories(folder_, error);
+    return all;
 }
 
 } // namespace babel::front

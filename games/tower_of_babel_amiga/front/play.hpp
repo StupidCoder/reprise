@@ -55,6 +55,9 @@ public:
     // or after the start as it was.
     void resume() { panel_.clear_pause(); }
     void set_settings(const Settings& s) { settings_ = s; apply_view_settings(); }
+    // The designer's "Enemy Movement: Off" ($11E4 = -2): the start only
+    // brings the freeze counter to -1, so nothing but the spiders moves.
+    void freeze_enemies() { state_.clock = -2; }
 
     // The colours to fade to: the tower's, the sky gradient, the panel style's.
     std::array<data::Colour, 48> target_palette() const;

@@ -12,7 +12,7 @@
 // content, and the requester ($126C0) shows them as the original does.
 namespace babel::front {
 
-enum class FileKind { group = 2, position = 8, scores = 0x20 };
+enum class FileKind { tower = 1, group = 2, position = 8, scores = 0x20 };
 
 class DataDisk {
 public:
@@ -28,6 +28,9 @@ public:
     bool exists(FileKind k, const std::string& name) const { return read(k, name).has_value(); }
     // False when the file cannot be written (the original's "Unable To Write to Disk").
     bool write(FileKind, const std::string& name, const std::vector<std::uint8_t>&) const;
+    bool remove(FileKind, const std::string& name) const;
+    // Prepare Disk: every file of the game's kinds goes (false if one cannot be removed).
+    bool erase() const;
 
 private:
     std::filesystem::path file(FileKind, const std::string& name) const;

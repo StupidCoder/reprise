@@ -276,6 +276,82 @@ Polled once a game frame. It sees no clicks, only the left button held at that m
   - **Upgrade High Score Table** merges the table with a file: for a name in both, the higher score; new names are added (room for 21); sorted; the best ten are written back. The port writes them as "score name" lines.
 - **Load a Group (custom game, $9144):** nine tower records ($A20 bytes) from a group file become the custom group, with its progress cleared. The port's group file is the nine 288-byte records.
 
+### The tower designer ($E386)
+
+**What it edits:** the designer is game type 3. It shares the game's tower variables: settings, flags $E1A, colours $2414, Klondikes and objects to destroy. So on entering it shows the values of the tower last unpacked (a game, a demonstration, or at the start the program image's). It keeps its own:
+- the floor grid $195A(a6) and the object grid $1A5A(a6), 4 floors × 64 bytes (index floor × 64 + z × 8 + x). The floor grid holds −1 empty, 0 floor section, 1 supporting block, 2 lift up, 3 lift down, $28 the top of a lift up, $29 the bottom of a lift down; the object grid −1 or kinds 4–39;
+- the name, author, password and time-limit text in edit records ($E7A, $ECE, $F22, $F42), whose texts are the tower's own 62/62/10-character buffers. The author starts as the player's name ($8CD4), the time text as "120";
+- a group of nine tower records (the custom default group $5F512; "Use Designer Contents" in the custom game plays them);
+- an undo copy (a packed record, $16480).
+
+**Records:** $13024 unpacks a record into this form and $12E4A packs it again:
+- non-printable characters become 0 ($136FE), and the characters after a text's end are kept;
+- cells go through $13712 / $1371A (codes 0–6);
+- objects are written in cell order, unused entries all ones;
+- more than 20 objects is an error.
+
+Unpacked and repacked, all 153 records come back byte for byte.
+
+**The screen:**
+- **Top:** a menu bar (File, Options, Toolbox, Extras), the password ("--------" when unlocked), Spiders Placed (Z P G radio marks), the kind chosen and the last message.
+- **The palette:** 24 slots of 16 × 16 icons ($1C7D0 + kind × $A0). Clicking the chosen slot again steps it through its kinds ($DB8: kind, +$18 first, +$30 last).
+- **The view window** (0, 12)-(122, 134): the floors up to the chosen one, each 3 pixels further up and left, 16 × 16 icons every 14 pixels. With depth cue, the lower floors use darker icons (+$2A a floor down). A cursor sprite marks the cell under the pointer.
+- **Four plans of 8 × 8 icons** ($230D0 + kind × 40), row 0 at the bottom; clicking one chooses the floor.
+- **Copper mode 1:** colours 7 and 8 come from colours 16 and 17 below line $48.
+- **Fades are instant** ($500).
+
+**Editing ($1098E),** in the view window, with either button held: the left button puts the chosen kind, the right takes what is there.
+- **Placing a floor kind** over a lift first clears that lift's other end. Over a lift end it fails ("Can't remove lift").
+  - A block can't go on floor 3 ("Can't place support"); it clears the cell's object and puts a floor above if there is none.
+  - A lift up can't go on floor 3, nor a lift down on floor 0 ("Can't place lift here"). Each sets its other end and clears the object there.
+- **An object** needs a floor section or a lift ("No floor for object"). There may be at most 17 besides the spiders; the one being replaced counts ("Too many objects placed"). Each spider only once ("Spider already placed").
+- **Taking:** the object first, then the floor: not a lift's end, not a floor carried by a block ("Supported block, can't remove"); a lift takes its other end.
+- **Painting:** with Auto Repeat on, painting floor sections continues while the button stays down.
+- The messages are numbered texts $2D + n.
+
+**Repair ($FFF2),** after scrolling, rotating, copying and swapping:
+- shafts without their lift, and lifts without their shaft, become floor;
+- blocks with nothing above (or a lift's end above) become floor, and a block carrying something loses its own object;
+- a second copy of a spider goes, and objects past the 17th.
+
+**The File menu:**
+- **Get / Put / Swap Tower** use a 3 × 3 letter grid, the tower's name, and a Yes/No question with the letter put in.
+- **Locked towers** (flag 3 clear) ask for their password before Get, Swap or Load: "Correct Password", or "Incorrect Password / Access denied". The password only protects designs; the game never asks for it.
+- **Lock Tower** takes a password; Unlock clears the lock.
+- **Load and Save** a group (nine records) or a tower (one record), and **Delete** them, on the data disk.
+- **Prepare Disk** erases the data disk (OK, then Yes/No).
+- **Exit Designer** asks first.
+
+**Options:**
+- **Effects:** star density, lightning, meteors, sky type, the tower's colour pattern (five swatches), the Sound Effects page (background sound None / Breath / Drone A / Drone B, walking sounds, other sounds) and the Moon Setup (compass heading N–W or none, the place by clicking a small sky, type 1–6, rotation).
+- **Behaviour:** cameras, mines destroy the floor, time bomb speed.
+- **Finishing Conditions:** time limit yes/no and its seconds (a 4-digit field), Klondikes and robots to destroy (0–6), and the current status: OK, No Task!, Not Enough Klondikes, Not Enough Objects, No Grabber, No Zapper (Not Fatal).
+- **Name Tower, Tower's Author.**
+- **Play/View Tower:** packs the tower and plays it as game type 3 (Exit leaves without asking). With Enemy Movement off, the freeze counter starts at −2, so after the start nothing but the spiders moves.
+
+**Toolbox:**
+- **Colours:** a page of its own:
+  - the 18 colours in two rows, each colour's name (numbered texts $45 + n), its R/G/B, three rows of 16 boxes to set them;
+  - 12 presets ($263A, $24 bytes each) and Restore Previous;
+  - Step/Swap: swap two components of every colour; raise or lower one or all, for colours 1–12, 16 and 17 only;
+  - a test of the tower.
+
+  Colours 0, 13, 14 and 15 are fixed (mask $80073FFF).
+- **Scroll Tower/Level:** left, right, up, down, wrapping round.
+- **Rotate Tower/Level:** clockwise is three quarter turns. Objects that face a way turn with it (ranges at $FEAE: Zappers, Pushers, Worms, Prisms, Lizards, Convertors).
+- **Copy Level, Swap Level** with another floor.
+- **Clear Level:** objects go; floors go unless a block carries them; lifts go with their other ends. **Clear All:** also the texts and the lock.
+
+**Extras:**
+- **Designer Setup:** Depth Cue, Enemy Movement, Auto Repeat, Confirm Replace (when off, saving over a file doesn't ask), Bright Palette (designer colour 10: $777 or $555).
+- **Statistics:** percent of cells used; Zappers, Pushers, Klondikes, others, total.
+- **Support Check:** from every ground-floor cell over neighbouring cells, and up through blocks. Each cell reached is marked on the plans in turn; Passed if every cell was reached.
+- **Spider Path Check:** for each spider, from its cell over floors (not blocks), up and down lifts, with marks coloured by the spiders that reach them. "Not Found" for a spider not placed. Passed if every walkable cell was reached.
+- **Undo:** the tower and the undo copy change places. The copy is taken by Get, Load, and every Toolbox change.
+- **Mouse Scaling and Mouse Style:** kept, without effect on the host's pointer.
+
+**Menus:** each page's window closes when clicked outside. The menu under it stays open unless the command finished something ($E0E bit 3): File's Get, Put, Swap, Lock, Unlock and Exit; a done Toolbox command; Setup; a done Undo.
+
 ### After a tower
 
 - **Solved (standard game, $92EC):**
@@ -333,25 +409,26 @@ bits are used.
 | 10 × 7 | $D9E | lock password ("lebab", "tivros", …; empty = unlocked) |
 | 14 | $E18 | time limit in seconds (shown as 4 digits) |
 | 10 × 1 | $E1A.. | flags, stored as 0 / −1 words (see below) |
-| 2 | $E2E | time bomb speed (0–3; added + 1 to the count each frame) |
+| 2 | $E2E | time bomb speed (Slow, Med, Fast; added + 1 to the count each frame) |
 | 3, 3 | $E30, $E32 | Klondikes to collect, objects to destroy (the objective) |
-| 2, 3, 2, 3, 3 | $E34–$E3C | $E38 sky type; $E3A the moon's heading; others open |
+| 2, 3, 2, 3, 3 | $E34–$E3C | star density (none, low, med, high), the colour pattern (0–4), sky type (Fade A, Fade B, Bars), the moon's heading (N, E, S, W, none), its type (1–6) |
 | 9 | $E3E | the moon's x (16 + 16 × value) |
 | 7 | $E40 | the moon's y (16 + value; seen only when ≤ $37) |
-| 2 | $E42 | the moon's animation speed |
+| 2 | $E42 | the moon's rotation (clockwise, none, anticlockwise) |
 | 4 × 8 × 8 × 3 | $1CC9.. | cells (below) |
 | 20 × (6 + 8) | objects | kind and position (below) |
 | 18 × 12 | $2414 | colours, 4-bit R, G, B |
-| 2, 1, 1 | $A4–$A8(a6) | open (sound settings, hypothesis) |
+| 2, 1, 1 | $A4–$A8(a6) | the background sound (none, Breath, Drone A, Drone B), no walking sounds, no other sounds |
 
 **Flags:**
 - 0–2: the spider is absent (Zapper, Pusher, Grabber); $1362A selects the first one present.
 - 5: no time limit ($A1B4/$A22E).
 - 6: no lightning.
 - 7: no meteors.
+- 3: unlocked (clear: the designer asks for the password);
 - 4: cameras may not be used ($E22: the panel ignores them, the view shows noise; Info says "Cameras not allowed").
 - 8: Proximity Mines leave no hole ($E2A; Info: "Mines don't destroy floor").
-- 3 and 9 are open.
+- 9 is open.
 
 **Cells:** floor by floor, then row (z), then column (x). Each 3-bit code
 becomes a cell byte by the table $1375A: 00 C0 C8 E0 F0 30 E8 00. The bytes
@@ -373,7 +450,7 @@ go into a 10 × 10 grid per floor with a border of non-floor cells.
 - Worm, Watcher, Hopper, Proximity Mine, Time Bomb;
 - Reflector, Prisms, Lizards, Klondike, Bonus Flag, Convertors, Forcers, Freezer, Exchanger.
 
-The checked kinds match the name order: 4 Player's Zapper, 8 Zapper facing E, 31 Klondike. The full mapping is open.
+The numbered texts $00–$27 are the kinds' names in kind order (4 Player's Zapper … $27 Exchanger), the designer's message n for kind n.
 
 **Tower groups in the main data:**
 
@@ -815,7 +892,8 @@ Both are kept in the re-implementation.
 | `game/` | `tower_map` (cells with shape flags, lit columns $CCA8, colour pattern $CD90); `tower_state` (the running tower in the rules' bordered layout: object map, objects, programs, panel lights, forcers, objective, freeze counter); `rules` (programs, moves, firing); `behaviour.cpp` (each type's update); `animation` (the frame choice as a pure function of state and frame counter) |
 | `game/panel` | the panel's rules ($ADFC): choosing, direct commands, cameras, program editing, lockouts |
 | `view/` | `polygon` (the clipper, the filler, see-through and outlined fills); `tower_view` (camera, projection, traversal, faces, objects, particles, the pointer's pick); `sky` (incl. the 48-colour game palette and its copper view); `overlay` |
-| `front/` | `data_disk` (the data disk as a folder of files); `screen` (the 320 × 200 picture, pens, rectangles, lines, bevelled boxes, windows, pictures, the font and layout codes, menus' click areas, the copper modes); `play` (the game screen and the play loop, demonstrations); `front_end` (every screen from the title to the end screens, as coroutines that wait for vertical blanks, `flow.hpp`); `effects` (the sound channels, their envelopes and the per-frame logic, on the shared Paula model); `module` (the shell's game module: mouse, keys, picture, the sampled pieces and effects, the effects' timer ticks between rendered stretches) |
+| `design/` | `tower_design`: the designer's tower, its packing to and from records, every editing rule, repair, scroll, rotate, copy, swap, clear, statistics, support and path checks |
+| `front/` | `data_disk` (the data disk as a folder of files); `designer.cpp` (the designer's screen, menus and pages); `screen` (the 320 × 200 picture, pens, rectangles, lines, bevelled boxes, windows, pictures, the font and layout codes, menus' click areas, the copper modes); `play` (the game screen and the play loop, demonstrations); `front_end` (every screen from the title to the end screens, as coroutines that wait for vertical blanks, `flow.hpp`); `effects` (the sound channels, their envelopes and the per-frame logic, on the shared Paula model); `module` (the shell's game module: mouse, keys, picture, the sampled pieces and effects, the effects' timer ticks between rendered stretches) |
 
 **Assets tool:** `tower_of_babel_assets import | export | viewcheck | animcheck | framecheck | logiccheck | objectcheck | panelcheck | fxcheck | drive`. `drive` runs the front end headless from a script (frames, move, click, key, shot) and writes the effects it played to effects.wav.
 
@@ -861,6 +939,11 @@ by frame:
 
   The hum is silenced inside $15342 just before the clunk starts, with no call to record; the check applies that step as `Effects::frame` does.
 - **Saved positions and high scores (harness/fe/saves.txt):** the Save/Load menu and the High Scores table pixel-identical with the reference. The requester as the original's, apart from the counts the reference cannot show without a data disk. A position saved, listed, picked and loaded; a table written by Upgrade.
+- **The designer:**
+  - `designcheck`: all 153 tower records unpacked and packed again byte for byte.
+  - The designer screen, its four menus and 14 pages pixel-identical with the reference: Options, Effects, Sound, Moon, Behaviour, Finishing Conditions, Scroll, Rotate, Copy Level, Designer Setup, Statistics, the Support and Spider Path checks with their animation (harness/fe/designer.txt).
+  - Then placing and taking objects with their messages ("Spider already placed"), a change of floor, Get Tower with the tower's name and its question, and the Colours page (harness/fe/designer2.txt). In all 27 shots the only difference is the cell cursor, a sprite the reference renderer doesn't draw.
+  - harness/fe/refrun.py runs the same scripts on the reference, so both machines take the same steps.
 - **The timer (harness/fe/timecheck.cpp):** "The Lift Is Guarded" counts 160 BCD seconds down in 1,120 frames and ends with reason 2.
 - **Played through:** tower A solved by the program Fire Fire Fire for the Grabber (the score screen as the original's); Restart and Abandon from the Exit page.
 
