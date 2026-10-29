@@ -29,6 +29,7 @@ FlightTables read_flight_tables(const amiga::LoadedImage& m) {
     t.sink_by_speed = word_array<31>(m, 0x11AB88);
     t.bank_turn_by_pitch = word_array<15>(m, 0x12269A);
     for (std::size_t i = 0; i < t.length_factor.size(); ++i) t.length_factor[i] = m.u16(0x110928 + std::uint32_t(2 * i));
+    t.arctangent = word_array<257>(m, 0x132DF8);
     return t;
 }
 

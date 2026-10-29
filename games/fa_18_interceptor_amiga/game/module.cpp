@@ -16,10 +16,13 @@
 #include "fa_18_interceptor_amiga/game/sounds.hpp"
 #include "fa_18_interceptor_amiga/game/text_screen.hpp"
 #include "fa_18_interceptor_amiga/game/weapons.hpp"
+#include "fa_18_interceptor_amiga/game/world_objects.hpp"
 #include "ui/vhs.hpp"
 #include <optional>
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <random>
 
 namespace interceptor::game {
 namespace {
@@ -229,6 +232,7 @@ public:
                 std::vector<Spark> sparks;
                 add_weapons(vehicles, sparks, t);
                 add_lead(vehicles, t);
+                add_objects(vehicles, t);
                 scene_.draw(frame, width / 2 - 1, bottom, view, vehicles, sparks);
                 if (above_) grid(frame, view, width / 2 - 1, bottom);
                 // (No numbers while the camera comes down from the map: $126AB2
@@ -259,6 +263,7 @@ public:
             std::vector<Spark> sparks;
             add_weapons(self, sparks, t);
             add_lead(self, t);
+            add_objects(self, t);
             scene_.draw(frame, width / 2 - 1, cockpit ? Cockpit::view_bottom : view_rows,
                         camera(before_, aircraft_, t, look_, zoom_), self, sparks);
             readings.hud = phase_ != Phase::ready && phase_ != Phase::to_ready; // ($13AA91, set as the flight starts)
@@ -362,6 +367,79 @@ public:
                       (leader_.z - leader_.vz * back) / 256.0};
         v.body = leader_.body;
         vehicles.push_back(v);
+    }
+
+    // `$13AB96` as the object lists know it: free flight 1, the
+    // qualification 9, the demo $7F. (The maneuvers' trainer and the
+    // practice's lead are their own records here; their world is free
+    // flight's.)
+    int list_mode() const {
+        switch (mode_) {
+        case FlightMode::demo: return 0x7F;
+        case FlightMode::qualification: return 9;
+        default: return 1;
+        }
+    }
+
+    // $11CF06: the records the flight starts with; the ship among them is
+    // the carrier.
+    void spawn_objects() {
+        ObjectChoice choice;
+        choice.mode = list_mode();
+        choice.variant_random = int(random_() & 0xFFFF);
+        objects_ = lists_.spawn(choice, tables_).objects;
+        for (auto it = objects_.begin(); it != objects_.end();) {
+            if (it->craft.type == 0x20) {
+                carrier_.place(it->craft, tables_);
+                it = objects_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
+    // $102DB8 / $1195D4: before a mission's flight, "YOUR VECTOR XXX FOR
+    // BOGEY" with the heading from the player to a point 500 units ahead of
+    // the list's first aircraft in the air (not type $15), in degrees
+    // rounded to tens (360 is 000); without one, no line.
+    void queue_bogey_vector() {
+        for (const auto& o : objects_) {
+            if (o.craft.type == 0x15 || (o.craft.type & 0xF0) != 0x10 || !o.active()) continue;
+            const auto& v = o.craft.view;
+            const std::int64_t ahead[3] = {(std::int64_t(v[2]) * 0x1F4) >> 4, (std::int64_t(v[5]) * 0x1F4) >> 4,
+                                           (std::int64_t(v[8]) * 0x1F4) >> 4};
+            const auto dx = std::int32_t((o.craft.x + ahead[0] - aircraft_.x) >> 8);
+            const auto dz = std::int32_t((o.craft.z + ahead[2] - aircraft_.z) >> 8);
+            int degrees = direction_of(tables_, dx, 0, dz).heading / 80;
+            degrees = (degrees + 5) / 10 * 10;
+            if (degrees >= 360) degrees = 0;
+            const auto found = std::find_if(assets_.texts.begin(), assets_.texts.end(),
+                                            [](const data::TextBlock& b) { return b.number == bogey_text; });
+            if (found == assets_.texts.end()) return;
+            auto block = *found;
+            char digits[4];
+            std::snprintf(digits, sizeof digits, "%03d", degrees);
+            for (auto& line : block.lines) {
+                const auto at = line.text.find("XXX");
+                if (at != std::string::npos) line.text.replace(at, 3, digits);
+            }
+            text_.queue(block);
+            return;
+        }
+    }
+
+    // The other records (not the carrier, which is drawn by itself).
+    void add_objects(std::vector<Vehicle>& vehicles, double t) const {
+        const double back = smooth_ ? 1 - t : 0;
+        for (const auto& o : objects_) {
+            if (!o.active()) continue;
+            const auto& a = o.craft;
+            Vehicle v;
+            v.type = o.shape_type;
+            v.position = {(a.x - a.vx * back) / 256.0, (a.y - a.vy * back) / 256.0, (a.z - a.vz * back) / 256.0};
+            v.body = a.body;
+            vehicles.push_back(v);
+        }
     }
 
     Vehicle carrier_vehicle() const {
@@ -496,11 +574,11 @@ private:
         place_ = carrier_place;
         aircraft_type_ = 0x11;
         aircraft_left_ = 3; // ($1020BC)
-        text_.clear();
-        text_.queue(bogey_text);
-        text_.queue(launch_text);
         sounds_.set_active(true);
         restart();
+        text_.clear();
+        queue_bogey_vector();
+        text_.queue(launch_text);
         flying_ = false;
         ready_done_ = false;
         outside_ = above_ = false;
@@ -696,6 +774,7 @@ private:
 
     // $10D51E: the aircraft at the chosen start; the engine sound starts.
     void restart() {
+        spawn_objects();
         if (place_ == carrier_place) {
             aircraft_ = carrier_.start_on_deck(assets_.program, tables_);
         } else {
@@ -999,13 +1078,15 @@ private:
         }
 
         ground_warnings(aircraft_, messages_, sounds_);
-        // $11B6A2 (before this frame's move): the carrier's deck, wires and hull.
-        if (carrier_.touch(aircraft_, assets_.program)) aircraft_.state |= flag::crashed;
         FlightRules rules;
         rules.world = &world_;
         if (mode_ == FlightMode::practice) reposition_step();
         const std::array<std::int32_t, 3> before{aircraft_.x, aircraft_.y, aircraft_.z};
+        const Aircraft unmoved = aircraft_;
         const auto events = fly(aircraft_, c, rules, tables_);
+        // $11B6A2 (after the move, by the place before it): the carrier's
+        // deck, wires and hull, then the other objects.
+        if (carrier_.touch(aircraft_, unmoved)) aircraft_.state |= flag::crashed;
         player_touches(before);
         if (events.engine_sound != 0) sounds_.event(EngineSound(events.engine_sound));
         if (events.engine_restart_in != 0) sounds_.restart_after(events.engine_restart_in);
@@ -1816,6 +1897,9 @@ private:
     std::uint16_t replay_game_ = 0, replay_view_ = 0; // `$13AC86`, `$13AC88`: last frame's key events
     bool replay_ended_ = false;
     Autopilot autopilot_{assets_.program};
+    ObjectLists lists_{assets_.program};
+    std::vector<WorldObject> objects_;  // the object lists' records but the carrier
+    std::mt19937 random_{std::random_device{}()}; // (`$13ADE8`'s draws)
     std::uint8_t trainer_pilot_ = 0;    // the trainer's +$64
     int maneuver_ = 0;                  // $13AA89
     bool maneuver_started_ = false;     // $14508A

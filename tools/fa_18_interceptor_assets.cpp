@@ -44,6 +44,7 @@
 #include "fa_18_interceptor_amiga/game/collisions.hpp"
 #include "fa_18_interceptor_amiga/game/replay.hpp"
 #include "fa_18_interceptor_amiga/game/carrier.hpp"
+#include "fa_18_interceptor_amiga/game/world_objects.hpp"
 #include "fa_18_interceptor_amiga/game/cockpit.hpp"
 #include "fa_18_interceptor_amiga/game/messages.hpp"
 #include "fa_18_interceptor_amiga/game/module.hpp"
@@ -713,15 +714,24 @@ int weapon_check(const std::filesystem::path& content, const std::filesystem::pa
 // --- democheck -----------------------------------------------------------------
 
 // Research: flies the demo's recording (text/textply, text/textctl) from the
-// carrier's catapult through the flight model, the carrier's deck and the
-// key events that change the aircraft (gear, hook, speed brake), and
+// deck of the carrier its object list places, through the flight model, the
+// carrier's deck and the key events that change the aircraft (gear, hook,
+// speed brake), and
 // compares each frame's aircraft with a recording of the original's demo
 // (`flightcap.py` from the menu's item 1: the flight's frames 1, 2, ...).
 int demo_check(const std::filesystem::path& content, const std::filesystem::path& capture) {
     using namespace interceptor;
     const auto assets = data::load_assets(content);
     const auto tables = game::read_flight_tables(assets.program);
-    const game::Carrier carrier(assets.program);
+    game::Carrier carrier(assets.program);
+    // The demo's list ($7F): the carrier first, turned towards its target.
+    const game::ObjectLists lists(assets.program);
+    game::ObjectChoice choice;
+    choice.mode = 0x7F;
+    const auto spawned = lists.spawn(choice, tables);
+    for (const auto& o : spawned.objects) {
+        if ((o.craft.type & 0xF0) == 0x20) carrier.place(o.craft, tables);
+    }
     std::ifstream in(capture);
     std::vector<Frame> frames;
     for (std::string line; std::getline(in, line);) {
@@ -753,9 +763,10 @@ int demo_check(const std::filesystem::path& content, const std::filesystem::path
         pending = f.game;
         game::FlightControls c;
         c.recorded = f.control;
-        if (carrier.touch(a, assets.program)) a.state |= game::flag::crashed;
         rules.world = nullptr;
+        const auto before = a;
         game::fly(a, c, rules, tables);
+        if (carrier.touch(a, before)) a.state |= game::flag::crashed;
         const auto want = aircraft_from(frames[k]);
         std::string diff;
         const auto check = [&](const char* name, long got, long expected) {
@@ -769,6 +780,8 @@ int demo_check(const std::filesystem::path& content, const std::filesystem::path
         if (diff.empty()) {
             ++matched;
         } else {
+            check("surface", a.surface, want.surface); check("motion", a.motion, want.motion);
+            check("pitch_rate", a.pitch_rate, want.pitch_rate);
             std::printf("frame %d:%s\n", frames[k].number, diff.c_str());
             if (compared - matched > 20) break;
         }

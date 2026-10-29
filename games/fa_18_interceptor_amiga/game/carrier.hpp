@@ -27,18 +27,28 @@ public:
     int shape_type = 8;
     int deck_height = 112; // world units (the type's data block `$12E340` +2)
 
+    // The ship's record as a mission's object list put it (its place and
+    // angles); its model points turned as the drawer turns them ($112006:
+    // by its view matrix / 64, products over 256), which the deck test
+    // reads.
+    void place(const Aircraft& ship, const FlightTables& tables);
+    Angles attitude{};
+
     // $10D750: an aircraft at the start on the deck (place 4).
     Aircraft start_on_deck(const amiga::LoadedImage& program, const FlightTables& tables) const;
-    // The carrier part of $11B6AA for the player, after the flight step:
+    // The carrier part of $11B6AA, after the flight step but with the
+    // place and turned points the aircraft had before its move (`before`):
     // the deck bits and height, the wires' brake; true when the aircraft
     // runs into the hull (a crash).
-    bool touch(Aircraft& aircraft, const amiga::LoadedImage& program) const;
+    bool touch(Aircraft& aircraft, const Aircraft& before) const;
 
 private:
     // The carrier's model points in world units relative to it (its
     // nearest level's model, shifted by its scale nibble).
     std::array<double, 2> point(int index) const;
     std::vector<std::array<int, 3>> model_;  // raw model points
+    std::vector<std::array<int, 3>> turned_; // turned by the ship's view matrix
+    std::array<std::int16_t, 9> view_{0x4000, 0, 0, 0, 0x4000, 0, 0, 0, 0x4000};
     int shift_ = 3;
     std::vector<std::vector<int>> deck_;     // the deck's outlines: point indices
 };

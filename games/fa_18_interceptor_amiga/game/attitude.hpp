@@ -43,4 +43,12 @@ Angles rotate(const FlightTables& tables, const Matrix& body, std::int16_t pitch
 std::array<std::int16_t, 3> scaled_vector(const FlightTables& tables, std::int16_t length, std::int16_t x, std::int16_t y, std::int16_t z,
                                           int first_shift = 8);
 
+// The pitch and heading of the direction (x, y, z) ($10454A, its first
+// part: the arctangents of the larger and smaller of each pair by the
+// table, after a common scaling). Used to point an object at its target.
+struct Direction {
+    std::int16_t pitch{}, heading{};
+};
+Direction direction_of(const FlightTables& tables, std::int32_t x, std::int32_t y, std::int32_t z);
+
 } // namespace interceptor::game

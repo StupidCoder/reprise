@@ -1,4 +1,5 @@
 #include "fa_18_interceptor_amiga/game/attitude.hpp"
+#include <algorithm>
 #include <cstdlib>
 
 namespace interceptor::game {
@@ -203,6 +204,88 @@ std::array<i16, 3> scaled_vector(const FlightTables& t, i16 length, i16 x, i16 y
         for (auto& c : out) c = i16(-c);
     }
     return out;
+}
+
+namespace {
+
+// $119EE4: a signed word division rounded half away from zero (a quotient
+// of 0 rounds up).
+i16 divide_rounded(i32 dividend, i16 divisor) {
+    const Division d = divide_signed(dividend, divisor);
+    const int half = std::abs(int(divisor)) >> 1;
+    if (std::abs(int(d.remainder)) < half) return d.quotient;
+    return i16(d.quotient >= 0 ? d.quotient + 1 : d.quotient - 1);
+}
+
+// $119BB2: the square root by Newton's steps from n / 200 + 2, until two
+// guesses differ by at most 1; larger numbers are scaled down first.
+i16 square_root(std::uint32_t n) {
+    int scale = 0;
+    if (n > 0x63F0000) {
+        n >>= 8;
+        scale = 4;
+    } else if (n > 0x63F000) {
+        n >>= 4;
+        scale = 2;
+    }
+    std::uint16_t guess = std::uint16_t(divide_unsigned(n, 200) + 2);
+    for (int guard = 0; guard < 64; ++guard) {
+        const std::uint16_t next = divide_unsigned(n, guess);
+        const i16 step = i16(next - guess);
+        if (step >= -1 && step <= 1) return i16(next << scale);
+        guess = std::uint16_t(std::uint16_t(next + guess) >> 1);
+    }
+    return i16(guess << scale);
+}
+
+} // namespace
+
+Direction direction_of(const FlightTables& t, i32 x, i32 y, i32 z) {
+    // Signs apart, the three lengths scaled so that the largest fits a
+    // word.
+    const bool west = x < 0, down = y < 0, south = z < 0;
+    x = std::abs(x);
+    y = std::abs(y);
+    z = std::abs(z);
+    i32 largest = std::max(x, std::max(y, z));
+    int down_shift = 8, up_shift = 6;
+    if (largest > 0x10000000) {
+        x >>= 3;
+        y >>= 3;
+        z >>= 3;
+        down_shift = 14;
+        up_shift = 0;
+    } else if (largest > 0x2000000) {
+        down_shift = 14;
+        up_shift = 0;
+    } else if (largest > 0x800000) {
+        down_shift = 12;
+        up_shift = 2;
+    } else if (largest > 0x200000) {
+        down_shift = 10;
+        up_shift = 4;
+    }
+    const auto atan = [&](int index) { return int(t.arctangent[std::size_t(std::clamp(index, 0, 256))]) * 8; };
+    // The heading: the smaller of x and z over the larger.
+    const i16 sx = i16(x >> down_shift), sz = i16(z >> down_shift);
+    int heading = 0;
+    if (sz < sx) heading = 0x1C20 - atan(divide_rounded(z << up_shift, sx) >> 6);
+    else if (sz == 0) heading = 0xE10;
+    else heading = atan(divide_rounded(x << up_shift, sz) >> 6);
+    if (west && south) heading = 0x3840 - heading;
+    else if (south) heading = heading + 0x3840;
+    else if (!west) heading = full_turn - heading;
+    // The pitch: the height over the flat length.
+    const i16 flat = square_root(std::uint32_t(i32(sz) * sz + i32(sx) * sx));
+    const i16 sy = i16(y >> down_shift);
+    int pitch = 0;
+    if (flat < sy) pitch = 0x1C20 - atan(divide_rounded(i32(flat) << 8, sy));
+    else if (flat == 0) pitch = 0xE10;
+    else pitch = atan(divide_rounded(i32(sy) << 8, flat));
+    if (!down) pitch = full_turn - pitch;
+    if (pitch > 0x707F) pitch = 0;
+    if (heading > 0x707F) heading = 0;
+    return {i16(pitch), i16(heading)};
 }
 
 } // namespace interceptor::game

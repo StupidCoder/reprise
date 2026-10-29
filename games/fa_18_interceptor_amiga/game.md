@@ -1244,12 +1244,22 @@ flight stops (`$10EF08`, `$13AB1A` 1), the screen fades out (a step every
 second blank) and the demo starts again.
 
 The port has the replay (`game/replay.*`), the key events, the fades and
-looks 12/13; `fa_18_interceptor_assets democheck` flies the recording
-from the catapult against `demo.jsonl`. It does not match yet: the
-demo's carrier is not free flight's — path $40 from cells (68, 68)
-towards (70, 65), so it sails (the object step for moving objects), and
-the list has mission 3's other objects (the bogey; type 6 entries).
-Menu item 1 therefore waits for the missions' objects (task 11).
+looks 12/13, and the demo's world from its object list ("The missions'
+objects"): the carrier at cells (68, 68) turned towards path entry $1A
+(cells 70, 112: heading 28,600) and two type-$12 aircraft (records 10).
+The carrier does not sail (ships get no "moves" bit; its speed is 0).
+`fa_18_interceptor_assets democheck` flies the recording from the deck
+against `demo.jsonl`: all 2,046 frames equal (2026-10-29), once the deck
+test ran after the move with the place before it ("The carrier").
+
+Block 88's "XXX" ($102DB8 → `$1195D4`, missions 3-8 and the demo): the
+first aircraft of the list's entries that is active, of class $10 and not
+type $15: the point 500 units ahead of it (`$10D498`, its view matrix,
+products over 16) less the player's place, its heading ($10454A) / 80
+in degrees, rounded to tens (5 up: the BCD add of 10), 360 → 000, typed
+into the text at `$136162` + $11. Without such an aircraft the line is
+left out. The port types 350 for the demo; **unchecked** against the
+original's screen.
 
 ### The maneuvers (menu items 3 and 4, 2026-10-29)
 
@@ -1471,8 +1481,10 @@ catapult: the aircraft rolls along the deck at its own thrust
 flight step equal in 198 of 199 frames; it leaves the bow after about
 60 frames and sinks to about 110 ft at 447 kt).
 
-The deck test (`$11B6AA`, the carrier part; each frame before the
-move, for the player and the other aircraft): byte +4's deck bits are
+The deck test (`$11B6AA`, the carrier part; each frame after the move
+but with the position from before it, for the player and the other
+aircraft; corrected 2026-10-29 — the demo's take-off showed it: the
+aircraft still rolls one frame after its tail point left the deck): byte +4's deck bits are
 cleared (`$11B6C0`), then for the aircraft's model points 0 (nose: bit
 $40) and 3 (under the tail: bit $80), turned by its body: when at or
 above the deck height and inside one of the deck's outlines, the bit
@@ -1493,6 +1505,73 @@ $20; the damage routine). Key A (`$10E36A`, the F/A-18 only) turns
 the hook (+2 bit 15) with a click and "ARRESTOR HOOK DOWN" ($4023; up:
 **hypothesis** $4022). The place-4 marker on the map is the carrier's
 own position (`$11FC44`).
+
+The test's arithmetic (2026-10-29, `$11B8C6`-`$11BB98`): everything in
+words of fine position (the position within its cell / 256; cells are
+ignored). The points are the records' turned model points at +$A4 (6
+bytes each), which the drawer writes (`$112006`: each model point times
+the record's view matrix / 64, products over 256) and the test shifts by
+the record's scale nibble (+$7D). The aircraft's are its points 0 (+$A4)
+and 3 (+$B6). A point at or above the first deck point's height is on
+the deck when, for every edge p0 → p1 of an outline, −(p1.z − p0.z) ×
+(P.x − p0.x) + (p1.x − p0.x) × (P.z − p0.z) is below 0 (the edge
+unshifted, p0 shifted and placed); +$4E is that point's height. The
+wire zone's tests have the same form; the heading test is the dot of the
+two records' view matrices' third columns (x and z). The port turns the
+carrier's points from its own record (`Carrier::place`), so a carrier
+at any heading works.
+
+### The missions' objects (`$11CF06`, 2026-10-29)
+
+`$11CF06` (each flight's start, after the choice; maneuvers' $7D has its
+own set-up `$11D0AA`): the list for `$13AB96` ($7E and $7F: the tenth),
+entry `$11DFB2` + (list − 1) × 12 + variant × 4: (offset from
+`$11DFB2`, the most aircraft `$13AB9A`). The variant: flown again
+(`$13AB1B`) the one kept in `$13AE0C`; else `$13ADE8` & 3, 0 and 1 both
+the first (the draw minus 1 is kept). The list starts with a word offset
+per stage (`$11CFBE`: the configuration's byte +$12 + mode; 0 for $7E /
+$7F); `$13AA2A` keeps the stage's first entry. Every entry whose level
+(flags & $7F) is at most `$13AB97` is spawned (the first always), then
+turned towards where it heads for (`$11CFE4`, `$10454A`'s heading, pitch
+and roll 0).
+
+An entry is five words: the type record's offset into `$115F4C` (20
+bytes; copied to `$11608C` + record × 20; the model's scale nibble goes to
++$7D), the type byte (+$62), "heads for" (bits 0-6 the record; bit 15: bits
+8-14 × 2 a path entry to head for, 0 none; else bits 8-14 a record whose
+place it heads for, +$38 = record | $80; bits 8-14 also go to +$3A), the
+path entry of its place (`$11DDC0`: cells x and z, offsets, height) and
+flags: bits 8-11 only in that mode; $8000 touchable (+1 bit 3; else an
+aircraft of class $10 counts towards `$13AB9A`, and once the count
+reaches it no further entry is spawned); $4000 role 8; $2000 +1 bit 0;
+$1000 scattered by the random: cells x ± ((r >> 1) & 3) (sign bit 4), z ±
+((r >> 2) & 3) (sign bit 5), halved with $0080, kept in `$13AE08` /
+`$13AE0A` for flying again. The record is cleared and gets: group +$5E =
+record, +$5D the trigger area + 1 (−1 from the list), +$7A 3, state |=
+$1080 unless a ship (class $20; so ships never move), position (cell << 22
++ offset << 8), in the air (height ≠ 0) the gear up (+$7C | $E0) and speed
+$2000, state |= $140 & ~$8000, +$5F $44, +$60 $1F4, fuel 25,000 lb, +$63
+$3D, +$71 $FF, +$64 $10, angles 0 (`$12212C`).
+
+The lists (mode: entries): 1 free flight and 9 the qualification: the
+carrier at (70, 65). 2 the maneuvers: the carrier and the trainer. 3
+visual confirmation, stage 0: the carrier (scattered by up to one cell
+each way), a type-$12 (shape 6) heading for the carrier, from level 1 a
+type $13 (shape 7). 4-8 likewise with their mission's object (4: type $14
+heading for a path place, role 8; 5: two type $10; 6: a type $32 (rescue
+raft?); 7: type $15; 8: type $21, the submarine **hypothesis**). Trigger
+areas (`$11DF00`, 8 boxes of cells, `$11D17A`, missions only) spawn more
+entries when the player enters them (`$11D2FA`) — not built.
+
+The angle routine `$10454A` (heading part used here; the port's
+`direction_of`): signs apart, the three lengths scaled so the largest
+fits ($10000000: / 8, shifts 14 / 0; $2000000: 14 / 0; $800000: 12 / 2;
+$200000: 10 / 4; else 8 / 6), the smaller of x and z over the larger
+(`$119EE4`: a word division rounded half away from zero) / 64 into the
+arctangent table `$132DF8` (257 tenths of a degree) × 8, folded into the
+quadrant (x < 0 and z < 0: $3840 − h; z < 0: h + $3840; neither: $7080 −
+h). The pitch likewise from the height over the flat length
+(`$119BB2`: Newton's square root from n / 200 + 2).
 
 ## 5 Sound
 

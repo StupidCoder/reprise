@@ -33,6 +33,9 @@ struct FlightTables {
     // sqrt(1 + (i / 256)^2) x $4000 for i = 0 .. 256 ($110928): the vector
     // length estimate.
     std::array<std::uint16_t, 257> length_factor{};
+
+    // atan(i / 256) in tenths of a degree for i = 0 .. 256 ($132DF8).
+    std::array<std::int16_t, 257> arctangent{};
 };
 
 FlightTables read_flight_tables(const amiga::LoadedImage& program);

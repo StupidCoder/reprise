@@ -93,16 +93,21 @@ from drawing, and must still respect the passes' model rule).
    sound checked against a recording of the original (f16a, all frames),
    the head-up display pixel for pixel (`hudcheck`). The F/A-18's HUD
    positions were corrected at the same time (from the original's tables).
-10. **Demo, training and qualification** — done 2026-10-29 but the
-    demo: qualification (5), the maneuvers' demo (3) and their practice
-    (4, with the lead, the triggers and re-positioning) are built and
-    checked against the original (`trainercheck`). The demo (1) has its
-    replay, key events, fades and up/down looks, but waits for mission 3's
-    world (its sailing carrier and the bogey: task 11); menu item 1 still
-    returns to the menu. Left: a recording of the break turn's and the
-    aileron roll's first roles (39/40/2/7, 11-13) to check them too.
+10. **Demo, training and qualification** — done 2026-10-29:
+    qualification (5), the maneuvers' demo (3) and their practice (4,
+    with the lead, the triggers and re-positioning) are built and checked
+    against the original (`trainercheck`); the demo (1) flies its
+    recording in mission 3's world from the object list, all 2,046 frames
+    equal (`democheck`). Left: a recording of the break turn's and the
+    aileron roll's first roles (39/40/2/7, 11-13) to check them too; the
+    demo's vector value against the original's screen.
 11. **Missions**: the six selectable missions and the advanced mission
-    chain, briefings, outcomes, the log's records.
+    chain, briefings, outcomes, the log's records. Done: the object lists
+    (`$11CF06`, game/world_objects.*), the carrier at any place and
+    heading. Left: the objects' path following and speeds (`$120C66`,
+    `$117A16`, `$118468`; recording work/ref/m3a.jsonl), the trigger
+    areas (`$11D17A`), the missions' flows (briefings, radar, target
+    lock, outcomes `$118650`...), the log.
 12. **Dusk and night**: palettes 3-9 (the fades).
 13. **Saves**: quick save and load of the module's state.
 
