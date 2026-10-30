@@ -70,13 +70,13 @@ void Match::rally_step() {
     objects_[clock].y = 166 - lift_;
     chance_ = chance_after_;
     draw_frame();
-    if (time_up_) {
+    if (time_up_) { // $254B4: side B wins, without the frame shown
         score_b_ = 7;
-        phase_ = Phase::match_over;
+        begin_ending();
         return;
     }
     if (rally_over_) {
-        if (rally_winner_ != 0 && rally_over_count_ == 26) sound_ = Sound::whistle;
+        if (rally_winner_ != 0 && rally_over_count_ == 26) play(MatchSound::Effect::whistle);
         if (show_ball_mark_) {
             if (rally_over_count_ < 26) objects_[ball_mark].image.at = 0x5D528 - sprite_block_address;
             if (rally_over_count_ < 23) show_ball_mark_ = false;
@@ -87,7 +87,7 @@ void Match::rally_step() {
             return;
         }
     }
-    if (rally_over_count_ == 17) sound_ = Sound::whistle;
+    if (rally_over_count_ == 17) play(MatchSound::Effect::whistle);
     draw(clock);
     // $31D24 marks the current minute used; $31D7C turns the hand.
     ring_plotted_ = std::max(ring_plotted_, clock_dots_ / 2 + 1);
@@ -247,7 +247,7 @@ void Match::a2_set() {
             p.image = picture_at(0x64184, 48, 72);
             if (rally_over_) return;
             objects_[landing].y = p.y + p.image.height - 10;
-            sound_ = Sound::hit;
+            play(MatchSound::Effect::hit);
             a_attack_ = true;
             b_attack_ = false;
             falling_ = false;

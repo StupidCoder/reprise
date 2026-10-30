@@ -218,9 +218,15 @@ intro halves every sample's volume in its copy of music13 ("bahamas")
 before playing it ($230E4).
 
 The songs use only F (once each, on channel 0), slide down (music2) and C
-(musicfinal, channel 3). The other copies differ in their channels (score
-has one note channel, volley.code skips channel 0's effects, final.code
-plays four) and in pause flags; read when their parts are rebuilt.
+(musicfinal, channel 3). The other copies differ in their channels and
+flags: volley.code's ($30E6C start, $30EB2 tick) and animation.code's
+($3FD26, $3FD84) play notes and run effects on channels 0-2; volley.code's
+skips channel 1's notes while a spike's sound plays there ($26A8A), ends
+the music at a song's end instead of starting again when $3133A is set
+(the jingles), and its start keeps the channels' volumes and what their
+notes left; animation.code's clears the four volumes. score.code's has one
+note channel and final.code's four (read when their parts are rebuilt).
+Every copy keeps its own speed in its own code (command F).
 
 Port: `beach_volley_assets music-trace` against `harness/music_trace.py`
 (the player's variables after each blank): 3,000 blanks equal.
@@ -298,13 +304,102 @@ step 1). A B1 dive clears A1's play flag. The serve's B1 shadow is written
 into A1's shadow record. A serve after a point first shows the older
 buffer for a frame ($262B2).
 
-**Not yet rebuilt.** Sound in the match, the match end and the other
-venues, two players, the venue cards, score and ending programs.
+**Sound (recovered; match/match_sound.cpp).** The vertical blank runs
+volley.code's player while the music is on ($31B88, from each rally's
+start) and then sets the three music channels (and the venue song's sample
+volumes) to the music's volume ($28698: 10 as loaded, 40 after the first
+match; keypad + and - change it): neither a sample's own volume nor command
+C is heard. From the clock's ninth minute (dots 18) the hurry song music8
+($796C4) replaces the venue's ($7BD1C: music12 London, music3 New York,
+music12 Bahamas, music2 Cairo, music12 Sydney, music3 Tokyo, music2 Moscow,
+music3 Paris; the names are in $3133C's loads). The effects are routines
+that program a channel themselves (game.md's names): the crowd after a
+point ($29292: $73B92, repeating, faded out over the pause by $26172 in 65
+steps of a CPU loop, 64 down to 0), side A's serve ($292BE: the hit's
+sample at a lower pitch, without a restart, so it takes over a hit still
+playing), the whistle ($292FA, twice at a match's start and when a rally
+ends), the higher whistle of a spike into the net ($2934A), side A's spike
+on channel 1 ($29392), the hit ($293DA), the ball in the sand ($29422) and
+side B's spike ($294BA: the hit's sample higher). Each plays once: the
+routine sets the length to one word after the start.
+
+**A match's start and end (recovered, measured).** $25078: the court with
+the net and both scores, the venue's song started (still off), the referee
+whistles twice (19 and 24 blanks after the song's start), and 55 blanks
+after it the first rally starts with side A serving. A score of 7 (or the
+clock's last minute, or the cheat) ends the match ($25CA2): the music's
+volume steps down one every two blanks to 0, every channel stops, the court
+shows with the net and the winner's picture (80 x 80, $77114 side A,
+$77D94 side B; rows of 10 bytes), the winner's jingle plays once at volume
+40 (the jingles are songs in the sprite block, $78A14 and $7906C), and 357
+blanks later the next match follows: volley.code stays loaded, so the
+next match goes on from everything the last one left (objects, counters,
+the chance table's place, which moves on 5 places more before the song
+starts) except what $25078 clears (scores, clock, screens). The loads
+between take, by wall clock: animation.code 1.5 s (the winner's picture
+still up), the card's own files 7.2-8.4 s (black), after the card the
+venue's files 5.5 s and a pause of 2.3 s ($3194C, display off). A win takes side A to the next venue
+($25B70 + 1) and its card; after the eighth venue final.code is loaded (the
+ending). A loss starts again at the first venue, without its card. Three
+places choose the screen buffer before a flip ($2868E = 0: the court at a
+point, the serve after one, the end): that flip shows buffer B and draws
+into A, whatever was shown (the older frame half the time).
+
+**Cheat (observed in the code).** An 11-key sequence typed during a match
+($28360, keyboard interrupt) sets $2835C; then HELP after a rally's frame
+gives side A the match 7-0 with a whistle ($255A8). The port offers it as
+an option, F7 standing in for HELP.
+
+**Not yet rebuilt.** Two players, the score and ending programs.
+
+## Venue card (recovered from animation.code; rebuilt in front/venue_card.cpp)
+
+Before each match of a one-player tour volley.code loads animation.code
+to $3BC50 and calls it with the venue in $80. It loads the map (carte, 4
+planes of 400 x 200 to $402E0), the venue's picture file (animN to $49F20:
+the venue's picture first, then at +$1F40 the strip's background, its
+sprites and the frame's tiles), the venue's card song (music6, 7, 13, 11,
+12, 10, 9, 5) and voice (dnv0, 1, 3, 2, 4, 5, 6, 7: the third and fourth
+swapped in the table), about 7.4 s of loading with the screen black.
+
+It draws straight onto one shown screen ($32000, 4 planes of 400 x 200,
+rows of 50 bytes; the display fetches a word early and shows 320 from the
+second word, scrolled by the fine scroll and the bitplane pointers),
+waiting for line $FA between frames; the copper splits the palette at row
+130 for the strip. The steps:
+
+1. The routes flown so far are drawn into the map ($3C00C: 4 x 4 dots,
+   colour 15 round, 14 inside; tables $3C6D6-$3C7CA), then the map fades
+   in ($3C034: 16 steps, each copying the map through a mask that shows one
+   more pixel column of every 16).
+2. Sydney, Tokyo and Moscow: the screen scrolls 51 or 61 pixels left, a
+   pixel a frame ($3C162). The new route is drawn a dot every 13 blanks
+   ($3BFDA), and the scroll goes back ($3C1B6).
+3. The venue's scene in the strip (none for London): a hand-written loop
+   per venue that restores the strip's background ($3ECCC) and draws
+   sprites ($3F3B4: cookie-cut, clipped to rows 130-199, not clipped in x:
+   a row's overflow is the next row's start, and past the last row it is
+   the next plane's first bytes) along motion tables in the code, some
+   read on past their end ($3DD0A, $3E374). New York: a plane lands by the
+   Statue of Liberty; Bahamas: windsurfers; Cairo: a camel by the pyramids;
+   and so on.
+4. A pause ($3CB72, about 158 blanks), the map fades out ($3C0CA), the
+   palette goes dark blue ($3F61A), a frame of 16 x 16 tiles is drawn
+   ($3ED2C: per venue a list of moves at $3EDE0) and the venue's picture,
+   whose palette fades in over 16 blanks ($3C836).
+5. Fire ($3BF4A, the button as it stands): the song stops, the voice plays
+   once on channel 3 ($3C7DC, period $1AC), 206 blanks, the end.
+
+The fade steps take one blank or two (their blits about fill a frame); the
+port takes each venue's step times and pauses as measured
+(`tools/card_timing.py`). The card's music player is its own copy (see
+Music).
 
 ## Attract and flow (observed in the emulator)
 
-After F1 a venue card (London, Big Ben) appears; after fire the match
-starts on the London court, two players a side, serving from the left.
+After F1 the venue card for London appears; after fire the match starts on
+the London court, two players a side, serving from the left. The tour
+goes London, New York, Bahamas, Cairo, Sydney, Tokyo, Moscow, Paris.
 
 ## Randomness
 
@@ -355,6 +450,25 @@ In `.analysis/beach_volley_amiga/`:
   `work/rec_play1.bin` (random human input, seed 7); `screens_idle.npz`.
   Comparison: `beach_volley_assets match-trace` then `tools/cmp_match.py`
   and `tools/cmp_screens.py` (`tools/pauses.py` for the point pauses).
+- Match sound: `harness/events.py` logs every effect routine, song start
+  and the end's steps per blank (`work/ev_idle.txt`: an idle match through
+  its end and the next match's start; `work/ev_play1.txt`). The port's log:
+  `match-trace` with `BV_SOUND=<file>`; `tools/cmp_music.py` (the player's
+  state per recorded frame), `tools/cmp_sound_events.py` (the calls).
+- Venue cards: `harness/card.py` passes each card (fire at its wait) and
+  wins each match with the original's cheat, recording every frame (screen,
+  copper words, blank), the palette fade's steps and the routines' blanks:
+  `work/cards/cardN.npz` and `.txt` for the eight venues. Port:
+  `beach_volley_assets card-trace`; `tools/cmp_card.py`; the measured step
+  times: `tools/card_timing.py` (`tools/card_table.sh` writes them into
+  venue_card.cpp); `tools/card_png.py` shows a recorded frame. The tour
+  as a whole: `beach_volley_assets tour` (pictures) and `tour-save` (quick
+  saves at given blanks, equal for 1,500 blanks after).
+- The next match: `harness/rec2.py` wins match 1 with the cheat, passes
+  the New York card and records match 2 (`work/rec_m2.bin`, idle; the
+  steps between with wall-clock times and the chance table's place in
+  `work/rec_m2_steps.txt`). `match-trace` with `BV_AFTER_CHEAT=<place>`
+  plays the first match the same way first: 740 passes equal.
 
 ## Prior exposure
 

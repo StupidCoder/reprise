@@ -20,10 +20,9 @@ constexpr int b2_heights[] = {130, 100, 50, 90, 40, 60, 100, 120, 50, 80, 40, 13
 
 } // namespace
 
-Match::Match(const MatchData& data, int players)
-    : data_(&data), players_count_(players), objects_(data.objects), b_toss_(data.serve_toss_b) {
+Match::Match(const MatchData& data, int players, MatchSound& sound)
+    : data_(&data), sound_(&sound), players_count_(players), objects_(data.objects), b_toss_(data.serve_toss_b) {
     for (auto& w : walk_) w.delay = 3; // as volley.code is loaded
-    serve_a_setup();
 }
 
 // ---- side A's serve ($26B20) ----------------------------------------------
@@ -143,7 +142,7 @@ void Match::serve_a_toss_step() {
     if (toss_at_ >= 45 && dy == -2) {
         // $293DA plays the bounce; its delay loop leaves -1 in the register
         // that held the step, so the ball moves by -1 here (original quirk).
-        sound_ = Sound::toss;
+        play(MatchSound::Effect::hit);
         dy = -1;
     }
     ++toss_at_;
@@ -162,7 +161,7 @@ void Match::serve_a_toss_step() {
     serve_a_swing();
     if (serve_contact_) { // $26E40: the serve is away; the rally's first pass follows without a frame between
         reach_ = false;
-        sound_ = Sound::toss;
+        play(MatchSound::Effect::hit);
         falling_ = false;
         hit();
         court_x_[0] = objects_[a1].x;
@@ -471,7 +470,12 @@ std::vector<std::uint8_t> Match::screen() const {
         }
         const int shift = x & 15;
         const int dest_word = x >> 4;
-        const std::uint32_t source = s.image.at + std::uint32_t(skip_rows * sheet_row + skip_bytes);
+        // The winner's pictures are laid out on their own: rows of 10
+        // bytes, planes $320 apart ($25EE4 reads 6 words a row, the last
+        // from the next row, masked off like every sprite's).
+        const int row_bytes = b.banner ? 10 : sheet_row;
+        const int plane_stride = b.banner ? 0x320 : plane_bytes;
+        const std::uint32_t source = s.image.at + std::uint32_t(skip_rows * row_bytes + skip_bytes);
         // Planes 0 and 1 trade places for the other colours ($3030E with
         // $25B60 set).
         const int order[4] = {b.other_team ? 1 : 0, b.other_team ? 0 : 1, 2, 3};
@@ -480,10 +484,10 @@ std::vector<std::uint8_t> Match::screen() const {
         for (int r = 0; r < height; ++r) {
             const int dy = y + r + b.lift;
             for (int w = 0; w < words; ++w) {
-                const std::uint32_t at = source + std::uint32_t(r * sheet_row + w * 2);
+                const std::uint32_t at = source + std::uint32_t(r * row_bytes + w * 2);
                 std::array<std::uint16_t, 4> planes{};
                 for (int p = 0; p < 4; ++p)
-                    planes[std::size_t(p)] = clock_word(b, at + std::uint32_t(order[p] * plane_bytes), sheet_word);
+                    planes[std::size_t(p)] = clock_word(b, at + std::uint32_t(order[p] * plane_stride), sheet_word);
                 // $3030E clears the last-word mask (BLTALWM): each row's last
                 // word is masked off before the shift, so it is never drawn
                 // and carries nothing into the next row.

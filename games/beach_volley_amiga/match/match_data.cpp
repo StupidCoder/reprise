@@ -118,6 +118,28 @@ MatchData load_match_data(const std::filesystem::path& content, int venue) {
         m.clock_positions.push_back({r.word(0x31EE2 + n * 2), r.word(0x31EFC + n * 2)});
     const std::uint32_t chances[8] = {0x2869A, 0x28708, 0x28776, 0x287E4, 0x28852, 0x288C0, 0x2892E, 0x2899C};
     for (std::uint32_t at = chances[venue - 1]; r.word(at) >= 0; at += 2) m.chance.push_back(r.word(at));
+
+    m.instruments = read_installed(content, "instruments");
+    m.player_tables = sound::read_player_tables(code, 0x312A2, 0x312DE, m.instruments.size());
+    // $3133C loads the venue's song to $7BD1C and music8 to $796C4; the
+    // names are the file names in its loads ("df0:music12.cru").
+    const auto file_name = [&](std::uint32_t at) {
+        std::string name;
+        for (auto c = code.at(at, 1)[0]; c != 0; c = code.at(++at, 1)[0]) name.push_back(char(c));
+        if (name.rfind("df0:", 0) != 0 || name.size() < 9 || name.substr(name.size() - 4) != ".cru")
+            throw std::runtime_error("volley.code's song names are not as expected.");
+        return name.substr(4, name.size() - 8);
+    };
+    const std::uint32_t venue_songs[8] = {0x31AE9, 0x31AF9, 0x31B08, 0x31B18, 0x31B27, 0x31B37, 0x31B46, 0x31B55};
+    m.venue_song = sound::Song::parse(read_installed(content, file_name(venue_songs[venue - 1])));
+    m.hurry_song = sound::Song::parse(read_installed(content, file_name(0x31ACA)));
+    const auto embedded = [&](std::uint32_t address) {
+        const std::size_t at = address - sprite_block_address;
+        if (at >= m.sprites.size()) throw std::runtime_error("The sprite block is cut short.");
+        return sound::Song::parse(std::span<const std::uint8_t>(m.sprites).subspan(at));
+    };
+    m.a_won_song = embedded(0x78A14);
+    m.b_won_song = embedded(0x7906C);
     return m;
 }
 

@@ -78,7 +78,7 @@ void Match::a1_bump_step() {
     b_jump_contact_ = false;
     a_jump_contact_ = false;
     a1_bump_done_ = true;
-    sound_ = Sound::hit;
+    play(MatchSound::Effect::hit);
     a1_bump_ = true;
     hit();
     touch_ = 3;
@@ -207,7 +207,7 @@ void Match::a1_catch() {
     a_jump_contact_ = false;
     reach_ = false;
     swing_started_ = false;
-    sound_ = Sound::hit;
+    play(MatchSound::Effect::hit);
     falling_ = false;
     hit();
 }
@@ -234,7 +234,7 @@ void Match::a1_play(int slot) {
         reach_ = false;
         swing_started_ = false;
         a1_touched_ = true;
-        sound_ = Sound::hit;
+        play(MatchSound::Effect::hit);
         falling_ = false;
         hit();
     };
@@ -279,7 +279,7 @@ void Match::a1_play(int slot) {
         b_serve_rally_ = false;
         b_jump_contact_ = false;
         a_jump_contact_ = false;
-        sound_ = Sound::hit;
+        play(MatchSound::Effect::hit);
         falling_ = false;
         hit();
         return;
@@ -296,7 +296,7 @@ void Match::a1_play(int slot) {
             reach_ = false;
             swing_started_ = false;
             a1_touched_ = true;
-            sound_ = Sound::hit;
+            play(MatchSound::Effect::hit);
             falling_ = false;
             hit();
         }
@@ -316,7 +316,7 @@ void Match::a1_play(int slot) {
         b_jump_contact_ = false;
         a_jump_contact_ = false;
         swing_started_ = false;
-        sound_ = Sound::hit;
+        play(MatchSound::Effect::hit);
         falling_ = false;
         hit();
         return;
@@ -391,7 +391,7 @@ void Match::a1_jump() {
         if (jump_at_ >= 14 && sticks_.port1.fire && p.image != picture_at(0x6B51A, 64, 60)) {
             p.image = f[5];
             if (!a1_spike_done_ && spike_reach()) {
-                sound_ = Sound::spike;
+                play(MatchSound::Effect::spike); // $2D3CA
                 objects_[ball].x += 16;
                 ball_court_x_ += 16;
                 auto& mark = objects_[landing];
@@ -404,7 +404,7 @@ void Match::a1_jump() {
                 reach_ = false;
                 if (touch_ == 2) {
                     rally_winner_ = 1;
-                    sound_ = Sound::whistle;
+                    play(MatchSound::Effect::net_whistle); // $2D440
                     rally_over_ = true;
                     rally_over_count_ = 30;
                 }

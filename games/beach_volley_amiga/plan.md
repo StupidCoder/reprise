@@ -2,12 +2,14 @@
 
 Status (2026-10-30): the disk imports and the launcher shows the eight
 courts. The game plays its intro, music and menu (equal to the original
-frame for frame), then a one-player match on the first court (London):
-serves, rallies, the computer's side, side A's plays under the joystick,
-points and the scoreboard, equal to the original's state at every frame
-of two recordings (2,235 frames). The match has no sound yet; it stops
-with a note when it ends, and two players stop at the menu. Findings:
-[game.md](game.md).
+frame for frame), then the one-player tour: each venue's card (map,
+route, scene, picture, song, voice; equal to the original's screen at
+every recorded frame), the match on that venue's court with its music
+and effects, the match's end with the winner's picture and jingle, and
+the next venue (or the first again after a loss) through all eight. The
+match is equal to the original's state at every frame of three
+recordings (two on London, one on New York after a first match). After the eighth win it stops with a note (the ending is not
+rebuilt), and two players stop at the menu. Findings: [game.md](game.md).
 
 ## Done
 
@@ -37,25 +39,37 @@ with a note when it ends, and two players stop at the menu. Findings:
       sampled screens pixel-identical (`cmp_screens.py`). Quick saves of the
       match (`beach_volley_assets match-save`).
 
+- [x] Match sound (match/match_sound.cpp): volley.code's player copy with
+      the venue's song, the hurry song, the jingles, the volume the vertical
+      blank holds the music at, channel 1 held during a spike; the eight
+      effects and the crowd's fade. The player's state equal at all 1,538
+      frames of `rec_play1`; the effects equal in kind and order to the
+      original's calls (47 in `rec_play1`, 30 in an idle match through its
+      end; `harness/events.py`, `tools/cmp_sound_events.py`).
+- [x] A match's opening (court, whistles) and end ($25CA2: music fade,
+      winner's picture, jingle, pause), the time limit, the original's win
+      cheat (option, F7 for HELP), the tour through the eight venues (a loss
+      back to the first), the flips that force buffer B.
+- [x] Venue cards (front/venue_card.cpp): animation.code's map, routes,
+      scroll, eight scenes, tiles, picture, palette fade, song and voice;
+      equal to the original's screen, palette and scroll at every frame of
+      `harness/card.py`'s recordings (`tools/cmp_card.py`).
+
 ## Next
 
-1. Match sound: volley.code's music player copy ($30E6C/$30EB2: three
-   music channels, the fourth for effects) with the venue song and the
-   hurry song; the effects ($292BE-$294BA one-shot samples in the block).
-2. Match end ($25CA2): winner banner, jingles, next venue (venues 2-8 and
-   their chance tables), the time limit (clock at 22 -> side B wins).
-3. Two players: side B under port 0 ($2B32C, $2DA8C, $2D49A, $2EC5A,
+1. Two players: side B under port 0 ($2B32C, $2DA8C, $2D49A, $2EC5A,
    $2E924, the 2P branches in $2950C/$2FC82).
-4. Refactor the match code toward the clean form (it follows volley.code's
+2. Refactor the match code toward the clean form (it follows volley.code's
    routines closely; per-player duplicates are folded, the rest is next).
-5. Front end after the menu: venue cards, map (carte, animation.code),
-   score screen (score.code), ending (final.code, trophe again).
-6. Music in the other parts: score.code's, animation.code's and
-   final.code's copies of the player.
-7. Module: touch controls for the match, widescreen (the court is 576
+3. The ending (final.code, trophe again, musicfinal) after the eighth
+   win; score.code (two players' score screen).
+4. Music in the other parts: score.code's and final.code's copies of the
+   player.
+5. Module: touch controls for the match, widescreen (the court is 576
    wide: show more of it), 120 Hz smoothing, cheats (the original's
    11-key code + HELP).
-8. Android build check (no new dependencies so far; not built yet).
+6. The music's volume keys (keypad + and -, 2-40, $28540) are not mapped.
+7. Android build check (no new dependencies so far; not built yet).
 
 ## Known gaps
 
@@ -67,6 +81,14 @@ with a note when it ends, and two players stop at the menu. Findings:
   `rec_idle2`; the state is equal, the blit differs). Not yet explained.
 - B1's reach test reads a register B1's movement leaves when his walk is
   skipped; the port assumes a nonzero value there (`b1_register_`).
+- The pause after a point and the crowd's fade: the crowd's start can come
+  a blank later in the original (drawing the big scores takes longer for
+  some digits).
+- The loading pauses between the parts of the tour (disk loads, timed by
+  wall clock on the original) are fixed lengths.
+- The chance table's place carries over from match to match by 5 places
+  (measured once); the New York recording is equal for several nearby
+  places, so the exact place is not pinned down by it.
 - The time-up quirk that plots a clock dot at the sprite sheet's corner
   (index 11) is not reproduced.
 - The red flash ($DFF180) when the ball lands out is not shown.

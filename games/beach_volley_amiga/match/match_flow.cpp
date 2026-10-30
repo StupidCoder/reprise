@@ -2,6 +2,7 @@
 // between them, points, side B's serve in a one-player match, and side
 // A1's movement under the joystick.
 #include "beach_volley_amiga/match/match.hpp"
+#include <algorithm>
 #include <cstdio>
 
 namespace beach_volley::match {
@@ -15,6 +16,14 @@ Image picture_at(std::uint32_t address, int width, int height) {
 // (measured on the original: its waits are CPU loops and fades).
 constexpr int pause_after_point = 155; // $26172's volume fade
 constexpr int pause_before_toss = 26;  // $27DE2's delay after B's serve stance shows
+// A new match: blanks from the song's start to the whistles ($25154,
+// $2516A) and to the first rally ($25180).
+constexpr int opening_whistles[2] = {19, 24};
+constexpr int opening_rally = 55;
+// The end: the music's volume steps down one every two blanks ($25CB8);
+// the winner's picture shows for 357 blanks ($25E68).
+constexpr int end_step_blanks = 2;
+constexpr int end_hold = 357;
 
 } // namespace
 
@@ -50,22 +59,39 @@ void Match::tick(const MatchInput& input) {
         if (clock_dots_ < 22) clock_dots_ += 2;
     }
     if (players_count_ == 1 && clock_dots_ == 22) time_up_ = true;
+    // $284B0: the hurry song from the ninth minute on, then the music.
+    if (clock_dots_ == 18 && !hurry_started_) {
+        hurry_started_ = true;
+        sound_->play(MatchSound::Song::hurry);
+    }
+    sound_->vblank(spike_mark_a_ || spike_mark_b_);
 
     stepped_ = false;
     ++blanks_;
+    // The program's waits that are CPU loops run blank by blank here.
+    if (fade_length_ > 0) fade_step();
+    if (phase_ == Phase::opening) {
+        opening_step();
+        if (phase_ == Phase::opening) return;
+    }
+    if (phase_ == Phase::ending || phase_ == Phase::finished) {
+        ending_step();
+        return;
+    }
     if (wait_ > 0) {
         --wait_;
         return;
     }
     stepped_ = true;
     wait_ = 1;
-    sound_ = Sound::none;
+    const bool rally_pass = phase_ == Phase::rally;
     switch (phase_) {
     case Phase::serve_a_place:
-        // $262AA shows the older buffer first, then places everyone (before
-        // the serve's first frame).
+        // $262AA shows buffer B first, then places everyone (before the
+        // serve's first frame).
         phase_ = Phase::serve_a_wait;
         place_pending_ = true;
+        force_flip_ = true;
         wait_ = 3;
         break;
     case Phase::serve_a_wait: serve_a_wait_step(); break;
@@ -76,8 +102,11 @@ void Match::tick(const MatchInput& input) {
     case Phase::serve_b_court: serve_b_stance(); break;
     case Phase::serve_b_stance: serve_b_toss_start(); break;
     case Phase::serve_b_toss: serve_b_toss_step(); break;
-    case Phase::match_over: break;
+    case Phase::opening:
+    case Phase::ending:
+    case Phase::finished: break;
     }
+    if (phase_ == Phase::ending) return; // the match ended in this pass, without showing it
     if (run_on_) {
         // The pass went on into the next without showing a frame; the
         // next runs at the following blank and shows one.
@@ -90,6 +119,14 @@ void Match::tick(const MatchInput& input) {
     // The flip leaves the low word of the shown buffer's last plane in d0's
     // high half ($30C14 ends with a swap).
     d0_high_ = back_ ? 0x8C10 : 0x15D0;
+    // $255A8: with the cheat on, HELP after a rally's frame wins the match.
+    if (rally_pass && phase_ == Phase::rally && cheat_ && input.help) {
+        score_a_ = 7;
+        score_b_ = 0;
+        play(MatchSound::Effect::whistle);
+        begin_ending();
+        return;
+    }
     if (scores_pending_) {
         scores_pending_ = false;
         Blit b;
@@ -111,8 +148,10 @@ void Match::point_over() {
     }
     board_ = {score_a_, score_b_}; // $26102 draws them into the court
     phase_ = Phase::point_shown;
-    // The pass that ended the rally drew its frame; it shows now, and the
-    // court follows a blank later.
+    // The pass that ended the rally drew its frame; $26102 shows buffer B
+    // now (that frame, or the one before it), and the court follows a
+    // blank later.
+    force_flip_ = true;
     wait_ = 0;
 }
 
@@ -126,16 +165,131 @@ void Match::point_shown() {
     draw(net);
     scores_pending_ = true;
     rally_over_ = false;
-    if (score_a_ == 7 || score_b_ == 7) {
-        phase_ = Phase::match_over;
-        return;
-    }
+    // $29292: the crowd, faded out over the pause ($26172).
+    play(MatchSound::Effect::crowd);
     wait_ = pause_after_point;
     if (!point_pauses_.empty()) {
         wait_ = point_pauses_.front() - 1;
         point_pauses_.erase(point_pauses_.begin());
     }
+    fade_at_ = 0;
+    fade_length_ = wait_ - 1;
+    if (score_a_ == 7 || score_b_ == 7) {
+        phase_ = Phase::ending; // after the pause
+        end_at_ = -wait_;
+        return;
+    }
     new_rally();
+}
+
+// $26172: 65 steps of a delay loop, each setting channel 3's volume, 64
+// down to 0; then the sample is left to end.
+void Match::fade_step() {
+    const int steps = std::min(65, ++fade_at_ * 65 / fade_length_);
+    if (steps > 0) sound_->set_effect_volume(65 - steps);
+    if (fade_at_ >= fade_length_) {
+        sound_->end_effect();
+        fade_length_ = 0;
+    }
+}
+
+void Match::restart(const MatchData& data) {
+    data_ = &data;
+    time_up_ = false;       // $28680
+    show_ball_mark_ = false; // $2AEA8
+    clock_running_ = false; // $28692
+    clock_blanks_ = 0;      // $31D7A
+    clock_dots_ = 0;        // $31D78
+    hurry_started_ = false; // $28684
+    score_a_ = score_b_ = 0;
+    server_ = 1;            // $31B86
+    ring_plotted_ = 0;      // $31C6E: the ring's dots all unused again
+    for (auto& b : buffers_) b.clear(); // $255EA
+    phase_ = Phase::opening;
+    opening_at_ = 0;
+    end_at_ = 0;
+    wait_ = 0;
+}
+
+// $25CA2: the end of the match, from its start.
+void Match::begin_ending() {
+    phase_ = Phase::ending;
+    end_at_ = 0;
+    ending_step();
+}
+
+// The music fades (the volume one lower every two blanks, from what it is
+// to 0), every channel stops; the court shows with the net and the
+// winner's picture ($30E40 side A, $30E56 side B), the winner's jingle
+// plays once at volume 40, and after a pause the next match follows.
+void Match::ending_step() {
+    if (phase_ == Phase::finished) return;
+    const int at = end_at_++;
+    if (at < 0) return; // the last point's pause
+    if (at == 0) {
+        clock_dots_ = 0; // $31D78
+        end_volume_ = sound_->volume() < 0 ? 1 : sound_->volume();
+    }
+    const int fade = end_step_blanks * (end_volume_ + 1);
+    if (at < fade) {
+        sound_->set_volume(end_volume_ - at / end_step_blanks);
+        return;
+    }
+    if (at == fade) {
+        sound_->set_music(false);
+        sound_->silence();
+        force_flip_ = true; // $25D1A
+        flip();
+        return;
+    }
+    if (at == fade + 1) {
+        camera_bytes_ = 16;
+        camera_shift_ = 0;
+        draw_court();
+        objects_[net].x = 148;
+        draw(net);
+        Blit b;
+        b.banner = true;
+        b.lift = lift_;
+        const std::uint32_t picture = a_won() ? 0x77114 : 0x77D94;
+        b.sprite = {112, 60, {picture - sprite_block_address, 96, 80}};
+        buffers_[std::size_t(back_)].push_back(b);
+        sound_->play(a_won() ? MatchSound::Song::a_won : MatchSound::Song::b_won, true);
+        sound_->set_music(true);
+        sound_->set_volume(40);
+        flip();
+        return;
+    }
+    if (at >= fade + 1 + end_hold) phase_ = Phase::finished;
+}
+
+// $25078-$25180: a new match shows the court with the scores, the referee
+// whistles twice, and the first rally starts (blanks measured).
+void Match::opening_step() {
+    const int at = opening_at_++;
+    if (at == 0) {
+        sound_->play(MatchSound::Song::venue); // $2511C (the music stays off until the rally)
+        force_flip_ = true;                    // $26110
+        flip();
+    } else if (at == 1) {
+        camera_bytes_ = 16;
+        camera_shift_ = 0;
+        board_ = {score_a_, score_b_};
+        draw_court();
+        objects_[net].x = 148;
+        draw(net);
+        flip(); // $26142, then the scores into the shown buffer
+        Blit b;
+        b.scores = true;
+        b.score_a = score_a_;
+        b.score_b = score_b_;
+        buffers_[std::size_t(back_ ^ 1)].push_back(b);
+    } else if (at == opening_whistles[0] || at == opening_whistles[1]) {
+        play(MatchSound::Effect::whistle); // $25154, $2516A
+    } else if (at == opening_rally) {
+        new_rally(); // the serve's first pass follows in this blank ($25246)
+        wait_ = 0;
+    }
 }
 
 void Match::scores_shown() {}
@@ -143,6 +297,7 @@ void Match::scores_shown() {}
 // $25180, $26008: the rally's state back to its start, and the next serve.
 void Match::new_rally() {
     clock_running_ = false;      // $25180
+    sound_->set_music(true);     // $251B0
     a2_hopping_ = false;
     a_swapped_ = false;
     hit_pending_ = false;
@@ -334,7 +489,7 @@ void Match::serve_b_toss_step() {
         touch_order_at_ = 3;
         b_serve_hit_ = true;
         a_attack_ = false;
-        sound_ = Sound::hit;
+        play(MatchSound::Effect::hit);
         falling_ = false;
         hit();
         serve_follow_ = 2;

@@ -31,6 +31,9 @@ struct Song {
     std::vector<std::uint8_t> patterns;
 
     // Throws std::runtime_error when the file does not have this layout.
+    // Takes as many patterns as the positions name, so a song can also be
+    // read from inside a larger block (volley.code's jingles in the sprite
+    // block).
     static Song parse(std::span<const std::uint8_t> file);
     // intro.code $230E4: the intro halves every sample's volume in its copy
     // of the song before playing it.
@@ -52,25 +55,34 @@ PlayerTables read_player_tables(const data::CodeFile& code, std::uint32_t sample
                                 std::size_t bank_size);
 
 // One copy of the player. The copies differ in which channels play notes and
-// which have their effects run (intro.code: notes on 0-2, effects on 0-3).
+// which have their effects run (intro.code: notes on 0-2, effects on 0-3;
+// volley.code: both on 0-2), and in what starting a song resets.
 class Player {
 public:
-    Player(const PlayerTables& tables, unsigned note_channels, unsigned effect_channels);
+    Player(const PlayerTables& tables, unsigned note_channels, unsigned effect_channels,
+           bool start_clears = true);
 
     // $24114: the song from its first position (the song must outlive the
-    // player's use of it); the channels' volumes are cleared.
-    void start(const Song& song, amiga::PaulaChannels& paula);
+    // player's use of it). intro.code's copy clears the channels' volumes
+    // and what their notes left; volley.code's ($30E6C) keeps both. A song
+    // played `once` ends the playing at its end instead of starting again
+    // (volley.code's $3133A).
+    void start(const Song& song, amiga::PaulaChannels& paula, bool once = false);
+    // Channels whose notes are not read at a new row (volley.code holds
+    // channel 1 while a spike's sound plays on it: $26A8A).
+    void hold(unsigned channels) { held_ = channels; }
     // $24172: silence and stop.
     void stop(amiga::PaulaChannels& paula);
     // Rebinds the song after a quick save is read (the save keeps where the
     // player is, not the song).
     void bind(const Song* song) { song_ = song; }
+    void set_tables(const PlayerTables& tables) { tables_ = tables; }
     bool playing() const { return song_ != nullptr; }
 
     // $24194: one vertical blank.
     void tick(amiga::PaulaChannels& paula);
 
-    template <class A> void persist(A& ar) { ar(speed_, counter_, position_, row_, channels_); }
+    template <class A> void persist(A& ar) { ar(speed_, counter_, position_, row_, channels_, once_, held_); }
 
     // What a channel's note left, for research tools.
     struct Channel {
@@ -101,6 +113,9 @@ private:
 
     PlayerTables tables_;
     unsigned note_channels_, effect_channels_;
+    bool start_clears_;
+    bool once_{};
+    unsigned held_{};
     const Song* song_{};
     std::uint16_t speed_{6};   // ticks per row, as the code file is loaded (command F rewrites it)
     std::uint16_t counter_{};  // ticks since the row

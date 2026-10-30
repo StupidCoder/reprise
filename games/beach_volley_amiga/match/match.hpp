@@ -1,5 +1,6 @@
 #pragma once
 #include "beach_volley_amiga/match/match_data.hpp"
+#include "beach_volley_amiga/match/match_sound.hpp"
 #include "platform/image.hpp"
 #include <array>
 #include <cstdint>
@@ -27,17 +28,33 @@ struct Stick {
 struct MatchInput {
     Stick port1; // side A's player
     Stick port0; // side B's in a two-player match
-    template <class A> void persist(A& ar) { ar(port1, port0); }
+    bool help{}; // the HELP key (with the cheat on: side A wins the match)
+    template <class A> void persist(A& ar) { ar(port1, port0, help); }
 };
 
 class Match {
 public:
     static constexpr int width = 288, height = 200;
 
-    Match(const MatchData& data, int players);
+    // The match plays its sound through `sound` (volley.code's player and
+    // effects; it outlives the match: the next match goes on with it).
+    Match(const MatchData& data, int players, MatchSound& sound);
+
+    // The next match ($25078) on `data`'s venue: volley.code stays loaded,
+    // so everything goes on from the last match (the objects, the chance
+    // table's place, the counters) but what $25078 clears: the scores, the
+    // clock, the screens; side A serves.
+    void restart(const MatchData& data);
 
     // One vertical blank.
     void tick(const MatchInput& input);
+    // After the winner's picture and jingle ($25E78): the program goes on
+    // to the next match.
+    bool finished() const { return phase_ == Phase::finished; }
+    bool a_won() const { return score_a_ == 7; }
+    // The keyboard cheat ($2835C, an 11-key sequence): HELP during a rally
+    // wins the match for side A.
+    void set_cheat(bool on) { cheat_ = on; }
     platform::Image picture() const;
     // The shown frame as colour indices (the court's palette).
     std::vector<std::uint8_t> screen() const;
@@ -45,11 +62,11 @@ public:
     // For the research tools.
     const Sprite& object(Object n) const { return objects_[std::size_t(n)]; }
     int blanks() const { return blanks_; }
-    bool over() const { return phase_ == Phase::match_over; }
+    bool over() const { return finished(); }
 
     // A quick save keeps all of it (the data is reloaded by venue).
     template <class A> void persist(A& ar) {
-        ar(players_count_, objects_, sticks_, recent_, fire_now_, phase_, wait_, blanks_, stepped_, chance_at_, chance_, chance_before_, chance_after_, sound_, score_a_, score_b_);
+        ar(players_count_, objects_, sticks_, recent_, fire_now_, phase_, wait_, blanks_, stepped_, chance_at_, chance_, chance_before_, chance_after_, score_a_, score_b_);
         ar(server_, show_scores_, clock_running_, clock_blanks_, clock_dots_, time_up_, camera_bytes_, camera_shift_, lift_, ease_run_, ease_at_, court_x_);
         ar(court_y_, ball_court_x_, touch_, touch_order_at_, shot_kind_, plan_, arc_height_, falling_, arc_at_, arc_left_, arc_depth_, shadow_target_);
         ar(landing_y_at_hit_, shadow_rate_, shadow_count_, shadow_dir_, ball_step_, ball_minus_x_, alternate_, rally_over_, rally_over_count_, rally_winner_, ball_in_play_, show_ball_mark_);
@@ -64,6 +81,7 @@ public:
         ar(b1_height_at_, b1_speed_, b2_hopping_, b2_jumping_, b2_blocking_, b2_block_at_, b2_block_miss_, b2_block_done_, b2_set_, b2_setting_, b2_raised_, b2_set_wait_);
         ar(b2_set_count_, b2_follow_, b2_from_x_, b2_from_y_, b2_to_x_, b2_to_y_, scores_pending_, buffers_, back_);
         ar(board_, ring_plotted_, hand_at_, place_pending_, run_on_);
+        ar(force_flip_, opening_at_, fade_at_, fade_length_, hurry_started_, end_at_, end_volume_, cheat_);
     }
 
     // Where the chance table stands (the original's depends on how long
@@ -80,8 +98,11 @@ public:
 
 private:
     enum class Phase {
+        opening, // the court, two whistles, then the first rally ($25078-$25180)
         serve_a_place, serve_a_wait, serve_a_toss, rally, point_shown, scores_shown,
-        serve_b_court, serve_b_stance, serve_b_toss, match_over
+        serve_b_court, serve_b_stance, serve_b_toss,
+        ending,  // $25CA2: the music fades, the winner's picture and jingle
+        finished
     };
     enum class Then { finish, down_low, down_high };
 
@@ -93,7 +114,6 @@ private:
         Stick port1, port0;
         template <class A> void persist(A& ar) { ar(a, b, port1, port0); }
     };
-    enum class Sound { none, toss, serve, hit, spike, bounce, whistle };
     // A shot as the touch decides it ($2A8EE).
     struct Plan {
         int travel{}, step{}, minus_x{}, dy{};
@@ -121,6 +141,10 @@ private:
     void spin_ball();
     void draw_serve_a();
     // The match's course.
+    void opening_step();
+    void ending_step();
+    void begin_ending();
+    void fade_step();
     void rally_step();
     void point_over();
     void point_shown();
@@ -186,6 +210,7 @@ private:
     void draw(Object n, bool other_team = false);
 
     const MatchData* data_;
+    MatchSound* sound_;
     int players_count_;
     std::array<Sprite, object_count> objects_{};
     Sticks sticks_;
@@ -193,14 +218,14 @@ private:
     bool fire_now_{};
     std::vector<int> b_toss_; // $27FB0
 
-    Phase phase_{Phase::serve_a_wait};
+    Phase phase_{Phase::opening};
     int wait_{};        // blanks before the program shows its next frame
     int blanks_{};
     bool stepped_{};
     int chance_at_{};   // the vertical blank's place in the chance table ($28696)
     int chance_{};      // $28694 as the running routine sees it
     int chance_before_{}, chance_after_{};
-    Sound sound_{Sound::none};
+    void play(MatchSound::Effect e) { sound_->effect(e); }
 
     // Score and course.
     int score_a_{}, score_b_{};  // $3063C, $3063E
@@ -210,6 +235,11 @@ private:
     int clock_blanks_{};         // $31D7A
     int clock_dots_{};           // $31D78
     bool time_up_{};             // $28680
+    bool hurry_started_{};       // $28684: the hurry song from the ninth minute
+    bool cheat_{};               // $2835C
+    int opening_at_{};           // blanks since the match started
+    int fade_at_{}, fade_length_{}; // $26172: the crowd's fade after a point
+    int end_at_{}, end_volume_{}; // $25CA2: blanks since the end began; the music's volume then
 
     // The camera and the scene.
     int camera_bytes_{};  // $29018
@@ -357,13 +387,14 @@ private:
         int camera_bytes{}, camera_shift{}, lift{};
         Sprite sprite;
         bool other_team{};
+        bool banner{}; // $25EE4: an 80 x 80 picture (rows of 10 bytes, planes $320 apart)
         bool scores{}; // $305AE: both scores in 8 x 8 blocks
         int score_a{}, score_b{};
         std::array<int, 2> board{-1, -1}; // the court's scoreboard digits
         int ring_used{-1};                // the clock ring: dots used
         std::array<int, 2> hand{-1, -1};  // the clock's hand dots
         template <class A> void persist(A& ar) {
-            ar(court, camera_bytes, camera_shift, lift, sprite, other_team, scores, score_a, score_b, board,
+            ar(court, camera_bytes, camera_shift, lift, sprite, other_team, banner, scores, score_a, score_b, board,
                ring_used, hand);
         }
     };
@@ -378,7 +409,14 @@ private:
     // back one and shows it; a pass that draws nothing shows the older.
     std::array<std::vector<Blit>, 2> buffers_;
     int back_{};
-    void flip() { back_ ^= 1; }
+    // $30C14 shows the back buffer and draws into the other; three places
+    // clear its choice first ($2868E = 0): those flips show buffer B and
+    // draw into A, whichever was shown (`force_flip_`).
+    bool force_flip_{};
+    void flip() {
+        back_ = force_flip_ ? 0 : back_ ^ 1;
+        force_flip_ = false;
+    }
     const std::vector<Blit>& shown() const { return buffers_[std::size_t(back_ ^ 1)]; }
 };
 

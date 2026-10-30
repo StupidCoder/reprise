@@ -1,4 +1,5 @@
 #include "beach_volley_amiga/sound/soundtracker.hpp"
+#include <algorithm>
 #include <stdexcept>
 
 namespace beach_volley::sound {
@@ -12,9 +13,14 @@ std::uint16_t be16(std::span<const std::uint8_t> b, std::size_t at) { return std
 } // namespace
 
 Song Song::parse(std::span<const std::uint8_t> file) {
-    if (file.size() < header_size + pattern_size || (file.size() - header_size) % pattern_size != 0) {
-        throw std::runtime_error("A song file does not have the game's song layout.");
-    }
+    // As many patterns as the positions name (the player's start finds the
+    // highest of all 128, $30E6C); some files carry bytes after them
+    // (music11, music12: 200).
+    if (file.size() < header_size + pattern_size) throw std::runtime_error("A song file does not have the game's song layout.");
+    int highest = 0;
+    for (std::size_t i = 0; i < 128; ++i) highest = std::max(highest, int(file[472 + i]));
+    const std::size_t size = header_size + std::size_t(highest + 1) * pattern_size;
+    if (file.size() < size) throw std::runtime_error("A song file is cut short.");
     Song song;
     for (std::size_t i = 0; i < 20 && file[i] != 0; ++i) song.title.push_back(char(file[i]));
     for (std::size_t n = 0; n < 15; ++n) {
@@ -23,12 +29,8 @@ Song Song::parse(std::span<const std::uint8_t> file) {
     }
     song.length = file[470];
     for (std::size_t i = 0; i < 128; ++i) song.positions[i] = file[472 + i];
-    song.patterns.assign(file.begin() + header_size, file.end());
-    const std::size_t count = song.patterns.size() / pattern_size;
+    song.patterns.assign(file.begin() + header_size, file.begin() + std::ptrdiff_t(size));
     if (song.length == 0) throw std::runtime_error("A song file has no positions.");
-    for (int i = 0; i < song.length; ++i) {
-        if (song.positions[std::size_t(i)] >= count) throw std::runtime_error("A song plays a pattern it does not hold.");
-    }
     return song;
 }
 
@@ -49,16 +51,19 @@ void Song::halve_volumes() {
     for (auto& sample : samples) sample.volume /= 2;
 }
 
-Player::Player(const PlayerTables& tables, unsigned note_channels, unsigned effect_channels)
-    : tables_(tables), note_channels_(note_channels), effect_channels_(effect_channels) {}
+Player::Player(const PlayerTables& tables, unsigned note_channels, unsigned effect_channels, bool start_clears)
+    : tables_(tables), note_channels_(note_channels), effect_channels_(effect_channels), start_clears_(start_clears) {}
 
-void Player::start(const Song& song, amiga::PaulaChannels& paula) {
-    for (int n = 0; n < 4; ++n) paula.set_volume(n, 0);
+void Player::start(const Song& song, amiga::PaulaChannels& paula, bool once) {
+    if (start_clears_) {
+        for (int n = 0; n < 4; ++n) paula.set_volume(n, 0);
+        channels_ = {};
+    }
     song_ = &song;
+    once_ = once;
     counter_ = 0; // (the speed stays: command F changes it in the program itself)
     position_ = 0;
     row_ = 0;
-    channels_ = {};
 }
 
 void Player::stop(amiga::PaulaChannels& paula) {
@@ -131,7 +136,7 @@ void Player::new_row(amiga::PaulaChannels& paula) {
         std::uint32_t(song_->positions[std::size_t(position_)]) * 1024u + std::uint32_t(row_) * 16u;
     std::uint16_t started = 0;
     for (int n = 0; n < 4; ++n) {
-        if (note_channels_ >> n & 1) read_note(n, at + std::uint32_t(n) * 4, paula, started);
+        if ((note_channels_ & ~held_) >> n & 1) read_note(n, at + std::uint32_t(n) * 4, paula, started);
     }
     paula.write_dmacon(std::uint16_t(0x8000 | started));
     // A sample without repeat plays once: its length register is set to one
@@ -146,7 +151,10 @@ void Player::new_row(amiga::PaulaChannels& paula) {
     }
     if (++row_ == 64) {
         row_ = 0;
-        if (++position_ == song_->length) position_ = 0;
+        if (++position_ == song_->length) {
+            if (once_) song_ = nullptr; // $31172: the music is switched off
+            else position_ = 0;
+        }
     }
 }
 

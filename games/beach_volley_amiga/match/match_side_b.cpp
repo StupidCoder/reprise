@@ -32,7 +32,7 @@ void Match::b1_touch() {
     b1_hit_wait_ = false;
     swing_started_ = false;
     if (rally_over_) return;
-    sound_ = Sound::hit;
+    play(MatchSound::Effect::hit);
     falling_ = false;
     hit();
 }
@@ -77,7 +77,7 @@ void Match::b1_play() {
             b_turn_ = false;
             a_jump_contact_ = false;
             b_jump_contact_ = false;
-            sound_ = Sound::hit;
+            play(MatchSound::Effect::hit);
             falling_ = false;
             hit();
         }
@@ -116,7 +116,7 @@ void Match::b1_play() {
             b1_hit_wait_ = false;
             b1_hit_done_ = true;
             swing_started_ = false;
-            sound_ = Sound::hit;
+            play(MatchSound::Effect::hit);
             falling_ = false;
             hit();
         }
@@ -172,7 +172,7 @@ void Match::b1_play() {
                 b1_hit_wait_ = false;
                 swing_started_ = false;
                 b1_hit_done_ = true;
-                sound_ = Sound::hit;
+                play(MatchSound::Effect::hit);
                 falling_ = false;
                 hit();
             }
@@ -243,7 +243,7 @@ void Match::b1_actions(int d0) {
     swing_started_ = false;
     if (rally_over_) return;
     ball_o.y = p.y + 5;
-    sound_ = Sound::hit;
+    play(MatchSound::Effect::hit);
     hit();
     b1_reach_count_ = 10;
     b1_reach_wait_ = true;
@@ -297,7 +297,7 @@ void Match::b1_jump() {
             m.x = ball_o.x;
             objects_[ball].x -= 16;
             ball_court_x_ -= 16;
-            sound_ = Sound::spike;
+            play(MatchSound::Effect::smash); // $2D87C
             hit();
             a_attack_ = false;
             b1_spiked_ = true;
@@ -345,7 +345,7 @@ void Match::b2_block() {
     if ((shot_kind_ & 2) || (chance_ != 5 && chance_ != 2 && (shot_kind_ & 5))) b2_block_miss_ = true;
     if (std::uint16_t(objects_[ball].x + 16) <= std::uint16_t(p.x) || b2_block_miss_ || b2_block_done_) return;
     b2_block_done_ = true;
-    sound_ = Sound::hit;
+    play(MatchSound::Effect::hit);
     a_attack_ = false;
     b2_set_ = true;
     touch_ = 2;
@@ -377,7 +377,7 @@ void Match::b2_set() {
         if (ball_o.y + 10 < p.y) return;
         p.image = picture_at(0x64184, 48, 72);
         if (rally_over_) return;
-        sound_ = Sound::hit;
+        play(MatchSound::Effect::hit);
         a_jump_contact_ = false;
         b_jump_contact_ = false;
         a_attack_ = false;

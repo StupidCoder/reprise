@@ -162,7 +162,7 @@ void Match::hit() {
         jump_shot(sticks_.a, 0, false, then);
     } else if (serving_a_) {
         fire_latch_a_ = false;
-        sound_ = Sound::serve;
+        play(MatchSound::Effect::serve); // $29E88
         const auto a = sticks_.a;
         if (a & 2) set(120, 4, 0, 1);
         else if (a & 8) set(200, 5, 0, 1);
@@ -697,7 +697,7 @@ void Match::fly() {
     rally_over_ = true;
     rally_over_count_ = 26;
     falling_ = false;
-    sound_ = Sound::bounce;
+    play(MatchSound::Effect::landing); // $2ADCE
     hit();
     if (ball_court_x_ < 65) rally_winner_ = 3;
     else if (ball_court_x_ >= 484) rally_winner_ = touch_ == 4 ? 3 : 1;

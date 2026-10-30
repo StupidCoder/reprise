@@ -29,6 +29,7 @@
 #include "beach_volley_amiga/entry.hpp"
 #include "beach_volley_amiga/data/preview.hpp"
 #include "beach_volley_amiga/front/intro.hpp"
+#include "beach_volley_amiga/front/venue_card.hpp"
 #include "beach_volley_amiga/game/module.hpp"
 #include "beach_volley_amiga/match/match.hpp"
 #include "beach_volley_amiga/sound/soundtracker.hpp"
@@ -168,13 +169,21 @@ int main(int argc, char** argv) {
             int failures = 0;
             for (int a = 6; a < argc; ++a) {
                 const long at = std::strtol(argv[a], nullptr, 10);
-                bm::Match first(data, 1);
+                amiga::PaulaChannels paula1, paula2;
+                bm::MatchSound sound1(paula1), sound2(paula2);
+                sound1.bind(data);
+                sound2.bind(data);
+                bm::Match first(data, 1, sound1);
                 for (long b = 0; b < at; ++b) first.tick(input_at(b));
                 state::Writer w;
                 first.persist(w);
-                bm::Match second(data, 1);
+                sound1.persist(w);
+                paula1.persist(w);
+                bm::Match second(data, 1, sound2);
                 state::Reader r(w.bytes);
                 second.persist(r);
+                sound2.persist(r);
+                paula2.persist(r);
                 r.finish();
                 long bad = -1;
                 for (long b = at; b < blanks && bad < 0; ++b) {
@@ -208,8 +217,29 @@ int main(int argc, char** argv) {
                 script.push_back({v, {stick(d1, f1), stick(d0, f0)}});
             }
             const long offset = std::strtol(argv[5], nullptr, 10);
-            bm::Match match(data, 1);
-            match.set_chance_place(std::atoi(argv[6]));
+            amiga::PaulaChannels paula;
+            bm::MatchSound sound(paula);
+            // Research: BV_AFTER_CHEAT=<chance place> plays the first venue's
+            // match first, won at once by the cheat (HELP held), and traces
+            // the next match on <venue> as the tour goes on to it.
+            const char* after_cheat = std::getenv("BV_AFTER_CHEAT");
+            const auto first = after_cheat ? bm::load_match_data(argv[2], 1) : bm::MatchData{};
+            sound.bind(after_cheat ? first : data);
+            bm::Match match(after_cheat ? first : data, 1, sound);
+            if (after_cheat) {
+                match.set_chance_place(std::atoi(after_cheat));
+                match.set_cheat(true);
+                bm::MatchInput help;
+                help.help = true;
+                while (!match.finished()) match.tick(help);
+                std::fprintf(stderr, "first match over at blank %d, chance place %d\n", match.blanks(), match.chance_place());
+                sound.bind(data);
+                match.restart(data);
+                match.set_chance_place(match.chance_place() + 5);
+            }
+            std::FILE* sound_log = nullptr; // research: BV_SOUND=<file> logs what the sound does per blank
+            if (const char* path = std::getenv("BV_SOUND")) sound_log = std::fopen(path, "w");
+            if (!after_cheat) match.set_chance_place(std::atoi(argv[6]));
             if (const char* pauses = std::getenv("BV_PAUSES")) { // research: a recording's point pauses
                 std::vector<int> list;
                 for (const char* p = pauses; *p;) {
@@ -225,6 +255,13 @@ int main(int argc, char** argv) {
             for (long b = 0; b < blanks; ++b) {
                 while (k < script.size() && script[k].vblank <= b + offset) input = script[k++].input;
                 match.tick(input);
+                if (sound_log) {
+                    const auto& p = sound.player();
+                    std::fprintf(sound_log, "%ld %d %d %d %d %d", b, p.position(), p.row(), p.counter(),
+                                 sound.music_on() ? 1 : 0, sound.volume());
+                    for (const int h : sound.take_heard()) std::fprintf(sound_log, " %d", h);
+                    std::fprintf(sound_log, "\n");
+                }
                 if (!match.stepped()) continue;
                 std::printf("%ld", b);
                 std::fprintf(stderr, "%ld %s\n", b, match.debug().c_str());
@@ -242,6 +279,109 @@ int main(int argc, char** argv) {
                     char name[64];
                     std::snprintf(name, sizeof name, "/match-%05ld.png", b);
                     platform::save_png(match.picture(), std::string(argv[8]) + name);
+                }
+            }
+            return 0;
+        }
+        if (command == "tour" && argc == 6) {
+            // tour <content> <out dir> <blanks> <png every>: the game with F1
+            // held (one player), fire pressed every 40th blank and the win
+            // cheat (F7) held: pictures every <png every> blanks (research).
+            auto game = beach_volley::game::start(argv[2]);
+            game->set_option(1, 1);
+            std::filesystem::create_directories(argv[3]);
+            const long blanks = std::strtol(argv[4], nullptr, 10), every = std::strtol(argv[5], nullptr, 10);
+            std::vector<float> audio(2 * 882);
+            for (long blank = 1; blank <= blanks; ++blank) {
+                app::GameInput in;
+                in.f1 = true;
+                in.fire = blank % 40 == 0;
+                in.f7 = true;
+                game->tick(in);
+                game->audio(audio, 44100);
+                if (blank % every == 0) {
+                    char name[32];
+                    std::snprintf(name, sizeof name, "tour-%06ld.png", blank);
+                    platform::save_png(game->picture(), std::filesystem::path(argv[3]) / name);
+                }
+                if (!game->stopped().empty()) {
+                    std::printf("stopped at %ld: %s\n", blank, game->stopped().c_str());
+                    break;
+                }
+            }
+            return 0;
+        }
+        if (command == "tour-save" && argc >= 4) {
+            // tour-save <content> <blank>...: the tour as `tour` plays it,
+            // saved at each blank, read into a fresh game, and both run on
+            // for 1,500 blanks: picture and sound must stay equal.
+            const auto input_at = [](long blank) {
+                app::GameInput in;
+                in.f1 = true;
+                in.fire = blank % 40 == 0;
+                in.f7 = true;
+                return in;
+            };
+            int failures = 0;
+            for (int a = 3; a < argc; ++a) {
+                const long at = std::strtol(argv[a], nullptr, 10);
+                auto game = beach_volley::game::start(argv[2]);
+                game->set_option(1, 1);
+                std::vector<float> x(2 * 882), y(2 * 882);
+                for (long blank = 1; blank <= at; ++blank) {
+                    game->tick(input_at(blank));
+                    game->audio(x, 44100);
+                }
+                const auto saved = game->write_state();
+                auto copy = beach_volley::game::start(argv[2]);
+                copy->read_state(saved);
+                long differ = -1;
+                for (long blank = at + 1; blank <= at + 1500 && differ < 0; ++blank) {
+                    game->tick(input_at(blank));
+                    copy->tick(input_at(blank));
+                    game->audio(x, 44100);
+                    copy->audio(y, 44100);
+                    const auto p = game->picture(), q = copy->picture();
+                    const bool same = p.width == q.width && std::equal(p.pixels.begin(), p.pixels.end(), q.pixels.begin(),
+                                                                       [](const auto& u, const auto& v) {
+                                                                           return u.r == v.r && u.g == v.g && u.b == v.b;
+                                                                       });
+                    if (x != y || !same) {
+                        differ = blank;
+                        std::printf("  %s differs\n", same ? "sound" : "picture");
+                    }
+                }
+                std::printf("blank %ld: %zu bytes, %s\n", at, saved.size(),
+                            differ < 0 ? "same for 1500 blanks" : ("differs at " + std::to_string(differ)).c_str());
+                if (differ >= 0) ++failures;
+            }
+            return failures ? 1 : 0;
+        }
+        if (command == "card-trace" && argc == 6) {
+            // card-trace <content> <venue> <blanks> <out.bin>: the venue card's
+            // screen buffer (400 x 200 indices), its upper palette (16 words),
+            // the split row, the scroll (bytes, pixels) after every blank, with
+            // fire held from the start (research: compare with harness/card.py).
+            namespace bf = beach_volley::front;
+            const auto files = bf::load_card_files(argv[2], std::atoi(argv[3]));
+            amiga::PaulaChannels paula;
+            bf::VenueCard card(files, paula);
+            card.begin();
+            std::ofstream out(argv[5], std::ios::binary);
+            const long blanks = std::strtol(argv[4], nullptr, 10);
+            for (long b = 0; b < blanks && !card.finished(); ++b) {
+                card.tick(true);
+                const auto& s = card.screen();
+                out.write(reinterpret_cast<const char*>(s.data()), std::streamsize(s.size()));
+                for (const auto w : card.upper()) {
+                    out.put(char(w >> 8));
+                    out.put(char(w & 0xFF));
+                }
+                const std::int16_t extra[4] = {std::int16_t(card.split_row()), std::int16_t(card.pointer_bytes()),
+                                               std::int16_t(card.fine_scroll()), std::int16_t(card.at())};
+                for (const auto e : extra) {
+                    out.put(char(e >> 8));
+                    out.put(char(e & 0xFF));
                 }
             }
             return 0;

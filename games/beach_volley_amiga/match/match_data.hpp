@@ -1,5 +1,6 @@
 #pragma once
 #include "beach_volley_amiga/data/assets.hpp"
+#include "beach_volley_amiga/sound/soundtracker.hpp"
 #include <array>
 #include <cstdint>
 #include <filesystem>
@@ -99,6 +100,14 @@ struct MatchData {
     // Per venue: the values the vertical blank steps through, one each
     // blank ($2869A...; game.md "Randomness").
     std::vector<int> chance;
+
+    // The sound: the sample bank (where intro.code left it), the player's
+    // tables in volley.code ($312A2, $312DE), the venue's song and the
+    // hurry song (named in $3133C's loads), and the two jingles in the
+    // sprite block.
+    std::vector<std::uint8_t> instruments;
+    sound::PlayerTables player_tables;
+    sound::Song venue_song, hurry_song, a_won_song, b_won_song;
 };
 
 // Where the sprite block starts in the original's memory; the program's
