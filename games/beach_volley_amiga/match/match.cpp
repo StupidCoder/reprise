@@ -1,5 +1,6 @@
 #include "beach_volley_amiga/match/match.hpp"
 #include <algorithm>
+#include <cmath>
 
 namespace beach_volley::match {
 namespace {
@@ -302,6 +303,7 @@ void Match::draw(Object n, bool other_team) {
     }
     Blit b;
     b.sprite = objects_[std::size_t(n)];
+    b.object = n;
     b.other_team = other_team;
     b.lift = lift_;
     if (n == clock) b.ring_used = ring_plotted_;
@@ -314,12 +316,27 @@ void Match::draw(Object n, bool other_team) {
 // of the next, outside the window), then each object cookie-cut in with
 // its mask (the OR of its four planes) less its last word.
 platform::Image Match::picture() const {
-    const auto pixels = screen();
-    platform::Image out(width, height);
+    const bool wide = view_width_ > width || smooth_;
+    const auto list = smooth_ ? between() : shown();
+    int left = window_left;
+    const int shown_width = std::max(int(width), std::min(view_width_, 576));
+    if (wide) {
+        // The wider view around the original's window, kept on the court.
+        left -= (shown_width - width) / 2;
+        for (const auto& b : list) {
+            if (!b.court) continue;
+            const int court_left = (b.camera_x >= 0 ? b.camera_x : b.camera_bytes * 8 - b.camera_shift) + left;
+            if (court_left < 0) left -= court_left;
+            if (court_left + shown_width > 576) left -= court_left + shown_width - 576;
+            break;
+        }
+    }
+    const auto pixels = render(list, left, shown_width, wide);
+    platform::Image out(shown_width, height);
     const auto& palette = data_->court.palette;
     for (int y = 0; y < height; ++y) {
-        for (int x = 0; x < width; ++x) {
-            const auto c = palette[pixels[std::size_t(y * width + x)]];
+        for (int x = 0; x < shown_width; ++x) {
+            const auto c = palette[pixels[std::size_t(y * shown_width + x)]];
             out.put(x, y, platform::Color{std::uint8_t((c >> 8 & 15) * 17), std::uint8_t((c >> 4 & 15) * 17),
                                           std::uint8_t((c & 15) * 17), 255});
         }
@@ -327,11 +344,56 @@ platform::Image Match::picture() const {
     return out;
 }
 
-std::vector<std::uint8_t> Match::screen() const {
+// Smooth motion: the shown frame's court and sprites placed between where
+// the frame before had them and where this one has them, by the time since
+// the flip; what jumped (a new rally, the controlled player's swap) is not
+// moved between.
+std::vector<Match::Blit> Match::between() const {
+    auto list = shown();
+    if (flip_period_ <= 0 || flip_period_ > 4) return list;
+    const double t = std::clamp((blanks_ - last_flip_ + fraction_) / flip_period_, 0.0, 1.0);
+    const auto mix = [&](int from, int to, int limit) {
+        return std::abs(to - from) > limit ? to : int(std::lround(from + (to - from) * t));
+    };
+    std::array<int, object_count> seen{};
+    for (auto& b : list) {
+        if (b.court) {
+            for (const auto& p : previous_shown_) {
+                if (!p.court) continue;
+                b.camera_x = mix(p.camera_bytes * 8 - p.camera_shift, b.camera_bytes * 8 - b.camera_shift, 32);
+                b.lift = mix(p.lift, b.lift, 8);
+                break;
+            }
+            continue;
+        }
+        if (b.object < 0 || b.scores || b.banner) continue;
+        // The same object's occurrence in the frame before (counted in order).
+        int k = seen[std::size_t(b.object)]++;
+        for (const auto& p : previous_shown_) {
+            if (p.object != b.object || k-- > 0) continue;
+            if (std::abs(p.sprite.x - b.sprite.x) <= 32 && std::abs(p.sprite.y - b.sprite.y) <= 32) {
+                b.sprite.x = mix(p.sprite.x, b.sprite.x, 32);
+                b.sprite.y = mix(p.sprite.y, b.sprite.y, 32);
+                b.lift = mix(p.lift, b.lift, 8);
+            }
+            break;
+        }
+    }
+    return list;
+}
+
+std::vector<std::uint8_t> Match::screen() const { return render(shown(), window_left, width, false); }
+
+// `left`, `wide`: the columns shown, from buffer column `left`; wide, the
+// court is taken straight from its picture and nothing is clipped at the
+// buffer's sides (widescreen), otherwise as the program draws.
+std::vector<std::uint8_t> Match::render(const std::vector<Blit>& list, int left, int shown_width, bool wide) const {
     const int rows = above + buffer_rows;
-    std::vector<std::uint8_t> buffer(std::size_t(buffer_width * rows));
+    const int cl = wide ? left : 0, cw = wide ? shown_width : buffer_width; // the canvas's columns
+    std::vector<std::uint8_t> buffer(std::size_t(cw * rows));
+    const auto inside = [&](int x) { return x >= cl && x < cl + cw; };
     const auto pixel = [&](int x, int y) -> std::uint8_t& {
-        return buffer[std::size_t((y + above) * buffer_width + x)];
+        return buffer[std::size_t((y + above) * cw + (x - cl))];
     };
     const auto& court = data_->court.picture;
     const auto& sheet = data_->sprites;
@@ -380,20 +442,22 @@ std::vector<std::uint8_t> Match::screen() const {
         return w;
     };
 
-    for (const auto& b : shown()) {
+    for (const auto& b : list) {
         if (b.court) {
             // $28F90: 232 rows of 19 words from the court picture at the
             // camera's byte, shifted right by camera_shift, to the buffer
             // 32 rows above its top (the scene drawn `lift` rows lower).
             for (int r = 0; r < buffer_rows; ++r) {
                 const int y = r - above + b.lift;
-                for (int x = 0; x < buffer_width; ++x) {
+                for (int x = cl; x < cl + cw; ++x) {
                     int cx = b.camera_bytes * 8 + x - b.camera_shift;
                     int cy = r;
-                    if (cx < b.camera_bytes * 8) { // carried from the previous row's end
+                    if (!wide && cx < b.camera_bytes * 8) { // carried from the previous row's end
                         cx += buffer_width;
                         --cy;
                     }
+                    if (wide && b.camera_x >= 0) cx = b.camera_x + x; // smooth motion's camera
+                    if (cx < 0) cy = -1;
                     std::uint8_t v = 0;
                     if (cy >= 0 && cx < court.width) v = court.pixels[std::size_t(cy * court.width + cx)];
                     // The scoreboard: digits drawn into the court at rows
@@ -434,7 +498,7 @@ std::vector<std::uint8_t> Match::screen() const {
                                 const std::uint32_t src = dot + std::uint32_t(p * plane_bytes + r * sheet_row);
                                 if (src < sheet.size()) v |= (sheet[src] >> (7 - i) & 1) << p;
                             }
-                            if (x0 + i < buffer_width && y0 + r < buffer_rows) pixel(x0 + i, y0 + r) = std::uint8_t(v);
+                            if (inside(x0 + i) && y0 + r < buffer_rows) pixel(x0 + i, y0 + r) = std::uint8_t(v);
                         }
                 }
             }
@@ -455,7 +519,9 @@ std::vector<std::uint8_t> Match::screen() const {
             if (y >= 200) continue;
             if (s.image.height + y >= 200) height = 200 - y;
         }
-        if (s.x < 0) {
+        if (wide) {
+            // drawn whole wherever it is
+        } else if (s.x < 0) {
             words = (s.image.width + s.x) >> 4;
             if (words < 1) continue;
             const int cut = (s.x >> 4) * 2; // negative: words cut off, as bytes
@@ -502,20 +568,20 @@ std::vector<std::uint8_t> Match::screen() const {
                 std::array<std::uint16_t, 4> d{};
                 for (std::size_t p = 0; p < 4; ++p) d[p] = shifted(planes[p], carry[p]);
                 const int bx = (dest_word + w) * 16;
-                if (bx >= buffer_width || dy < -above || dy >= buffer_rows) continue;
+                if ((!wide && bx >= buffer_width) || dy < -above || dy >= buffer_rows) continue;
                 for (int i = 0; i < 16; ++i) {
                     if (!(m >> (15 - i) & 1)) continue;
                     int v = 0;
                     for (std::size_t p = 0; p < 4; ++p) v |= (d[p] >> (15 - i) & 1) << p;
-                    if (bx + i < buffer_width) pixel(bx + i, dy) = std::uint8_t(v);
+                    if (inside(bx + i)) pixel(bx + i, dy) = std::uint8_t(v);
                 }
             }
         }
     }
 
-    std::vector<std::uint8_t> out(std::size_t(width * height));
+    std::vector<std::uint8_t> out(std::size_t(shown_width * height));
     for (int y = 0; y < height; ++y)
-        for (int x = 0; x < width; ++x) out[std::size_t(y * width + x)] = pixel(x + window_left, y);
+        for (int x = 0; x < shown_width; ++x) out[std::size_t(y * shown_width + x)] = pixel(x + left, y);
     return out;
 }
 

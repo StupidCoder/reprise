@@ -1,6 +1,7 @@
 #include "beach_volley_amiga/game/module.hpp"
 #include "amiga/paula_channels.hpp"
 #include "beach_volley_amiga/data/assets.hpp"
+#include "beach_volley_amiga/front/ending.hpp"
 #include "beach_volley_amiga/front/intro.hpp"
 #include "beach_volley_amiga/front/venue_card.hpp"
 #include "beach_volley_amiga/match/match.hpp"
@@ -8,22 +9,27 @@
 #include "state/archive.hpp"
 #include "ui/vhs.hpp"
 #include <algorithm>
+#include <cmath>
 #include <memory>
 #include <stdexcept>
 
 namespace beach_volley::game {
 namespace {
 
-constexpr std::uint32_t save_magic = 0x42564C59, save_version = 4; // "BVLY"
+constexpr std::uint32_t save_magic = 0x42564C59, save_version = 5; // "BVLY"
 
-// Blanks the original spends loading between the parts of a tour (its disk
-// loads, timed by wall clock on the original): animation.code with the
-// winner's picture still up, then the card's own files with the screen
-// black (per venue), and after a card (or a loss) the venue's files and a
-// pause ($3194C) with the display off.
-constexpr int card_load_kept = 75;
-constexpr int card_load_black[8] = {369, 419, 401, 392, 360, 421, 418, 373};
-constexpr int match_load = 395;
+// Between the parts of a tour the original loads from disk: about 1.5 s
+// with the winner's picture still up and 7-8 s black before a card, 8 s
+// black before a match, 7 s before the ending, 1 s before the intro again
+// (game.md "Venue card", "Ending"). The port shows a brief black gap instead.
+constexpr int load_blanks = 10;
+constexpr int card_load_kept = 0;
+constexpr int card_load_black[8] = {load_blanks, load_blanks, load_blanks, load_blanks,
+                                    load_blanks, load_blanks, load_blanks, load_blanks};
+constexpr int match_load = load_blanks;
+constexpr int ending_load_kept = 0;
+constexpr int ending_load_black = load_blanks;
+constexpr int intro_load = load_blanks;
 // The chance table's place moves on through the blanks volley.code's
 // vertical blank runs between two matches.
 constexpr int chance_carry = 5;
@@ -71,6 +77,8 @@ public:
             if (wait_ > 0) return;
             black_ = false;
             if (next_ == Stage::card) start_card();
+            else if (next_ == Stage::ending) start_ending();
+            else if (next_ == Stage::intro) restart_intro();
             else start_match();
             return;
         case Stage::card:
@@ -82,15 +90,49 @@ public:
             match_->tick(match_input(input));
             if (match_->finished()) next_match();
             return;
-        case Stage::ending: return;
+        case Stage::ending:
+            ending_->tick(input.fire || input.button2);
+            // $4AB0C: intro.code again, the game from its start.
+            if (ending_->finished()) wait(0, intro_load, Stage::intro);
+            return;
         }
     }
 
-    platform::Image picture() const override {
+    platform::Image picture() const override { return widened(own_picture()); }
+
+    // Widescreen: as wide as the window's shape allows, up to 21:9. The
+    // match shows more of the court around the original's view; the other
+    // screens stay their own width, in the middle.
+    void set_canvas(int width, int height) override {
+        canvas_width_ = width;
+        canvas_height_ = height;
+    }
+    void set_frame_fraction(double fraction) override { fraction_ = std::clamp(fraction, 0.0, 1.0); }
+
+    platform::Image own_picture() const {
         if (black_) return platform::Image(front::VenueCard::width, front::VenueCard::height);
+        if (stage_ == Stage::ending) return ending_->picture();
         if (stage_ == Stage::card || (card_ && next_ == Stage::match && stage_ == Stage::loading)) return card_->picture();
-        if (match_) return match_->picture();
+        if (match_) {
+            match_->set_view(int(std::lround(match::Match::height * aspect())), smooth_, fraction_);
+            return match_->picture();
+        }
         return intro_.picture();
+    }
+
+    // The width / height the picture is widened to (0: as it is).
+    double aspect() const {
+        if (!widescreen_ || canvas_width_ <= 0 || canvas_height_ <= 0) return 0;
+        return std::min(double(canvas_width_) / canvas_height_, 21.0 / 9.0);
+    }
+    platform::Image widened(const platform::Image& own) const {
+        const int wide = int(std::lround(own.height * aspect()));
+        if (wide <= own.width) return own;
+        platform::Image image(wide, own.height); // black
+        const int side = (wide - own.width) / 2;
+        for (int y = 0; y < own.height; ++y)
+            for (int x = 0; x < own.width; ++x) image.put(side + x, y, own.pixels[std::size_t(y * own.width + x)]);
+        return image;
     }
 
     void audio(std::span<float> stereo, int rate) override {
@@ -99,8 +141,6 @@ public:
     }
 
     std::string stopped() const override {
-        if (stage_ == Stage::ending)
-            return "Side A has won at every venue. The ending (final.code) is not rebuilt yet.";
         if (intro_.phase() != front::Intro::Phase::chosen || intro_.players() == 1) return {};
         return "The match for two players is not rebuilt yet: Beach Volley plays its one-player match so far.";
     }
@@ -112,11 +152,21 @@ public:
                  cheat_ ? 1 : 0,
                  "The original's own cheat (typed in as a code, then the HELP key during a rally): side A "
                  "wins the match at once. F7 stands in for HELP.",
-                 "Cheats"}};
+                 "Cheats"},
+                {"Widescreen", {"Off", "On"}, widescreen_ ? 1 : 0,
+                 "Fills the window to its edges, up to 21:9: the match shows more of the court left and right "
+                 "(the other screens stay their own width). The game plays the same.",
+                 {}, true},
+                {"Smooth motion", {"Off", "On"}, smooth_ ? 1 : 0,
+                 "The players, the ball and the court glide at the display's own rate instead of stepping "
+                 "25 times a second. The game plays the same.",
+                 {}, true}};
     }
     void set_option(std::size_t index, int value) override {
         if (index == 0) vhs_ = std::clamp(value, 0, ui::vhs_levels - 1);
         if (index == 1) cheat_ = value != 0;
+        if (index == 2) widescreen_ = value != 0;
+        if (index == 3) smooth_ = value != 0;
     }
     int vhs_level() const override { return vhs_; }
 
@@ -149,8 +199,8 @@ private:
             player_.bind(playing ? &song_ : nullptr);
             paula_.set_memory(memory_);
         }
-        bool in_card = card_ != nullptr, in_match = match_ != nullptr;
-        ar(stage_, next_, venue_, wait_, wait_black_, black_, cheat_, in_card, in_match);
+        bool in_card = card_ != nullptr, in_match = match_ != nullptr, in_ending = ending_ != nullptr;
+        ar(stage_, next_, venue_, wait_, wait_black_, black_, cheat_, in_card, in_match, in_ending);
         // The match sound outlives the matches (its volume and player go on);
         // it is bound to the venue last loaded.
         int sound_venue = match_data_ ? match_data_->venue : 0;
@@ -164,11 +214,17 @@ private:
                 card_files_ = std::make_unique<front::CardFiles>(front::load_card_files(content_, venue_));
                 card_ = std::make_unique<front::VenueCard>(*card_files_, paula_);
             }
-            if (!card_ && !sound_venue) paula_.set_memory(memory_);
+            ending_.reset();
+            if (in_ending) {
+                ending_files_ = std::make_unique<front::EndingFiles>(front::load_ending_files(content_));
+                ending_ = std::make_unique<front::Ending>(*ending_files_, paula_);
+            }
+            if (!card_ && !ending_ && !sound_venue) paula_.set_memory(memory_);
         }
         if (sound_venue) ar(match_sound_);
         if (match_) ar(*match_);
         if (card_) ar(*card_);
+        if (ending_) ar(*ending_);
     }
 
     // A pause of `kept` blanks with the last picture, then `dark` of black.
@@ -209,6 +265,28 @@ private:
         stage_ = Stage::match;
     }
 
+    void start_ending() {
+        ending_files_ = std::make_unique<front::EndingFiles>(front::load_ending_files(content_));
+        ending_ = std::make_unique<front::Ending>(*ending_files_, paula_);
+        ending_->begin();
+        stage_ = Stage::ending;
+    }
+
+    // intro.code loaded again: everything as at the game's start (volley.code
+    // is loaded afresh after the menu).
+    void restart_intro() {
+        ending_.reset();
+        ending_files_.reset();
+        match_.reset();
+        match_data_.reset();
+        match_sound_ = match::MatchSound(paula_);
+        venue_ = 0;
+        intro_ = front::Intro(art_, std::uint32_t(files_.instruments.size()));
+        paula_.set_memory(memory_);
+        player_.start(song_, paula_);
+        stage_ = Stage::intro;
+    }
+
     // $25E78: a win takes side A to the next venue's card (after the
     // eighth, the ending), a loss back to the first venue without one.
     void next_match() {
@@ -217,9 +295,8 @@ private:
             wait(0, match_load, Stage::match);
             return;
         }
-        if (++venue_ == 9) {
-            stage_ = Stage::ending;
-            black_ = true;
+        if (++venue_ == 9) { // $31922: final.code
+            wait(ending_load_kept, ending_load_black, Stage::ending);
             return;
         }
         wait(card_load_kept, card_load_black[venue_ - 1], Stage::card);
@@ -266,11 +343,16 @@ private:
     std::unique_ptr<match::Match> match_;
     std::unique_ptr<front::CardFiles> card_files_;
     std::unique_ptr<front::VenueCard> card_;
+    std::unique_ptr<front::EndingFiles> ending_files_;
+    std::unique_ptr<front::Ending> ending_;
     Stage stage_{Stage::intro}, next_{Stage::intro};
     int venue_{};      // $25B70
     int wait_{}, wait_black_{};
     bool black_{};
     bool cheat_{};
+    bool widescreen_{}, smooth_{};
+    int canvas_width_{}, canvas_height_{};
+    double fraction_{};
     int vhs_{};
 };
 

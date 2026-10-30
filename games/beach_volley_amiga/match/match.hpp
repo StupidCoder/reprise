@@ -56,6 +56,16 @@ public:
     // wins the match for side A.
     void set_cheat(bool on) { cheat_ = on; }
     platform::Image picture() const;
+    // Presentation (not saved): `columns` of the court shown (288 as the
+    // original, up to the court's 576: widescreen shows more of it around
+    // the original's window); `smooth`: the court and the sprites drawn
+    // between the program's last two frames at the display's rate,
+    // `fraction` of a blank past the last tick.
+    void set_view(int columns, bool smooth, double fraction) {
+        view_width_ = columns;
+        smooth_ = smooth;
+        fraction_ = fraction;
+    }
     // The shown frame as colour indices (the court's palette).
     std::vector<std::uint8_t> screen() const;
 
@@ -387,6 +397,8 @@ private:
         int camera_bytes{}, camera_shift{}, lift{};
         Sprite sprite;
         bool other_team{};
+        int object{-1};    // which object it shows (smooth motion matches them)
+        int camera_x{-1};  // smooth motion: the court's column at the buffer's left, between two frames
         bool banner{}; // $25EE4: an 80 x 80 picture (rows of 10 bytes, planes $320 apart)
         bool scores{}; // $305AE: both scores in 8 x 8 blocks
         int score_a{}, score_b{};
@@ -394,8 +406,8 @@ private:
         int ring_used{-1};                // the clock ring: dots used
         std::array<int, 2> hand{-1, -1};  // the clock's hand dots
         template <class A> void persist(A& ar) {
-            ar(court, camera_bytes, camera_shift, lift, sprite, other_team, banner, scores, score_a, score_b, board,
-               ring_used, hand);
+            ar(court, camera_bytes, camera_shift, lift, sprite, other_team, object, banner, scores, score_a, score_b,
+               board, ring_used, hand);
         }
     };
     bool scores_pending_{};
@@ -414,9 +426,21 @@ private:
     // draw into A, whichever was shown (`force_flip_`).
     bool force_flip_{};
     void flip() {
+        previous_shown_ = shown(); // for smooth motion
+        flip_period_ = blanks_ - last_flip_;
+        last_flip_ = blanks_;
         back_ = force_flip_ ? 0 : back_ ^ 1;
         force_flip_ = false;
     }
+    std::vector<std::uint8_t> render(const std::vector<Blit>& list, int left, int shown_width, bool wide) const;
+    std::vector<Blit> between() const;
+
+    // Presentation.
+    int view_width_{width};
+    bool smooth_{};
+    double fraction_{};
+    std::vector<Blit> previous_shown_;
+    int last_flip_{}, flip_period_{};
     const std::vector<Blit>& shown() const { return buffers_[std::size_t(back_ ^ 1)]; }
 };
 

@@ -388,6 +388,7 @@ add_library(beach_volley_amiga
     games/beach_volley_amiga/entry.cpp
     games/beach_volley_amiga/data/assets.cpp
     games/beach_volley_amiga/data/preview.cpp
+    games/beach_volley_amiga/front/ending.cpp
     games/beach_volley_amiga/front/intro.cpp
     games/beach_volley_amiga/front/venue_card.cpp
     games/beach_volley_amiga/game/module.cpp

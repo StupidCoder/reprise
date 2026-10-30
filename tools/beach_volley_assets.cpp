@@ -28,6 +28,7 @@
 #include "beach_volley_amiga/data/assets.hpp"
 #include "beach_volley_amiga/entry.hpp"
 #include "beach_volley_amiga/data/preview.hpp"
+#include "beach_volley_amiga/front/ending.hpp"
 #include "beach_volley_amiga/front/intro.hpp"
 #include "beach_volley_amiga/front/venue_card.hpp"
 #include "beach_volley_amiga/game/module.hpp"
@@ -289,6 +290,12 @@ int main(int argc, char** argv) {
             // cheat (F7) held: pictures every <png every> blanks (research).
             auto game = beach_volley::game::start(argv[2]);
             game->set_option(1, 1);
+            if (std::getenv("BV_WIDE")) { // research: a 21:9 window, widescreen on
+                game->set_option(2, 1);
+                game->set_canvas(2100, 900);
+            }
+            if (std::getenv("BV_SMOOTH")) game->set_option(3, 1); // pictures half a blank on
+            game->set_frame_fraction(0.5);
             std::filesystem::create_directories(argv[3]);
             const long blanks = std::strtol(argv[4], nullptr, 10), every = std::strtol(argv[5], nullptr, 10);
             std::vector<float> audio(2 * 882);
@@ -356,6 +363,73 @@ int main(int argc, char** argv) {
                 if (differ >= 0) ++failures;
             }
             return failures ? 1 : 0;
+        }
+        if (command == "smooth-frames" && argc == 6) {
+            // smooth-frames <content> <from blank> <blanks> <out dir>: the tour
+            // (as `tour`, smooth motion on) pictured at four points of each
+            // blank from <from blank> on (research).
+            auto game = beach_volley::game::start(argv[2]);
+            game->set_option(1, 1);
+            game->set_option(3, 1);
+            std::filesystem::create_directories(argv[5]);
+            const long from = std::strtol(argv[3], nullptr, 10), count = std::strtol(argv[4], nullptr, 10);
+            std::vector<float> audio(2 * 882);
+            for (long blank = 1; blank < from + count; ++blank) {
+                app::GameInput in;
+                in.f1 = true;
+                in.fire = blank % 40 == 0;
+                game->tick(in);
+                game->audio(audio, 44100);
+                if (blank < from) continue;
+                for (int q = 0; q < 4; ++q) {
+                    game->set_frame_fraction(q / 4.0);
+                    char name[48];
+                    std::snprintf(name, sizeof name, "smooth-%06ld-%d.png", blank, q);
+                    platform::save_png(game->picture(), std::filesystem::path(argv[5]) / name);
+                }
+            }
+            return 0;
+        }
+        if (command == "ending-trace" && argc == 5) {
+            // ending-trace <content> <blanks> <screens.bin>: the ending from
+            // its song's start: per loop frame "blank x y picture x y picture
+            // colour8..15 frames" (pictures as addresses), and the screen (4
+            // planes of 600 rows) after the scroll and at loop frames 0-3, 10,
+            // 100, 799-802, 810, 900, 1000, 1100 (research: harness/final.py).
+            namespace bf = beach_volley::front;
+            const auto files = bf::load_ending_files(argv[2]);
+            amiga::PaulaChannels paula;
+            bf::Ending ending(files, paula);
+            ending.begin();
+            std::ofstream screens(argv[4], std::ios::binary);
+            std::set<int> grab{0, 1, 2, 3, 10, 100, 799, 800, 801, 802, 810, 900, 1000, 1100};
+            if (const char* list = std::getenv("BV_FRAMES")) { // research: other loop frames to grab
+                grab.clear();
+                for (const char* p = list; *p;) {
+                    char* end = nullptr;
+                    grab.insert(int(std::strtol(p, &end, 10)));
+                    p = *end ? end + 1 : end;
+                }
+            }
+            const long blanks = std::strtol(argv[3], nullptr, 10);
+            int shown = 0, top = -1;
+            for (long b = 0; b < blanks; ++b) {
+                ending.tick(false);
+                if (ending.top_row() == 201 && top != 201) {
+                    std::printf("%ld scrolled\n", b);
+                    screens.write(reinterpret_cast<const char*>(ending.screen().data()), std::streamsize(ending.screen().size()));
+                }
+                top = ending.top_row();
+                if (ending.frames() == shown) continue;
+                shown = ending.frames(); // loop frame shown - 1 drawn this blank
+                const auto& f = ending.figures();
+                std::printf("%ld %d %d %x %d %d %x", b, f[0].x, f[0].y, f[0].picture + 0x5C290u, f[1].x, f[1].y,
+                            f[1].picture + 0x5C290u);
+                for (int i = 8; i < 16; ++i) std::printf(" %x", ending.colours()[std::size_t(i)]);
+                std::printf(" %d\n", shown);
+                if (grab.count(shown - 1)) screens.write(reinterpret_cast<const char*>(ending.screen().data()), std::streamsize(ending.screen().size()));
+            }
+            return 0;
         }
         if (command == "card-trace" && argc == 6) {
             // card-trace <content> <venue> <blanks> <out.bin>: the venue card's

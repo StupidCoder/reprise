@@ -6,10 +6,13 @@ frame for frame), then the one-player tour: each venue's card (map,
 route, scene, picture, song, voice; equal to the original's screen at
 every recorded frame), the match on that venue's court with its music
 and effects, the match's end with the winner's picture and jingle, and
-the next venue (or the first again after a loss) through all eight. The
-match is equal to the original's state at every frame of three
-recordings (two on London, one on New York after a first match). After the eighth win it stops with a note (the ending is not
-rebuilt), and two players stop at the menu. Findings: [game.md](game.md).
+the next venue (or the first again after a loss) through all eight, then
+the ending with the trophy, after which the game starts again from the
+intro. The match is equal to the original's state at every frame of three
+recordings (two on London, one on New York after a first match).
+Widescreen (up to 21:9, more of the court) and smooth motion (the match
+between its 25 frames a second) are options. Two players stop at the menu.
+Findings: [game.md](game.md).
 
 ## Done
 
@@ -55,19 +58,24 @@ rebuilt), and two players stop at the menu. Findings: [game.md](game.md).
       equal to the original's screen, palette and scroll at every frame of
       `harness/card.py`'s recordings (`tools/cmp_card.py`).
 
+- [x] The ending (front/ending.cpp): final.code's trophy, scroll, figures
+      and their turning and colour cycle, musicfinal, back to the intro on
+      fire; equal to the original's loop (figures, pictures, colours: 300
+      frames; five whole screens) and its measured timeline.
+- [x] Widescreen up to 21:9 (the match shows more of the court, kept on
+      the court at its ends; the other screens centred) and smooth motion
+      for the match (its court, players and ball between its frames at
+      the display's rate; jumps are not smoothed).
+
 ## Next
 
 1. Two players: side B under port 0 ($2B32C, $2DA8C, $2D49A, $2EC5A,
    $2E924, the 2P branches in $2950C/$2FC82).
 2. Refactor the match code toward the clean form (it follows volley.code's
    routines closely; per-player duplicates are folded, the rest is next).
-3. The ending (final.code, trophe again, musicfinal) after the eighth
-   win; score.code (two players' score screen).
-4. Music in the other parts: score.code's and final.code's copies of the
-   player.
-5. Module: touch controls for the match, widescreen (the court is 576
-   wide: show more of it), 120 Hz smoothing, cheats (the original's
-   11-key code + HELP).
+3. score.code (two players' score screen) and its copy of the player.
+4. Smooth motion for the intro's titles (16.7 steps a second).
+5. Module: touch controls for the match.
 6. The music's volume keys (keypad + and -, 2-40, $28540) are not mapped.
 7. Android build check (no new dependencies so far; not built yet).
 
@@ -84,8 +92,11 @@ rebuilt), and two players stop at the menu. Findings: [game.md](game.md).
 - The pause after a point and the crowd's fade: the crowd's start can come
   a blank later in the original (drawing the big scores takes longer for
   some digits).
-- The loading pauses between the parts of the tour (disk loads, timed by
-  wall clock on the original) are fixed lengths.
+- The ending's first 1,200 loop frames and the scroll were not recorded
+  frame by frame (the probe missed the loop's direct fire read); its loop
+  was checked around frame 49,271 and its timeline from the step log.
+- The disk loads between the parts of a tour (1-8 s on the original) are
+  brief black gaps of 10 blanks (by request).
 - The chance table's place carries over from match to match by 5 places
   (measured once); the New York recording is equal for several nearby
   places, so the exact place is not pinned down by it.

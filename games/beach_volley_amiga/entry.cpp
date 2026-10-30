@@ -74,7 +74,7 @@ app::GameEntry entry() {
         .import = import::import_disk,
         .previews = previews,
         .start = game::start,
-        .progress = "The intro, the menu and the one-player tour: each venue's card, its match with music and effects, the winner's picture, through all eight venues; the ending and two players are not rebuilt yet.",
+        .progress = "The intro, the menu and the one-player tour: each venue's card, its match with music and effects, the winner's picture, through all eight venues and the ending; widescreen and smooth motion. Two players are not rebuilt yet.",
     };
 }
 

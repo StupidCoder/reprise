@@ -350,7 +350,7 @@ into A, whatever was shown (the older frame half the time).
 gives side A the match 7-0 with a whistle ($255A8). The port offers it as
 an option, F7 standing in for HELP.
 
-**Not yet rebuilt.** Two players, the score and ending programs.
+**Not yet rebuilt.** Two players and score.code.
 
 ## Venue card (recovered from animation.code; rebuilt in front/venue_card.cpp)
 
@@ -394,6 +394,43 @@ The fade steps take one blank or two (their blits about fill a frame); the
 port takes each venue's step times and pauses as measured
 (`tools/card_timing.py`). The card's music player is its own copy (see
 Music).
+
+## Ending (recovered from final.code; rebuilt in front/ending.cpp)
+
+After the eighth win volley.code loads final.code to $49800 and jumps to
+it. It loads trophe (3 planes of 224 x 399 to $51400), final (eight
+one-plane pictures of 128 x 128 to $5C290) and musicfinal (to $60290)
+with the display off, clears a screen of four planes of 320 x 600 ($32000,
+planes $5DC0 apart) shown 276 lines tall (window $25-$139), and starts the
+song on its own copy of the player (notes and effects on all four
+channels, $4A0E0/$4A170, in its level-3 handler). After a pause
+(156 blanks) it copies the trophy's first 270 rows into planes 0-2
+at row 200, 64 pixels in ($4A028), and scrolls the screen up a row a frame
+for 201 frames ($49858), so the trophy rises from the bottom. After another
+pause (317 blanks) the loop ($498D4), a frame each: the fourth plane is
+cleared from row 202 for 270 rows, and two figures (one-plane pictures
+OR-ed into the fourth plane, so they show in colours 8-15 over the trophy
+and almost black elsewhere) are drawn at their places along a way round of
+251 points ($4A714, x - 65, y + 190; the second figure 88 points behind).
+From the 800th frame their pictures turn ($49C70, one per frame), and each
+time the first figure's turn passes its 85th picture, colours 8-15 move to
+the next of 16 sets ($49A26). Fire ($BFE001, as it stands) stops the sound
+and the display and loads intro.code (0.95 s): the game starts again from
+its titles. final.code itself loads in about 2 s with the winner's picture
+still up, its files in 4.8 s with the display off.
+
+## Enhancements (the port's own)
+
+Widescreen: up to 21:9 the match shows more of the court (its picture is
+576 columns; the original shows 288 around the camera): the wider view is
+centred on the original's and kept on the court at its ends; sprites are
+drawn whole there (the original clips them at its buffer's sides). The
+intro, the cards and the ending stay their own width, centred: the cards'
+screen is 400 wide but the scenes leave trails outside the 320 they
+restore. Smooth motion: the match's court, players and ball are drawn
+between the program's last two frames by the time since the last flip
+(one frame later than the original shows them); anything that moved more
+than 32 pixels (a new rally, the controlled player's swap) is not.
 
 ## Attract and flow (observed in the emulator)
 
@@ -464,6 +501,15 @@ In `.analysis/beach_volley_amiga/`:
   venue_card.cpp); `tools/card_png.py` shows a recorded frame. The tour
   as a whole: `beach_volley_assets tour` (pictures) and `tour-save` (quick
   saves at given blanks, equal for 1,500 blanks after).
+- Ending: `harness/final.py` plays through the eight venues with the
+  cheat and logs final.code's steps (`work/final/final.txt`); the loop
+  reads the fire button straight from $BFE001, so `harness/final2.py`
+  attaches to the running loop, records 300 frames and five screens
+  (`work/final/final_loop.npz`, about frame 49,271) and then presses fire
+  through a patched read. Port: `beach_volley_assets ending-trace` (with
+  `BV_FRAMES` for the screens), compared by frame count: equal.
+- Widescreen and smooth motion: `beach_volley_assets tour` with `BV_WIDE`
+  / `BV_SMOOTH`, and `smooth-frames` (pictures at quarter blanks).
 - The next match: `harness/rec2.py` wins match 1 with the cheat, passes
   the New York card and records match 2 (`work/rec_m2.bin`, idle; the
   steps between with wall-clock times and the chance table's place in
