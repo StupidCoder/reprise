@@ -74,7 +74,7 @@ app::GameEntry entry() {
         .import = import::import_disk,
         .previews = previews,
         .start = game::start,
-        .progress = "The intro with its music and voices, and the players menu; the match is not rebuilt yet.",
+        .progress = "The intro, music and menu, and a one-player match on the first court (no sound in the match yet); the rest of the tournament and two players are not rebuilt yet.",
     };
 }
 

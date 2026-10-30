@@ -379,6 +379,14 @@ add_library(beach_volley_amiga
     games/beach_volley_amiga/front/intro.cpp
     games/beach_volley_amiga/game/module.cpp
     games/beach_volley_amiga/import/disk_import.cpp
+    games/beach_volley_amiga/match/match.cpp
+    games/beach_volley_amiga/match/match_ball.cpp
+    games/beach_volley_amiga/match/match_data.cpp
+    games/beach_volley_amiga/match/match_flow.cpp
+    games/beach_volley_amiga/match/match_loop.cpp
+    games/beach_volley_amiga/match/match_players.cpp
+    games/beach_volley_amiga/match/match_side_a.cpp
+    games/beach_volley_amiga/match/match_side_b.cpp
     games/beach_volley_amiga/sound/soundtracker.cpp)
 target_include_directories(beach_volley_amiga PUBLIC ${SOURCE_ROOT})
 target_link_libraries(beach_volley_amiga PUBLIC amiga platform ui)

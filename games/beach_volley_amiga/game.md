@@ -225,6 +225,82 @@ plays four) and in pause flags; read when their parts are rebuilt.
 Port: `beach_volley_assets music-trace` against `harness/music_trace.py`
 (the player's variables after each blank): 3,000 blanks equal.
 
+## Match (recovered from volley.code; rebuilt in match/)
+
+**Loop and timing (observed and measured).** The main loop ($2526A) draws a
+frame into the back buffer and calls the flip ($30C14), which waits for
+beam line 255 and shows it: one pass every two vertical blanks (25 Hz).
+A pass reads the joysticks (decoded each blank by the level-3 interrupt
+into 1 up, 2 away from the net, 4 down, 8 toward the net; JOY0 is side B,
+mirrored) as they stood a blank before its frame shows. The court blit at
+the start of a pass outlasts a blank: the rally logic sees the chance value
+before it, the drawing and the ball's flight the value after. A serve's
+contact pass runs on into the rally's first pass without a flip (3 blanks).
+After a point: the last frame, the court with the net and the two scores
+in 8 x 8 blocks (drawn into the shown buffer), a pause of 155-157 blanks
+(a CPU loop; the music's load decides), then the next serve.
+
+**Chance (observed).** There is no random generator: each venue has a
+table of values 1-5 ($2869A for London, 54 entries) the vertical blank
+steps through, one per blank. Shots, B1's jump and B2's block read the
+current value. The port keeps the tables (data) and the stepping.
+
+**Objects (recovered).** 20-byte records at $30CC4 (x, y, picture, mask
+buffer, screen address, width, height): A1, A2, B1, B2, ball, ball shadow,
+four player shadows, net, setter mark, landing mark, cursor, clock ring,
+spike mark, clock hand, ball mark, banner. Slot 1 of a side is always the
+player under control: $25B72/$25C18 swap the records when the other
+player is nearer the landing mark (16-bit wrapped squared distance).
+Pictures are 4-plane images in the sprite block (animation1 + animation2 at
+$53E00, planes $1F40 apart, rows 40 bytes). The second player of each side
+is drawn with planes 0 and 1 swapped (other colours); side A's colours stay
+with the person across swaps ($25C16).
+
+**Drawing (recovered, pixel-checked).** The court (576 x 232) is blitted
+to the buffer from the camera's byte ($29018) with a 0-15 pixel shift
+($28B56), 32 rows above the window; the scene moves down 4 rows a pass,
+up to 32, while the ball is above the screen ($2AF44). Sprites ($3030E)
+are cookie-cut with a mask made from their four planes; the routine clears
+the blitter's last-word mask, so each row's last word is never drawn. The
+window shows buffer columns 16-303 and 200 rows. The scoreboard digits are
+drawn into the court picture itself ($26210); the match clock's dots are
+plotted into the sprite sheet ($31E5C): used minutes colour 9, the rest 15,
+and a two-dot hand turning one place a pass.
+
+**Rally (recovered).** The touch phase ($25B6A) steps through 3 4 3 1 2 1
+($2A95A): 1/2 side A's first/second touch, 3/4 side B's. Every touch calls
+the shot routine ($2950C), a decision tree over who touched (serve, bump,
+set, jump, block), the joystick and the chance value; it fills the shot
+(travel, pixels a pass, direction, the landing mark's move across) and the
+arc's height. The landing mark ($2FC82) and the camera's easing run
+($2AA96) follow from it; the ball rises and falls along the arc table
+below $2AF38 while its shadow walks to the mark. The ball down at the mark
+ends the rally: out beyond x 65 / 484 or y 70 / 176 by the side that
+touched it, otherwise to the side whose half it fell in ($26192).
+Matches go to 7 points (rally scoring); one-player matches have a clock of
+eleven minutes of 1,100 blanks (at the last, side B wins).
+
+**Players (recovered).** The four walking/stance routines are copies
+($2B41C, $2B5E6, $2B786, $2B962; B1 judges the ball from 16 pixels
+further right). A1's button plays ($2C632): by where the landing mark is
+from his feet: dig (just behind), bump (further behind), crouch (just
+ahead), low dig (further ahead), dives left and right; up and the button
+at the net while attacking: the jump and spike ($2D25E); up and the button
+at the net otherwise: the block hop ($2E986). The computer side uses the
+same plays ($2F224) plus its setters ($2E58A, $2F01A) and B2's block
+($2EE90).
+
+**Original quirks kept.** The sound routines' delay loops leave -1 in d0:
+the toss step that plays the bounce moves the ball by -1. The block test
+compares a register the joystick routine left. The bounce's step is a
+32/16 division of a register whose high half the flip left (overflow:
+step 1). A B1 dive clears A1's play flag. The serve's B1 shadow is written
+into A1's shadow record. A serve after a point first shows the older
+buffer for a frame ($262B2).
+
+**Not yet rebuilt.** Sound in the match, the match end and the other
+venues, two players, the venue cards, score and ending programs.
+
 ## Attract and flow (observed in the emulator)
 
 After F1 a venue card (London, Big Ben) appears; after fire the match
@@ -232,7 +308,8 @@ starts on the London court, two players a side, serving from the left.
 
 ## Randomness
 
-The intro draws no random numbers. The match is not examined yet.
+The intro draws no random numbers. The match uses the venue's chance
+table stepped by the vertical blank (see Match); the port keeps it.
 
 ## Lesson candidates
 
@@ -265,7 +342,19 @@ In `.analysis/beach_volley_amiga/`:
   position as a vertical-blank clock). The stub answers a stop with
   `$%Stop:T05…`; `dbg.py` strips the `%`.
 - Disassembly: `tools/m68kdis.py` (Capstone) on the flat code files at their
-  load addresses; `tools/planes.py` for bitplane layout trials.
+  load addresses; `tools/rdis.py` (recursive descent from the entries:
+  `work/dis/volley_code.s`), `tools/show.py` (address ranges);
+  `tools/planes.py` for bitplane layout trials. Working notes:
+  `work/match_notes.md`.
+- Match harness: `harness/inject.py` patches volley.code's input reads
+  ($BFE001, $DFF00A/C) to a mailbox at $25700 the harness writes each blank
+  (the stub cannot write SR, and a PC write keeps stale prefetch);
+  `harness/record.py` records every frame's state blocks
+  (`work/state_blocks.txt`) from a per-blank input script; `grab.py` the
+  drawn screens. Recordings: `work/rec_idle2.bin` (idle human),
+  `work/rec_play1.bin` (random human input, seed 7); `screens_idle.npz`.
+  Comparison: `beach_volley_assets match-trace` then `tools/cmp_match.py`
+  and `tools/cmp_screens.py` (`tools/pauses.py` for the point pauses).
 
 ## Prior exposure
 

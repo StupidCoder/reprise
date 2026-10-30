@@ -14,15 +14,27 @@
 //       both 600 blanks on, comparing picture and sound
 //   beach_volley_assets sound <content folder> <out.wav> <blanks>
 //       the game's sound from its start for that many vertical blanks
+//   beach_volley_assets match-save <content> <script> <offset> <blanks> <save blank>...
+//       runs a one-player match on a script, saves the match at each listed
+//       blank, reads it into a new match and runs both on to <blanks>,
+//       comparing their screens every blank
+//   beach_volley_assets match-trace <content> <venue> <script> <offset> <chance> <blanks> [<png folder>]
+//       runs a match on the research harness's input script (lines
+//       "<vblank> <port1 dirs|-> <fire 0/1> [<port0 dirs|-> <fire>]", the
+//       match's blank 0 being harness vblank <offset>), the chance table
+//       starting at <chance>; prints the object table after each pass of
+//       the program's loop and optionally saves the pictures
 
 #include "beach_volley_amiga/data/assets.hpp"
 #include "beach_volley_amiga/entry.hpp"
 #include "beach_volley_amiga/data/preview.hpp"
 #include "beach_volley_amiga/front/intro.hpp"
 #include "beach_volley_amiga/game/module.hpp"
+#include "beach_volley_amiga/match/match.hpp"
 #include "beach_volley_amiga/sound/soundtracker.hpp"
 #include "beach_volley_amiga/import/disk_import.hpp"
 #include "platform/files.hpp"
+#include "state/archive.hpp"
 #include "platform/host.hpp"
 #include <algorithm>
 #include <cstdio>
@@ -128,6 +140,109 @@ int main(int argc, char** argv) {
                 }
                 std::printf("blank %ld: %zu bytes saved, %s\n", at, saved.size(),
                             differ < 0 ? "same for 600 blanks" : ("differs after " + std::to_string(differ)).c_str());
+            }
+            return 0;
+        }
+        if (command == "match-save" && argc >= 7) {
+            namespace bm = beach_volley::match;
+            const auto data = bm::load_match_data(argv[2], 1);
+            std::vector<std::pair<long, bm::MatchInput>> script;
+            std::ifstream in(argv[3]);
+            for (std::string line; std::getline(in, line);) {
+                char d1[16] = "-";
+                long v = 0;
+                int f1 = 0;
+                if (line.empty() || line[0] == '#' || std::sscanf(line.c_str(), "%ld %15s %d", &v, d1, &f1) < 3) continue;
+                const std::string s(d1);
+                script.push_back({v, {{s.find('u') != std::string::npos, s.find('d') != std::string::npos,
+                                       s.find('l') != std::string::npos, s.find('r') != std::string::npos, f1 != 0},
+                                      {}}});
+            }
+            const long offset = std::strtol(argv[4], nullptr, 10), blanks = std::strtol(argv[5], nullptr, 10);
+            const auto input_at = [&](long b) {
+                bm::MatchInput input;
+                for (const auto& [v, i] : script)
+                    if (v <= b + offset) input = i;
+                return input;
+            };
+            int failures = 0;
+            for (int a = 6; a < argc; ++a) {
+                const long at = std::strtol(argv[a], nullptr, 10);
+                bm::Match first(data, 1);
+                for (long b = 0; b < at; ++b) first.tick(input_at(b));
+                state::Writer w;
+                first.persist(w);
+                bm::Match second(data, 1);
+                state::Reader r(w.bytes);
+                second.persist(r);
+                r.finish();
+                long bad = -1;
+                for (long b = at; b < blanks && bad < 0; ++b) {
+                    first.tick(input_at(b));
+                    second.tick(input_at(b));
+                    if (first.screen() != second.screen()) bad = b;
+                }
+                std::printf("save at %ld (%zu bytes): %s\n", at, w.bytes.size(),
+                            bad < 0 ? "identical to the end" : ("differs at blank " + std::to_string(bad)).c_str());
+                if (bad >= 0) ++failures;
+            }
+            return failures ? 1 : 0;
+        }
+        if (command == "match-trace" && argc >= 8) {
+            namespace bm = beach_volley::match;
+            const auto data = bm::load_match_data(argv[2], std::atoi(argv[3]));
+            struct Event { long vblank; bm::MatchInput input; };
+            std::vector<Event> script;
+            std::ifstream in(argv[4]);
+            for (std::string line; std::getline(in, line);) {
+                if (line.empty() || line[0] == '#') continue;
+                char d1[16] = "-", d0[16] = "-";
+                long v = 0;
+                int f1 = 0, f0 = 0;
+                if (std::sscanf(line.c_str(), "%ld %15s %d %15s %d", &v, d1, &f1, d0, &f0) < 3) continue;
+                const auto stick = [](const char* d, int fire) {
+                    const std::string s(d);
+                    return bm::Stick{s.find('u') != std::string::npos, s.find('d') != std::string::npos,
+                                     s.find('l') != std::string::npos, s.find('r') != std::string::npos, fire != 0};
+                };
+                script.push_back({v, {stick(d1, f1), stick(d0, f0)}});
+            }
+            const long offset = std::strtol(argv[5], nullptr, 10);
+            bm::Match match(data, 1);
+            match.set_chance_place(std::atoi(argv[6]));
+            if (const char* pauses = std::getenv("BV_PAUSES")) { // research: a recording's point pauses
+                std::vector<int> list;
+                for (const char* p = pauses; *p;) {
+                    char* end = nullptr;
+                    list.push_back(int(std::strtol(p, &end, 10)));
+                    p = *end ? end + 1 : end;
+                }
+                match.set_point_pauses(list);
+            }
+            const long blanks = std::strtol(argv[7], nullptr, 10);
+            std::size_t k = 0;
+            bm::MatchInput input;
+            for (long b = 0; b < blanks; ++b) {
+                while (k < script.size() && script[k].vblank <= b + offset) input = script[k++].input;
+                match.tick(input);
+                if (!match.stepped()) continue;
+                std::printf("%ld", b);
+                std::fprintf(stderr, "%ld %s\n", b, match.debug().c_str());
+                for (int n = 0; n < bm::object_count; ++n) {
+                    const auto& o = match.object(bm::Object(n));
+                    std::printf(" %d %d %x %d %d", o.x, o.y, unsigned(o.image.at + bm::sprite_block_address),
+                                o.image.width, o.image.height);
+                }
+                std::printf("\n");
+                if (argc >= 9 && std::string(argv[8]).ends_with(".bin")) {
+                    static std::ofstream screens(argv[8], std::ios::binary);
+                    const auto px = match.screen();
+                    screens.write(reinterpret_cast<const char*>(px.data()), std::streamsize(px.size()));
+                } else if (argc >= 9) {
+                    char name[64];
+                    std::snprintf(name, sizeof name, "/match-%05ld.png", b);
+                    platform::save_png(match.picture(), std::string(argv[8]) + name);
+                }
             }
             return 0;
         }

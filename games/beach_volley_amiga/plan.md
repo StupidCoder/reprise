@@ -1,10 +1,13 @@
 # Beach Volley — plan
 
-Status (2026-10-29): the disk imports (52 files, every one checked by
-SHA-256) and the launcher shows the eight courts with their palettes. The
-game starts: the intro with its music and voices and the players menu, equal
-to the original frame for frame; choosing stops with a note (the match is
-next). Findings: [game.md](game.md).
+Status (2026-10-30): the disk imports and the launcher shows the eight
+courts. The game plays its intro, music and menu (equal to the original
+frame for frame), then a one-player match on the first court (London):
+serves, rallies, the computer's side, side A's plays under the joystick,
+points and the scoreboard, equal to the original's state at every frame
+of two recordings (2,235 frames). The match has no sound yet; it stops
+with a note when it ends, and two players stop at the menu. Findings:
+[game.md](game.md).
 
 ## Done
 
@@ -24,26 +27,49 @@ next). Findings: [game.md](game.md).
       vertical blanks equal to the original's variables.
 - [x] Module: 50 Hz, VHS option, quick saves of the real state (screens,
       copper, counters, player, Paula; `beach_volley_assets save-check`).
+- [x] Match (match/*.cpp): one-player match on venue 1 from volley.code's
+      rules: both serves, the shot decision tree, the ball's flight and
+      camera, the computer's four players' movement and plays, side A1's
+      plays (bump, dig, crouch, low dig, dives, block hop, jump spike,
+      fall), points, scoreboard digits, big scores, match clock dots.
+      Equal to the original's object table at every frame of
+      `rec_idle2` (700) and `rec_play1` (1,535, random human input);
+      sampled screens pixel-identical (`cmp_screens.py`). Quick saves of the
+      match (`beach_volley_assets match-save`).
 
 ## Next
 
-1. Match screen from game state: court scroll ($29018), sprites/players
-   (animation1/2 at $53E00/$66A62), ball, net, scoreboard digits ($26210).
-2. Rules: serve, rally, touches per side, scoring, side changes, match end;
-   computer players; read from volley.code with the reference as oracle
-   (recording harness like the other Amiga games).
-3. Front end after the menu: venue cards, map (carte, animation.code),
+1. Match sound: volley.code's music player copy ($30E6C/$30EB2: three
+   music channels, the fourth for effects) with the venue song and the
+   hurry song; the effects ($292BE-$294BA one-shot samples in the block).
+2. Match end ($25CA2): winner banner, jingles, next venue (venues 2-8 and
+   their chance tables), the time limit (clock at 22 -> side B wins).
+3. Two players: side B under port 0 ($2B32C, $2DA8C, $2D49A, $2EC5A,
+   $2E924, the 2P branches in $2950C/$2FC82).
+4. Refactor the match code toward the clean form (it follows volley.code's
+   routines closely; per-player duplicates are folded, the rest is next).
+5. Front end after the menu: venue cards, map (carte, animation.code),
    score screen (score.code), ending (final.code, trophe again).
-4. Music in the other parts: volley.code's, score.code's, animation.code's
-   and final.code's copies of the player (their channels and pause flags);
-   the match's sound effects.
-5. Randomness: find the generator and decide per ADDING_A_GAME §3.
-6. Module: fixed tick, input (keyboard, gamepad, touch), VHS option,
-   quick saves of real state, widescreen (the court is 576 wide: show more
-   of it), 120 Hz smoothing, cheats.
-7. Android build check (no new dependencies so far; not built yet).
+6. Music in the other parts: score.code's, animation.code's and
+   final.code's copies of the player.
+7. Module: touch controls for the match, widescreen (the court is 576
+   wide: show more of it), 120 Hz smoothing, cheats (the original's
+   11-key code + HELP).
+8. Android build check (no new dependencies so far; not built yet).
 
 ## Known gaps
+
+- The pause after a point is a CPU loop in the original: 155-157 blanks
+  depending on the music's load. The port waits 156; a blank's difference
+  moves the chance table one step (research tools set the recorded
+  lengths, `BV_PAUSES`).
+- Some frames draw the ball 2 pixels left of the original (frame 190 of
+  `rec_idle2`; the state is equal, the blit differs). Not yet explained.
+- B1's reach test reads a register B1's movement leaves when his walk is
+  skipped; the port assumes a nonzero value there (`b1_register_`).
+- The time-up quirk that plots a clock dot at the sprite sheet's corner
+  (index 11) is not reproduced.
+- The red flash ($DFF180) when the ball lands out is not shown.
 
 - Map, score and ending picture layouts not yet read.
 - The host has no F2 key: two players is 2, the gamepad's second button or
