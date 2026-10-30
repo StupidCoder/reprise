@@ -43,6 +43,7 @@
 #include "fa_18_interceptor_amiga/game/autopilot.hpp"
 #include "fa_18_interceptor_amiga/game/collisions.hpp"
 #include "fa_18_interceptor_amiga/game/replay.hpp"
+#include "fa_18_interceptor_amiga/game/scene.hpp"
 #include "fa_18_interceptor_amiga/game/carrier.hpp"
 #include "fa_18_interceptor_amiga/game/object_step.hpp"
 #include "fa_18_interceptor_amiga/game/object_world.hpp"
@@ -371,6 +372,7 @@ interceptor::game::Aircraft aircraft_from(const Frame& f) {
     a.state = o.u16(0); a.motion = o.u16(2);
     a.surface = o.u8(4); a.handling = o.u8(0x20);
     a.type = o.u8(0x62); a.role = o.u8(5); a.timer = o.s16(0x4C);
+    a.trail = o.u8(0x3D);
     a.stall_warning = g.u8(0x13AE43 - 0x13A9E0) & 0x80;
     a.fuel_warning = std::uint8_t(g.u8(0x13AE43 - 0x13A9E0) & 0x43);
     a.supersonic = g.u16(0x13ABC2 - 0x13A9E0) & 0x4000;
@@ -686,7 +688,9 @@ int sound_check(const std::filesystem::path& content, const std::filesystem::pat
 // Research: steps the missile records (1-3) and the projectile slots of a
 // recording made with `flightcap.py --objs` one frame at a time from the
 // original's state, launching and firing where the original did, and
-// compares the next frame's positions, velocities and counters.
+// compares the next frame's positions, velocities and counters. A missile
+// below the ground blows up there; with `--smoke` the smoke slot it leaves
+// is compared too (its type, place and timer), and the slots' timers.
 int weapon_check(const std::filesystem::path& content, const std::filesystem::path& capture) {
     using namespace interceptor;
     const auto assets = data::load_assets(content);
@@ -694,9 +698,10 @@ int weapon_check(const std::filesystem::path& content, const std::filesystem::pa
     const game::Weapons weapons(assets.program, tables);
     const game::Autopilot autopilot(assets.program, tables);
     const game::ShotHits shot_hits(assets.program, tables);
+    const auto world = data::read_world(assets.program);
     struct Line {
         Frame frame;
-        std::vector<std::uint8_t> objs, shots;
+        std::vector<std::uint8_t> objs, shots, smoke;
         std::map<int, std::vector<std::uint8_t>> recs; // (`--recs`: the records a lock can be on)
     };
     std::vector<Line> lines;
@@ -709,6 +714,7 @@ int weapon_check(const std::filesystem::path& content, const std::filesystem::pa
         l.frame.globals = hex_field(text, "glob");
         l.objs = hex_field(text, "objs");
         l.shots = hex_field(text, "shots");
+        if (text.find("\"smoke\"") != std::string::npos) l.smoke = hex_field(text, "smoke");
         for (int r = 5; r < 16; ++r) {
             if (text.find("\"" + std::to_string(r) + "\": \"") != std::string::npos) l.recs[r] = hex_field(text, std::to_string(r));
         }
@@ -728,6 +734,7 @@ int weapon_check(const std::filesystem::path& content, const std::filesystem::pa
         m.pilot = o.u8(0x64);
         m.course.target = {o.s16(0x2C), o.s16(0x2E), o.s16(0x30), o.s16(0x32), o.s32(0x34)};
         m.course.target_record = o.u8(0x38);
+        m.stopped = (o.u16(0) & 0x400) && !(o.u16(0) & 0x1000);
         return m;
     };
     const auto shot_from = [&](const Line& l, int slot) {
@@ -776,6 +783,33 @@ int weapon_check(const std::filesystem::path& content, const std::filesystem::pa
             std::optional<game::Aircraft> locked;
             if (lock > 0 && now.recs.count(lock / 0x200)) locked = aircraft_from(Frame{0, now.recs.at(lock / 0x200), now.frame.globals});
             game::Weapons::fly_missile(m, rules, tables, locked ? &*locked : nullptr, locked ? lock / 0x200 : -1, &autopilot);
+            // Below the ground ($11B6A2's $10, when it touched nothing):
+            // it blows up there; on land it leaves smoke in the first free
+            // slot.
+            if (was && !m.fading) {
+                const game::Aircraft from = missile_from(now, slot).body;
+                std::array<std::int32_t, 3> smoke_at{};
+                bool smoke = false;
+                if (game::Weapons::hit_ground(m, {from.x, from.y, from.z}, &world, smoke_at, smoke) && !now.smoke.empty() &&
+                    !next.smoke.empty()) {
+                    int free = -1;
+                    for (int k = 0; k < 16 && free < 0; ++k)
+                        if (!(now.smoke[std::size_t(32 * k + 1)] & 0x40)) free = k;
+                    const std::string n = "m" + std::to_string(slot + 1) + "smoke";
+                    check(n, smoke && free >= 0 ? free : -1,
+                          free >= 0 && (next.smoke[std::size_t(32 * free + 1)] & 0x40) ? free : -1);
+                    if (smoke && free >= 0) {
+                        const Record want{std::vector<std::uint8_t>(next.smoke.begin() + 32 * free, next.smoke.begin() + 32 * free + 32)};
+                        const int type = (free & 1) ? 0x12 : 0x13;
+                        check(n + "type", type, want.u16(2));
+                        check(n + "timer", 0x7F, want.s16(4));
+                        // (+6 / +8 the cells, +$C / +$E / +$10 the fine place.)
+                        check(n + "x", smoke_at[0] >> 8, want.s16(6) * 0x4000 + want.s16(0xC));
+                        check(n + "y", smoke_at[1] >> 8, want.s32(0x10));
+                        check(n + "z", smoke_at[2] >> 8, want.s16(8) * 0x4000 + want.s16(0xE));
+                    }
+                }
+            }
             // Its touch ($11B6A2 after its move, from its place before
             // it) against the recorded records as the frame started.
             if (!now.recs.empty() && was) {
@@ -805,6 +839,13 @@ int weapon_check(const std::filesystem::path& content, const std::filesystem::pa
             const auto want = missile_from(next, slot);
             const std::string n = "m" + std::to_string(slot + 1) + (was ? "." : "+");
             check(n + "x", m.body.x, want.body.x); check(n + "y", m.body.y, want.body.y); check(n + "z", m.body.z, want.body.z);
+            check(n + "stopped", m.stopped, want.stopped);
+            check(n + "water", m.body.surface & 2, want.body.surface & 2);
+            if (want.stopped) { // (the rest of its record no longer counts)
+                check(n + "life", m.life, want.life);
+                ++compared_here;
+                continue;
+            }
             check(n + "vx", m.body.vx, want.body.vx); check(n + "vy", m.body.vy, want.body.vy); check(n + "vz", m.body.vz, want.body.vz);
             check(n + "speed", m.body.speed, want.body.speed); check(n + "life", m.life, want.life);
             check(n + "fading", m.fading, want.fading);
@@ -863,6 +904,16 @@ int weapon_check(const std::filesystem::path& content, const std::filesystem::pa
             if (!(Record{record(now, 3)}.u16(0) & 0x0600)) check("r4crash", targets[0].craft.state & 0x0200, want.u16(0) & 0x0200);
             ++compared_here;
         }
+        if (!now.smoke.empty() && !next.smoke.empty()) {
+            // $116B82: the slots in use run down a frame.
+            for (int k = 0; k < 16; ++k) {
+                if (!(now.smoke[std::size_t(32 * k + 1)] & 0x40)) continue;
+                const Record a{std::vector<std::uint8_t>(now.smoke.begin() + 32 * k, now.smoke.begin() + 32 * k + 32)};
+                const Record b{std::vector<std::uint8_t>(next.smoke.begin() + 32 * k, next.smoke.begin() + 32 * k + 32)};
+                check("smoke" + std::to_string(k), std::int16_t(a.s16(4) - 1), b.s16(4));
+            }
+            ++compared_here;
+        }
         if (compared_here == 0) continue;
         ++compared;
         if (diff.empty()) ++matched;
@@ -870,6 +921,195 @@ int weapon_check(const std::filesystem::path& content, const std::filesystem::pa
     }
     std::printf("%d of %d frames match\n", matched, compared);
     return matched == compared ? 0 : 1;
+}
+
+// --- trailcheck ----------------------------------------------------------------
+
+// Research: the smoke trail's ring (`$1450B8`-`$145103`, a recording made
+// with `flightcap.py --recs N --mem 1450B8:50`) taken frame by frame from
+// the recorded record N after its step (`$11AD0A` as Trail::update, for a
+// record active as the step began), and
+// which record the trail follows (`$1450BA`: the one newly burning, +2 bit
+// 4). Compares the ring, its next slot and count, and the record's +$3D.
+int trail_check(const std::filesystem::path& content, const std::filesystem::path& capture, int number) {
+    using namespace interceptor;
+    (void)content;
+    struct Line {
+        Frame frame;
+        std::vector<std::uint8_t> rec, mem;
+    };
+    std::vector<Line> lines;
+    std::ifstream in(capture);
+    for (std::string text; std::getline(in, text);) {
+        if (text.empty()) continue;
+        Line l;
+        l.frame.number = std::stoi(text.substr(text.find("\"frame\": ") + 9));
+        l.frame.globals = hex_field(text, "glob");
+        l.rec = hex_field(text, std::to_string(number));
+        l.mem = hex_field(text, "mem");
+        lines.push_back(std::move(l));
+    }
+    const auto ring_of = [](const std::vector<std::uint8_t>& mem) {
+        const Record m{mem};
+        game::Trail t;
+        t.count = m.u8(0);
+        t.next = m.u8(1);
+        t.record = m.s16(2) / 0x200;
+        for (int s = 0; s < 6; ++s)
+            for (int k = 0; k < 3; ++k) t.places[std::size_t(s)][std::size_t(k)] = m.s32(4 + 12 * s + 4 * k);
+        return t;
+    };
+    int compared = 0, matched = 0, updates = 0;
+    for (std::size_t i = 0; i + 1 < lines.size(); ++i) {
+        const auto& now = lines[i];
+        const auto& next = lines[i + 1];
+        if (next.frame.number != now.frame.number + 1) continue;
+        auto t = ring_of(now.mem);
+        const auto want = ring_of(next.mem);
+        auto a = aircraft_from(Frame{0, next.rec, next.frame.globals});
+        const auto before = aircraft_from(Frame{0, now.rec, now.frame.globals});
+        std::string diff;
+        const auto check = [&](const std::string& name, long got, long expected) {
+            if (got != expected) diff += " " + name + " " + std::to_string(got) + "/" + std::to_string(expected);
+        };
+        // The record newly burning is the trail's.
+        if ((a.motion & 0x1000) && !(before.motion & 0x1000)) t.record = number;
+        check("record", t.record, want.record);
+        const bool waiting = Record{next.frame.globals}.u8(0x13AA9E - 0x13A9E0);
+        if (t.record == number && !waiting && (before.state & 0x40)) { // (also the step that takes it off)
+            a.trail = before.trail;
+            t.update(a);
+            ++updates;
+            check("+3D", a.trail, Record{next.rec}.u8(0x3D));
+        }
+        check("count", t.count, want.count);
+        check("next", t.next, want.next);
+        for (int s = 0; s < 6; ++s)
+            for (int k = 0; k < 3; ++k)
+                check("p" + std::to_string(s) + "." + std::to_string(k), t.places[std::size_t(s)][std::size_t(k)],
+                      want.places[std::size_t(s)][std::size_t(k)]);
+        ++compared;
+        if (diff.empty()) ++matched;
+        else std::printf("frame %d:%s\n", next.frame.number, diff.c_str());
+    }
+    std::printf("%d updates; %d of %d frames match\n", updates, matched, compared);
+    return matched == compared ? 0 : 1;
+}
+
+// --- effectshot ----------------------------------------------------------------
+
+// Research: the port's view of a recorded frame (`flightcap.py --objs
+// --smoke`): the original's camera (`$13AD6C` and the view matrix
+// `$13AEC8`), the aircraft itself when the view is outside, the missile
+// records 1-3 and recorded records (blowing up ones with their explosion,
+// the trail's record with its trail) and the smoke slots,
+// in the flight palette, low-res pixels doubled as harness/screen.py shows
+// the original.
+int effect_shot(const std::filesystem::path& content, const std::filesystem::path& capture, int index,
+                const std::filesystem::path& out) {
+    using namespace interceptor;
+    const auto assets = data::load_assets(content);
+    const auto world = data::read_world(assets.program);
+    const game::Scene scene(assets, world);
+    std::ifstream in(capture);
+    std::string text;
+    for (int i = 0; std::getline(in, text) && i < index; ++i) {}
+    Frame f;
+    f.number = std::stoi(text.substr(text.find("\"frame\": ") + 9));
+    // (With a follow step the picture is the aircraft's own place, before
+    // the poke: "moved".)
+    f.object = hex_field(text, text.find("\"moved\"") != std::string::npos ? "moved" : "obj");
+    f.globals = hex_field(text, "glob");
+    const auto objs = hex_field(text, "objs");
+    const auto smoke = text.find("\"smoke\"") != std::string::npos ? hex_field(text, "smoke") : std::vector<std::uint8_t>{};
+    const auto player = aircraft_from(f);
+    const Record g{f.globals};
+    game::Camera camera;
+    for (int k = 0; k < 9; ++k) camera.matrix[std::size_t(k)] = g.s16(0x13AEC8 - 0x13A9E0 + 2 * k) / 256.0;
+    // (`$13AD6C`: the camera's place, 32-bit units.)
+    for (std::size_t k = 0; k < 3; ++k) camera.position[k] = g.s32(0x13AD6C - 0x13A9E0 + 4 * int(k)) / 256.0;
+    std::vector<game::Vehicle> vehicles;
+    if (g.u8(0x13AA75 - 0x13A9E0)) { // the outside view: the aircraft itself
+        game::Vehicle self;
+        self.type = player.type == 0x10 ? 3 : 4;
+        self.position = {player.x / 256.0, player.y / 256.0, player.z / 256.0};
+        self.body = player.body;
+        vehicles.push_back(self);
+    }
+    for (int slot = 0; slot < 3 && !objs.empty(); ++slot) {
+        const std::vector<std::uint8_t> bytes(objs.begin() + slot * 0x200, objs.begin() + (slot + 1) * 0x200);
+        const Record o{bytes};
+        if (!(o.u16(0) & 0x40)) continue;
+        const auto a = aircraft_from(Frame{0, bytes, f.globals});
+        game::Vehicle v;
+        v.type = o.u8(0x62);
+        v.position = {a.x / 256.0, a.y / 256.0, a.z / 256.0};
+        v.body = a.body;
+        const int timer = o.s16(0x4C);
+        if ((o.u16(0) & 0x400) && timer >= 0 && timer <= 15) {
+            v.explosion_age = 15 - timer;
+            v.explosion_kind = (o.u8(4) & 2) ? 2 : 1;
+            v.model = timer > 12;
+        }
+        vehicles.push_back(v);
+    }
+    // Recorded records (`--recs`), drawn with the shape type +$7A, their
+    // explosion and, for the trail's record (`--mem 1450B8:50`), its trail.
+    const auto mem = text.find("\"mem\"") != std::string::npos ? hex_field(text, "mem") : std::vector<std::uint8_t>{};
+    for (int number = 5; number < 16; ++number) {
+        if (text.find("\"" + std::to_string(number) + "\": \"") == std::string::npos) continue;
+        const auto bytes = hex_field(text, std::to_string(number));
+        const Record o{bytes};
+        if (!(o.u16(0) & 0x40)) continue;
+        const auto a = aircraft_from(Frame{0, bytes, f.globals});
+        game::Vehicle v;
+        v.type = o.u8(0x7A);
+        v.position = {a.x / 256.0, a.y / 256.0, a.z / 256.0};
+        v.body = a.body;
+        if ((a.state & 0x400) && a.timer >= 0 && a.timer <= 15) {
+            v.explosion_age = 15 - a.timer;
+            v.explosion_kind = a.type == 0x15 ? 3 : (a.surface & 2) ? 2 : 1;
+            v.model = a.timer > 12;
+        }
+        if (!mem.empty() && Record{mem}.s16(2) == number * 0x200 && a.trail > 0) {
+            const Record m{mem};
+            game::Vehicle::Trail t;
+            t.length = a.trail;
+            t.spinning = a.handling & 2;
+            t.move = {a.vx / 256.0, a.vy / 256.0, a.vz / 256.0};
+            const auto add = [&](int slot) {
+                t.slots.push_back(slot);
+                t.places.push_back({m.s32(4 + 12 * slot) / 256.0, m.s32(8 + 12 * slot) / 256.0, m.s32(12 + 12 * slot) / 256.0});
+            };
+            if (m.u8(0) >= 6) {
+                for (int k = 0; k <= a.trail; ++k) add((m.u8(1) + k) % 6);
+            } else {
+                for (int k = 0; k < a.trail; ++k) add(k);
+            }
+            v.trail = t;
+        }
+        vehicles.push_back(v);
+    }
+    std::vector<game::SmokeColumn> columns;
+    for (int k = 0; k < 16 && !smoke.empty(); ++k) {
+        const Record o{std::vector<std::uint8_t>(smoke.begin() + 32 * k, smoke.begin() + 32 * k + 32)};
+        if (!(o.u16(0) & 0x40)) continue;
+        columns.push_back({o.u16(2) + 16, o.s16(4),
+                           {double(o.s16(6) * 0x4000 + o.s16(0xC)), double(o.s32(0x10)), double(o.s16(8) * 0x4000 + o.s16(0xE))}});
+    }
+    game::IndexedImage view(320, 168);
+    scene.draw(view, 159, 167, camera, vehicles, {}, columns);
+    const auto& palette = assets.palettes.at(data::flight_palette);
+    platform::Image sheet(640, 168);
+    for (int y = 0; y < 168; ++y) {
+        for (int x = 0; x < 640; ++x) {
+            const auto c = palette[view.pixels[std::size_t(y * 320 + x / 2)] & 31];
+            sheet.put(x, y, {std::uint8_t((c >> 8 & 15) * 17), std::uint8_t((c >> 4 & 15) * 17), std::uint8_t((c & 15) * 17)});
+        }
+    }
+    platform::save_png(sheet, out);
+    std::printf("frame %d: %zu vehicles, %zu smoke slots\n", f.number, vehicles.size(), columns.size());
+    return 0;
 }
 
 // --- democheck -----------------------------------------------------------------
@@ -1868,6 +2108,13 @@ int main(int argc, char** argv) {
             return hud_check(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]), std::stoi(argv[4]),
                              std::stoi(argv[5]), std::stoi(argv[6]), std::stoi(argv[7]), std::stoi(argv[8]) != 0,
                              argc == 13 ? std::stoi(argv[9]) : 0, argc == 13 ? std::stoi(argv[10]) : 0, pipper);
+        }
+        if (command == "trailcheck" && argc == 5) {
+            return trail_check(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]), std::stoi(argv[4]));
+        }
+        if (command == "effectshot" && argc == 6) {
+            return effect_shot(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]), std::stoi(argv[4]),
+                               platform::utf8_path(argv[5]));
         }
         if (command == "weaponcheck" && argc == 4) {
             return weapon_check(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]));

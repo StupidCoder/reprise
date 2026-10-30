@@ -72,6 +72,7 @@ struct Aircraft {
     std::uint8_t handling{};         // byte +$20: bit 0 ground handling, 1 spin, 2 stall
     std::uint8_t type{0x11};
     std::uint8_t role{};             // byte +5: the autopilot's role (autopilot.hpp)
+    std::uint8_t trail{};            // byte +$3D: its smoke trail's length (ObjectWorld's Trail)
     bool player = true;              // the player's record ($13ACA4 0): the player's responses
     std::int16_t timer{};            // word +$4C
     bool stall_warning{};            // the stall warning is on ($13AE40 bit 7)

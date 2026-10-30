@@ -73,8 +73,11 @@ from drawing, and must still respect the passes' model rule).
    paths `$38`, `$11DDC0`), other aircraft, missiles and parachutes
    (they come with the modes that spawn them, tasks 10-11). Done since:
    objects touching (`$11B6A2`: near, hit, crash, explode) for the
-   aircraft records; left: scenery boxes, explosions' smoke, a burning
-   aircraft's fall (it needs the missions' path following).
+   aircraft records; explosions, smoke and the burning trail drawn
+   (2026-10-30, game.md "Explosions, smoke and trails"); left: scenery
+   boxes (a hit on one blows up there and leaves smoke in the air, type
+   33), a burning aircraft's fall (it needs the missions' path
+   following).
 8. **Weapons** — done 2026-10-29 for free flight: the stores, Return
    for the next weapon, space to fire, F a flare, C chaff (with their
    messages); the gun's bursts, rounds and sound, missiles launched from
@@ -121,10 +124,12 @@ from drawing, and must still respect the passes' model rule).
     mission; missions 4-8 checked against 13 recordings (`missioncheck`,
     game/object_world.*: every frame equal but the pokes'), the camera's
     turns to Air Force One and the cruise missile (the viewed record, the
-    texts' delay; m4b, m7a, turn7). Left: the view from a gone record's
-    eye (cockpit case of `$10EC3C`), other records' explosions drawn
-    (the orange pieces, smoke `$11AB3E`), the aircraft question of mission 3's
-    runway start, the radio noise; unrecorded:
+    texts' delay; m4b, m7a, turn7); the records' explosions, the smoke a
+    missile leaves on the ground and the trail behind the last aircraft
+    hit (checked with `weaponcheck` on sm2-sm4, `trailcheck` on
+    demo_trail, pictures with `effectshot`). Left: the view from a gone
+    record's eye (cockpit case of `$10EC3C`), the aircraft question of
+    mission 3's runway start, the radio noise; unrecorded:
     −3 (Air Force One shot by the player), the leave rules for records
     heading for a record or a path point; flying a mission again with
     the same variant and offsets (`$13AE0C`, `$13AE08`).
@@ -153,10 +158,19 @@ from drawing, and must still respect the passes' model rule).
   the carrier's start; model flag $10); the white specks on the water; the
   run-time cell bitmaps; the visible-list entry fields after the position;
   the octant lists (`$136464`).
-- Shapes: scenery opcodes $18 and $118 (types 33-35, 107, 108); discs,
-  dots, lights, deck stripes ($80/$50) and shadows; the vertex builders'
-  rounding; the facing tree's drawing order and distance bands in the
-  renderer.
+- Shapes: scenery opcode $18 (types 107, 108); discs (other than the
+  smoke's), dots, lights, deck stripes ($80/$50) and shadows; the vertex
+  builders' rounding; the facing tree's drawing order and distance bands
+  in the renderer.
+- Explosions and smoke (game.md "Explosions, smoke and trails"): the
+  explosion noise's delay is counted from the frame after the drawing
+  (where `$104DD4` runs in the frame is not traced) and its distance is
+  taken from the aircraft, not the camera; the trail's record is the one
+  whose +2 bit 4 came on last (the original sets `$1450BA` at the hit,
+  which is the same unless two are hit in one frame); the triangle fill
+  (`$124B48`) and the disc's top row clipping are not pixel-checked;
+  the cruise missile's explosion (kinds 3-5) and a missile over water
+  (kind 2) were not recorded.
 - The message drawer's colour for attribute class 0 (no record uses it).
 
 ## Known bugs and differences in the port
@@ -178,3 +192,16 @@ from drawing, and must still respect the passes' model rule).
   heading) draws all cells.
 - No objects other than the carrier in free flight (as the original's
   free flight; others come with the modes, tasks 10-11).
+- The module's demo is out of step with the original's: it shoots the
+  bogey down at frame 702 while looking down (look 13), the original at
+  frame 637 looking ahead (demo_trail2), so the port's demo shows the
+  explosion from below. `democheck` starts from the recording's frame 28
+  and does not see it; where the 65 frames come from (the replay's start,
+  the texts before the launch) is not traced.
+- A missile taken off when it hits still shows where it hit for some
+  frames in the original (demo_trail2, frames 556-564: the drawer's cell
+  lists are not rebuilt at once - hypothesis); the port draws only active
+  records.
+- The smoke slots' timers stop mattering below 0 (the original's word
+  wraps after 32,768 frames, about 36 minutes, and would then show a
+  column of whatever lies past the shape's lists: not reproduced).

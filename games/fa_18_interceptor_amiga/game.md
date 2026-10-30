@@ -443,7 +443,7 @@ an opcode word follows. Opcodes (78 entries):
 | $10C | $113692 | three points, test | skip 18 bytes when facing away |
 | $110 / $120 | $11367A / $11366C | – | frames of 52 / 18 bytes follow, frame = $13ABCA & 15 |
 | $134 | $1150EA | – | 18-byte variants by $13AB37 |
-| $118 | $1135F0 | – | variants by the object's state (scenery) |
+| $118 | $1135F0 | – | variants by the smoke slot's timer (types 33-35, "Explosions, smoke and trails") |
 | $98 $A8 $AC $E0 $EC $FC $100 $104 | see shapes.cpp | 0 or 1 word | vertex builders |
 | $84 $C8 $D8 $108 $130 | | 0 / 0 / 0 / 0 / 2 | state flags, skip |
 
@@ -504,7 +504,7 @@ with more model flags and opcodes:
 | $88 $8C $90 $94 $A4 | see shapes.py | point (, shift) | vertex builders (parallelograms; shift scales a difference) |
 | $124 | $11365C | – | skips a word for type 87 only |
 | $18 | $113E6C | variable | curves (types 107/108); not decoded |
-| $118 | $1135F0 | – | variants by object state (types 33-35); not decoded |
+| $118 | $1135F0 | – | variants by the smoke slot's timer (types 33-35): `read_smoke_shape` |
 
 62 of the 70 scenery types decode (`.analysis/fa_18_interceptor_amiga/work/sc*.png`): runway centre lines
 and ends with numbers and threshold stripes (43-45), the Transamerica
@@ -515,9 +515,10 @@ look.
 The C++ decoder (`read_shapes`) covers vehicles, scenery and ground
 shapes and agrees with the research decoder on every type's face and
 line counts. Dots (`$04`) are kept; faces record their facing rule
-(always, one-sided, two-sided with a back colour). Not decoded yet:
-`$18`, `$118`; discs, lights and shadows; the drawing order and the
-original's rounding.
+(always, one-sided, two-sided with a back colour). The smoke's discs
+and its `$118` variants have their own reader (`read_smoke_shape`). Not
+decoded yet: `$18`; other discs, lights and shadows; the drawing order
+and the original's rounding.
 
 ### World
 
@@ -1402,8 +1403,104 @@ is in control again by its next step and flies on (recordings m4a, m8b).
 The frame counter `$13ABCA` starts at 0 with each flight (`$102EC0`).
 
 Built for the aircraft records the port has (the player's and the
-practice's lead); scenery boxes (`$142A7C`'s lists), explosions' smoke
-(`$11AB3E`) and the falling, burning aircraft's steering are not.
+practice's lead), with the explosions, smoke and trail ("Explosions,
+smoke and trails"); scenery boxes (`$142A7C`'s lists) and the falling,
+burning aircraft's steering are not.
+
+### Explosions, smoke and trails (2026-10-30)
+
+What a record blowing up shows, from the drawer (`$111D5C` for the
+records, `$11278C` after their model) and the object step. Built in
+game/scene.cpp (drawing), game/object_world.* (smoke slots, the trail's
+ring), game/weapons.cpp (a missile on the ground); the tables are read
+from the program (data/shapes.cpp `read_explosions`, `read_smoke_shape`).
+
+**The explosion** (`$1127C2` → `$12185E`): a record with state bit 10
+($400) and its timer (+$4C) from 15 down to 0 shows its explosion,
+15 - timer frames old: after its model while the timer is 13-15, instead
+of it from 12 on (`$111FBC`). Checked with a breakpoint on `$12185E`
+(scratchpad trace of a missile hitting the ground): called from the frame
+of the hit (timer 15, age 0) to timer 1, one older each frame. The
+pieces ($121948): 12 per burst (9 for the cruise missile's discs), each
+thrown out along a direction of bytes times the age (world units: tables
+`$12174A`, `$121771`, `$121798`, `$1217BF`) and drawn as a triangle of
+three corners from eight shapes (`$12169A`, 24 units across) chosen by
+piece number + age (`$12181A`), in the burst's colour (`$1217DD` ...).
+Kinds by the record: 1 over land (colour 9, orange), 2 over water (+4
+bit 1: colour 2), the cruise missile (type $15) 3 - nine grey discs
+(colours 13 and 10 by turns) of radius ($2800 + $2800 x age / 6) over
+the distance, at most 127 - then 4 a frame younger and 5 two frames
+younger and moved by (20, 10, 20), both orange triangles. A piece shows
+only when every corner lies in the view's pyramid (|x|, |y| within the
+depth); its rows are 89 - 90 y / z (one above `$123894`'s), filled
+row by row over every row it spans (`$124B48`: a sliver keeps a pixel a
+row). Not drawn more than $8000 units above or below the camera.
+Pictures (`flightcap.py --pics`) against `effectshot`: sm4 (a missile
+on the runway seen from the cockpit, frames 26-42) and demo_trail2 (the
+demo's bogey, frames 552-564) - the bursts' timing, spread, size and
+colour agree. Far away (a coordinate
+past $4000 or $40000 units) the cruise missile's explosion is worked out
+16 or 256 times smaller, which makes its discs that much larger and its
+triangles too (their corners are shifted twice) - kept.
+At timer 14 the drawing also sets the explosion's noise: `$13AB59`
+$10000 over half the drawer's distance (16-unit steps), at most $78,
+`$13AB5A` half that, `$13AAA8` 4 - `$13AB5A` / 16 frames to wait; then
+`$104DD4` plays `$10A0DC` with that volume (half in the cockpit).
+
+**Missiles blow up too**: the missiles' "fading" bit is state bit 10, so
+over its last 12 frames a missile is drawn as its explosion in the air
+and touches nothing more (`$11A7DA`). Below the ground (`$11B6A2`'s
+result $10: the fine height +$10 below 0, after the records' tests; $20
+is a scenery box, $40 a record) a missile goes back along its move onto
+height 0 (`$11AB0E`: x and z less the move's ratio to its height part,
+in 16ths through a word division, times the depth), `$11F83A` marks
+water (+4 bit 1), and it blows up for 15 frames ($11AA4A, +0 bit 12
+cleared: it stops). On land it leaves smoke. Checked: sm2, sm3, sm4
+(`weaponcheck`: the hit, the put-back place, the explosion's frames, the
+smoke slot's number, type, place and timer, every frame but the launch
+frame the height hold pokes). A cruise missile that touches a record
+blows up instead of being taken off; an aircraft that does spins, burns
+(+2 bit 4) and is the trail's before it goes ($11AA04).
+
+**Smoke** (`$11AB3E`, slots `$13D474`, 16 of 32 bytes): the first free
+slot gets a copy of the record's first 32 bytes - its cells and fine
+place as the move left it (before the put-back) - the shape $11 (in the
+air: a scenery box's hit) or on the ground $13 / $12 by the slot's
+number (even / odd), `$13AB48` $FF and the timer $7F. The slots' timers
+run down a frame at the object step's start (`$116B82`, not while an
+outcome is awaited) and past 0; a slot is never freed during a flight
+(cleared at its start, `$10D248`), so a flight shows at most 16 smokes.
+The shapes are object types 33-35 (the draw table's entries 17-19 past
+the records': `$11608C` + 20 x type): near (< $B0 x 16 = 2,816 units) 34
+and 35 a black patch with cracks on the ground (mirror images), all three
+a column of grey discs (points 12-17, up to 106 units high, colours 8
+and $A) chosen by op $118 (`$1135F0`) from the timer: one of four sets
+$86 bytes apart by (timer & 7) in pairs, the whole column; above $74 the
+single discs from the top down, fewer the younger (it rises over 11
+frames); below 12 from the bottom up (it goes); a negative timer draws
+nothing. A disc ($F8, $11C's list: `$11582A`) has radius R over its
+point's camera-space length times 2^2 (the model's scale shift), at most
+127; `$123DC4` fills 2r rows from y - (r - 1), half widths from the
+midpoint circle down to the middle and back. Far (to $380 x 16 = 14,336
+units) 34 and 35 show a two-pixel dot in colour 3 ($E8, `$12426E`).
+Pictures: sm5 (the column from outside) against `effectshot`: the same
+puffs, sizes and shades.
+
+**The trail** (`$11587C`, `$11AD0A`): the last aircraft hit (`$1450BA`,
+set with +2 bit 4 by a touch `$11B87C`, the third cannon hit `$11B364`
+or a hit mover `$11AA04`) leaves a smoke trail. After its step every
+frame (not while an outcome is awaited) its place goes into a ring of
+six (`$1450BC`, next slot `$1450B9`, count `$1450B8`; while fewer than
+five into the next slot too); burning and moving (+$6E) its length +$3D
+is the count less one, at most 4, else it runs down by one and at 0 the
+ring starts over. Drawn with the record: with the ring full the places
+from the oldest, length + 1 of them, else the first `length`; discs of
+$9C0 over the distance in radius, odd slots colour 8 and even $A (3 and
+$C while it spins), with a length over 1 three more between each two (a
+quarter, a half, three quarters, the later one's colour); painted oldest
+first when the aircraft comes toward the camera, else newest first, the
+last one an eighth smaller. Checked: `trailcheck` on demo_trail (the
+demo's bogey hit by the player's missiles).
 
 ### Qualification (menu item 5, 2026-10-29)
 
@@ -1688,8 +1785,9 @@ the F-16 table's position 7 at distance 3 turned by its heading, to the
 unit; the camera takes that place at once, but its angles (`$13AD84`,
 `$13AD86`) turn from their old values a quarter a frame (m7a: pitch
 1149 → 1062 → 997 … towards 817). The original's picture at the turn
-(`screen.py`) shows the missile's explosion as orange pieces; the port
-does not draw other records' explosions yet. The chase also flips a side view (positions 1-3, 5-7) to the other
+(`screen.py`) shows the cruise missile's explosion - grey discs and
+orange triangles, kinds 3-5 of "Explosions, smoke and trails" by their
+look (not compared pixel for pixel). The chase also flips a side view (positions 1-3, 5-7) to the other
 side when the viewed aircraft's heading jumped by 90-270 degrees since
 last frame (`$11D8AC`, against `$13AC1A`).
 
@@ -2220,6 +2318,13 @@ the spin warning.
 - **x below 0** (`$11A640`): a record moved past x = 0 has its z set
   to the move instead of x clamped (only at the world's edge; the port
   clamps x).
+- **Smoke never freed**: the 16 smoke slots are only cleared at a
+  flight's start, so after 16 explosions on the ground a flight shows no
+  more smoke; their timers are words that would wrap after 32,768 frames
+  (about 36 minutes) and show a column again (the port lets them run out).
+- **Far cruise-missile explosions**: past $4000 units on an axis the
+  discs' size jumps 16 times (the distance is taken shifted), past
+  $40000 again; kept.
 - **Flash with no noise slot**: without the noise slot `$10A0DC` raises the
   engine's boom event instead (a fallback for low chip memory).
 
@@ -2235,10 +2340,16 @@ Research files live in `.analysis/fa_18_interceptor_amiga/` (`harness/`,
 - `flightcap.py` records the player object and globals each frame
   (`--sound` slots and channels, `--calls` the sound routines' calls,
   `--objs` the missile records 1-4 and the projectile slots, `--recs`
-  chosen records, `--shots`; steps for controls, keys, dives, control
-  byte, pokes, `orw`/`andw` word bits, `follow:REC,DY,DZ,DX` the player
-  kept at a record's place every frame, logged before the poke as
-  `moved`; each line logs where the object lists are loaded, `lists`);
+  chosen records, `--smoke` the smoke slots, `--mem ADDR:LEN` any bytes,
+  `--pics DIR:F1,...` `screen.py` pictures at those frames from the same
+  halted frame (the picture of the frame before the logged state),
+  `--shots`; steps for controls, keys, dives, control byte, pokes,
+  `hold` (a poke every frame), `orw`/`andw` word bits,
+  `follow:REC,DY,DZ,DX` the player kept at a record's place every frame,
+  logged before the poke as `moved`; each line logs where the object
+  lists are loaded, `lists`); `screen.render(d, out)` for scripts that
+  hold the machine (one debugger client at a time; never connect while
+  the game loads from disk - FS-UAE quits);
   `mstart.py M [LEVEL]` starts mission M from the main menu (config +6,
   key 7, space through the briefing), `recs.py` lists the records;
   `flashcap.py` times the crash flash; `listsnap.py`, `viewgrab.py`,
@@ -2247,7 +2358,11 @@ Research files live in `.analysis/fa_18_interceptor_amiga/` (`harness/`,
   `flightcheck` (flight model against recordings: fc1-fc4 equal except
   key ticks), `soundcheck` (sound calls and message line: sd2, cr5,
   td1-td3 equal in every frame), `weaponcheck` (missiles and projectiles
-  against `--objs` recordings: wpm, wpg, wpa equal in every frame),
+  against `--objs` recordings: wpm, wpg, wpa equal in every frame; with
+  `--smoke` the ground hit, explosion and smoke slots: sm2-sm4),
+  `trailcheck` (the trail's ring against `--mem 1450B8:50`), `effectshot`
+  (the port's view of a recorded frame: camera `$13AD6C` / `$13AEC8`,
+  missiles, explosions, smoke),
   `objectcheck` (missions' records stepped from each recorded frame),
   `areacheck` (the trigger areas: area1-3 equal in every frame),
   `missioncheck` (a mission's world in lockstep: m4a-m8c, "The missions'
@@ -2260,6 +2375,8 @@ Research files live in `.analysis/fa_18_interceptor_amiga/` (`harness/`,
   the keypad's 0 4 6 8 2).
 - `harness/proc.py`: the running original's screen procedure, frame
   countdown and text queue (the front end's traces).
-- Captures in `work/ref/`: `m4a`-`m8c` (missions 4-8), `fc*.jsonl`, `sd2`, `cr5`, `td1-3`, `wpm`, `wpg`, `wpa`, flash
+- Captures in `work/ref/`: `sm1`-`sm5` (missiles into the ground: smoke,
+  pictures in `sm3`-`sm5/`), `demo_trail` (the demo with the trail's
+  ring), `m4a`-`m8c` (missions 4-8), `fc*.jsonl`, `sd2`, `cr5`, `td1-3`, `wpm`, `wpg`, `wpa`, flash
   timing `flash_cr4.txt`, message bitplanes `msg7.idx`/`msg8.idx`,
   reference screenshots.

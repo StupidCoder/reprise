@@ -62,10 +62,14 @@ struct Missile {
     Aircraft body;   // the copied record: position, velocity, matrices
     int type{};      // +$62: 0 Sidewinder, 1 AMRAAM (the shape's type)
     int life{};      // +$4C
-    bool fading{};   // +0 bit 10: its last 12 frames
+    // +0 bit 10: it blows up - its last 12 frames, or the 15 after it hit
+    // the ground (+$4C then counts those); it touches nothing more and is
+    // drawn as its explosion from 12 frames left (`$111F66`).
+    bool fading{};
     bool fresh{};    // +0 bit 8: launched this frame (the object step skips its move)
     std::uint8_t pilot{}; // +$64
     Course course;   // where it heads for (the locked record's place)
+    bool stopped{};    // +0 bit 12 cleared: it hit the ground and moves no more
 };
 
 class Weapons {
@@ -113,6 +117,15 @@ public:
     Missile launched(const Aircraft& player, Weapon weapon, int left) const;
     static bool fly_missile(Missile& m, const FlightRules& rules, const FlightTables& tables, const Aircraft* locked,
                             int locked_record, const Autopilot* autopilot);
+    // $11B6A2's ground test after a missile's move (from `from`) when it
+    // touched no record: below height 0 it goes back along the move onto
+    // the ground (`$11AB0E`), looks whether that is water (`$11F83A`: +4
+    // bit 1, which also colours its explosion) and blows up for 15 frames
+    // ($11AA4A). True when it hit; `smoke` then
+    // whether it leaves smoke (not on water), from `smoke_at`, its place
+    // after the move ($11AB3E copies the record as `$11A86A` left it).
+    static bool hit_ground(Missile& m, const std::array<std::int32_t, 3>& from, const data::World* world,
+                           std::array<std::int32_t, 3>& smoke_at, bool& smoke);
     Shot fired(Shot::Kind kind, const Aircraft& player, std::uint16_t frame) const;
     static void fly_shot(Shot& s);
 

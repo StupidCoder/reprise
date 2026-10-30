@@ -1,6 +1,7 @@
 #include "fa_18_interceptor_amiga/game/weapons.hpp"
 #include "fa_18_interceptor_amiga/game/messages.hpp"
 #include "fa_18_interceptor_amiga/game/sounds.hpp"
+#include "fa_18_interceptor_amiga/data/world.hpp"
 #include <algorithm>
 
 namespace interceptor::game {
@@ -144,6 +145,7 @@ bool Weapons::fly_missile(Missile& m, const FlightRules& rules, const FlightTabl
     // $4200, `$117E8E`); over its last 50 frames it falls to $3000 by $240
     // toward height 0, and from 12 on it is fading.
     if (--m.life <= 0) return false;
+    if (m.stopped) return true;
     auto& b = m.body;
     const auto toward = [&](int aim) {
         b.speed = i16(b.speed > aim ? std::max(b.speed - 0x240, aim) : std::min(b.speed + 0x240, aim));
@@ -182,6 +184,47 @@ bool Weapons::fly_missile(Missile& m, const FlightRules& rules, const FlightTabl
         turn_object(b, Autopilot::object_turn(b, m.pilot, divisor), coasting, tables);
     }
     coast(b, coasting, tables);
+    return true;
+}
+
+namespace {
+
+// divs.w: the quotient in the low word, the remainder in the high; a
+// quotient too large for a word leaves the dividend as it was (V set).
+std::int32_t divs_w(std::int32_t dividend, std::int16_t divisor) {
+    const std::int32_t quotient = dividend / divisor;
+    if (quotient < -0x8000 || quotient > 0x7FFF) return dividend;
+    return std::int32_t(std::uint32_t(dividend % divisor) << 16 | std::uint16_t(quotient));
+}
+
+} // namespace
+
+bool Weapons::hit_ground(Missile& m, const std::array<std::int32_t, 3>& from, const data::World* world,
+                         std::array<std::int32_t, 3>& smoke_at, bool& smoke) {
+    auto& b = m.body;
+    // ($11C198: the fine height, +$10, below 0: result $10.)
+    if (m.fading || b.y >= 0) return false; // (blowing up it touches nothing, $11A7DA)
+    smoke_at = {b.x, b.y, b.z};
+    // $11AB0E: x and z go back by the move's ratio to its height part
+    // (16ths, in words) times the depth below 0, and the height is 0; a move
+    // of less than one unit down changes nothing.
+    const std::int32_t step = (b.y - from[1]) >> 8;
+    if (step != 0 && std::int16_t(step) != 0) {
+        const auto depth = std::int16_t(-std::int16_t(b.y >> 8));
+        const auto back = [&](std::int32_t move) {
+            const std::int32_t ratio = divs_w(std::int32_t(std::uint32_t(move) << 4), std::int16_t(step));
+            return (std::int32_t(std::int16_t(ratio)) * depth) >> 4;
+        };
+        b.x += back(b.x - from[0]);
+        b.z += back(b.z - from[2]);
+        b.y = 0;
+    }
+    const bool water = world && world->over_water(b.x / 256.0, b.z / 256.0);
+    b.surface = std::uint8_t((b.surface & ~2) | (water ? 2 : 0));
+    smoke = !water;
+    // $11AA4A: 15 frames of explosion (`+$4C`), no more moves.
+    m.fading = m.stopped = true;
+    m.life = 15;
     return true;
 }
 

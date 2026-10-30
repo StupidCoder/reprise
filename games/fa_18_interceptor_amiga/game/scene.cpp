@@ -73,6 +73,72 @@ public:
         plot(int(centre_ - 160 * v[0] / v[2]), int(90 - 90 * v[1] / v[2]), v[2] - 1, colour, true);
     }
 
+    int centre() const { return centre_; }
+    int bottom() const { return bottom_; }
+    // How far the picture reaches sideways from the centre, in the
+    // original's 160ths of the depth (160 in its 320 columns).
+    double half_width() const { return std::max(centre_, image_.width - 1 - centre_); }
+
+    // A triangle given on the screen (column, row and depth per corner),
+    // filled row by row from its top row to its bottom one, each row from
+    // its leftmost to its rightmost edge crossing, so even a sliver keeps
+    // a pixel a row (as the original's filler, `$124B48`, draws every row
+    // a piece spans). One depth, the corners' mean.
+    void screen_triangle(const Point& a, const Point& b, const Point& c, int colour) {
+        const Point* p[3] = {&a, &b, &c};
+        const double low = std::min({a[1], b[1], c[1]}), high = std::max({a[1], b[1], c[1]});
+        const double z = (a[2] + b[2] + c[2]) / 3;
+        for (int y = int(std::floor(low)); y <= int(std::floor(high)); ++y) {
+            const double row = std::clamp(y + 0.5, low, high);
+            double left = 1e30, right = -1e30;
+            for (int e = 0; e < 3; ++e) {
+                const Point& u = *p[e];
+                const Point& v = *p[(e + 1) % 3];
+                if (row < std::min(u[1], v[1]) || row > std::max(u[1], v[1])) continue;
+                const double x = u[1] == v[1] ? u[0] : u[0] + (v[0] - u[0]) * (row - u[1]) / (v[1] - u[1]);
+                const double other = u[1] == v[1] ? v[0] : x;
+                left = std::min({left, x, other});
+                right = std::max({right, x, other});
+            }
+            if (left > right) continue;
+            for (int x = int(std::floor(left)); x <= int(std::floor(right)); ++x) plot(x, y, z, colour, true);
+        }
+    }
+    void screen_dot(int x, int y, double z, int colour) { plot(x, y, z, colour, true); }
+
+    // $123DC4: a filled disc. The midpoint circle's half widths for the
+    // rows from the top to the middle (`$145104`), then the same back:
+    // 2 x radius rows from `y` - (radius - 1), each 2 half + 1 wide.
+    void disc(int x, int y, int radius, int colour, double z) {
+        if (radius < 1) return;
+        std::vector<int> half(std::size_t(radius) + 1, 0);
+        if (radius == 1) {
+            half[0] = 1;
+        } else {
+            int cx = 0, cy = radius, d = 3 - 2 * radius;
+            std::size_t top = 0, low = std::size_t(radius);
+            while (cx < cy) {
+                half[top] = cx;
+                half[low] = cy;
+                if (d < 0) {
+                    d += 4 * cx + 6;
+                } else {
+                    d += 4 * (cx - cy) + 10;
+                    --cy;
+                    ++top;
+                }
+                --low;
+                ++cx;
+            }
+            if (cx == cy) half[top] = cx;
+        }
+        for (int j = 0; j < 2 * radius; ++j) {
+            const int w = half[std::size_t(j < radius ? j : 2 * radius - 1 - j)];
+            const int row = y - (radius - 1) + j;
+            for (int px = x - w; px <= x + w; ++px) plot(px, row, z, colour, true);
+        }
+    }
+
 private:
     static Point cut(const Point& in, const Point& out) {
         const double t = (near_plane - in[2]) / (out[2] - in[2]);
@@ -122,7 +188,9 @@ private:
 
 } // namespace
 
-Scene::Scene(const data::Assets& assets, const data::World& world) : world_(world), program_(assets.program) {
+Scene::Scene(const data::Assets& assets, const data::World& world)
+    : world_(world), program_(assets.program), explosions_(data::read_explosions(assets.program)) {
+    for (int i = 0; i < 3; ++i) smoke_shapes_[std::size_t(i)] = data::read_smoke_shape(assets.program, 33 + i);
     for (const auto* map : {&world.pass_a, &world.pass_b, &world.near}) {
         for (const auto& object : map->objects) {
             if (levels_.count(object.type) || ground_.count(object.type)) continue;
@@ -144,8 +212,140 @@ std::optional<std::array<int, 2>> Scene::project(const Camera& camera, const std
     return std::array<int, 2>{centre - int(160 * x / z), 90 - int(90 * y / z)};
 }
 
+const std::vector<data::DetailLevel>& Scene::vehicle_levels(int type) const {
+    auto found = vehicle_levels_.find(type);
+    if (found == vehicle_levels_.end()) found = vehicle_levels_.emplace(type, data::read_detail_levels(program_, type)).first;
+    return found->second;
+}
+
+bool Scene::in_range(int type, double distance) const {
+    for (const auto& level : vehicle_levels(type)) {
+        if (distance < level.nearer_than) return level.shape.has_value();
+    }
+    return false;
+}
+
+namespace {
+
+// The camera-space point of a world point (the original's `$13AEC8` rows,
+// world units), and whether it lies in the view's pyramid (`$121AD6`,
+// `$1238AE`: |x| and |y| within the depth; sideways as far as the picture
+// reaches).
+struct Seen {
+    Point v;
+    bool in{};
+};
+
+// $12185E: an exploding record's pieces. Each piece of a burst flies out
+// along its direction times the explosion's age (world units) and is a
+// triangle turning through the eight shapes by piece number + age, or for
+// the cruise missile's first burst a disc growing with the age ($2800 +
+// $2800 x age / 6 over the distance, at most 127). Far from the camera (a
+// coordinate past $4000 or $40000 units) the cruise missile's explosion is
+// worked out 16 or 256 times smaller, which leaves its discs that much
+// larger and its pieces' triangles too (their corners are shifted twice).
+// Not drawn more than $8000 units above or below the camera ($121880).
+// A piece shows only with every corner in the view's pyramid; the pieces'
+// rows are one above other points' (89 - 90 y / z, `$121AFC`).
+template <class SeenFn>
+void draw_explosion(Raster& r, const data::Explosions& e, const Vehicle& v, const Point& eye, const SeenFn& seen) {
+    const Point rel{v.position[0] - eye[0], v.position[1] - eye[1], v.position[2] - eye[2]};
+    const int age = v.explosion_age;
+    if (std::abs(rel[1]) > 0x8000 || age > 15) return;
+    struct Part {
+        int kind, age;
+        Point offset;
+    };
+    std::vector<Part> parts{{v.explosion_kind, age, {}}};
+    int shift = 0, radius = 0;
+    if (v.explosion_kind == 3) {
+        const double far = std::max({std::abs(rel[0]), std::abs(rel[1]), std::abs(rel[2])});
+        if (far > 0x4000) shift = far > 0x40000 ? 8 : 4;
+        const int length = int(std::sqrt(rel[0] * rel[0] + rel[1] * rel[1] + rel[2] * rel[2])) >> shift;
+        const int size = 0x2800 * age / 6 + 0x2800;
+        radius = length > 0 ? std::min(size / length, 127) : 127;
+        const double unit = std::ldexp(1.0, shift);
+        parts.push_back({4, std::max(age - 1, 0), {}});
+        parts.push_back({5, std::max(age - 2, 0), {20 * unit, 10 * unit, 20 * unit}});
+    }
+    const double grow = std::ldexp(1.0, shift);
+    for (const auto& part : parts) {
+        const auto& burst = e.bursts[std::size_t(part.kind - 1)];
+        for (std::size_t i = burst.directions.size(); i-- > 0;) {
+            const auto& d = burst.directions[i];
+            const Point p{v.position[0] + d[0] * part.age + part.offset[0], v.position[1] + d[1] * part.age + part.offset[1],
+                          v.position[2] + d[2] * part.age + part.offset[2]};
+            std::array<Point, 3> corners{p, p, p};
+            const int count = part.kind == 3 ? 1 : 3;
+            if (count == 3) {
+                const auto& tri = e.pieces[std::size_t(e.piece_of[i + std::size_t(part.age)] & 7)];
+                for (std::size_t c = 0; c < 3; ++c)
+                    for (std::size_t k = 0; k < 3; ++k) corners[c][k] += tri[c][k] * grow;
+            }
+            std::array<Point, 3> screen{};
+            bool in = true;
+            for (int c = 0; c < count && in; ++c) {
+                const auto s = seen(corners[std::size_t(c)], false);
+                in = s.in;
+                if (in)
+                    screen[std::size_t(c)] = {double(r.centre() - int(160 * s.v[0] / s.v[2])),
+                                              double(89 - int(90 * s.v[1] / s.v[2])), s.v[2]};
+            }
+            if (!in) continue;
+            if (count == 1) r.disc(int(screen[0][0]), int(screen[0][1]), radius, burst.colours[i], screen[0][2]);
+            else r.screen_triangle(screen[0], screen[1], screen[2], burst.colours[i]);
+        }
+    }
+}
+
+// $11587C: the trail's discs, $9C0 over the distance (world units) in
+// radius, at most 127, odd ring slots in colour 8 and even ones in $A (3
+// and $C while it spins); with a length over 1, between two places three
+// more at a quarter, a half and three quarters, in the later one's colour.
+// The original paints them oldest first when the aircraft comes toward the
+// camera (its move against the way from the camera), else newest first;
+// the last one painted is an eighth smaller.
+template <class SeenFn>
+void draw_trail(Raster& r, const Vehicle::Trail& trail, const Point& at, const Point& eye, const SeenFn& seen) {
+    const std::size_t n = trail.places.size();
+    if (n == 0) return;
+    const double toward = trail.move[0] * (at[0] - eye[0]) + trail.move[1] * (at[1] - eye[1]) + trail.move[2] * (at[2] - eye[2]);
+    const auto disc = [&](const Point& p, int radius, int colour) {
+        const auto s = seen(p, true);
+        if (!s.in) return;
+        const int x = r.centre() - int(160 * s.v[0] / s.v[2]), y = 90 - int(90 * s.v[1] / s.v[2]);
+        if (y <= r.bottom()) r.disc(x, y, radius, colour, s.v[2]);
+    };
+    Point last{};
+    int last_radius = 0;
+    for (std::size_t k = 0; k < n; ++k) {
+        const std::size_t i = toward < 0 ? k : n - 1 - k;
+        const auto& p = trail.places[i];
+        const bool odd = trail.slots[i] & 1;
+        const int colour = odd ? (trail.spinning ? 3 : 8) : (trail.spinning ? 0xC : 0xA);
+        const int length = int(std::sqrt((p[0] - eye[0]) * (p[0] - eye[0]) + (p[1] - eye[1]) * (p[1] - eye[1]) +
+                                         (p[2] - eye[2]) * (p[2] - eye[2])));
+        int radius = length > 0 ? std::min(0x9C0 / length, 127) : 127;
+        if (k > 0 && trail.length > 1) {
+            const auto mix = [&](double f) {
+                return Point{last[0] + (p[0] - last[0]) * f, last[1] + (p[1] - last[1]) * f, last[2] + (p[2] - last[2]) * f};
+            };
+            disc(mix(0.25), last_radius + ((radius - last_radius) >> 2), colour);
+            disc(mix(0.5), last_radius + ((radius - last_radius) >> 1), colour);
+            disc(mix(0.75), radius + ((last_radius - radius) >> 2), colour);
+        }
+        last = p;
+        last_radius = radius;
+        if (k + 1 == n) radius -= radius >> 3;
+        disc(p, radius, colour);
+    }
+}
+
+} // namespace
+
 void Scene::draw(IndexedImage& image, int centre, int bottom, const Camera& camera,
-                 const std::vector<Vehicle>& vehicles, const std::vector<Spark>& sparks) const {
+                 const std::vector<Vehicle>& vehicles, const std::vector<Spark>& sparks,
+                 const std::vector<SmokeColumn>& smoke) const {
     Raster r(image, centre, bottom, camera);
     const auto& eye = camera.position;
     // Sky, then the land as a plane in colour 4 and the bay's water on it,
@@ -234,19 +434,26 @@ void Scene::draw(IndexedImage& image, int centre, int bottom, const Camera& came
     // The moving objects ($10FC0C): their shape for the distance, turned
     // by their body matrix (its rows map the world into the object's axes,
     // so its columns map the shape back out).
+    const auto seen = [&](const Point& p, bool strict) {
+        const auto v = r.to_camera(p);
+        const double side = std::abs(v[0]) * 160 / r.half_width();
+        const bool in = strict ? v[2] > 0 && side < v[2] && std::abs(v[1]) < v[2]
+                               : v[2] > 0 && side <= v[2] && std::abs(v[1]) <= v[2];
+        return Seen{v, in};
+    };
     for (const auto& v : vehicles) {
-        auto found = vehicle_levels_.find(v.type);
-        if (found == vehicle_levels_.end())
-            found = vehicle_levels_.emplace(v.type, data::read_detail_levels(program_, v.type)).first;
         const double dx = v.position[0] - eye[0], dy = v.position[1] - eye[1], dz = v.position[2] - eye[2];
         const double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
         const data::Shape* chosen = nullptr;
-        for (const auto& level : found->second) {
+        for (const auto& level : vehicle_levels(v.type)) {
             if (distance >= level.nearer_than) continue;
             if (level.shape) chosen = &*level.shape;
             break;
         }
         if (!chosen) continue;
+        if (v.explosion_age >= 0) draw_explosion(r, explosions_, v, eye, seen);
+        if (v.trail) draw_trail(r, *v.trail, v.position, eye, seen);
+        if (!v.model) continue;
         const auto& b = v.body;
         const double scale = chosen->scale;
         const auto place = [&](const data::ShapePoint& p) {
@@ -278,6 +485,49 @@ void Scene::draw(IndexedImage& image, int centre, int bottom, const Camera& came
         }
         for (const auto& line : chosen->lines) r.line(place(line.from), place(line.to), line.colour);
         for (const auto& dot : chosen->dots) r.dot(place(dot.at), dot.colour);
+    }
+    // The smoke slots ($111D5C for types 33-35): near, the patch and the
+    // column of discs for the slot's timer; farther, a two-pixel dot.
+    for (const auto& column : smoke) {
+        if (column.type < 33 || column.type > 35) continue;
+        const auto& shape = smoke_shapes_[std::size_t(column.type - 33)];
+        const auto& at = column.position;
+        const double dx = at[0] - eye[0], dy = at[1] - eye[1], dz = at[2] - eye[2];
+        const double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+        const auto place = [&](const data::ShapePoint& p) {
+            return Point{at[0] + p.x * shape.scale, at[1] + p.y * shape.scale, at[2] + p.z * shape.scale};
+        };
+        if (distance < shape.near_limit) {
+            if (shape.patch) {
+                for (const auto& face : shape.patch->faces) {
+                    corners.clear();
+                    for (const auto& c : face.corners) corners.push_back(place(c));
+                    r.polygon(corners, face.colour, true);
+                }
+                for (const auto& line : shape.patch->lines) r.line(place(line.from), place(line.to), line.colour);
+            }
+            if (column.timer < 0 || column.timer > 127) continue;
+            for (const auto& disc : shape.column[std::size_t(column.timer)]) {
+                // $11582A: the radius over the distance (the camera-space
+                // length, times the model's scale shift; `$1108C4`), at most
+                // 127; $1238A0 places it.
+                const auto s = seen(place(disc.at), true);
+                if (!s.in) continue;
+                const auto& v = s.v;
+                const int length = int(std::min(std::ldexp(std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]), shape.distance_shift), 32767.0));
+                const int radius = length > 0 ? std::min(disc.radius / length, 127) : 127;
+                const int x = r.centre() - int(160 * v[0] / v[2]), y = 90 - int(90 * v[1] / v[2]);
+                if (y > r.bottom()) continue;
+                r.disc(x, y, radius, disc.colour, v[2]);
+            }
+        } else if (shape.far_dot && distance < shape.far_limit) {
+            const auto s = seen(place(shape.far_dot->at), true);
+            if (!s.in) continue;
+            const int x = r.centre() - int(160 * s.v[0] / s.v[2]), y = 90 - int(90 * s.v[1] / s.v[2]);
+            // ($12426E: two pixels, the one to the left too.)
+            r.screen_dot(x - 1, y, s.v[2], shape.far_dot->colour);
+            r.screen_dot(x, y, s.v[2], shape.far_dot->colour);
+        }
     }
     static constexpr int burst[3][6] = {{-3, 3, -3, 3, -3, 3}, {2, 1, -2, -2, -1, 2}, {-3, -3, -3, 3, 3, 3}};
     for (const auto& s : sparks) {

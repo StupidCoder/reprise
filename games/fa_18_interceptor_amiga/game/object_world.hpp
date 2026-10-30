@@ -4,6 +4,7 @@
 #include "fa_18_interceptor_amiga/game/object_step.hpp"
 #include "fa_18_interceptor_amiga/game/trigger_areas.hpp"
 #include "fa_18_interceptor_amiga/game/world_objects.hpp"
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -21,13 +22,37 @@ struct World;
 // research tools build it from a recorded frame.
 namespace interceptor::game {
 
+// A smoke slot (`$13D474`, 16 of 32 bytes): a copy of the record's first
+// 32 bytes when it blew up (`$11AB3E`), its type replaced by the smoke's
+// shape (33 in the air, 34 / 35 on the ground) and a timer.
+struct Smoke {
+    int type{};                         // +2: $11-$13, drawn as object type 16 more (33-35, `$11608C`)
+    int timer{};                        // +4: $7F, down a frame (`$116B82`); never freed in a flight
+    std::array<std::int32_t, 3> at{};   // the record's place then (cells and fine +6 ... +$10: world units)
+};
+
+// The smoke trail behind the last aircraft hit (`$1450BA`: set with +2
+// bit 4 when a record is hit - $11AA04, $11B364, $11B87C): its last six
+// places (`$1450BC`, a ring: `$1450B9` the next slot, `$1450B8` how many),
+// taken after its step every frame (`$11AD0A`, not while an outcome is
+// awaited; while fewer than five the place goes in the next slot too).
+// Burning (+2 bit 4) and moving, its length (+$3D) is the places less one,
+// at most 4; else the length runs down and at 0 the ring starts over.
+struct Trail {
+    int record = -1;                                   // (none at a flight's start, $10D286)
+    std::array<std::array<std::int32_t, 3>, 6> places{};
+    int next{}, count{};
+    void update(Aircraft& a);
+    void reset() { *this = Trail{}; }
+};
+
 class ObjectWorld {
 public:
     ObjectWorld(const FlightTables& tables, const ObjectLists& lists, const ObjectStep& step, const Autopilot& autopilot)
         : tables_(tables), lists_(lists), step_(step), autopilot_(autopilot), areas_(lists) {}
 
     // $11CF06 (and $10D37A): the records a flight starts with; the
-    // counters and the areas start over.
+    // counters, the areas and the smoke ($10D248) start over.
     void spawn(const ObjectChoice& choice);
 
     std::vector<WorldObject>& objects() { return objects_; }
@@ -36,6 +61,20 @@ public:
     const WorldObject* record(int number) const;
     bool active(int number) const;
     const std::optional<WorldObject>& pod() const { return pod_; }
+
+    // $11AB3E: a record blown up leaves smoke in the first free slot (none
+    // when all 16 are taken): 33 in the air, on the ground 35 or 34 by the
+    // slot's number (even, odd). `at`: its place after the move that blew
+    // it up (32-bit units).
+    void add_smoke(const std::array<std::int32_t, 3>& at, bool ground);
+    // $116B82, at the object step's start unless an outcome is awaited: the
+    // slots' timers run down (past 0 too: the smoke is gone, the slot stays
+    // taken).
+    void age_smoke();
+    const std::array<std::optional<Smoke>, 16>& smoke() const { return smoke_; }
+    Trail& trail() { return trail_; }
+    const Trail& trail() const { return trail_; }
+    void set_smoke(const std::array<std::optional<Smoke>, 16>& slots) { smoke_ = slots; }
 
     // $11D17A (every 16th frame, not in the demo): the player's cell
     // against the trigger areas; `draw` is a fresh `$13ADE8` for an area's
@@ -115,6 +154,8 @@ private:
     int escort_ = 0;
     int outcome_wait_ = 0;
     std::optional<WorldObject> pod_; // `$13ABB2`
+    std::array<std::optional<Smoke>, 16> smoke_;
+    Trail trail_;
 };
 
 } // namespace interceptor::game

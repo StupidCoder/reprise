@@ -251,7 +251,7 @@ public:
                 add_weapons(vehicles, sparks, t);
                 add_lead(vehicles, t);
                 add_objects(vehicles, t);
-                scene_.draw(frame, width / 2 - 1, bottom, view, vehicles, sparks);
+                scene_.draw(frame, width / 2 - 1, bottom, view, vehicles, sparks, smoke_columns());
                 if (above_) grid(frame, view, width / 2 - 1, bottom);
                 // (No numbers while the camera comes down from the map: $126AB2
                 // needs `$13AAC9`.)
@@ -286,7 +286,7 @@ public:
             add_lead(self, t);
             add_objects(self, t);
             scene_.draw(frame, width / 2 - 1, cockpit ? Cockpit::view_bottom : view_rows,
-                        camera(before_, aircraft_, t, look_, zoom_), self, sparks);
+                        camera(before_, aircraft_, t, look_, zoom_), self, sparks, smoke_columns());
             readings.hud = phase_ != Phase::ready && phase_ != Phase::to_ready; // ($13AA91, set as the flight starts)
             {
                 const auto& st = weapons_.stores();
@@ -363,8 +363,10 @@ public:
             const auto& b = slot->body;
             Vehicle v;
             v.type = slot->type;
-            v.position = {(b.x - b.vx * back) / 256.0, (b.y - b.vy * back) / 256.0, (b.z - b.vz * back) / 256.0};
+            const double k = slot->stopped ? 0 : back; // (it stands)
+            v.position = {(b.x - b.vx * k) / 256.0, (b.y - b.vy * k) / 256.0, (b.z - b.vz * k) / 256.0};
             v.body = b.body;
+            if (slot->fading) explode(v, b, slot->life, b.surface & 2);
             vehicles.push_back(v);
         }
         for (const auto& slot : weapons_.shots()) {
@@ -378,15 +380,106 @@ public:
         }
     }
 
+    // $11278C: a record blowing up with its timer from 15 down to 0 shows
+    // its explosion ($1127C2, `$12185E`), 15 - timer frames old - the
+    // cruise missile's own kind, else over water or land (+4 bit 1) - and
+    // from 12 on not its shape (`$111FBC`).
+    static void explode(Vehicle& v, const Aircraft& a, int timer, bool over_water) {
+        if (timer < 0 || timer > 15) return;
+        v.explosion_age = 15 - timer;
+        v.explosion_kind = a.type == 0x15 ? 3 : over_water ? 2 : 1;
+        v.model = timer > 12;
+    }
+
+    // $11AD0A for the trail's record (`$1450BA`): a record newly burning
+    // (+2 bit 4, set with that number when it is hit) is the trail's from
+    // then on; its place goes into the ring after its step - also the step
+    // that takes it off (demo_trail, frame 739).
+    void trail_tick() {
+        auto& trail = others_.trail();
+        const auto watch = [&](int record, const Aircraft& a, bool active) {
+            const auto r = std::size_t(record);
+            const bool burning = a.motion & 0x1000;
+            if (burning && !burning_[r]) trail.record = record;
+            burning_[r] = burning;
+            const bool stepped = active || was_active_[r];
+            was_active_[r] = active;
+            return stepped && record == trail.record && !others_.waiting();
+        };
+        if (mode_ == FlightMode::practice && watch(4, leader_, lead_active_)) trail.update(leader_);
+        for (auto& o : others_.objects()) {
+            if (watch(o.record, o.craft, o.active())) trail.update(o.craft);
+        }
+    }
+
+    // The trail behind a record when it is the trail's ($11587C): with the
+    // ring full the places from the oldest on, else from the first slot;
+    // its length plus one, or its length.
+    std::optional<Vehicle::Trail> trail_of(int record, const Aircraft& a) const {
+        const auto& t = others_.trail();
+        if (t.record != record || a.trail == 0) return std::nullopt;
+        Vehicle::Trail v;
+        v.length = a.trail;
+        v.spinning = a.handling & 0x02;
+        v.move = {a.vx / 256.0, a.vy / 256.0, a.vz / 256.0};
+        const auto add = [&](int slot) {
+            const auto& p = t.places[std::size_t(slot)];
+            v.slots.push_back(slot);
+            v.places.push_back({p[0] / 256.0, p[1] / 256.0, p[2] / 256.0});
+        };
+        if (t.count >= 6) {
+            for (int k = 0; k <= a.trail; ++k) add((t.next + k) % 6);
+        } else {
+            for (int k = 0; k < a.trail; ++k) add(k);
+        }
+        return v;
+    }
+
+    // The smoke slots for the scene.
+    std::vector<SmokeColumn> smoke_columns() const {
+        std::vector<SmokeColumn> columns;
+        for (const auto& slot : others_.smoke()) {
+            if (!slot) continue;
+            columns.push_back({slot->type + 16, slot->timer, {double(slot->at[0]), double(slot->at[1]), double(slot->at[2])}});
+        }
+        return columns;
+    }
+
+    // $111F66 with the drawing: a record drawn at its explosion's timer 14
+    // sets the noise by its distance (`$13AB59` its length, at most $78,
+    // `$13AB5A` half that the volume - half again in the cockpit - and
+    // `$13AAA8` 4 - volume / 16 frames to wait).
+    void explosion_noises() {
+        const auto heard = [&](const Aircraft& a, int timer, int shape_type) {
+            if (!(a.state & 0x0400) || timer != 14) return;
+            const double dx = (a.x - aircraft_.x) / 256.0, dy = (a.y - aircraft_.y) / 256.0, dz = (a.z - aircraft_.z) / 256.0;
+            const double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+            if (!scene_.in_range(shape_type, distance)) return;
+            const long half = long(distance / 16) >> 1; // (the drawer's distance counts 16 units)
+            const int ticks = half <= 0 ? 0x78 : int(std::min(0x10000L / half, 0x78L));
+            explosion_noise_ = {4 - (ticks >> 5), ticks >> 1, ticks};
+        };
+        for (const auto& slot : weapons_.missiles()) {
+            if (slot && slot->fading) heard(slot->body, slot->life, slot->type);
+        }
+        if (mode_ == FlightMode::practice && lead_active_) heard(leader_, leader_.timer, 3);
+        for (const auto& o : others_.objects()) {
+            if (o.active()) heard(o.craft, o.craft.timer, o.shape_type);
+        }
+    }
+
     // The practice's lead, drawn with the F-16's shape.
     void add_lead(std::vector<Vehicle>& vehicles, double t) const {
         if (mode_ != FlightMode::practice || !lead_active_) return;
         Vehicle v;
         v.type = 3;
         const double back = smooth_ ? 1 - t : 0;
-        v.position = {(leader_.x - leader_.vx * back) / 256.0, (leader_.y - leader_.vy * back) / 256.0,
-                      (leader_.z - leader_.vz * back) / 256.0};
+        const double k = (leader_.state & 0x0400) ? 0 : back;
+        v.position = {(leader_.x - leader_.vx * k) / 256.0, (leader_.y - leader_.vy * k) / 256.0,
+                      (leader_.z - leader_.vz * k) / 256.0};
         v.body = leader_.body;
+        if (leader_.state & 0x0400) explode(v, leader_, leader_.timer, leader_.surface & 2);
+        v.trail = trail_of(4, leader_);
         vehicles.push_back(v);
     }
 
@@ -412,6 +505,9 @@ public:
         choice.level = level_;
         if (mode_ == FlightMode::mission) choice.stage = pilot_.stage(mission_);
         others_.spawn(choice);
+        burning_ = {};
+        was_active_ = {};
+        explosion_noise_ = {};
         viewed_ = 0;
         outside_request_ = turn_done_ = false;
         text_delay_ = -1;
@@ -502,8 +598,11 @@ public:
             const auto& a = o.craft;
             Vehicle v;
             v.type = o.shape_type;
-            v.position = {(a.x - a.vx * back) / 256.0, (a.y - a.vy * back) / 256.0, (a.z - a.vz * back) / 256.0};
+            const double k = (a.state & 0x0400) ? 0 : back; // (blowing up it stands)
+            v.position = {(a.x - a.vx * k) / 256.0, (a.y - a.vy * k) / 256.0, (a.z - a.vz * k) / 256.0};
             v.body = a.body;
+            if (a.state & 0x0400) explode(v, a, a.timer, a.surface & 2);
+            v.trail = trail_of(o.record, a);
             vehicles.push_back(v);
         }
         if (const auto& pod = others_.pod()) { // (mission 6's rescue pod)
@@ -1437,6 +1536,10 @@ private:
             remember_keys(input);
         }
 
+        // $104DD4: an explosion's noise, its delay run down.
+        if (explosion_noise_.delay > 0 && --explosion_noise_.delay == 0) {
+            sounds_.noise(outside_ ? explosion_noise_.volume : explosion_noise_.volume >> 1, explosion_noise_.ticks);
+        }
         ground_warnings(aircraft_, messages_, sounds_);
         if (outside_request_) {
             // $1041E8: the outside view the camera's turn asked for.
@@ -1455,6 +1558,7 @@ private:
         rules.world = &world_;
         rules.holding = others_.waiting();
         if (mode_ == FlightMode::practice) reposition_step();
+        others_.age_smoke(); // ($116B82)
         // $116BCE: every 16th frame the trigger areas (not in the demo,
         // `$13AA80`); then the others' "near" bit (+3 bit 0) is cleared
         // ($116BE4: it lasts the frame of the touch that set it).
@@ -1516,7 +1620,8 @@ private:
             std::array<std::optional<std::array<std::int32_t, 3>>, 3> from;
             auto& slots = weapons_.missiles();
             for (std::size_t k = 0; k < slots.size(); ++k) {
-                if (slots[k] && !slots[k]->fresh) from[k] = std::array<std::int32_t, 3>{slots[k]->body.x, slots[k]->body.y, slots[k]->body.z};
+                if (slots[k] && !slots[k]->fresh && !slots[k]->fading) // ($11A7DA)
+                    from[k] = std::array<std::int32_t, 3>{slots[k]->body.x, slots[k]->body.y, slots[k]->body.z};
             }
             weapons_.move_missiles(aircraft_, rules, sounds_, locked, radar_.locked(), &autopilot_);
             for (std::size_t k = 0; k < slots.size(); ++k) {
@@ -1525,9 +1630,17 @@ private:
                 const auto self = std::find_if(list.begin(), list.end(), [&](const Body& b) { return b.aircraft == &slots[k]->body; });
                 bool near = false;
                 TouchCount count;
-                if (touch_bodies(list, std::size_t(self - list.begin()), *from[k], near, &count) == touch::object) slots[k].reset();
+                const bool hit = touch_bodies(list, std::size_t(self - list.begin()), *from[k], near, &count) == touch::object;
                 pilot_.sidewinder_hits = std::uint16_t(pilot_.sidewinder_hits + count.sidewinder_hits);
                 pilot_.amraam_hits = std::uint16_t(pilot_.amraam_hits + count.amraam_hits);
+                if (hit) {
+                    slots[k].reset();
+                    continue;
+                }
+                // Below the ground it blows up there, leaving smoke on land.
+                std::array<std::int32_t, 3> smoke_at{};
+                bool smoke = false;
+                if (Weapons::hit_ground(*slots[k], *from[k], &world_, smoke_at, smoke) && smoke) others_.add_smoke(smoke_at, true);
             }
         }
         weapons_.move_shots(aircraft_, outside_, std::uint16_t(ticks_), sounds_, [&](Shot& shot) {
@@ -1539,11 +1652,13 @@ private:
         lead_point();
         if (mode_ == FlightMode::practice) lead_tick();
         objects_tick();
+        trail_tick();
         radar_tick();
         if (events.took_off) airborne_ = true;
         mission_tick();
 
         chase_camera();
+        explosion_noises();
         // ($1014A6: the frame counter stands in a frame that ends with an
         // outcome awaited.)
         if (!others_.waiting()) ++ticks_;
@@ -2340,6 +2455,8 @@ private:
     data::World world_;
     FlightTables tables_;
     Scene scene_;
+    struct { int delay{}, volume{}, ticks{}; } explosion_noise_; // `$13AAA8`, `$13AB5A`, `$13AB59`
+    std::array<bool, 16> burning_{}, was_active_{}; // the records' +2 bit 4 and +1 bit 6 last frame (trail_tick)
     Cockpit cockpit_;
     data::Palette palette_;
     Messages messages_;

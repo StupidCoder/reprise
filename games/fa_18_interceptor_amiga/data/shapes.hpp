@@ -67,7 +67,59 @@ struct Shape {
     std::vector<std::vector<ShapePoint>> shadows;
     double shadow_height{};
     std::vector<std::string> problems; // opcodes the decoder stopped at
+    // Op $118 ($1135F0): the lists after it are chosen by a smoke slot's
+    // timer (types 33-35, read_smoke_shape); the address after the op.
+    std::uint32_t timer_variants{};
 };
+
+// A disc ($F8, and $11C for several: $11582A): drawn at a point with a
+// radius in pixels of `radius` over the point's distance (see SmokeShape),
+// at most 127.
+struct ShapeDisc {
+    ShapePoint at;
+    int colour{};
+    int radius{};
+};
+
+// The smoke a missile leaves on the ground (types 34 and 35, mirror
+// images) or something leaves in the air (33): object types 33-35 at
+// `$115F4C`, drawn from the smoke slots (`$13D474`) by `$111D5C`. Near
+// (closer than `near_limit`): 34 and 35 a scorched patch with cracks, all
+// three a column of discs that rises over the slot's first 11 frames,
+// stands, changes its puffs every two frames and goes from the bottom up
+// over its last 12 (op $118, `$1135F0`, by the slot's timer, $7F down);
+// farther, 34 and 35 a two-pixel dot (`$E8`, `$1238A8`) up to `far_limit`.
+// A disc's distance is its point's camera-space length (the camera matrix
+// `$13AEC8`, world units) times 2^`distance_shift`, the model's low scale
+// nibble ($11582A shifts the point back by the shape's scale shift).
+struct SmokeShape {
+    int type{};
+    double near_limit{}, far_limit{};               // world units
+    double scale{};                                 // world units per shape unit
+    int distance_shift{};
+    std::optional<Shape> patch;                     // 34, 35: the patch and its cracks
+    std::array<std::vector<ShapeDisc>, 128> column; // by timer (negative: nothing)
+    std::optional<ShapeDot> far_dot;
+};
+SmokeShape read_smoke_shape(const amiga::LoadedImage& program, int type);
+
+// The explosion an exploding record shows over its last 13 frames
+// (`$12185E`, drawn instead of its model while its timer is 12 or less):
+// pieces thrown out along directions by the explosion's age (15 - timer),
+// each a small triangle turning through eight shapes, or, for the cruise
+// missile, a disc. Kinds: 1 an aircraft over land (orange), 2 over water
+// (white), 3-5 the cruise missile (grey discs, then two orange bursts a
+// frame and two frames younger).
+struct ExplosionBurst {
+    std::vector<std::array<int, 3>> directions; // per piece (bytes)
+    std::vector<int> colours;                   // per piece
+};
+struct Explosions {
+    std::array<ExplosionBurst, 5> bursts;                    // kinds 1-5
+    std::array<std::array<std::array<int, 3>, 3>, 8> pieces; // the triangles' corners ($12169A)
+    std::array<int, 32> piece_of{};                          // piece number + age -> triangle ($12181A / 4)
+};
+Explosions read_explosions(const amiga::LoadedImage& program);
 
 // The object types with shapes in the vehicle formats (0-15; types that
 // share a shape with an earlier one are left out).

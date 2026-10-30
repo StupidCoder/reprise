@@ -16,6 +16,37 @@ void ObjectWorld::spawn(const ObjectChoice& choice) {
     pod_.reset();
     escort_ = 0;
     outcome_wait_ = 0;
+    smoke_ = {};
+    trail_.reset();
+}
+
+void Trail::update(Aircraft& a) {
+    places[std::size_t(next)] = {a.x, a.y, a.z};
+    if (count < 5) places[std::size_t(next + 1)] = {a.x, a.y, a.z};
+    if (++next > 5) next = 0;
+    if (count < 6) ++count;
+    if (a.airspeed != 0 && (a.motion & 0x1000)) { // (+$6E)
+        a.trail = std::uint8_t(std::min(count - 1, 4));
+        return;
+    }
+    if (a.trail == 0 || --a.trail == 0) next = count = 0;
+}
+
+void ObjectWorld::add_smoke(const std::array<std::int32_t, 3>& at, bool ground) {
+    for (std::size_t slot = 0; slot < smoke_.size(); ++slot) {
+        if (smoke_[slot]) continue;
+        // (The loop's counter, 15 down, picks the ground's two shapes.)
+        const int type = !ground ? 0x11 : (slot & 1) ? 0x12 : 0x13;
+        smoke_[slot] = Smoke{type, 0x7F, {at[0] >> 8, at[1] >> 8, at[2] >> 8}};
+        return;
+    }
+}
+
+void ObjectWorld::age_smoke() {
+    if (outcome_wait_ != 0) return;
+    for (auto& s : smoke_) {
+        if (s) --s->timer;
+    }
 }
 
 WorldObject* ObjectWorld::record(int number) {
@@ -103,12 +134,26 @@ bool ObjectWorld::step(const Frame& frame) {
             Autopilot::level_out(a, o.pilot, roll_before);
             if (a.state & 0x0400) continue; // (no touches while it blows up)
             // $11A7EA: its touch after the move; hitting something it goes
-            // ($11AA70).
+            // ($11AA70) - the cruise missile blows up instead ($11A9F6).
+            const auto blow_up = [&] {
+                a.state = std::uint16_t((a.state | 0x0400) & ~0x0200);
+                a.timer = 15;
+                if (frame.locked == o.record) lock_lost = true;
+            };
             auto list = frame.bodies;
             const std::size_t self = list.size() + std::size_t(&o - objects_.data());
             for (auto& other : objects_) list.push_back({&other.craft, other.group, other.active()});
             bool near = false;
             if (touch_bodies(list, self, before, near) == touch::object) {
+                a.handling |= 0x02; // ($11A9DE: it spins)
+                if (a.type == 0x15) {
+                    blow_up();
+                    continue;
+                }
+                // $11AA04: an aircraft burns and is the trail's - and is
+                // taken off ($11AA70).
+                a.motion |= 0x1000;
+                a.role = 1;
                 a.state &= ~0x0040;
                 continue;
             }
@@ -117,11 +162,6 @@ bool ObjectWorld::step(const Frame& frame) {
             // again (+0 bit 15), and a crashed record blows up here, before
             // the frame's end sees it ($11AA4A); or the near bit (+3 bit 1)
             // follows the touch's near box.
-            const auto blow_up = [&] {
-                a.state = std::uint16_t((a.state | 0x0400) & ~0x0200);
-                a.timer = 15;
-                if (frame.locked == o.record) lock_lost = true;
-            };
             if ((a.handling & 0x02) && (a.motion & flag::on_ground)) {
                 a.state &= ~0x1000;
                 blow_up();

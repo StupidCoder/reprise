@@ -408,6 +408,8 @@ private:
             return true;
         }
         case 0xF8: a += 6; return true;                           // a disc (point, colour, radius), not shown
+        case 0x118: shape_.timer_variants = a; return true;        // by a smoke slot's timer (read_smoke_shape);
+                                                                  // the word after it ends the list
         case 0xC4: a += 8; return true;                           // a light seen from one side, not shown
         case 0x10C: a += 8; return true;                          // skip 18 bytes when facing away: both drawn here
         case 0xCC: a += 2; return true;                           // skip unless an object flag: both drawn here
@@ -832,6 +834,120 @@ std::vector<Shape> read_shapes(const amiga::LoadedImage& program, ShapeFamily fa
         if (!shape.faces.empty() || !shape.lines.empty()) shapes.push_back(std::move(shape));
     }
     return shapes;
+}
+
+namespace {
+
+// $1135F0, op $118 in the smoke's list: the variant for a smoke slot's
+// timer. A negative timer leaves the list where it is (its next word ends
+// it); otherwise one of four frames $86 bytes apart, two timer steps each;
+// below 12 the frame's single discs from the bottom one more every two
+// steps (the column goes from the bottom up), above $74 its single discs
+// from the top down, fewer the younger (the column rises).
+std::uint32_t smoke_variant(std::uint32_t after_op, int timer) {
+    if (timer < 0) return after_op;
+    const int phase = timer & 7;
+    const int frame = phase <= 1 ? 0 : phase <= 3 ? 1 : phase <= 5 ? 2 : 3;
+    std::uint32_t at = after_op + 2 + std::uint32_t(0x86 * frame);
+    if (timer < 12) at += 0x26 + std::uint32_t(((11 - timer) >> 1) * 8);
+    else if (timer > 0x74) at += 0x56 + std::uint32_t(((timer - 0x74) >> 1) * 8);
+    return at;
+}
+
+// Discs from a list: $F8 one (point, colour, radius), $11C several (bit 15
+// of the radius on the last), up to the op word with bit 14.
+std::vector<ShapeDisc> read_discs(const amiga::LoadedImage& m, std::uint32_t a,
+                                  const std::function<ShapePoint(int)>& point) {
+    std::vector<ShapeDisc> discs;
+    for (int guard = 0; guard < 32; ++guard) {
+        const auto word = m.u16(a);
+        a += 2;
+        const int op = word & 0x3FFF;
+        if (op == 0xF8) {
+            discs.push_back({point(m.u16(a)), m.u16(a + 2) & 0x1F, m.u16(a + 4)});
+            a += 6;
+        } else if (op == 0x11C) {
+            for (int k = 0; k < 16; ++k) {
+                const auto radius = m.u16(a + 4);
+                discs.push_back({point(m.u16(a)), m.u16(a + 2) & 0x1F, radius & 0x7FFF});
+                a += 6;
+                if (radius & 0x8000) break;
+            }
+        } else if (op != 0) {
+            break;
+        }
+        if (word & 0x4000) break;
+    }
+    return discs;
+}
+
+} // namespace
+
+SmokeShape read_smoke_shape(const amiga::LoadedImage& m, int type) {
+    SmokeShape s;
+    s.type = type;
+    const auto levels = read_detail_levels(m, type);
+    if (levels.empty() || !levels[0].shape) return s;
+    const auto& near = *levels[0].shape;
+    s.near_limit = levels[0].nearer_than;
+    s.scale = near.scale;
+    s.distance_shift = m.u8(near.model + 6) & 15;
+    if (!near.faces.empty() || !near.lines.empty()) {
+        s.patch = near;
+        s.patch->problems.clear();
+    }
+    const auto point = [&](int offset) {
+        const auto at = near.model + 0xA + std::uint32_t(offset);
+        return ShapePoint{double(m.s16(at)), double(m.s16(at + 2)), double(m.s16(at + 4))};
+    };
+    if (near.timer_variants) {
+        for (int timer = 0; timer < 128; ++timer)
+            s.column[std::size_t(timer)] = read_discs(m, smoke_variant(near.timer_variants, timer), point);
+    }
+    // The far level (34, 35): an entry `threshold | $4000, model word,
+    // draw-list word` after the near one, its list one op $E8 (a point and
+    // a colour).
+    if (levels.size() > 1 && levels[1].shape) {
+        const auto record = type_table + std::uint32_t(type) * type_size;
+        const auto base = m.u32(record + 4);
+        const auto entry = m.u32(record + 8) + 6;
+        const auto draw = m.u16(entry + 4);
+        if ((m.u16(entry) & 0x4000) && (draw & 0xE000) == 0xA000) {
+            const auto list = base + (draw & 0xFFF);
+            const auto model = base + (m.u16(entry + 2) & 0xFFF);
+            if ((m.u16(list) & 0x3FFF) == 0xE8) {
+                const auto at = model + 0xA + m.u16(list + 2);
+                s.far_dot = ShapeDot{{double(m.s16(at)), double(m.s16(at + 2)), double(m.s16(at + 4))}, m.u16(list + 4) & 0x1F};
+                s.far_limit = levels[1].nearer_than;
+            }
+        }
+    }
+    return s;
+}
+
+Explosions read_explosions(const amiga::LoadedImage& m) {
+    Explosions e;
+    // $121948 by kind: the pieces' directions and colours, 12 pieces
+    // (9 for the cruise missile's discs).
+    struct Tables { std::uint32_t directions, colours; int count; };
+    static constexpr Tables kinds[5] = {
+        {0x12174A, 0x1217DD, 12}, {0x12174A, 0x1217E9, 12}, {0x1217BF, 0x1217F5, 9},
+        {0x121798, 0x121801, 12}, {0x121771, 0x12180D, 12}};
+    for (int k = 0; k < 5; ++k) {
+        auto& burst = e.bursts[std::size_t(k)];
+        for (int i = 0; i < kinds[k].count; ++i) {
+            const auto at = kinds[k].directions + std::uint32_t(3 * i);
+            burst.directions.push_back({std::int8_t(m.u8(at)), std::int8_t(m.u8(at + 1)), std::int8_t(m.u8(at + 2))});
+            burst.colours.push_back(m.u8(kinds[k].colours + std::uint32_t(i)) & 0x1F);
+        }
+    }
+    for (std::uint32_t p = 0; p < 8; ++p) {
+        const auto at = m.u32(0x12169A + 4 * p);
+        for (std::uint32_t c = 0; c < 3; ++c)
+            for (std::uint32_t k = 0; k < 3; ++k) e.pieces[p][c][k] = m.s16(at + 6 * c + 2 * k);
+    }
+    for (std::uint32_t i = 0; i < 32; ++i) e.piece_of[i] = m.s16(0x12181A + 2 * i) / 4;
+    return e;
 }
 
 std::vector<Shape> read_vehicle_shapes(const amiga::LoadedImage& program) {
