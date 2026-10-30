@@ -29,6 +29,8 @@ constexpr std::uint8_t speed_bar_lit = 3, speed_bar_dark = 0;
 // in the timer draw the glyph alone).
 constexpr int text_column = 7, text_row = 8;
 constexpr std::uint8_t text_colour = 0, text_box = 14, message_white = 15;
+// Dust: three pixels in colour 3 and the upper right one white ($60EF2).
+constexpr std::uint8_t spark_colour = 3, spark_white = 15;
 // The tread sprites line up with their columns (observed).
 constexpr int sprite_shift = 0;
 
@@ -85,8 +87,22 @@ class Screen {
 platform::Image draw_race_screen(const data::CockpitArt& art, const View& view, const Palette& palette,
                                  const Cockpit& cockpit) {
     Screen screen(art);
+    for (const auto& p : cockpit.crack) screen.put(p.x, p.y, p.colour);
     for (int y = 0; y < view_height; ++y)
         for (int x = 0; x < view_width; ++x) screen.put(view_x + x, view_y + y, view.pixels[std::size_t(y * view_width + x)]);
+
+    // Dust and smoke, drawn after the view and before the car.
+    for (const auto& s : cockpit.sparks) {
+        const int x = view_x + s.x, y = view_y + s.y;
+        screen.put(x, y, spark_colour);
+        screen.put(x + 1, y, spark_colour);
+        screen.put(x, y - 1, spark_colour);
+        screen.put(x + 1, y - 1, spark_white);
+    }
+    for (const auto& puff : cockpit.smoke) {
+        const auto& item = art.item(Item::smoke, std::clamp(puff.size, 0, 7));
+        screen.draw(item, puff.x, puff.y, screen_height, view_x, view_y, view_x + view_width, view_y + view_height);
+    }
 
     // The crane's chains while it holds the car.
     if (cockpit.chain_bottom) {
@@ -116,11 +132,6 @@ platform::Image draw_race_screen(const data::CockpitArt& art, const View& view, 
         screen.draw(phase == 2 ? art.item(Item::flame_third_left) : art.item(Item::left_flame, phase));
         screen.draw(phase == 2 ? art.item(Item::flame_third_right) : art.item(Item::right_flame, phase));
     }
-    for (const auto& puff : cockpit.smoke) {
-        const auto& item = art.item(Item::smoke, std::clamp(puff.size, 0, 7));
-        screen.draw(item, puff.x, puff.y, screen_height, view_x, view_y, view_x + view_width, view_y + view_height);
-    }
-
     if (cockpit.message_box) screen.draw(art.item(Item::message_box));
     if (cockpit.message)
         for (const auto& g : cockpit.message->glyphs)

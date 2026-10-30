@@ -39,6 +39,15 @@ struct Cockpit {
         int x{}, y{}, size{};          // screen pixels; puff 0-7
     };
     std::vector<Puff> smoke;
+    struct Spark {
+        int x{}, y{};                  // view pixels
+    };
+    std::vector<Spark> sparks;         // dust thrown up in front of the car
+    struct Pixel {
+        int x{}, y{};
+        std::uint8_t colour{};
+    };
+    std::vector<Pixel> crack;          // along the roof (screen pixels)
 };
 
 platform::Image draw_race_screen(const data::CockpitArt&, const View&, const Palette&, const Cockpit&);
