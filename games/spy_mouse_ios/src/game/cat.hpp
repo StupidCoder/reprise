@@ -34,6 +34,9 @@ struct CatRoute {
     struct Point {
         Vec2 position;
         int pauseSeconds = 0;  // short at +8
+        // Quick saves (state_io.hpp).
+        template <class Io>
+        void io(Io& io) { io(position, pauseSeconds); }
     };
     std::vector<Point> points;
     int startMode = 0;  // +0x120 (start vertex 0x82: 1, 0x84: 2)
@@ -42,6 +45,9 @@ struct CatRoute {
     // MapLinking::linkPath: from the start vertex (type 101) whose |d| is `tag` along the
     // map's second line list.
     static CatRoute link(const data::MapFile& map, int tag);
+    // Quick saves (state_io.hpp).
+    template <class Io>
+    void io(Io& io) { io(points, startMode, endMode); }
 };
 
 // What a cat needs to know about the mouse.
@@ -132,6 +138,9 @@ public:
     float heading() const { return heading_; }
     int state() const { return state_; }
     bool sawMouse() const { return seenMouse_; }
+    // The boss cat stopped at the end of its route (its object no longer updates).
+    bool stoppedForGood() const { return stoppedForGood_; }
+    int trimmed() const { return trimmed_; }
     void forgetMouse() { seenMouse_ = false; }
 
     // State for the trace comparison (doc-verify); offsets of the original's Object.
@@ -146,7 +155,14 @@ public:
     int chaseTimerMs() const { return chaseTimerMs_; }      // +0x1ec
     int lookMs() const { return lookMs_; }                  // +0x1e8
     int calmMs() const { return calmMs_; }                  // +0x1e4
-    Vec2 seenAt() const { return seenAt_; }                 // +0x1c8
+    Vec2 seenAt() const { return seenAt_; }
+    // Player::hide (1.1.1 @0x124938): a cat whose target is the mouse (and that is not in state
+    // 0x11) remembers where the mouse went into hiding and makes that the end of its way back.
+    void mouseHidAt(Vec2 at, const CatWorld& world) {
+        if (state_ == 0x11 || targetId_ != 0) return;
+        seenAt_ = at;
+        setReturnPos(at, world);
+    }                 // +0x1c8
     const std::vector<Vec2>& returnPath() const { return returnPath_; }  // +0x140
     int returnIndex() const { return returnIndex_; }        // +0x170
     float speed() const { return speed_; }
@@ -189,6 +205,9 @@ public:
     // index 3): in his balloon (state 0x14) from the start, swaying about where he was placed
     // (+0x20c); boss4.png, 48 wide, frames 0..7 looping at 400 ms (+0x474).
     void rideBalloon(SheetSize boss);
+    void initForWorld(int world);
+    void reset();  // SceneGame::resetCats: starts over, pictures untouched
+    void reloadPictures();  // Object::loadAssets
     bool ridesBalloon() const { return ridesBalloon_; }
     // ScriptSequence::dunkHenchman2 @0x1d486c: out of the balloon, posed on his cry picture's
     // first frame (state 0x3c); sunk to a height; splashed (the splash once through frames 0..4
@@ -213,12 +232,17 @@ private:
     float followRoute(float speed, CatWorld& world);  // Object::updatePath
     float initialSpeed() const;
     int initialState() const;
+    Vec2 initialVelocity() const;
     void steer(const CatWorld& world, float speed);  // applySteering
     void flock(const CatWorld& world);               // applySteering, its second part
     void awareness(int dtMs, CatWorld& world);       // awarenessCheck
     float throwProj(int dtMs, CatWorld& world);       // throwProj (the ninja cat)
     float behave(int dtMs, CatWorld& world);         // runBehaviour
-    float chase(int dtMs, CatWorld& world);          // chase
+    float chase(int dtMs, CatWorld& world);          // chase (state 5)
+    float pounce(int dtMs, CatWorld& world);         // pounce (state 6, 1.1.1)
+    float stun(int dtMs, CatWorld& world);           // stun (state 7, 1.1.1)
+    void lookAfterPounce(CatWorld& world);
+    void takeAim(CatWorld& world);
     bool canSeeMouse(const CatWorld& world, bool wide, float halfAngle);  // Object::canSeePlayer
     bool canSeeTrail(const CatWorld& world);         // canSeeTrail
     int validTrailTarget(const CatWorld& world) const;  // getValidTrailTarget (-1: none)
@@ -232,8 +256,10 @@ private:
     void hypnotised(CatWorld& world);                // hypnotised @0x1a29b0 (state 7)
     void turnAndMove(int dtMs, float speed, CatWorld& world);
     void stopPurring(CatWorld& world);
-    void scrollWithView(int dtMs, CatWorld& world);
-    void attachParticle(CatWorld& world, int type);  // Particles::addParticle with +0x218
+    void scrollWithView(CatWorld& world);
+    void attachParticle(CatWorld& world, int type);
+    bool whiskerTouches(const CatWorld& world, Vec2 tip) const;
+    int cry() const;  // Particles::addParticle with +0x218
     void moveParticle(CatWorld& world) const;        // update's particle follow
     // The way back (Object +0x140, a Path of up to 32 points).
     void setReturnPos(Vec2 target, const CatWorld& world);
@@ -252,6 +278,10 @@ private:
     float speed_ = 0.0f;        // +0x24
     bool henchmanLaunched_ = false;  // +0x208 (the henchman)
     bool ridesBalloon_ = false;      // world 4's henchman
+    bool stoppedForGood_ = false;
+    int trimmed_ = -1;  // +0x208: route points dropped so far
+    int world_ = -1;    // the profile's world (init by world)
+    float initialRadius_ = 0.0f;  // the touch circle postInit gives it
     float balloonX_ = 0.0f;          // +0x20c: the middle of his sway
     int posePart_ = -1;         // +0x21c: which part picture a cutscene shows (2: pose)
     float heading_ = 0.0f;      // +0x108
@@ -287,6 +317,21 @@ private:
     bool purring_ = false;      // LoopingSoundManager: cat_purr_loop for this cat
     int headBumps_ = 0;         // +0x210: pounces that ended in a wall
     int sightings_ = 0;         // +0x214
+public:
+    // The handle its particle reports to (Particles::add).
+    const int* particleHandle() const { return &particle_; }
+    int* particleHandle() { return &particle_; }
+    // Quick saves (state_io.hpp).
+    template <class Io>
+    void io(Io& io) { io(pose, walk, idle, common, balloon, animatedMs, idleMirrored_, objectId_, type_, floor_,
+                           state_, position_, start_, radius_, frameHeight_, speed_, henchmanLaunched_,
+                           ridesBalloon_, stoppedForGood_, trimmed_, world_, initialRadius_, balloonX_,
+                           posePart_, heading_, targetHeading_, steerOffset_, velocity_, pushNormal_, collided_,
+                           route_, startRoute_, routeIndex_, routeDirection_, returnPath_, returnIndex_,
+                           awarenessMs_, timer1e0_, lurePlayed_, calmMs_, throwMs_, burstLeft_, lookMs_,
+                           meanRampMs_, chaseTimerMs_, collisionStreak_, steerUntilMs_, chaseStep_, seenMouse_,
+                           seenTrail_, targetId_, seenAt_, particle_, facing_, purring_, headBumps_,
+                           sightings_); }
 };
 
 }  // namespace doc::game

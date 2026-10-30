@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "game/dossier.hpp"
 #include "game/level.hpp"
 #include "game/mouse.hpp"
 #include "game/objects.hpp"
@@ -44,6 +45,10 @@ struct FingerState {
     bool held = false;    // still touching
     bool began = false;   // touched down this tick
     Vec2 screen;          // points, 480x320, y down
+    Vec2 downScreen;      // where it touched down (SceneGame +0x13814)
+    // Quick saves (state_io.hpp).
+    template <class Io>
+    void io(Io& io) { io(active, held, began, screen, downScreen); }
 };
 
 // Progress of the level (the original's global LevelState and SceneGame timers).
@@ -55,6 +60,7 @@ struct LevelProgress {
     int playTimeMs = 0;         // game time while the clock runs
     int cheeseTotal = 0;        // cheese placed on the level
     int delivered = 0;          // cheese taken home
+    std::array<int, 5> deliveredKinds{};  // ... by size (LevelState +0x70, CheeseTracker kinds 0..4)
     int score = 0;
     bool over = false;
     bool won = false;
@@ -70,6 +76,12 @@ struct LevelProgress {
     bool mouseGone = false;     // the mouse was caught (LevelState +0x55)
     bool foundSecret = false;   // left by a secret exit (+0x56): the world's secret level opens
     int failures = 0;           // levels lost this session (SceneGame +0x57fb4)
+    // Quick saves (state_io.hpp).
+    template <class Io>
+    void io(Io& io) { io(clock, clockAccumulatorMs, clockRunning, clockHeld, playTimeMs, cheeseTotal, delivered,
+                           deliveredKinds, score, over, won, bannerMs, resultsDelayMs, finished, total,
+                           distance, lastScore, lastScoreShowMs, lastHand, spotted, mouseGone, foundSecret,
+                           failures); }
 };
 
 // What the path being drawn is heading for (Player::playerPredictivePathUpdate @0x123bd4):
@@ -80,6 +92,9 @@ struct PathPrediction {
     int cheeseAhead = 0;      // cheese the path will pick up
     bool enoughCheese = false;
     bool snappedToCheese = false;
+    // Quick saves (state_io.hpp).
+    template <class Io>
+    void io(Io& io) { io(lastTarget, cheeseAhead, enoughCheese, snappedToCheese); }
 };
 
 class Session {
@@ -94,6 +109,9 @@ public:
     // slot; the iris reopens on the mouse over the bonus pattern, and the finger comes back
     // (initialise → initGame clears LevelState +0x55 before postInitGame checks it).
     std::unique_ptr<Session> retry() const;
+    // Never moved or copied: its particles hold its random generator.
+    Session(const Session&) = delete;
+    Session& operator=(const Session&) = delete;
 
     // Touch events from the host, in screen points (480x320, y down).
     void fingerDown(Vec2 screen);
@@ -166,6 +184,9 @@ public:
 
     struct FluffState {
         SpriteAnim anim;
+        // Quick saves (state_io.hpp).
+        template <class Io>
+        void io(Io& io) { io(anim); }
     };
     const std::vector<FluffState>& fluff() const { return fluff_; }
 
@@ -178,16 +199,22 @@ public:
         float target = 0.0f;    // full diameter
         int timerMs = 0;
         bool fixed = false;     // the mouse's: always at full size
+        // Quick saves (state_io.hpp).
+        template <class Io>
+        void io(Io& io) { io(centre, size, target, timerMs, fixed); }
     };
     struct Intro {
         bool active = false;
-        int ageMs = 0;
+        int ageMs = 300;  // (1.1.1 showScene @0x14a81c starts the clock at 300 ms; 1.0.5: 0)
         int fadeMs = 1600;
         int holdMs = 4000;
         bool skipped = false;
         bool pulsed = false;
         int totalFadeMs = 1600;
         std::vector<Spotlight> spotlights;  // the mouse's first, then the markers
+        // Quick saves (state_io.hpp).
+        template <class Io>
+        void io(Io& io) { io(active, ageMs, fadeMs, holdMs, skipped, pulsed, totalFadeMs, spotlights); }
     };
     const Intro& intro() const { return intro_; }
     // The demonstrating finger of map 10 (inactive elsewhere and once a path is drawn).
@@ -209,6 +236,10 @@ public:
         // Just shut: still "animating" until the next update (+0x38, isAnimating @0x1f09e0).
         bool settling = false;
         bool moving() const { return opening || closing || settling; }
+        // Quick saves (state_io.hpp).
+        template <class Io>
+        void io(Io& io) { io(kind, opening, closing, closed, centre, progress, fullRadius, radius, speed,
+                               settling); }
     };
     const Iris& iris() const { return iris_; }
     // The in-game tutorial over the floor (SceneInGameTutorial): whether it shows, which of
@@ -233,6 +264,31 @@ public:
     }
     // What the profile knew about this level before the run (medals won, best total).
     void setRecord(const LevelRecord& record) { record_ = record; }
+    // What the profile keeps as the level's best (Profile::completeLevel @0x173a9e): the total,
+    // or in the boss chase (game mode 1) the cheese brought home (LevelState +0x24).
+    int recordedScore() const { return level_.infinite() ? progress_.delivered : progress_.total; }
+    // (1.1.1) The dossiers the profile has found (Profile::hasDossier): their pickups are not
+    // in the level. A dossier found here opens its page over the level; the app records it
+    // (Profile::foundDossier) once `takeFoundDossier` hands it over.
+    void setDossiersFound(const std::array<bool, 21>& found);
+    int takeFoundDossier() {
+        const int d = foundDossier_;
+        foundDossier_ = -1;
+        return d;
+    }
+    const DossierScreen& dossierScreen() const { return dossier_; }
+    void pressDossierBack() {
+        if (!dossier_.active() || dossier_.note().active) return;
+        sound(sfx::UiButton);
+        dossier_.back();
+    }
+    void pressDossierNote() {
+        if (!dossier_.note().active) return;
+        sound(sfx::UiButton);
+        dossier_.closeNote();
+    }
+    // The profile's cheese balance as the level starts (the results' cheese badge).
+    void setCheeseBalance(int balance) { cheeseBalance_ = balance; }
     // Continue or retry on the results screen; false while its buttons are not in yet.
     // Continue fades the screen out (state 7); retry asks the app for retry() at once.
     bool pressResultsButton(bool retry) {
@@ -256,6 +312,9 @@ public:
         float amount = 0.0f;
         Vec2 direction;
         bool active() const { return timeMs >= 1; }
+        // Quick saves (state_io.hpp).
+        template <class Io>
+        void io(Io& io) { io(delayMs, timeMs, durationMs, step, amount, direction); }
     };
     const Shake& shake() const { return shake_; }
     bool inCutscene() const { return cutscene_.active; }
@@ -306,6 +365,10 @@ public:
         // Twine and catnip picked up (Player::pickup's achievement metrics; the "string" and
         // "fish" goals compare them as "at most": hypothesis, run l45_win).
         int twine = 0, catnip = 0;
+        // Quick saves (state_io.hpp).
+        template <class Io>
+        void io(Io& io) { io(wallHoles, safeHoles, switches, furniture, cups, chillies, balloons, tvs, other,
+                               shurikenCheese, twine, catnip); }
     } uses_;
     int pathsDrawn() const { return pathsDrawn_; }
     // Where the sheen sweeping over loose cheese is (SceneGame +0x138fc, map x).
@@ -349,6 +412,8 @@ private:
     std::map<int, std::set<int>> loopHolders_;  // looping sound -> objects holding it
     bool loopsSilenced_ = false;  // the level was won: no object starts a looping sound again
     void pulseCheesesAfterIntro();
+    void pulseCheeseAndTraps();
+    void irisShutOnBoot();
     void updateIris(int dtMs);
     void startResults();
     void startResultsIris();
@@ -389,6 +454,11 @@ private:
         BounceFrame box = BounceFrame::hidden();
         data::Speech shown;       // the line in the bubble (configureDialogueBox)
         bool tapped = false;
+        // Quick saves (state_io.hpp).
+        template <class Io>
+        void io(Io& io) { io(active, name, queue, child, step, scriptState, timerMs, pathPoint, oldState, path,
+                               elapsedMs, arcStart, arcEnd, travelMs, startHeight, speeches, box, shown,
+                               tapped); }
     };
     void fireEvent(const std::string& event);
     void startCutscene(const std::string& name, const std::vector<data::CutsceneStep>& steps);
@@ -443,7 +513,9 @@ private:
     std::vector<LevelGeometry> floorWalls_;  // per floor; doors switch walls on and off
     int shownFloor_ = 0;
     bool doorTransition_ = false;       // SceneGame +0x1384e
-    int doorReadyAtMs_ = 0;             // Player +0x1e0: doors work again from this game time
+    // Player +0x1e0 (1.1.1 +0x364, SceneGame +0x13190): doors work again from this game time;
+    // a door sets it 10 s ahead, arriving on the floor (SceneGame::changeFloor) sets it to now.
+    int doorReadyAtMs_ = 0;
     std::vector<int> floorVisits_;      // SceneGame +0x11640: 0 unseen, 1 just entered, 2 left
     LevelGeometry& wallsOf(int floor) { return floorWalls_[std::size_t(floor)]; }
     LevelGeometry& here() { return floorWalls_[std::size_t(mouse_.floor)]; }
@@ -497,12 +569,23 @@ private:
         Vec2 mousePosition;               // Player +0x1b8
         int mouseState = 0;               // +0x130
         float mouseHeading = 0.0f;        // +0x1d8
+        int mouseHoleTag = -1;            // (1.1.1 Player +0x36c; run l24_win)
         std::vector<int> carried;         // the trail (+0x174 and the objects' links)
         float scoreBoost = 0.0f;          // +0x21c
         int chilliMs = 0, chilliTotalMs = 0;  // +0x220, +0x224
         std::vector<ObjectSnapshot> objects;
+        int viewLeft = 0;                 // SceneGame +0x1393c, kept as a whole number
+        // Quick saves (state_io.hpp).
+        template <class Io>
+        void io(Io& io) { io(floor, clock, delivered, score, playTimeMs, wallsEnabled, mousePosition,
+                               mouseState, mouseHeading, mouseHoleTag, carried, scoreBoost, chilliMs,
+                               chilliTotalMs, objects, viewLeft); }
     };
     std::shared_ptr<const Checkpoint> checkpoint_;
+    // Quick saves: each particle slot's owner as a cat (2 * index) or droid (2 * index + 1),
+    // -1 for none.
+    std::vector<int> particleOwners() const;
+    void setParticleOwners(const std::vector<int>& owners);
     void takeCheckpoint();
     void sequenceBlowUpDroid();
     void throwKey(Vec2 at, int floor);
@@ -575,6 +658,10 @@ private:
     WorldCompleteScreen worldComplete_;
     bool worldCompletePending_ = false;  // pushed in the tick that won; runs from the next
     LevelRecord record_;
+    int cheeseBalance_ = 0;
+    std::array<bool, 21> dossiersFound_{};
+    int foundDossier_ = -1;
+    DossierScreen dossier_;
     int pathsDrawn_ = 0;  // the "paths" metric of the level goals
     std::array<int, 8> handsScored_{};  // trails scored per poker hand (combo goals)
     float sheenX_ = 0.0f;
@@ -606,8 +693,11 @@ private:
     PathPrediction prediction_;
     std::vector<int> carried_;
     int carryCapacity_ = 1;  // cheese the mouse can drag at once
+    bool exitShut_ = false;      // the exit door shut behind the mouse (LevelState +0x18)
+    std::optional<LevelNotice> pendingNotice_;  // +0x57d8c: the notice the start asked for
     int snapHold_ = -1;      // object the path end is still inside after a snap
-    bool fingerDrawing_ = false;  // the finger is drawing the path (the original's "current path")
+    bool fingerDrawing_ = false;  // the finger is drawing the path (the path's drawing flag)
+    bool fingerHasPath_ = false;  // the finger has a path until it lifts (the original's "current path")
     float viewLeft_ = 0.0f;       // horizontal scroll of the view (0 on single-screen levels)
     Shake shake_;
     CutsceneRun cutscene_;
@@ -619,6 +709,40 @@ private:
     std::array<int, 5> floorCheese_{};  // +0x13868: cheese (and mouse traps) placed on each floor
     std::int64_t ticks_ = 0;
     std::int64_t frames_ = 0;
+public:
+    // Quick saves (state_io.hpp).
+    // Not saved: level_ (the level as loaded from its files), tuning_ and scoring_ (constants).
+    template <class Io>
+    void io(Io& io) {
+        io(uses_, loopHolders_, loopsSilenced_, roomDoorTransition_, roamers_, floorWalls_,
+           shownFloor_, doorTransition_, doorReadyAtMs_, floorVisits_, objects_, mouse_, path_,
+           random_, particles_, ambience_, fluff_, intro_, retryRequested_, retryFromPause_,
+           exitRequested_, pause_, cats_, droids_, spitters_, railTargets_, emitters_, vacuums_,
+           launchers_, reflectorCatches_, projectiles_, switches_, doors_, noise_, pipeUses_,
+           catEyes_, mouseCaught_, caughtMs_, droppedItem_, dropGuardMs_, mouseInPlay_,
+           finalPosition_, levelOver_, retryAfterCaught_, dimFade_, startStrength_, hand_,
+           iris_, results_, worldComplete_, worldCompletePending_, record_, cheeseBalance_,
+           dossiersFound_, foundDossier_, dossier_, pathsDrawn_, handsScored_, sheenX_, notice_,
+           kiska_, kiskaOffers_, wallClock_, hud_, musicTrack_, music_, musicPlaying_,
+           soundEvents_, noteStep_, attempts_, wonBefore_, tutorialMs_, tutorialAimMs_,
+           tutorialSide_, crumbComboMs_, crumbCombo_, noteTimerMs_, finger_, progress_,
+           prediction_, carried_, carryCapacity_, exitShut_, snapHold_, fingerDrawing_,
+           fingerHasPath_, viewLeft_, shake_, cutscene_, spottedDelayMs_, spottedTimerMs_,
+           scrollSpeed_, gameTimeMs_, deliveredOn_, floorCheese_, ticks_, frames_, pendingNotice_);
+        // The checkpoint (shared with the sessions retry() makes) and the cat or droid each
+        // particle belongs to (Particle::owner points at its handle).
+        std::optional<Checkpoint> checkpoint;
+        std::vector<int> owners;
+        if constexpr (!Io::reading) {
+            if (checkpoint_) checkpoint = *checkpoint_;
+            owners = particleOwners();
+        }
+        io(checkpoint, owners);
+        if constexpr (Io::reading) {
+            checkpoint_ = checkpoint ? std::make_shared<const Checkpoint>(std::move(*checkpoint)) : nullptr;
+            setParticleOwners(owners);
+        }
+    }
 };
 
 }  // namespace doc::game

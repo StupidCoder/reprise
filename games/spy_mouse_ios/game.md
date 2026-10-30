@@ -15,8 +15,8 @@ and bugs of the original code. Remaining work is in [plan.md](plan.md).
 - Addresses are armv7 vmaddrs of **version 1.0.5** unless marked 1.1.1. Struct offsets
   (`Player +0x130`) are research mappings only. The port uses its own types and never the
   original's memory layout.
-- Detailed notes, evidence and tools are in the local research archive (`.analysis/`, linked
-  from this folder, not in the repository): `docs/level-1-1.md`, `level-1-2.md`, `world-map.md`,
+- Detailed notes, evidence and tools are in the local research archive (`.analysis/` in this
+  folder, ignored by git; the Ghidra projects are in `ghidra/`): `docs/level-1-1.md`, `level-1-2.md`, `world-map.md`,
   `world1-levels.md` … `world4-levels.md`, `reference-runs.md`, `v111-migration.md`,
   `feasibility.md`, `values-defaults.txt`.
 - **HYPOTHESIS** marks what is inferred, not confirmed by code and a run.
@@ -371,7 +371,9 @@ tag's walls react first (0 toggles, 2 on, others off); then every object on the 
 - **TV** (0x60): a cat that sees a playing TV walks back to it, takes a seat and is hypnotised
   for good (the TV plays forever once touched).
 - **Lures**: a chasing cat does not catch a mouse whose trail holds twine or catnip; on reaching
-  the lure it takes it and plays.
+  the lure it takes it and plays. Catnip is eaten (8.2 s, "cat_catnip_time"): its picture runs
+  frames 0-11 once over that time, then the last frame fades out over 2 s. 4-S2's floor 1 is won
+  this way (run l4h1_win: the black cat by the home hole eats the catnip from the trail).
 - Spotting cries per kind: brown 0x12, orange 0x17, black 0x13, ghost 0x14, ninja 0x16, lava
   0x15, henchman 0x8e (world 6 only); none for the boss, blind cat or Fluffy.
 
@@ -467,6 +469,90 @@ tag's walls react first (0 toggles, 2 on, others off); then every object on the 
   touchHLE (open).
 - `levelSkip.gui` was renamed `level_skip.gui`; the IPA has an empty deflated file
   (`res/build_notes.txt`).
+- Profile: the current world is +0x1dc (1.0.5: +0x18). Several set-ups read it rather than
+  the level's world: the teacup/bucket picture (bucket only in profile world 2 and outside
+  challenges), Fluffy's facing, the henchman's pictures, the boss of `bossTypeOfWorld`.
+- Popups at the start: `SceneGame::initGame` @0x106014 only records the notice (+0x57d8c: 1
+  carry more, 2 safe holes on map 26, 3 level goals on map 704, the last two until the level is
+  won); `SceneGame::update` @0x103528 pushes `popup_tutorial` on its first run while the
+  power-up bar is still and returns at once; the iris then finishes 7 times faster
+  (`PinholeManager::finishTransition(false)`). A tap pops the popup at once.
+- The menu's closing iris also reaches the new game's `pinholeCallback` (@0xfc358) at boot; it
+  acts only with the game scene on top, i.e. in the boss chase (no intro): cheese and mouse traps
+  pulse.
+- No automatic Kiska offer after the level intro: `level_skip` is pushed only by the power-up
+  bar (`SceneGame::guiEvent` @0x103e00). Power-ups (banana, bomb, roller skates, hamster ball,
+  Kiska, X-ray specs), the store and Digger's tutorial are new (plan.md 1a).
+- Boss chase: the boss cat starts with velocity (0.05, 0.05) (init @0x19fa16); the view's
+  scroll is set from the cat's velocity *before* its move (@0x1a14a4), so the first tick scrolls
+  0.05. At its last route point `patrol` (@0x1a408a) runs it at 2.5× speed; within its radius of
+  the point it stops for good (Object +5 cleared, scroll 0, then set once more from the last
+  step). The exit door reopens only for a boss cat still updating; the mouse walking out shuts
+  the door behind it (LevelState +0x18, also blocking path drawing) and then stands.
+- Checkpoints: a safe hole (`Player::hide` @0x124d70) and a checkpoint line (wall 0x72, which
+  switches itself off, `collideObjects` @0x10085c) take a snapshot. `Snapshot<Object>` keeps the
+  radius as an int and the route-trim count (+0x208, replayed with `Path::trim`); the view
+  (+0x1393c) is kept as an int. A reload runs the cats' init again over the kept objects and
+  then rolls the snapshot back: aim, calm timer, way back, steering and chase timer start over,
+  and a back-and-forth route walks forward again (run `l3h2_win`). The Spitter's radius comes
+  back as an int too (`lbf2_caught`). `Snapshot<Player>` (rollback @0x10bc7c) restores state
+  (+0x2b0), floor (+0x2b4), position, heading, the trail's first item (+0x2f4), the scoring
+  fields +0x3a0–+0x3ac and the hole tag (+0x36c), but not the hole itself (+0x2e0): a mouse
+  rolled back into a safe hole comes out by a touch at once, without the 80 ms grow, the hole's
+  sound or the slide (`Player::setState` @0x123fd2 needs +0x2e4; run `l24_win`).
+- `Object::updatePositions` @0x115430 never pushes these kinds out of walls: 0xb (toy mouse),
+  0x37, 0x109/0x10a, 0x12d, 0x12f, 0x14a, 0x165–0x167, 0x1a4/0x1a5; nor states 0x24/0x40.
+- `updateTouchPoints` @0x1017a8: no drawing in player states 5, 9, 0xC, while the door timer is
+  not past or once the exit shut. The door timer is Player +0x364 (SceneGame +0x13190): using a
+  door sets it 10 s ahead (`startFloorTransition` @0x1b26ca), arriving on the floor
+  (`SceneGame::changeFloor` @0xfc054) sets it to now, so doors snap again right after the
+  arrival (`snapPath` @0x10138c; run `l17_win`). A shut door or trapdoor (state 0x29) is not
+  used at all (`ObjControllerFloorTransport::touchPlayer` @0x1b232c), so standing on one does
+  not hold the timer (run `l37_win` 6401).
+- Safe (munch) holes 0x168–0x16b: touched out (`Object::getTouched` @0x115e44), the trail's items
+  other than 0xb, 0xc and 0x13 stay in the hole (inactive; their carried flag is left set);
+  `setState(0)` then closes the bank holes. Leaving a hole sounds 0x33 for wall holes and 0x28
+  for types below 0x14, 0x18–0x1d and 0x28–0x30; a munch hole is quiet (@0x124060). A trail
+  item of type 0x12 is gone on leaving any hole; 0x13 is not set running again (@0x123f6c).
+- `Object::onFloorChanged` @0x11208c: on a floor change, objects left on other floors stop
+  their looping sounds (0x1d, 0x34, 0x72); twine a cat has had (state 0x22) and catnip still
+  being eaten are gone (run `l45_win`).
+- A touch lets a hidden mouse out by the nearest object within 45 whose tag matches the mouse's
+  hole tag (+0x36c; `updateTouchPoints` @0x101bfe); `getTouched` then refuses an object that is
+  not an exit (+0x870) or has +0x873 set, and needs a tag of 0 or more outside the boss modes
+  (LevelState +0x14 = 2).
+- The best total of the boss chase is LevelState +0x24 (cheese home), else the total
+  (`Profile::completeLevel` @0x1735e8; new-best flag LevelState +0x1d).
+- Cats: Fluffy (0x3a) and the henchman (0x3b) start in the cutscene state 0x40; Fluffy faces by
+  the profile's world (init @0x19fa92) and shows his pose (part 2, frame 5, `postInit`
+  @0x19fbc4; 1.0.5's `ScriptSequence::showFluffy` is gone). The henchman has no walking
+  pictures outside world 6, so he is not drawn there. The cutscene part index is Object +0x228.
+- Droid (0x12d): `postInit` sets aim = heading; `renderAccela` @0x1acd98 sets the body to the
+  heading's sixteenth (getSpriteDirFromAngle) every frame outside steps 1, 2, 5–7, 9.
+- Path drawing: a finger held since elsewhere starts a path when it comes within reach of the
+  mouse and is more than sqrt(200) from where it touched down (`updateTouchPoints` @0x101cb8);
+  that path starts at index 0 (one step along heading 0). The finger keeps its path (even one
+  that ended in a hole or filled up) until it lifts.
+- Projectile pictures (`ProjectileManager::load`): 0 shuriken, 1 lava fireball, 2 world 4's
+  shuriken, 3–5 fork/spoon/knife, 7 poison dart (1.0.5 had a second ball, so its later numbers
+  were one higher). Walls do not stop picture 2. The ninja's wait between throws is the burst
+  cooldown (600 ms), not the throw cooldown; the Spitter drops a wound-up throw when it loses
+  sight of the mouse. A shuriken death (player state 0xB) sets the level-over wait to 1300 ms
+  (the boss modes keep it). Cutlery kills like a shuriken (projectile gone, state 0xB) with
+  the new "cutlerydeath1" sequence (`player_cutlerydeath.xml.brd`); a worn teacup stops
+  shurikens (`Player::touchProjectile` @0x1244a4).
+- State numbers that moved in 1.1.1: reflectors 0x3d/0x3e (were 0x39/0x3a), the breakable
+  lights 0x2d/0x2e (were 0x29/0x2a). The secret home holes (0xf4–0xf7) run like the others.
+- Level over: while the mouse still carries something the wait restarts at 250 ms (1.0.5 500)
+  every tick. Results: past the 14 s time-out the ring is cleared every update.
+- Boss leftovers: the key is thrown 0.0001 above the boss (`blowUpDroid` script) and has its
+  picture (32 x 32, radius 13.58); a boss win shows the world card when the fight was not
+  completed before. The rail spheres (366) are 48 wide with 0.7 of the usual radius; world 4's
+  henchman has radius 15. Doors and buttons come back from a checkpoint with their state and
+  frame.
+- Dossiers: 21 pages (names 0x5F6100, types 0x526C80, tips 0x526AD0, last seen 0x526CE0);
+  `SceneDossier` eases folder/pictures by 1/8, the paper by 1/16 (@0x286f96); the first-find
+  note waits for the paper to settle (the pictures' step is re-armed while it is near).
 
 ## Quirks and bugs in the original
 

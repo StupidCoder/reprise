@@ -28,6 +28,9 @@ class Spitter {
 public:
     struct Sheets {
         SheetSize body, wreck;  // sprites/boss2/boss2.png, boss2_destroyed.png (64 wide)
+        // Quick saves (state_io.hpp).
+        template <class Io>
+        void io(Io& io) { io(body, wreck); }
     };
     Spitter(int objectId, int floor, Vec2 position, float radius, Vec2 size, CatRoute route, const Sheets& sheets);
 
@@ -50,10 +53,11 @@ public:
         position_ = o.position;
         heading_ = o.heading;
         walk_.index = o.routeIndex;
+        radius_ = float(o.radius);  // (kept as a whole number, as the cats', run lbf2_caught)
         body.setFrame(o.frame);
     }
     // SceneCutscene::hideScene @0x1c95c0: the intro is over, the boss wakes (after +0x1dc).
-    void wake() { state_ = 0x16; }
+    void wake() { state_ = 0x1a; }
     // ObjControllerBoss::update @0x1a9598 for the Spitter.
     void update(int dtMs, BossWorld& world);
     // ObjControllerBoss::receiveMessage @0x1a9ccc: messages 0 and 4 (the beam is on) stop the
@@ -86,12 +90,17 @@ private:
     float aim_ = 0.0f;       // +0x10c
     Vec2 velocity_;          // +0x1ac
     float speed_ = 1.0f;     // +0x24
-    int state_ = 0x15;
+    int state_ = 0x19;
     RouteWalk walk_;         // +0x114.., +0x16c, +0x174
     int cooldownMs_ = 0;     // +0x1dc: before waking, then between looks for the mouse
     int windUpMs_ = 0;       // +0x1f8: before a throw
     int throwsDue_ = 0;      // +0x1fc
     int throwing_ = 1;       // +0x204 (broken: time to the next puff of smoke)
+public:
+    // Quick saves (state_io.hpp).
+    template <class Io>
+    void io(Io& io) { io(body, wreck, objectId_, floor_, position_, size_, radius_, heading_, aim_, velocity_,
+                           speed_, state_, walk_, cooldownMs_, windUpMs_, throwsDue_, throwing_); }
 };
 
 // A sphere riding a rail (type 366): it shuttles along its route; a throw striking it while it
@@ -105,7 +114,7 @@ struct RailTarget {
     float heading = 0.0f, aim = 0.0f;
     Vec2 velocity;
     RouteWalk walk;
-    int state = 0x1b;        // 0x1b moving, 0x1c stopped
+    int state = 0x1f;        // 0x1f moving, 0x20 stopped
     int stopMs = 0;          // +0x1dc (60001: stopped for good)
     bool updating = true;    // +5
     SpriteAnim anim;         // sprites/target_moving.png
@@ -113,6 +122,10 @@ struct RailTarget {
     // Object::update: frames, then (only while the level is the top scene) along the rail or
     // waiting out the stop.
     void update(int dtMs, bool levelOnTop, const LevelGeometry& walls, float viewLeft);
+    // Quick saves (state_io.hpp).
+    template <class Io>
+    void io(Io& io) { io(objectId, floor, messageTag, position, radius, heading, aim, velocity, walk, state,
+                           stopMs, updating, anim); }
 };
 
 // A device on an end wall (type 367): lit (0x23) for 15 s by its sphere's message; with its
@@ -122,7 +135,7 @@ struct BeamEmitter {
     int objectId = -1;
     int floor = 0;
     int partner = -1;        // +0x1d8: the other device
-    int state = 0x22;        // 0x22 dark, 0x23 lit
+    int state = 0x26;        // 0x26 dark, 0x27 lit
     int step = 0;            // +0x1d4: 1 the beam is on, 2 shutting down
     int timerMs = 0;         // +0x1dc
     int clockMs = 0;         // +0x204: runs on (the beam's flicker and scroll)
@@ -131,10 +144,13 @@ struct BeamEmitter {
     // Whether the beam starts here (Object::render @0x1142a2: lit, on or shutting down, and
     // in the shutdown's flicker only every other 50 ms).
     bool beamShown() const {
-        if (state != 0x23 || (step != 1 && step != 2)) return false;
+        if (state != 0x27 || (step != 1 && step != 2)) return false;
         return !(step == 2 && clockMs % 100 < 50);
     }
     void update(int dtMs, std::vector<SoundEvent>& sounds);
+    // Quick saves (state_io.hpp).
+    template <class Io>
+    void io(Io& io) { io(objectId, floor, partner, state, step, timerMs, clockMs, updating, anim); }
 };
 
 }  // namespace doc::game

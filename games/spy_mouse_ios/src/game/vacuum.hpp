@@ -34,6 +34,9 @@ class Vacuum {
 public:
     struct Sheets {
         SheetSize body, nozzle, suction, effect;  // boss3_part1, boss3_part0, boss3_part2, vacuum_effect
+        // Quick saves (state_io.hpp).
+        template <class Io>
+        void io(Io& io) { io(body, nozzle, suction, effect); }
     };
     Vacuum(int objectId, int floor, Vec2 position, Vec2 size, CatRoute route, const Sheets& sheets);
 
@@ -49,7 +52,7 @@ public:
     int routeIndex() const { return walk_.index; }
     int routeDirection() const { return walk_.direction; }
     // Object +0x205 bit 0: the suction picture is up (drawn in place of the body).
-    bool sucking() const { return state_ == 0x17 && stage_ >= 1 && (pictureFlags_ & 0x100) != 0; }
+    bool sucking() const { return state_ == 0x1b && stage_ >= 1 && (pictureFlags_ & 0x100) != 0; }
 
     // SnapshotHandler::rollback: the kept fields come back.
     void restore(const ObjectSnapshot& o) {
@@ -60,7 +63,7 @@ public:
         body.setFrame(o.frame);
     }
     // SceneCutscene::hideScene @0x1c95c0: the intro is over, the boss wakes (after +0x1dc).
-    void wake() { state_ = 0x16; }
+    void wake() { state_ = 0x1a; }
     // ScriptSequence::blowUpDroid @0x1d4604 (the boss's part): the explosion over it, broken,
     // smoke from 1 s on, sound 0x8f. The key is thrown by the caller in between.
     void blowUp(BossWorld& world, const std::function<void()>& throwKey);
@@ -91,7 +94,7 @@ private:
     float aim_ = 0.0f;       // +0x10c
     Vec2 velocity_;          // +0x1ac
     float speed_ = 0.0f;     // +0x24
-    int state_ = 0x15;
+    int state_ = 0x19;
     RouteWalk walk_;         // +0x114.., +0x16c, +0x174
     int stage_ = 0;          // +0x1d4
     int timerMs_ = 0;        // +0x1dc
@@ -99,6 +102,12 @@ private:
     int pictureFlags_ = -1;  // +0x204: the suction picture's facing x 2, bit 8 while it is up
     int smokeMs_ = 0;        // +0x204 once broken: to the next puff of smoke
     int moodMs_ = 0;         // ObjControllerBoss +0x5e4 (redrawn while sucking: rand() % 4000 + 8000)
+public:
+    // Quick saves (state_io.hpp).
+    template <class Io>
+    void io(Io& io) { io(body, effect, nozzle, suction, objectId_, floor_, position_, size_, radius_, heading_,
+                           aim_, velocity_, speed_, state_, walk_, stage_, timerMs_, seesMouse_, pictureFlags_,
+                           smokeMs_, moodMs_); }
 };
 
 }  // namespace doc::game

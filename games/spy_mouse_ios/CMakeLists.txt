@@ -68,6 +68,7 @@ add_library(doc_game
     src/game/projectiles.cpp
     src/game/object_motion.cpp
     src/game/kiska_popup.cpp
+    src/game/dossier.cpp
     src/game/notice.cpp
     src/game/hud.cpp
     src/game/results.cpp
@@ -119,6 +120,7 @@ add_library(doc_shell
     src/render/popup_view.cpp
     src/render/results_view.cpp
     src/render/kiska_view.cpp
+    src/render/dossier_view.cpp
     src/render/pause_view.cpp)
 target_include_directories(doc_shell PUBLIC ${SOURCE_ROOT})
 # The game's music is HE-AAC, decoded by doc_media on every platform.

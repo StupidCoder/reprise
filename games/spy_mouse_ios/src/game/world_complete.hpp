@@ -17,6 +17,9 @@ public:
         int world = 0;        // level data +0xc (0 for world 1)
         int goalsWon = 0;     // the world's levels' won goals (+0x138, +0x150, +0x168)
         int goalsTotal = 0;   // ... and their goals (+0x124, +0x13c, +0x154 set)
+        // Quick saves (state_io.hpp).
+        template <class Io>
+        void io(Io& io) { io(world, goalsWon, goalsTotal); }
     };
 
     // showScene: the card and the continue button bounce in.
@@ -61,6 +64,10 @@ private:
     bool active_ = false;
     BounceFrame card_, continue_;
     PlusPulse pulse_;
+public:
+    // Quick saves (state_io.hpp).
+    template <class Io>
+    void io(Io& io) { io(setup_, active_, card_, continue_, pulse_); }
 };
 
 }  // namespace doc::game

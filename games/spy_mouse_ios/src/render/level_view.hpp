@@ -4,6 +4,10 @@
 // Pictures are read from the user's game files when first needed.
 #pragma once
 
+#include "data/level_table.hpp"
+
+#include "data/program_tables.hpp"
+
 #include "data/gui_layout.hpp"
 #include "data/strings.hpp"
 #include "game/session.hpp"
@@ -75,9 +79,12 @@ private:
                       float scale, float alpha, const Affine& xf);
     // Kiska's offer (kiska_view.cpp).
     void drawKiska(const game::Session& session);
+    void drawDossier(const game::Session& session);
+    void drawMessageBox(const game::MessageBox& box, float dim);
     void drawKiskaNode(const game::KiskaPopup& popup, const data::GuiNode& node, float parentX, float parentY,
                        const Affine& outer);
     // The results screen (results_view.cpp).
+    void drawCheeseStamp(const game::ResultsScreen& results);
     void drawResults(const game::Session& session);
     void drawWorldComplete(const game::Session& session);
     void drawPauseButton(const game::Session& session);
@@ -113,6 +120,10 @@ private:
     std::optional<data::GuiLayout> worldLayout_;         // guis/world_complete.gui
     std::optional<data::GuiLayout> pauseLayout_;         // guis/pause.gui
     std::optional<data::GuiLayout> kiskaLayout_;         // guis/level_skip.gui (1.0.5: levelSkip.gui)
+    std::optional<data::GuiLayout> dossierLayout_;       // guis/dossier.gui (1.1.1)
+    std::optional<data::GuiLayout> msgboxLayout_;        // guis/msgbox.gui
+    std::vector<data::DossierData> dossiers_;
+    std::optional<data::LevelTable> levelTable_;
     game::Vec2 pausePaws_;                               // hud/hud_paws.png size
     std::vector<std::pair<std::string, std::string>> goalStars_;  // medal pictures per goal kind
     std::vector<data::GuiVec> eyeOffsets_;               // posed mouse eyes per pose

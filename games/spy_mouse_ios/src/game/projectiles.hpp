@@ -25,6 +25,16 @@
 
 namespace doc::game {
 
+// The projectile pictures (ProjectileManager::load @0x18ca5c, 1.1.1 order; 1.0.5 had a second
+// ball at 2, so its later numbers were one higher: run lbf4_watch).
+constexpr int kPictureShuriken = 0;      // sprites/shuriken.png
+constexpr int kPictureFireball = 1;      // sprites/fireball_lava.png
+constexpr int kPictureBossShuriken = 2;  // sprites/boss4_shuriken.png
+constexpr int kPictureFork = 3, kPictureSpoon = 4, kPictureKnife = 5;  // sprites/boss2/boss2_*.png
+constexpr int kPictureDart = 7;          // sprites/poison_dart.png (not drawn)
+inline bool isCutlery(int picture) { return picture >= kPictureFork && picture <= kPictureKnife; }
+inline bool isShuriken(int picture) { return picture == kPictureShuriken || picture == kPictureBossShuriken; }
+
 // What a projectile is asked to be (the original's ProjInfo).
 struct ProjectileSpec {
     int flight = 2;          // +0x00: how it flies (2 straight)
@@ -32,7 +42,7 @@ struct ProjectileSpec {
     int hits = 0;            // +0x08: bits: 1 the mouse, 2 cats, 4 bosses, 8 balloons
     float timerMs = -1.0f;   // +0x0c
     int triggerObject = -1;  // +0x10
-    int picture = 0;         // +0x14: 4 fork, 5 spoon, 6 knife
+    int picture = 0;         // +0x14: kPicture*
     int layer = 8;           // +0x1c: the drawing pass it shows in
     int floor = 0;           // +0x24
 };
@@ -56,6 +66,11 @@ struct Projectile {
     bool stuckToMouse = false; // +0x110
     Vec2 stuckOffset;          // +0x114: from that object's middle
     bool inUse() const { return slot >= 0; }
+    // Quick saves (state_io.hpp).
+    template <class Io>
+    void io(Io& io) { io(slot, status, flight, playerTrigger, hits, picture, layer, floor, anim, position,
+                           angle, size, velocity, spin, lift, timerMs, triggerObject, stuckTo, stuckToMouse,
+                           stuckOffset); }
 };
 
 class Projectiles {
@@ -99,6 +114,10 @@ public:
 private:
     std::array<Projectile, kSlots> slots_{};
     std::array<SheetSize, 10> pictures_{};
+public:
+    // Quick saves (state_io.hpp).
+    template <class Io>
+    void io(Io& io) { io(slots_, pictures_); }
 };
 
 }  // namespace doc::game

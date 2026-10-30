@@ -52,7 +52,7 @@ game, its sound and its saves are the same with it on.
 
 The reconstruction is checked against recorded runs of the original: the mouse, the path, every
 object, the random-number draws and the sound events match frame for frame in those runs.
-World 4's secret level 4-S2, worlds 5 and later,
+Worlds 5 and later,
 a few world 2 extras (hiding in the couch, the teacup and balloon goals),
 the original's save format and the online features are not reconstructed.
 
@@ -84,13 +84,17 @@ build/doubleocheese --import /path/to/game.ipa
 build/doubleocheese /path/to/Payload/SpyMouse.app 1-1
 build/doubleocheese /path/to/Payload/SpyMouse.app 1-1 --replay script.txt 1390 --shot 1500 out.bmp
 build/doubleocheese /path/to/Payload/SpyMouse.app --map progress.txt --replay script.txt 1007 --shot 1200 out.bmp
+build/doubleocheese /path/to/Payload/SpyMouse.app --flow-check progress.txt script.txt 1568 4500
 build/doubleocheese --preview-launcher out.bmp
 ```
 
 The second form plays one level from an unpacked app folder, the third and fourth replay a
 touch script headless (a level, or the world map from a progress file) and save frames, the
-last draws the launcher headless. `build/doc-verify` compares a replay with a trace recorded
-from the original.
+`--flow-check` plays the whole game flow from a progress file (empty: a fresh start) with a
+script's touches and loads a quick save every `DOC_QUICKSAVE` ticks (default every tick),
+comparing with an uninterrupted twin; the last draws the launcher headless. `build/doc-verify`
+compares a replay with a trace recorded from the original. With `DOC_QUICKSAVE=K`, it and the
+`--map` replay also save and load every K frames and compare with an uninterrupted twin.
 
 ## Layout
 
@@ -110,6 +114,7 @@ from the original.
 - `src/third_party/stb_image.h` — image loading (public domain / MIT).
 - `tools/package_macos.py`, `tools/make_icon.py` — app bundle and its icon.
 - `tools/verify_traces.cpp` — compares the reconstruction with traces of the original.
+- `tools/check_quick_save.py` — checks that quick saves list every field (`src/game/state_io.hpp`).
 
 ## License
 

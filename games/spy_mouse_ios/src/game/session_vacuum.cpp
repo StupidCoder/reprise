@@ -7,7 +7,6 @@ namespace doc::game {
 namespace {
 
 constexpr int kConveyorWall = 0x71;      // the conveyor's line type
-constexpr int kConveyorKind = 10;        // its contact kind (MapCollision::collideSphereSpecific)
 constexpr float kConveyorSpeed = 0.075f; // units a ms (Object::update @0x1192ce)
 constexpr float kBombRadius = 3.0f;
 
@@ -55,7 +54,7 @@ void Session::updateVacuumRoomObject(LevelObject& o, int dtMs) {
     }
     if (o.type != kBomb || !o.updating) return;
     Vec2 found;
-    if (wallsOf(o.floor).collideSphereOfType(o.position, kBombRadius, kConveyorWall, found, viewLeft_) == kConveyorKind)
+    if (wallsOf(o.floor).collideSphereSpecific(o.position, kBombRadius, kConveyorWall, &found, viewLeft_) & contact::kConveyor)
         o.position.x = o.position.x + float(dtMs) * kConveyorSpeed;
 }
 

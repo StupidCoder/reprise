@@ -14,6 +14,9 @@ struct SequenceFrame {
     int column = 0, row = 0;  // cell in the sheet (cx, cy)
     int delayMs = 0;
     float offsetX = 0, offsetY = 0;
+    // Quick saves (state_io.hpp).
+    template <class Io>
+    void io(Io& io) { io(column, row, delayMs, offsetX, offsetY); }
 };
 
 struct AnimSequence {
@@ -22,6 +25,9 @@ struct AnimSequence {
     int frameWidth = 0, frameHeight = 0;
     int loops = 1;  // numLoops
     std::vector<SequenceFrame> frames;
+    // Quick saves (state_io.hpp).
+    template <class Io>
+    void io(Io& io) { io(name, image, frameWidth, frameHeight, loops, frames); }
 };
 
 // All sequences of one file, in file order; empty if the file is missing or not version 1.

@@ -80,6 +80,8 @@ Session::Session(Level level, std::uint32_t seed, Tuning tuning, int strength, c
                                level_.catSheet(false, o.type), level_.catSheet(true, o.type));
             cats_.back().setCommonSheet(level_.catCommonSheet(o.type));
             cats_.back().setIdleSequences(level_.catIdleSequences(o.type));
+            cats_.back().initForWorld(level_.info().world);  // (the level's world for the profile's)
+            objects_[std::size_t(o.id)].radius = cats_.back().radius();
         }
     for (LevelObject& o : objects_) {
         if (Cat* cat = catFor(o.id)) o.state = ObjectState(cat->state());
@@ -87,6 +89,7 @@ Session::Session(Level level, std::uint32_t seed, Tuning tuning, int strength, c
             droids_.emplace_back(o.id, o.floor, CatRoute::link(level_.floor(o.floor).map, o.tag), o.radius, o.size,
                                  Droid::Sheets{level_.droidBodySheet(), level_.droidBaseSheet(), level_.droidWreckSheet()});
             o.position = droids_.back().position();
+            o.anim = droids_.back().body;
         }
         if (o.type == kTv) {
             // Object::postInit links its route (the seats); loadAssets @0x1178c6 turns the
@@ -105,7 +108,7 @@ Session::Session(Level level, std::uint32_t seed, Tuning tuning, int strength, c
     }
     {
         const SheetSize shuriken = level_.bossSheet("sprites/shuriken.png");
-        projectiles_.setPictureSheet(0, shuriken.width, shuriken.height);
+        projectiles_.setPictureSheet(kPictureShuriken, shuriken.width, shuriken.height);
     }
     setUpSpitterRoom();
     setUpVacuumRoom();
@@ -117,15 +120,13 @@ Session::Session(Level level, std::uint32_t seed, Tuning tuning, int strength, c
         catEyes_.setAnim(0, catEyes_.frameCount() - 1, SpriteAnim::Loop, 200);
         if (previous) catEyes_ = previous->catEyes_;  // (a static of the game, kept across reloads)
     }
-    // (A boss fight's checkpoint rolls its cats back instead: resetCats is skipped there, as run
-    // lbf_try2 shows; the original's switch is LevelState +0x57 or the reload's second flag,
-    // not yet told apart: HYPOTHESIS. Other levels reset their cats over a room door's
-    // checkpoint too, every floor's: run l3h2_win, caught on floor 1.)
+    // SceneGame::reloadFromSnapshot keeps the cat objects: their init runs again, a checkpoint
+    // rolls them back (restoreCheckpoint, which also decides on resetCats), without one they
+    // are reset.
     if (previous && (previous->retryFromPause_ || previous->retryAfterCaught_) && previous->cats_.size() == cats_.size()) {
-        // SceneGame::reloadFromSnapshot keeps the cat objects and resets them (resetCats).
         cats_ = previous->cats_;
-        if (previous->checkpoint_ && level_.info().mode == "boss") {
-            for (Cat& cat : cats_) cat.reload();  // (rolled back below; no resetCats)
+        if (previous->checkpoint_) {
+            for (Cat& cat : cats_) cat.reload();
         } else {
             for (Cat& cat : cats_) cat.restart();
         }
@@ -180,14 +181,15 @@ Session::Session(Level level, std::uint32_t seed, Tuning tuning, int strength, c
     ambience_.start(level_.ambience(), random_);
     hud_.init(float(level_.hudBonusWidth()));
     // Carrying capacity: the profile's strength, raised to what the level needs
-    // (SceneGame::initGame @0x10639e). Raising it announces the new strength in a popup, opened
-    // after the game has started (GameBoot::bootLevel @0x1f5142).
+    // (SceneGame::initGame @0x10639e). Raising it announces the new strength in a popup; so
+    // does a first visit of 1-3 or 2-4 (+0x57d8c). (1.1.1) SceneGame::update opens it on its
+    // first run (1.0.5's GameBoot::bootLevel pushed it at once).
     carryCapacity_ = strength < 1 ? 1 : strength;
     if (level_.info().trailLength > carryCapacity_) {
         carryCapacity_ = level_.info().trailLength;
-        if (const LevelNotice* n = level_.carryNotice(carryCapacity_)) notice_.open(*n, random_);
+        if (const LevelNotice* n = level_.carryNotice(carryCapacity_)) pendingNotice_ = *n;
     } else if (!previous && !wonBefore && level_.firstVisitNotice()) {
-        notice_.open(*level_.firstVisitNotice(), random_);
+        pendingNotice_ = *level_.firstVisitNotice();
     }
     // The music: one of the level's three tracks (the <music play> list, each slot repeating
     // the list when it is shorter; Profile::loadLevelList @0x174a3a), CM_Menu1 if empty.
@@ -297,23 +299,26 @@ Session::Session(Level level, std::uint32_t seed, Tuning tuning, int strength, c
         if ((isCheese(o.type) || o.type == kMouseTrap) && o.floor < int(floorCheese_.size())) ++floorCheese_[std::size_t(o.floor)];
     }
     requestExitOpen();
+    // (1.1.1) The menu's iris has shut when the level boots (GameBoot::bootLevel inside
+    // PinholeManager::fireEvent(0)); the event then reaches the new game's callback too
+    // (SceneGame::pinholeCallback @0xfc358), which acts only with the game on top: in the boss
+    // chase, which pushes no intro, the cheese and mouse traps pulse (run lb1_explore).
+    if (!previous && !intro_.active && !cutscene_.active) irisShutOnBoot();
     if (previous) progress_.failures = previous->progress_.failures;
     if (previous && previous->retryAfterCaught_) {
-        // "Try Again!" over the mouse (35 above it, below it near the top of the screen),
-        // after 0.7 s, fading in over 0.5 s and held 2.3 s ("notification_fadein_time",
-        // "notification_hold_time").
+        // SceneLevelOver::update @0x130394: "Try Again!" 35 above the mouse (below it near the
+        // top of the screen), or above the hole it starts in, after 0.3 s; it fades in to 0.4,
+        // holds and shrinks away (kTextLevelOver).
+        Vec2 at = mouse_.position;
+        if (mouse_.hole != -1)
+            if (const LevelObject* hole = objectById(mouse_.hole)) at = hole->position;
         Vec2 offset{0.0f, 35.0f};
-        if (mouse_.position.y > 240.0f) offset.y = -offset.y;
+        if (at.y > 240.0f) offset.y = -offset.y;
         const data::StringTable* text = level_.strings();
         // ("Keep Going!", string 0x139, after a checkpoint.)
         const int message = checkpoint_ ? 0x139 : 0x13a;
-        const int slot = particles_.add(0x3a, mouse_.floor, mouse_.position + offset,
-                                        text ? text->text(message) : std::string(), nullptr, 700,
-                                        mouse_.position + offset, false);
-        if (Particle* p = particles_.at(slot)) {
-            p->life = 500;
-            p->aux = 2300;
-        }
+        particles_.add(kTextLevelOver, shownFloor_, at + offset, text ? text->text(message) : std::string(), nullptr,
+                       300, at + offset, false);
     }
 }
 
@@ -345,14 +350,19 @@ void Session::fingerDown(Vec2 screen) {
     // Touches belong to the scene on top: the popup (its button: pressNoticeButton), the
     // results screen or a cutscene (a speech bubble takes a tap when it is released).
     // (The level intro of a boss fight's retry sits above its restart cutscene.)
-    if (notice_.active() || kiska_.active() || results_.active() || (cutscene_.active && !intro_.active)) return;
+    if (notice_.active() || kiska_.active() || results_.active() || dossier_.active() ||
+        (cutscene_.active && !intro_.active))
+        return;
     if (intro_.active) intro_.skipped = true;  // SceneLevelIntro::mouseEvent: hurries the fade
     finger_.active = finger_.held = finger_.began = true;
     finger_.screen = screen;
+    finger_.downScreen = screen;
 }
 
 void Session::fingerMove(Vec2 screen) {
-    if (notice_.active() || kiska_.active() || results_.active() || (cutscene_.active && !intro_.active)) return;
+    if (notice_.active() || kiska_.active() || results_.active() || dossier_.active() ||
+        (cutscene_.active && !intro_.active))
+        return;
     finger_.active = finger_.held = true;
     finger_.screen = screen;
 }
@@ -367,28 +377,28 @@ void Session::fingerUp(Vec2 screen) {
         }
         return;
     }
-    if (notice_.active() || kiska_.active() || results_.active()) return;
+    if (notice_.active() || kiska_.active() || results_.active() || dossier_.active()) return;
     finger_.active = true;
     finger_.held = false;
     finger_.screen = screen;
 }
 
+// The finger lifted (SceneGame::updateTouchPoints @0x1025ec): the path's last points are
+// smoothed with the closing kernel (no resampling: 1.1.1) and pushed off the edges.
 void Session::finishDrawing() {
-    path_.resample(true, true);
-    path_.smooth(true, true, &here());
+    path_.smooth(true, true, &here(), viewLeft_);
     path_.drawing = false;
     fingerDrawing_ = false;
     moveAllPathPointsAwayFromEdges();
 }
 
-// SceneGame::moveAllPathPointsAwayFromEdges @0x100f44: every point keeps the mouse's reach
-// from solid walls.
+// SceneGame::moveAllPathPointsAwayFromEdges @0x100f44: every point keeps the mouse's reach and a
+// little more (1.01; 1.0.5: 0.01) from plain walls.
 void Session::moveAllPathPointsAwayFromEdges() {
     for (int i = 0; i < path_.size(); ++i) {
         Vec2 p = path_[i].xy();
         Vec2 normal{};
-        LevelGeometry::SphereOptions options{&normal, true, 0x73, viewLeft_};
-        here().collideSphere(p, mouse_.reachDistance + 0.01f, options);
+        here().collideSphereSpecific(p, mouse_.reachDistance + 1.00999999f, 0, &normal, viewLeft_);
         path_[i].x = p.x;
         path_[i].y = p.y;
     }
@@ -397,11 +407,46 @@ void Session::moveAllPathPointsAwayFromEdges() {
 void Session::handleFinger() {
     // (SceneGame::update @0x103528 draws paths only for a mouse still in play.)
     if (mouseCaught_) return;
+    // (1.1.1 SceneGame::updateTouchPoints @0x1017f8) Nothing is drawn for a mouse in states 5,
+    // 9 or 0xC (taken out of the player's hands, the exit walk), while the door timer is not
+    // past (SceneGame +0x13190: from a door's use until the floor shows, and that tick) or once the exit has shut (LevelState +0x18); a path being drawn is let go of as it is (run lb1_win: a
+    // touch on the mouse walking into the exit).
+    const bool blocked = (mouse_.state >= 0 && mouse_.state <= 12 && ((1u << mouse_.state) & 0x1220u) != 0) ||
+                         !(doorReadyAtMs_ < gameTimeMs_) || exitShut_;
+    if (blocked) {
+        fingerDrawing_ = false;
+        fingerHasPath_ = false;
+        return;
+    }
     if (!(finger_.active && finger_.held)) {
         if (fingerDrawing_) finishDrawing();
+        fingerHasPath_ = false;
         return;
     }
     const Vec2 finger = screenToMap(finger_.screen);
+
+    // (1.1.1 updateTouchPoints @0x101cb8) A finger held since elsewhere that comes within reach
+    // of the mouse, more than sqrt(200) from where it touched down, starts a path there too
+    // (run l41_win: a drag passing over the mouse picks it up).
+    // (Only while the finger has no path: one that ended in a hole or filled up stays the
+    // finger's until it lifts, DAT_005fca7c; run l3h2_win.)
+    if (!finger_.began && !fingerHasPath_) {
+        const float reach = tuning_.playerTouchSize * tuning_.playerTouchSize;
+        const Vec2 down = screenToMap(finger_.downScreen);
+        if ((finger - mouse_.position).lengthSquared() - reach < 0.0f && (finger - down).lengthSquared() > 200.0f) {
+            Vec2 offset = mouse_.position - finger;
+            path_.begin(finger + offset, offset);
+            ++pathsDrawn_;
+            fingerDrawing_ = fingerHasPath_ = true;
+            // (Here the index is 0, @0x101d50: the mouse heads for its own place first, one step
+            // along heading 0.)
+            mouse_.pathIndex = 0;
+            mouse_.snapGlowMs = 0;
+            snapHold_ = -1;
+            prediction_ = {};
+            return;
+        }
+    }
 
     if (finger_.began) {
         const float reach = tuning_.playerTouchSize * tuning_.playerTouchSize;
@@ -409,30 +454,39 @@ void Session::handleFinger() {
         if ((finger - mouse_.position).lengthSquared() - reach < 0.0f) {
             Vec2 offset = mouse_.position - finger;
             path_.begin(finger + offset, offset);
-            ++pathsDrawn_;  // SceneGame::update @0x103b98: incrementMetric (hypothesis: "paths")
-            fingerDrawing_ = true;
-            mouse_.pathIndex = 0;
+            ++pathsDrawn_;  // SceneGame::updateTouchPoints: incrementMetric (hypothesis: "paths")
+            fingerDrawing_ = fingerHasPath_ = true;
+            // SceneGame::updateTouchPoints @0x101cf0: the mouse heads past the path's first point
+            // (its own position) at once; 1.0.5 started at index 0, which let it take one step
+            // along its old heading.
+            mouse_.pathIndex = 1;
             mouse_.snapGlowMs = 0;
             snapHold_ = -1;
             prediction_ = {};  // Player::playerPredictivePathReset @0x12010c
             return;
         }
-        // Else a hidden mouse may come out of a hole near the touch (within 45 units) whose tag
-        // is the one it went in by (Object::getTouched @0x115d2c); the path starts there.
+        // Else a hidden mouse may come out by the nearest object to the touch (within 45 units)
+        // whose tag is the one it went in by (@0x101bfe); Object::getTouched @0x115d2c lets it
+        // out only if that is an exit. The path starts there.
         if (mouse_.holeTag >= 0) {
             int from = -1;
+            float nearest = 2025.0f;
             for (LevelObject& o : objects_) {
-                if (!o.active || o.floor != shownFloor_) continue;
-                if (!((o.position - finger).lengthSquared() < 2025.0f)) continue;
-                if (o.exit && o.tag == mouse_.holeTag) from = o.id;
+                if (!o.active || (o.floor != shownFloor_ && !level_.infinite()) || o.tag != mouse_.holeTag) continue;
+                const float d = (o.position - finger).lengthSquared();
+                if (d < nearest) {
+                    nearest = d;
+                    from = o.id;
+                }
             }
+            if (from >= 0 && !objects_[std::size_t(from)].exit) from = -1;
             if (from >= 0) {
                 comeOutOf(objects_[std::size_t(from)]);
                 Vec2 offset = mouse_.position - finger;
                 path_.begin(finger + offset, offset);
                 ++pathsDrawn_;
-                fingerDrawing_ = true;
-                mouse_.pathIndex = 0;
+                fingerDrawing_ = fingerHasPath_ = true;
+                mouse_.pathIndex = 1;
                 mouse_.snapGlowMs = 0;
                 snapHold_ = -1;
                 prediction_ = {};
@@ -446,7 +500,8 @@ void Session::handleFinger() {
             if ((end - finger).lengthSquared() - reach < 0.0f) {
                 path_.drawing = true;
                 path_.snapped = false;
-                fingerDrawing_ = true;
+                path_.fingerOffset = end - finger;  // (1.1.1 @0x101f9a: the line goes on from its end)
+                fingerDrawing_ = fingerHasPath_ = true;
                 snapHold_ = -1;
             }
         }
@@ -455,17 +510,22 @@ void Session::handleFinger() {
 
     if (!fingerDrawing_ || path_.empty()) return;
     // Extend the path toward the finger once it has moved far enough. A segment into a wall
-    // is clipped; one that still crosses a wall after clipping does not count as movement.
+    // is clipped; one that still crosses a solid wall after clipping does not count as
+    // movement. (1.1.1 @0x10231e) An unclipped point is kept 12 off the solid walls.
     const Vec2 last = path_.back().xy();
     Vec2 candidate = finger + path_.fingerOffset;
-    Vec2 delta = candidate - last;
-    if (here().clipLine(last, candidate, viewLeft_))
-        delta = here().lineTouches(last, candidate, viewLeft_, 0) ? Vec2{} : candidate - last;
+    Vec2 delta;
+    if (here().clipLine(last, candidate, viewLeft_)) {
+        delta = here().lineTouchesType(last, candidate, 0, viewLeft_) ? Vec2{} : candidate - last;
+    } else {
+        here().collideSphereSpecific(candidate, 12.0f, 0, nullptr, viewLeft_);
+        delta = candidate - last;
+    }
     if (!(delta.lengthSquared() > 0.9604f)) return;
 
     if (path_.size() >= DrawnPath::kCapacity) {
-        path_.resample(true, true);
-        path_.smooth(true, true, &here());
+        // (@0x102588: full; the same as lifting the finger, its smoothing without the view.)
+        path_.smooth(true, true, &here(), 0.0f);
         path_.drawing = false;
         fingerDrawing_ = false;
         moveAllPathPointsAwayFromEdges();
@@ -473,26 +533,24 @@ void Session::handleFinger() {
     }
     if (path_.size() >= 4) path_.fingerOffset *= 0.95f;  // the line converges onto the finger
     path_.append(candidate);
-    path_.resample(false, true);
-    path_.smooth(false, true, &here());
+    path_.resample(false, true, &here(), viewLeft_);
+    path_.smooth(false, true, &here(), viewLeft_);
     if (int snap = snapPath(true)) {
-        path_.resample(true, true);
-        if (snap == 1) {
-            path_.smooth(false, true, &here());  // snapped next to cheese: keep drawing
-        } else {
-            path_.smooth(true, true, &here());   // snapped into a hole: the path is done
+        // (@0x10248a: both kinds resample and smooth on; a hole also ends the drawing.)
+        path_.resample(true, true, &here(), viewLeft_);
+        path_.smooth(false, true, &here(), 0.0f);
+        if (snap != 1) {
             path_.drawing = false;
             path_.snapped = true;
             fingerDrawing_ = false;
         }
         mouse_.snapGlowMs = 1250;
     }
-    // The end point keeps the mouse's reach from solid walls.
+    // The end point keeps the mouse's reach (and 1.01 more) from plain walls.
     PathPoint& end = path_.back();
     Vec2 p = end.xy();
     Vec2 normal{};
-    LevelGeometry::SphereOptions options{&normal, true, 0x73, viewLeft_};
-    here().collideSphere(p, mouse_.reachDistance + 0.01f, options);
+    here().collideSphereSpecific(p, mouse_.reachDistance + 1.00999999f, 0, &normal, viewLeft_);
     end.x = p.x;
     end.y = p.y;
 }
@@ -522,7 +580,8 @@ int Session::snapPath(bool highlight) {
     float bestDistance = 9999.999f;
     int best = -1;
     for (const LevelObject& o : objects_) {
-        if (!o.active || o.floor != mouse_.floor || o.state == ObjectState::Hidden) continue;
+        // (Objects of the floor shown, or of any floor in a chase.)
+        if (!o.active || (o.floor != shownFloor_ && !level_.infinite()) || o.state == ObjectState::Hidden) continue;
         const int t = o.type;
         bool holeLike = false;  // holes the predicted cheese will open
         if (prediction_.enoughCheese) {
@@ -538,7 +597,10 @@ int Session::snapPath(bool highlight) {
         // does not count).
         if (!floatIsZero(o.pulseMs) && !(t >= 0x14 && t <= 0x17) && !isBankHole(t) && !o.introPulse) continue;
         if (o.id == mouse_.lastHole) continue;
-        if (o.id == mouse_.leftHole) continue;  // the hole just left (Player +0x168, @0x10139e)
+        if (o.id == mouse_.leftHole) continue;  // the hole just left (Player +0x2e8, @0x10136c)
+        // Doors (0x1e, 0x1f, 0x21..0x23) only once the door timer allows (Player +0x364, @0x101374).
+        if ((t == kDoorUp || t == kDoorDown || (t >= 0x21 && t <= 0x23)) && doorReadyAtMs_ > gameTimeMs_) continue;
+        if (t == kKey && o.flying) continue;  // (a thrown key, @0x1013a0)
         Vec2 d = o.position - last;
         float distance = d.normalise(1.0f);
         if (mouse_.reachDistance + r < distance) continue;
@@ -548,12 +610,17 @@ int Session::snapPath(bool highlight) {
         }
     }
 
-    // Snapping stops at special edges of kind 15 (only on levels that have them).
+    // Snapping stops at 0x8c edges (only on levels that have them): the path ends there, except
+    // in a boss fight while its exit door is still shut (@0x1014f8).
     {
+        static constexpr int kIgnored[] = {0x73};
         Vec2 probe = last;
         Vec2 normal{};
-        LevelGeometry::SphereOptions options{&normal, false, 0x73, viewLeft_};
-        if (here().collideSphere(probe, mouse_.reachDistance, options) == 15) return 2;
+        if (here().collideSphere(probe, mouse_.reachDistance, viewLeft_, &normal, kIgnored) & contact::k8C) {
+            if (level_.info().mode != "boss") return 2;
+            const LevelObject* exit = firstObjectOfType(kBossExitDoor);
+            if (exit && exit->state == ObjectState::HoleOpen) return 2;
+        }
     }
     if (best < 0 || path_.snapTarget == best) return 0;
     path_.snapTarget = -1;
@@ -566,12 +633,13 @@ int Session::snapPath(bool highlight) {
         result = 2;
         if (path_.size() + 1 < DrawnPath::kCapacity) path_.append(target.position);
     } else {
-        // Anything else: a point at the object's rim, 2 units inside it, toward the path.
+        // Anything else: a point at the object's rim, 2 units inside it, toward the path; the
+        // smoothing keeps it there (1.1.1: flag 99).
         result = 1;
         if (path_.size() + 1 < DrawnPath::kCapacity) {
             Vec2 toward = last - target.position;
             toward.normalise(target.radius + -2.0f);
-            path_.append(target.position + toward);
+            path_.append(target.position + toward).flag = kFixedPoint;
         }
     }
     // A full trail cannot take more cheese: no snap (the point stays).
@@ -655,7 +723,7 @@ void Session::updateMouse(int dtMs) {
         // more. Each tick the last item of the trail drops off (@0x12532c, as Player::kill
         // does once; silent, the mouse is gone; run l3h2_win: o20 at the catch, o17 next).
         progress_.mouseGone = true;
-        path_.clear();
+        path_.truncate(0);  // (the points only: the drawing flag stays, 1.1.1 run l110_win)
         caughtMs_ += dtMs;
         if (!carried_.empty() && mouse_.position.x >= 0.0f) {
             objects_[std::size_t(carried_.back())].inTrail = false;
@@ -727,8 +795,10 @@ void Session::updateMouse(int dtMs) {
         droppedItem_ = -1;
         dropGuardMs_ = 0;
     }
-    if (mouse_.state == 0xB) {
-        // Into the exit: the mouse walks on by itself and the rest of the update is skipped.
+    if (mouse_.state == 0xC && !exitShut_) {
+        // Into the exit: the mouse walks on by itself and the rest of the update is skipped
+        // (until the door has shut behind it, LevelState +0x18: then it stands, 1.1.1 run
+        // lb1_win).
         walkIntoExit(dtMs);
         return;
     }
@@ -744,7 +814,7 @@ void Session::updateMouse(int dtMs) {
     mouse_.seenByBoss = false;
     for (const LevelObject& o : objects_)
         if (o.type == kBossCat) {  // (the first one, getFirstObjectByType)
-            mouse_.seenByBoss = o.state == ObjectState(0x10);
+            mouse_.seenByBoss = o.state == ObjectState(0x12);
             break;
         }
     mouse_.tick(dtMs, path_, weight, tuning_);
@@ -777,9 +847,11 @@ float Session::updateTrail(int dtMs) {
     const float dt = float(dtMs);
     std::vector<int> types;
     const LevelObject* previous = nullptr;
-    // Items keep 18 units apart. One whose line to what it follows crosses a wall closes up
-    // to 2, and so do all items behind it: an item with a clear line keeps the spacing of the
-    // item in front (the original only ever sets 2 or "unchanged", @0x1237bc/0x10d96e).
+    // Items keep 18 units apart. One whose line to what it follows crosses a solid wall
+    // (type 0 only, 1.1.1) closes up to 2, and so do all items behind it: an item with a clear
+    // line keeps the spacing of the item in front (the original only ever sets 2 or
+    // "unchanged"). (1.1.1 also closes up while a type-0x109 object is the mouse's +0x304 or
+    // while it is near a type-0x1b8 object, Player +0x6dc; no map places either.)
     float spacing = 18.0f;
     for (int id : carried_) {
         LevelObject& item = objects_[id];
@@ -792,8 +864,8 @@ float Session::updateTrail(int dtMs) {
             anchor = previous->position;
         }
         bool lineClear = false;
-        if ((mouse_.state | 2) != 0xB) {
-            if (!here().lineTouches(item.position, anchor, viewLeft_, 0)) lineClear = true;
+        if (mouse_.state != 9 && mouse_.state != 0xC) {
+            if (!here().lineTouchesType(item.position, anchor, 0, viewLeft_)) lineClear = true;
             else spacing = 2.0f;
         }
         // Cheese turns to face what it follows: frame = int(angle x frames / 360 - 1), wrapped
@@ -814,25 +886,20 @@ float Session::updateTrail(int dtMs) {
                 d.normalise(1.0f);
                 const float pull = isHomeHole(objects_[mouse_.hole].type) ? 0.00015f : 0.000225f;
                 item.position += d * ((pull * distanceSquared) * dt);
-                if (lineClear) {
-                    LevelGeometry::SphereOptions options{nullptr, true, 0x73, viewLeft_};
-                    here().collideSphere(item.position, item.radius, options);
-                } else {
-                    item.updating = false;
-                }
+                if (lineClear) here().collideSphereSpecific(item.position, item.radius, 0, nullptr, viewLeft_);
             }
         } else {
             Vec2 d = anchor - item.position;
-            if (d.lengthSquared() > spacing * spacing) {
+            if (!(d.lengthSquared() > spacing * spacing)) {
+                // (1.1.1) Close enough: only kept out of walls.
+                here().collideSphereSpecific(item.position, item.radius, 0, nullptr, viewLeft_);
+            } else {
                 d.normalise(spacing);
                 const Vec2 target = anchor - d;
                 const int s = mouse_.state;
-                if (s >= 0 && s < 12 && ((1 << s) & 0xB11) != 0) {
+                if (s >= 0 && s < 13 && ((1 << s) & 0x1311) != 0) {
                     item.position = (target + item.position * 4.0f) * 0.2f;
-                    if (lineClear) {
-                        LevelGeometry::SphereOptions options{nullptr, true, 0x73, viewLeft_};
-                        here().collideSphere(item.position, item.radius, options);
-                    }
+                    if (lineClear) here().collideSphereSpecific(item.position, item.radius, 0, nullptr, viewLeft_);
                 }
             }
         }
@@ -849,7 +916,7 @@ float Session::updateTrail(int dtMs) {
 // the cup is no snap target and starts running. Cats cannot see a mouse under a cup
 // (Object::canSeePlayer).
 void Session::wearTeacup(LevelObject& cup) {
-    if (mouse_.cup == cup.id || cup.state == ObjectState(0x1E)) return;
+    if (mouse_.cup == cup.id || cup.state == ObjectState(0x22)) return;
     if (mouse_.cup >= 0) {
         objects_[std::size_t(mouse_.cup)].active = false;
         mouse_.cup = -1;
@@ -871,7 +938,7 @@ void Session::updateTeacup(LevelObject& cup, int dtMs) {
     cup.timerMs -= dtMs;
     if (wasOn && teacupFlashPhase(cup.timerMs, cup.playMs) == -1) sound(0x98);
     if (cup.timerMs > 0) return;
-    cup.state = ObjectState(0x1E);
+    cup.state = ObjectState(0x22);
     cup.active = false;
     if (mouse_.cup >= 0) mouse_.cup = -1;
     sound(0x99);
@@ -888,7 +955,7 @@ void Session::closeCall() {
         if (!cat || cat->state() != 5) continue;
         if (!((cat->position() - mouse_.position).length() < 50.0f)) continue;
         const data::StringTable* text = level_.strings();
-        particles_.add(0x36, mouse_.floor, {mouse_.position.x, mouse_.position.y + 32.0f},
+        particles_.add(kTextBubble, mouse_.floor, {mouse_.position.x, mouse_.position.y + 32.0f},
                        text ? text->text(0x26f) : std::string(), nullptr, 0);
         sound(0x5c);
         return;
@@ -898,9 +965,9 @@ void Session::closeCall() {
 void Session::collideObjects() {
     const int s = mouse_.state;
     if (mouseCaught_) return;  // a mouse out of play touches nothing
-    if (s >= 0 && s < 12 && ((1 << s) & 0xA22) != 0) return;
+    if (s >= 0 && s < 13 && ((1 << s) & 0x1222) != 0) return;
     for (LevelObject& o : objects_) {
-        if (!o.active || o.state == ObjectState(0x11) || o.state == ObjectState(0x3C)) continue;
+        if (!o.active || o.state == ObjectState(0x15) || o.state == ObjectState(0x40)) continue;
         if (o.floor != mouse_.floor) continue;
         // (Object::touchPlayer @0x118198 also leaves objects of a floor not shown alone: the
         // floor a door leads to only counts once the iris has shut, run l38_win.)
@@ -914,9 +981,16 @@ void Session::collideObjects() {
                 eatCrumb(o);
             } else if (isBonusPickup(o.type)) {
                 eatBonus(o);
+            } else if (o.type == kDossier && o.state != ObjectState(0x22)) {
+                // ObjControllerPickups::touchPlayer @0x1b8790 (1.1.1): a puff, the dossier
+                // sound, and its page opens a quarter of a second later.
+                particles_.add(0x15, shownFloor_, o.position);
+                o.state = ObjectState(0x22);
+                o.timerMs = 250;
+                sound(0xb1);
             } else if (isSpeedItem(o.type)) {
                 eatSpeedCheese(o);
-            } else if (o.type == kMouseTrap && o.state == ObjectState(0x19)) {
+            } else if (o.type == kMouseTrap && o.state == ObjectState(0x1d)) {
                 touchTrap(o, true);
             } else if (o.type == kTeacup) {
                 wearTeacup(o);
@@ -939,8 +1013,8 @@ void Session::collideObjects() {
                        o.type == kTwine || o.type == kCatnip) {
                 // ObjControllerPickups::touchPlayer @0x1b7f7c: loose cheese (and a clockwork
                 // mouse, twine, catnip) is picked up.
-                const bool busy = o.state == ObjectState(0x1E) || o.state == ObjectState::Hidden ||
-                                  o.state == ObjectState(0x21) || o.state == ObjectState(0x31);
+                const bool busy = o.state == ObjectState(0x22) || o.state == ObjectState::Hidden ||
+                                  o.state == ObjectState(0x25) || o.state == ObjectState(0x35);
                 // (On success the original also stops the cheese's own movement path; level
                 // cheese does not move.)
                 // (touchPlayer brightens the HUD for loose cheese first: SceneGame::showHud.)
@@ -994,10 +1068,14 @@ void Session::collideObjects() {
                     sound(0x48);
                     ++uses_.tvs;
                 }
-            } else if (isFloorDoor(o.type)) {
-                useDoor(o);
-            } else if (isRoomDoor(o.type)) {
-                useTrapdoor(o);
+            } else if (isFloorDoor(o.type) || isRoomDoor(o.type)) {
+                // (1.1.1 ObjControllerFloorTransport::touchPlayer @0x1b232c: a shut door, state
+                // 0x29, is not used at all and leaves the door timer alone; run l37_win, the
+                // mouse standing on a shut trapdoor.)
+                if (o.state != ObjectState::HoleClosed) {
+                    if (isFloorDoor(o.type)) useDoor(o);
+                    else useTrapdoor(o);
+                }
             } else if (o.type == kExitDoor || o.type == kBossExitDoor) {
                 // Object::touchPlayer @0x11896a: the open exit door ends the chase (and the
                 // boss fight).
@@ -1021,14 +1099,12 @@ void Session::collideObjects() {
                 }
             } else if (isMunchHole(o.type)) {
                 // ObjControllerHideable::touchPlayer @0x1b4f9c: the hole just left only
-                // remembers the touch; an open safe hole the path ends in takes the mouse in
-                // (sound 0x5e after hiding).
+                // remembers the touch; an open safe hole the path ends in takes the mouse in.
                 if (mouse_.leftHole == o.id) {
                     mouse_.leftHoleUntilMs = gameTimeMs_ + 100;
                 } else if (o.state == ObjectState::HoleOpen && gameTimeMs_ > mouse_.leftHoleUntilMs &&
                            path_.snapTarget == o.id) {
-                    hideIn(o);
-                    sound(0x5e);
+                    hideIn(o);  // (its sounds are Player::hide's in 1.1.1)
                 }
             } else if (isHomeHole(o.type)) {
                 // ObjControllerHideable::touchPlayer: an open home hole ends the level.
@@ -1046,25 +1122,41 @@ void Session::collideObjects() {
         }
     }
 
-    // Walls: the mouse is pushed out of solid walls (edge kinds 1 and 2 also change its
-    // state on levels with water and similar edges, not reconstructed).
+    // Walls (@0x100682): what the mouse touches decides, the first of these that applies: solid
+    // or bouncy walls push it out (water edges, 1 and 2, would also change its state: no level
+    // of worlds 1-4 has them); a 0x7b edge stops the prints, to come back plain once it is out;
+    // a paint edge (0x8d) likewise, in the paint's colour (the edge's tag); (1.1.1 @0x100766)
+    // a checkpoint line (0x72) switches itself off and the level is snapshotted for a retry
+    // ("Keep Going!", run lb2_win). (Lava, chasms, tripping edges, conveyors under the mouse,
+    // exit lines (0x6e, 0x90, 0x78, 0x71, 0x7a) and 0x7c message edges, which come before the
+    // checkpoint line, are in later worlds: not reconstructed.)
+    static constexpr int kIgnored[] = {0x73};
     Vec2 p = mouse_.position;
     Vec2 normal{};
-    LevelGeometry::SphereOptions options{&normal, false, 0x73, viewLeft_};
-    int kind = here().collideSphere(p, mouse_.reachDistance, options);
-    if (kind == 4) kind = 3;
-    if (kind < 4) mouse_.position = p;
-    if (kind == 16) {
-        // A paint edge (type 0x8d): the prints stop while the mouse stands in it and are due,
-        // in the paint's colour (the edge's tag), once it is out (@0x10081c).
-        mouse_.footprintColour = int(normal.x);
+    unsigned touched = here().collideSphere(p, mouse_.reachDistance, viewLeft_, &normal, kIgnored);
+    if (touched & contact::kBouncy) touched |= contact::kSolid;
+    int pending = -1;
+    if (touched & contact::kSolid) {
+        mouse_.position = p;
+    } else if (touched & contact::k7B) {
+        pending = 1;
         mouse_.wetMs = 0;  // Player::stopFootprints
-        mouse_.footprintPending = 2;
-    } else {
-        if (mouse_.footprintPending != -1)
-            startFootprints(mouse_.footprintPending, 1500, mouse_.footprintPending == 2 ? mouse_.footprintColour : -1);
-        mouse_.footprintPending = -1;
+    } else if (touched & contact::kPaint) {
+        pending = 2;
+        mouse_.footprintColour = int(normal.x);
+        mouse_.wetMs = 0;
+    } else if ((touched & contact::k72) &&
+               !(touched & (contact::k7C | contact::k6E | contact::k90 | contact::k78 | contact::kConveyor))) {
+        const int index = int(normal.x);
+        LevelGeometry& walls = floorWalls_[std::size_t(mouse_.floor)];
+        if (index >= 0 && index < int(walls.walls().size()) && walls.walls()[std::size_t(index)].enabled) {
+            walls.setWallEnabled(std::size_t(index), false);
+            takeCheckpoint();
+        }
     }
+    if (pending == -1 && mouse_.footprintPending != -1)
+        startFootprints(mouse_.footprintPending, 1500, mouse_.footprintPending == 2 ? mouse_.footprintColour : -1);
+    mouse_.footprintPending = pending;
 }
 
 // Player::startFootprints @0x1217d4: prints for `ms`, of a kind, in a colour 0xRRGGBB.
@@ -1104,7 +1196,7 @@ void Session::eatCrumb(LevelObject& crumb) {
     ++crumbCombo_;
     const int points = crumbCombo_;
     particles_.add(0x15, crumb.floor, crumb.position);
-    particles_.add(0x37, crumb.floor, crumb.position, std::to_string(points));
+    particles_.add(kTextPoints, crumb.floor, crumb.position, std::to_string(points));
     pulseScoreHud(true, true);
     progress_.score += points;
     sound(0x22);  // (crumb_pickup)
@@ -1138,7 +1230,7 @@ void Session::touchTrap(LevelObject& trap, bool touching) {
     }
     LevelObject& thrown = objects_[std::size_t(clockwork)];
     thrown.inTrail = false;
-    thrown.state = ObjectState(0x1E);
+    thrown.state = ObjectState(0x22);
     thrown.arcStart = thrown.position;
     thrown.arcTarget = trap.position;
     thrown.arcTimeMs = 0;
@@ -1171,7 +1263,7 @@ void Session::touchTrap(LevelObject& trap, bool touching) {
     if (chase) eatBonus(cheese);
     else pickup(cheese);
     LevelObject& sprung = objects_[std::size_t(trapId)];
-    sprung.state = ObjectState(0x1A);
+    sprung.state = ObjectState(0x1e);
     sound(0x44);
     sprung.anim.setAnim(0, sprung.anim.frameCount() - 1, SpriteAnim::Once, 100);
     sprung.updating = true;
@@ -1194,7 +1286,7 @@ void Session::eatSpeedCheese(LevelObject& cheese) {
     }
     if (mouse_.scoreBoost > float(mark)) return;
     cheese.active = false;
-    cheese.state = ObjectState(0x1E);
+    cheese.state = ObjectState(0x22);
     // (@0x1b80ce: chilli_speed_mult 4 and chilli_duration 16 s, or chilli2's 7.2 and 8 s for
     // the speedy item, Player +0x21c/+0x220/+0x224, the item's type in +0x228.)
     const bool second = cheese.type == kSpeedy;
@@ -1211,7 +1303,7 @@ void Session::eatBonus(LevelObject& heart) {
     particles_.add(0x15, heart.floor, heart.position);
     const int points = bonusPoints(heart.type);
     if (level_.info().mode != "infinite") {
-        particles_.add(0x37, heart.floor, heart.position, std::to_string(points));
+        particles_.add(kTextPoints, heart.floor, heart.position, std::to_string(points));
         pulseScoreHud(true, true);
         progress_.score += points;
     }
@@ -1384,21 +1476,54 @@ void Session::leaveHole() {
     // The hole stays "just left" for 100 ms of not touching it (Player +0x168/+0x1ec).
     mouse_.leftHole = was;
     mouse_.leftHoleUntilMs = gameTimeMs_ + 100;
-    mouse_.slideRemainingMs = mouse_.slideDurationMs = 80;
-    mouse_.slideTarget = mouse_.position;
-    mouse_.slidePosition = mouse_.position;
     mouse_.stateEntry = mouse_.position;
-    mouse_.slideDirection = 1;
-    // What it carries comes out with it (state 0x1d, running again; @0x123f6c).
+    // (Player::setState @0x123fd2: the grow out of the hole needs the hole, +0x2e4; after a
+    // rollback to a checkpoint taken while hidden there is none, and the mouse is there at
+    // once, run l24_win.)
+    if (was >= 0) {
+        mouse_.slideRemainingMs = mouse_.slideDurationMs = 80;
+        mouse_.slideTarget = mouse_.position;
+        mouse_.slidePosition = mouse_.position;
+        mouse_.slideDirection = 1;
+    }
+    // What it carries comes out with it (state 0x1d; running again, all but type 0x13; @0x123f6c).
+    // A type 0x12 item does not: it is gone.
+    const bool hadTrail = !carried_.empty();
+    auto dropFromTrail = [&](auto eaten) {
+        for (std::size_t i = 0; i < carried_.size();) {
+            LevelObject& item = objects_[std::size_t(carried_[i])];
+            if (!eaten(item.type)) {
+                ++i;
+                continue;
+            }
+            item.active = false;
+            item.inTrail = false;
+            carried_.erase(carried_.begin() + std::ptrdiff_t(i));
+        }
+    };
     for (int id : carried_) {
         LevelObject& item = objects_[std::size_t(id)];
         item.position = mouse_.position + Vec2{0.0f, 0.00499999989f};
-        item.state = ObjectState(0x1D);
-        item.updating = true;
+        item.state = ObjectState(0x21);
+        if (item.type != 0x13) item.updating = true;
     }
-    if (was >= 0 && isWallHole(objects_[std::size_t(was)].type)) sound(0x33);
+    dropFromTrail([](int type) { return type == 0x12; });
+    if (was >= 0) {
+        const int type = objects_[std::size_t(was)].type;
+        if (isMunchHole(type)) {
+            // (@0x123fe4, 1.1.1) A munch hole keeps what was carried in, all but types 0xb, 0xc
+            // and 0x13 (when touched out, Object::getTouched has taken them already); the safe
+            // holes close.
+            dropFromTrail([](int t) { return t != 0xb && t != 0xc && t != 0x13; });
+            closeBankHoles();
+        }
+        // (@0x124060) Out of a wall hole sound 0x33; of the other holes below 0x14, 0x18..0x1d
+        // and 0x28..0x30, sound 0x28 (a munch hole is quiet).
+        if (isWallHole(type)) sound(0x33);
+        else if (type < 0x14 || (type >= 0x18 && type <= 0x1d) || (type >= 0x28 && type <= 0x30)) sound(0x28);
+    }
     // (@0x12408c: coming out with an empty trail, or of no hole, closes the safe holes.)
-    if (carried_.empty() || was < 0) closeBankHoles();
+    if (!hadTrail || was < 0) closeBankHoles();
 }
 
 // Object::getTouched @0x115d2c: the mouse comes out just in front of the hole, its own radius
@@ -1436,6 +1561,19 @@ void Session::comeOutOf(LevelObject& hole) {
     default: break;
     }
     mouse_.position = hole.position + offset;
+    if (isMunchHole(hole.type)) {
+        // (@0x115e44, 1.1.1, run l2s_win) Out of a safe hole: what was carried in stays there,
+        // all but types 0xb, 0xc and 0x13 (they leave the trail, their carried flag as it was).
+        for (std::size_t i = 0; i < carried_.size();) {
+            LevelObject& item = objects_[std::size_t(carried_[i])];
+            if (item.type == 0xb || item.type == 0xc || item.type == 0x13) {
+                ++i;
+                continue;
+            }
+            item.active = false;
+            carried_.erase(carried_.begin() + std::ptrdiff_t(i));
+        }
+    }
     leaveHole();
     mouse_.leftHole = hole.id;
 }
@@ -1444,6 +1582,7 @@ void Session::comeOutOf(LevelObject& hole) {
 // entered for the first time an unwon level says "Hidden Area!"; the cheese pulses, the cats
 // start over, the iris opens on the mouse.
 void Session::arriveOnFloor() {
+    bool checkpointHere = false;
     doorTransition_ = false;
     progress_.clockRunning = false;
     if (shownFloor_ != mouse_.floor) {
@@ -1461,6 +1600,7 @@ void Session::arriveOnFloor() {
             }
         }
         if (mouse_.hole >= 0) leaveHole();
+        doorReadyAtMs_ = gameTimeMs_;  // (SceneGame::changeFloor @0xfc054: +0x13190, run l17_win)
         floorVisits_[std::size_t(shownFloor_)] = 2;
         shownFloor_ = mouse_.floor;
         for (Cat& cat : cats_)
@@ -1474,14 +1614,23 @@ void Session::arriveOnFloor() {
             objects_[std::size_t(id)].floor = shownFloor_;
             objects_[std::size_t(id)].position = mouse_.position + Vec2{0.0f, 0.1f};
         }
+        // Object::onFloorChanged @0x11208c (1.1.1): left behind on another floor, twine a cat
+        // has had (state 0x22) and catnip still being eaten are gone (run l45_win).
+        for (LevelObject& o : objects_) {
+            if (!o.active || o.floor == shownFloor_) continue;
+            if (o.type == kTwine ? o.state != ObjectState(0x22) : (o.type != kCatnip || o.timerMs < 1)) continue;
+            if (o.type == kCatnip) o.timerMs = 0;
+            o.updating = false;
+            o.active = false;
+        }
         // (@0xfc27c: only a plain door marks a floor's first visit; through a room door the
         // count stays 0, so its floor text never shows (run l3h2_win). The check also skips
         // the mode at SceneGame +0x13828 == 1, not reconstructed.)
         if (!roomDoorTransition_ && floorVisits_[std::size_t(shownFloor_)] == 0)
             floorVisits_[std::size_t(shownFloor_)] = 1;
-        // (Through a room door, SceneGame::changeFloor takes the level's snapshot here: a retry
-        // starts from this floor.)
-        if (roomDoorTransition_) takeCheckpoint();
+        // (Through a room door, SceneGame::changeFloor takes the level's snapshot, after
+        // resetCats: a retry starts from this floor; see below.)
+        checkpointHere = roomDoorTransition_;
         // The floor is loaded afresh (SceneGame::load): its picture and its ambience, whose
         // player starts over (first delays drawn). Hypothesis: the reload happens on every
         // change (the per-floor "loaded" flag is not traced).
@@ -1502,7 +1651,7 @@ void Session::arriveOnFloor() {
         // not reconstructed.
         for (LevelObject& o : objects_) {
             if (!o.active) continue;
-            if (o.type == kBalloon && o.state != ObjectState(0x1E)) o.anim.setAnim(0, 3, SpriteAnim::Loop, 400);
+            if (o.type == kBalloon && o.state != ObjectState(0x22)) o.anim.setAnim(0, 3, SpriteAnim::Loop, 400);
             if (Switch* sw = switchFor(o.id)) {
                 // (The cheese button, 150, shows its pressed frame when down.)
                 const bool down = sw->type == 0x96 && sw->state == kSwitchDown;
@@ -1523,13 +1672,12 @@ void Session::arriveOnFloor() {
             soundEvents_.push_back(e);
         }
     }
-    for (LevelObject& o : objects_)
-        if (isCheese(o.type) || o.type == 0x3C) o.pulseMs = float(tuning_.objectPulseMs);
+    pulseCheeseAndTraps();
     if (floorVisits_[std::size_t(shownFloor_)] == 1 && !wonBefore_) {
         const data::StringTable* text = level_.strings();
         // Above the screen's middle by the heading font's line height (32: getFontLineHeight
         // of g_pFont[2], the 25-pixel font).
-        const int slot = particles_.add(0x36, shownFloor_, {kScreenWidth * 0.5f, kScreenHeight * 0.5f + 32.0f},
+        const int slot = particles_.add(kTextBubble, shownFloor_, {kScreenWidth * 0.5f, kScreenHeight * 0.5f + 32.0f},
                                         text ? text->text(0xee) : std::string(), nullptr, 1000);
         if (Particle* p = particles_.at(slot)) p->life = 3200;  // (+0x1ec, 3.2 s on screen)
     }
@@ -1541,9 +1689,12 @@ void Session::arriveOnFloor() {
                                                                        std::fabs(iris_.centre.y - kScreenHeight * 0.5f));
     iris_.progress = 0.0f;
     iris_.speed = 0.000800000038f;  // (kind 1 opens as fast as it closed: shots of run l17_win)
-    // resetCats: every cat, on any floor, back on its start.
+    // resetCats @0xf80d0 (1.1.1): every cat, on any floor, made again (Object::reInit, init and
+    // postInit: back on its start, its picture's facing forgotten), except the boss cat, kind
+    // 0x3a and a cat in state 0x11 (1.0.5 only moved them back).
     for (Cat& cat : cats_) {
-        cat.restart(false);
+        if (cat.type() == 0x35 || cat.type() == 0x3a || cat.state() == 0x11) continue;
+        cat.reset();
         if (cat.objectId() >= 0 && cat.objectId() < int(objects_.size())) {
             LevelObject& o = objects_[std::size_t(cat.objectId())];
             o.position = cat.position();
@@ -1551,12 +1702,36 @@ void Session::arriveOnFloor() {
             o.anim = cat.walk;
         }
     }
+    // (The snapshot holds the reset cats with their pictures as they were, run l3h2_win; then
+    // the floor's objects load their pictures afresh, Object::loadAssets.)
+    if (checkpointHere) takeCheckpoint();
+    for (Cat& cat : cats_) {
+        if (cat.type() == 0x35 || cat.type() == 0x3a || cat.state() == 0x11) continue;
+        cat.reloadPictures();
+        if (cat.objectId() >= 0 && cat.objectId() < int(objects_.size())) objects_[std::size_t(cat.objectId())].anim = cat.walk;
+    }
     requestExitOpen();
+}
+
+// SceneGame::pinholeCallback @0xfc4ae: every cheese and mouse trap pulses.
+void Session::pulseCheeseAndTraps() {
+    for (LevelObject& o : objects_)
+        if (isCheese(o.type) || o.type == kMouseTrap) o.pulseMs = float(tuning_.objectPulseMs);
+}
+
+// SceneGame::pinholeCallback for the boot's iris event: the mouse is on its floor already, so
+// only the pulse (a first visit's "Hidden Area!" needs a floor entered by a door; the
+// callback's openPinholeOnPlayer and requestExitOpen repeat what the boot did).
+void Session::irisShutOnBoot() {
+    pulseCheeseAndTraps();
 }
 
 // Player::hide @0x1248d4 with Player::setState(2): the mouse goes into a hole.
 void Session::hideIn(LevelObject& hole) {
     if (mouse_.state == 2) return;
+    // (1.1.1) Cats after the mouse remember where it went in; the mouse turns to the hole.
+    for (Cat& cat : cats_) cat.mouseHidAt(mouse_.position, catWorld(cat.floor()));
+    mouse_.heading = (hole.position - mouse_.position).angleDegrees() * 0.0174532924f;
     mouse_.hole = hole.id;
     mouse_.state = 2;
     // (setState @0x1243bc: a worn teacup comes off and is gone, without its end sound.)
@@ -1592,14 +1767,20 @@ void Session::hideIn(LevelObject& hole) {
             ++i;
         }
     }
-    if (isMainHomeHole(hole.type)) {
+    // Player::hide (1.1.1): bringing the trail into any home hole, a safe hole or a room door
+    // (0x21) plays the woosh; safe holes and room doors also the "cp_enter" sound.
+    if (isHomeHole(hole.type) || isMunchHole(hole.type) || hole.type == kHouseDoor) sound(sfx::UiWoosh);
+    if (isMunchHole(hole.type) || hole.type == kHouseDoor) sound(0x5e);
+    if (isHomeHole(hole.type)) {
         // Player::hide @0x124c64: the exit sound, and munching when the trail brings
-        // something (Player +0x8 >= 1, read as the trail's length: hypothesis).
+        // something (Player +0x8 >= 1, read as the trail's length: hypothesis). (1.1.1 counts
+        // the secret exits 0xf4..0xf7 too.)
         sound(sfx::UseExit);
         if (!carried_.empty()) sound(sfx::EatMunch);
         for (int id : carried_)
             if (isCheese(objects_[id].type)) {
                 ++progress_.delivered;
+                ++progress_.deliveredKinds[std::size_t(objects_[id].type - 6)];
                 ++deliveredOn_[std::size_t(shownFloor_)];
             }
     }
@@ -1608,7 +1789,10 @@ void Session::hideIn(LevelObject& hole) {
         // delivered too (LevelState +0x24; not the floor's own count); the trail follows the
         // mouse in and is gone there (Object::hide).
         for (int id : carried_)
-            if (isCheese(objects_[std::size_t(id)].type)) ++progress_.delivered;
+            if (isCheese(objects_[std::size_t(id)].type)) {
+                ++progress_.delivered;
+                ++progress_.deliveredKinds[std::size_t(objects_[std::size_t(id)].type - 6)];
+            }
     }
     if (isWallHole(hole.type)) ++uses_.wallHoles;
     if (isMunchHole(hole.type)) {
@@ -1616,18 +1800,37 @@ void Session::hideIn(LevelObject& hole) {
         // Player::hide @0x1248d4 for a safe hole: the cheese carried is delivered and scored
         // (the banked line); the trail walks into the hole after the mouse and is gone there
         // (Object::hide).
-        // (The original also takes a checkpoint here, not reconstructed; Player::setState(2)
-        // @0x124120 would close the safe holes when its +0x164 is set: not seen, run l24_safe.)
+        // (Player::setState(2) @0x124120 would close the safe holes when its +0x164 is set: not
+        // seen, run l24_safe.)
         for (int id : carried_)
             if (isCheese(objects_[std::size_t(id)].type)) {
                 ++progress_.delivered;
+                ++progress_.deliveredKinds[std::size_t(objects_[std::size_t(id)].type - 6)];
                 ++deliveredOn_[std::size_t(shownFloor_)];
             }
         scoreCheese(true);
+        // (@0x124d70) Then the level is snapshotted for a retry ("Keep Going!", run lb2_win),
+        // without the trail's items other than the toy mouse and kinds 0xc and 0x13 (they are
+        // out of play while it is taken).
+        std::vector<int> outOfPlay;
+        const std::vector<int> trail = carried_;
+        carried_.clear();
+        for (int id : trail) {
+            LevelObject& item = objects_[std::size_t(id)];
+            if (item.type == kClockworkMouse || item.type == 0xC || item.type == 0x13) {
+                carried_.push_back(id);
+            } else if (item.active) {
+                item.active = false;
+                outOfPlay.push_back(id);
+            }
+        }
+        takeCheckpoint();
+        for (int id : outOfPlay) objects_[std::size_t(id)].active = true;
+        carried_ = trail;
     }
     // The HUD's hand starts over in home holes (and munch holes, type 0x21; Player::hide
     // @0x124c10).
-    if (isMainHomeHole(hole.type) || (hole.type >= 0x168 && hole.type <= 0x16B) || isRoomDoor(hole.type))
+    if (isHomeHole(hole.type) || (hole.type >= 0x168 && hole.type <= 0x16B) || isRoomDoor(hole.type))
         hud_.hand = PokerHand::Bluff;
 }
 
@@ -1636,7 +1839,7 @@ bool Session::hideObject(LevelObject& object, const LevelObject& hole) {
     if (object.type == kBalloon) {
         // (@0x112e7e: a balloon does not fit into any hole: it pops where it is (state 0x1e,
         // running) and leaves the trail; run l211_win.)
-        object.state = ObjectState(0x1E);
+        object.state = ObjectState(0x22);
         object.updating = true;
         object.pulseMs = float(tuning_.objectPulseMs);
         return true;
@@ -1658,19 +1861,47 @@ bool Session::hideObject(LevelObject& object, const LevelObject& hole) {
 
 // Object::update @0x118dd0 and the controllers' update for the reconstructed families.
 // Object::updatePositions @0x115430 ends a pickup's update, carried or not: walls push it out,
-// and it takes the pushed place unless the contact is one of the kinds 4..6, 8..10 (run
-// lb1_trap: the arc grazes the wall above the trap; run l26_win: the carried toy mouse squeezed
-// into a corner is pushed once more after the trail; run l45_win: carried twine).
+// and it takes the pushed place (run l45_win: carried twine). (1.1.1 @0x115494) Some kinds
+// are never pushed: the toy mouse (its arc onto a trap passes over walls, run lb1_trap), the
+// ghost cat, kinds 0x109/0x10a, 0x12d, 0x12f, 0x14a, 0x165..0x167 and 0x1a4/0x1a5; nor is
+// anything in states 0x24 and 0x40. (1.0.5 pushed the toy mouse too, and kept the old place
+// for some wall kinds.)
 void Session::pushPickupOutOfWalls(LevelObject& o) {
-    Vec2 next = o.position;
-    LevelGeometry::SphereOptions options;
-    options.ignoreType = 0x73;
-    options.viewLeft = viewLeft_;
-    const int kind = wallsOf(o.floor).collideSphere(next, o.radius, options);
-    if (kind < 4 || kind == 7 || kind == 0xb || kind >= 0xd) o.position = next;
+    switch (o.type) {
+    case kClockworkMouse: case 0x37: case 0x109: case 0x10a: case 0x12d: case 0x12f: case 0x14a:
+    case 0x165: case 0x166: case 0x167: case 0x1a4: case 0x1a5:
+        return;
+    default:
+        break;
+    }
+    if (o.state == ObjectState(0x24) || o.state == ObjectState(0x40)) return;
+    wallsOf(o.floor).collideSphere(o.position, o.radius, viewLeft_, nullptr, kMovementIgnoredWalls);
 }
 
 void Session::updateObject(LevelObject& o, int dtMs) {
+    if (o.type == kDossier) {
+        // ObjControllerPickups::update @0x1b78f0 (1.1.1): touched, it waits, then it is gone, the
+        // profile has it and its page opens over the level (Engine::pushScene("dossier")).
+        if (o.timerMs > 0) {
+            o.timerMs -= dtMs;
+            if (o.timerMs < 1) {
+                o.active = false;
+                o.timerMs = 1500;
+                const int id = o.tag;
+                if (id >= 0 && id < int(dossiersFound_.size()) && !dossiersFound_[std::size_t(id)]) {
+                    dossiersFound_[std::size_t(id)] = true;
+                }
+                foundDossier_ = id;
+                int found = 0;
+                for (bool f : dossiersFound_) found += f ? 1 : 0;
+                dossier_.open(id, false, found);
+                // showScene: the HUD goes, the pause button hides.
+                hud_.retractAll(0);
+                hud_.pauseHidden = true;
+            }
+        }
+        return;
+    }
     if (o.type == kSpitter || o.type == kRailTarget || o.type == kBeamEmitter) {
         updateSpitterRoomObject(o, dtMs);
         return;
@@ -1684,7 +1915,7 @@ void Session::updateObject(LevelObject& o, int dtMs) {
         // ObjControllerBoss: in a cutscene the droid only animates (Object::update); else it
         // runs its own update.
         if (!o.updating) return;
-        if (droid->state() == 0x3C) {
+        if (droid->state() == 0x40) {
             droid->updateAnimations(dtMs);
         } else {
             BossWorld world = bossWorld(o.floor);
@@ -1742,11 +1973,14 @@ void Session::updateObject(LevelObject& o, int dtMs) {
         // end of the time its last frame shows (0x21) for its fade time (+0x1d8, 2 s), then it
         // is gone. Walls push it at the end of the update.
         if (!o.updating) return;
+        // Its picture runs while it does (12 frames over the time; after the eating cat's own
+        // step on the first tick, run l4h1_win).
+        o.anim.update(dtMs);
         o.timerMs -= dtMs;
-        if (o.state != ObjectState(0x21)) {
-            if (o.state == ObjectState(0x1E) && o.timerMs < 1) {
+        if (o.state != ObjectState(0x25)) {
+            if (o.state == ObjectState(0x22) && o.timerMs < 1) {
                 o.anim.setAnim(o.anim.frameCount() - 1, -1, SpriteAnim::Hold, 200);
-                o.state = ObjectState(0x21);
+                o.state = ObjectState(0x25);
                 o.timerMs = o.playMs;
             } else {
                 pushPickupOutOfWalls(o);
@@ -1839,14 +2073,14 @@ void Session::updateObject(LevelObject& o, int dtMs) {
         // Object::update @0x118dd4: sprung, it fades out over 3 s; armed, a mouse on its floor
         // with a clockwork mouse in its trail within "player_windupmouse_throw_dist" (50) and a
         // clear line springs it.
-        if (o.state == ObjectState(0x1A)) {
+        if (o.state == ObjectState(0x1e)) {
             o.timerMs -= dtMs;
             if (o.timerMs < 0) {
                 o.timerMs = 0;
                 o.active = false;
                 o.updating = false;
             }
-        } else if (o.state == ObjectState(0x19) && mouse_.floor == o.floor) {
+        } else if (o.state == ObjectState(0x1d) && mouse_.floor == o.floor) {
             bool hasClockwork = false;
             for (int id : carried_) hasClockwork = hasClockwork || objects_[std::size_t(id)].type == kClockworkMouse;
             if (hasClockwork && (mouse_.position - o.position).lengthSquared() < 50.0f * 50.0f &&
@@ -1859,7 +2093,7 @@ void Session::updateObject(LevelObject& o, int dtMs) {
         // ObjControllerPickups::update @0x1b7d12: popped (0x1e), the pop (sound 4, frames 4-6
         // at 125 ms), gone on its last frame; its picture runs here as well as above (two
         // steps a tick, run l211_watch).
-        if (o.state == ObjectState(0x1E)) {
+        if (o.state == ObjectState(0x22)) {
             if (o.anim.frame() <= 3) {
                 sound(4);
                 o.anim.playOneShot(4, 6, 125);
@@ -1888,7 +2122,7 @@ void Session::updateObject(LevelObject& o, int dtMs) {
             d.normalise(1.0f);
             o.rotation = float(std::atan2(double(d.y), double(d.x))) * 57.2957802f * 0.0174532924f;
         }
-        if (!o.inTrail && o.state == ObjectState(0x1E) &&
+        if (!o.inTrail && o.state == ObjectState(0x22) &&
             travelArc(o.arcStart, o.arcTarget, o.position, o.arcTimeMs, 1.0f, 4.0f)) {
             o.state = ObjectState::Idle;
             o.active = false;
@@ -1931,7 +2165,7 @@ void Session::updateObject(LevelObject& o, int dtMs) {
         }
     } else if (o.type == kExitDoor) {
         // Object::update @0x119cb2: a closed exit door opens again (once) when the view has
-        // reached the end of the level and the boss cat touches it.
+        // reached the end of the level and the boss cat, still updating, touches it.
         if (o.state == ObjectState::HoleClosed && o.timerMs == -1) {
             const float width = level_.floor(o.floor).width;
             const float end = float(int(width - kScreenWidth));
@@ -1941,7 +2175,7 @@ void Session::updateObject(LevelObject& o, int dtMs) {
                     cat = &c;
                     break;
                 }
-            if (viewLeft_ == end && cat != nullptr &&
+            if (viewLeft_ == end && cat != nullptr && cat->updating &&
                 (cat->radius + o.radius) - (cat->position - o.position).length() > 0.0f) {
                 sendExitDoorMessage(o, 1);
                 o.timerMs = 1;
@@ -1960,11 +2194,12 @@ void Session::updateObject(LevelObject& o, int dtMs) {
         if (!std::isnan(world.scrollSpeed)) scrollSpeed_ = world.scrollSpeed;
         catEffects(world, cat->objectId());
         o.position = cat->position();
+        o.radius = cat->radius();
         o.state = ObjectState(cat->state());
         o.anim = cat->walk;  // Object +0x38; drawing picks the active picture (Cat::activeSprite)
-        // The boss cat out of the view at the end of the chase stops (Object::updatePositions
-        // @0x11570a clears Object +5).
-        if (o.type == kBossCat && cat->state() == 0x11) o.updating = false;
+        // The boss cat at the end of its route stops (ObjControllerCat::patrol @0x1a40e4 clears
+        // Object +5).
+        if (cat->stoppedForGood()) o.updating = false;
     } else if (isCheese(o.type)) {
         // ObjControllerPickups::update @0x1b73a0.
         if (o.pulseDelayMs > 0) o.pulseDelayMs -= dtMs;
@@ -2032,7 +2267,10 @@ void Session::killMouse(Vec2 meetingPoint) {
 
 void Session::prepareFrame() {
     mouse_.normaliseHeadingForFrame();  // Player::render @0x122932
-    for (Droid& droid : droids_) droid.prepareFrame();
+    for (Droid& droid : droids_) {
+        droid.prepareFrame();
+        if (LevelObject* o = objectById(droid.objectId())) o->anim = droid.body;
+    }
     // Object::render draws only what is on the shown floor.
     for (Cat& cat : cats_)
         if (const LevelObject* o = objectById(cat.objectId()); o && o->floor == shownFloor_) cat.prepareFrame();
@@ -2117,7 +2355,7 @@ void Session::catEffects(const CatWorld& world, int objectId) {
         progress_.over = true;
         progress_.won = false;
         const data::StringTable* text = level_.strings();
-        particles_.add(0x36, mouse_.floor, mouse_.position + Vec2{0.0f, 16.0f}, text ? text->text(0x270) : std::string(),
+        particles_.add(kTextBubble, mouse_.floor, mouse_.position + Vec2{0.0f, 16.0f}, text ? text->text(0x270) : std::string(),
                        nullptr, 0, {-1.0f, -1.0f}, true);
         spottedDelayMs_ = 2000;
         SoundEvent pause;
@@ -2294,7 +2532,7 @@ void Session::scoreCheese(bool bankHole) {
     if (int(hand) >= 1 && int(hand) <= 7) ++handsScored_[std::size_t(hand)];
     if (score > 0) {
         progress_.lastScore = score;
-        progress_.lastScoreShowMs = 1500;
+        progress_.lastScoreShowMs = 1000;  // (1.0.5: 1500)
     }
     hud_.show();
     hud_.handBounce = -1.0f;
@@ -2302,17 +2540,16 @@ void Session::scoreCheese(bool bankHole) {
     const Vec2 centre{240.0f, 160.0f};
     const data::StringTable* text = level_.strings();
     if (bankHole) {
-        // A bank hole: its line of text in the middle after 200 ms, with the woosh (@0x12147c;
-        // the won level's banner below has no sound of its own).
-        particles_.add(0x38, mouse_.floor, centre, text ? text->text(0x16a) : std::string(), nullptr, 200,
+        // A bank hole: its line of text in the middle after 200 ms (1.1.1: the woosh is
+        // Player::hide's now).
+        particles_.add(kTextMission, mouse_.floor, centre, text ? text->text(0x16a) : std::string(), nullptr, 200,
                        {-1.0f, -1.0f}, true);
-        sound(sfx::UiWoosh);
     } else if (progress_.won) {
         // The banner: "Accomplished!" in the middle of the screen and "Mission" above it, as
         // text particles after 200 ms (Player::scoreCheese @0x1214e0).
-        particles_.add(0x38, mouse_.floor, centre, text ? text->text(0x169) : std::string(), nullptr, 200, {-1.0f, -1.0f},
+        particles_.add(kTextMission, mouse_.floor, centre, text ? text->text(0x169) : std::string(), nullptr, 200, {-1.0f, -1.0f},
                        true);
-        particles_.add(0x38, mouse_.floor, centre + Vec2{0.0f, 30.0f}, text ? text->text(0x168) : std::string(), nullptr,
+        particles_.add(kTextMission, mouse_.floor, centre + Vec2{0.0f, 30.0f}, text ? text->text(0x168) : std::string(), nullptr,
                        200, {-1.0f, -1.0f}, true);
     }
     if (progress_.won) {
@@ -2334,11 +2571,11 @@ void Session::scoreCheese(bool bankHole) {
         e.file = music_.substr(0, music_.find('.')) + "_Win.m4a";
         soundEvents_.push_back(e);
         musicPlaying_ = true;
-        // SceneGame::onLevelWon: banner, clock stopped; the HUD leaves a second before the
-        // banner ends.
+        // SceneGame::onLevelWon: banner, clock stopped; the HUD leaves as the banner ends
+        // (1.1.1; 1.0.5: a second before).
         progress_.bannerMs = tuning_.winBannerMs;
         progress_.clockHeld = true;
-        hud_.retractAll(progress_.bannerMs - 1000);
+        hud_.retractAll(progress_.bannerMs);
     }
 }
 
@@ -2350,7 +2587,7 @@ void Session::pushByViewEdge() {
     const float half = 37.0f * 0.5f;
     if (!(mouse_.position.x - half < viewLeft_) || !(viewLeft_ > 0.0f)) return;
     const Vec2 ahead = mouse_.position + Vec2{half * 0.5f, 0.0f};
-    if (!here().lineTouches(mouse_.position, ahead, viewLeft_, -1)) {
+    if (!here().lineTouchesType(mouse_.position, ahead, 0, viewLeft_)) {
         // Pushed while the view moves and the mouse has stood a moment: it braces against
         // the edge (the push-wall sequence, held; Player +0x288).
         if (scrollSpeed_ > 0.100000001f && mouse_.idleMs > 100 &&
@@ -2363,12 +2600,12 @@ void Session::pushByViewEdge() {
 }
 
 // Player::finishedScrollingLevel @0x1250c4: at the exit door the mouse stops following its
-// path (state 0xb, path dropped) and the track's "_Win" tune plays once.
+// path (state 0xc, 1.0.5's 0xb; path dropped) and the track's "_Win" tune plays once.
 void Session::finishScrollingLevel() {
-    if (mouse_.state != 0xB) finalPosition_ = mouse_.position;  // SceneGame::setFinalPos
-    // (Player::setState @0x123e6c has no work for leaving 0 or entering 0xb; it would stop a
+    if (mouse_.state != 0xC) finalPosition_ = mouse_.position;  // SceneGame::setFinalPos
+    // (Player::setState @0x123e6c has no work for leaving 0 or entering 0xc; it would stop a
     // running sequence only with Player +0x180 set, which the chase does not do.)
-    mouse_.state = 0xB;
+    mouse_.state = 0xC;
     path_.clear();
     SoundEvent e;
     e.kind = SoundEvent::Music;
@@ -2387,8 +2624,9 @@ void Session::finishScrollingLevel() {
 void Session::walkIntoExit(int dtMs) {
     const int doorType = level_.info().mode == "boss" ? 0x166 : kExitDoor;
     LevelObject* door = nullptr;
+    // (getFirstObjectByType: a door scrolled away in the chase is freed, run lb1_win.)
     for (LevelObject& o : objects_)
-        if (o.type == doorType) {
+        if (o.active && o.type == doorType) {
             door = &o;
             break;
         }
@@ -2399,6 +2637,7 @@ void Session::walkIntoExit(int dtMs) {
             sendExitDoorMessage(*door, 2);
             progress_.over = true;
             progress_.won = true;
+            exitShut_ = true;
         }
         if (d.x >= 0.0f) {
             mouse_.velocity += ((d * dt) * 0.0399999991f) * 0.100000001f;
@@ -2530,7 +2769,9 @@ void Session::updateGameMode(int dtMs) {
             }
     if (carried_.empty() || bossMode) {
         progress_.resultsDelayMs -= dtMs;
-    } else if (progress_.resultsDelayMs == 0) {
+    } else {
+        // (1.1.1 @0x103608: while anything is still carried the wait starts over, 250 ms, every
+        // tick; run l3s_win, caught with cheese.)
         progress_.resultsDelayMs = scoring_.resultsDelayMs;
         return;
     }
@@ -2550,7 +2791,7 @@ void Session::updateGameMode(int dtMs) {
         progress_.clockRunning = false;
         progress_.distance = int(mouse_.distanceWalked);
         progress_.total = int(float(progress_.score) + float(progress_.clock));
-        if (level_.info().mode == "boss" && record_.best < 0) {
+        if (level_.info().mode == "boss" && !record_.completed) {
             // @0x103368: a boss fight won for the first time ends the world instead
             // (SceneWorldCompleteResults::showScene closes the same iris).
             worldCompletePending_ = true;
@@ -2639,7 +2880,9 @@ void Session::updateIntro(int dtMs) {
         }
     }
     if (intro_.skipped || intro_.ageMs >= intro_.holdMs) {
-        offerKiska();
+        // (1.0.5 offered Kiska's level skip here, offerKiska; 1.1.1 has no such offer: Kiska is
+        // a power-up, its popup pushed only from the power-up bar, SceneGame::guiEvent; runs
+        // l28_watch, l36_watch.)
         const float rate = intro_.skipped ? 2.5f : 1.0f;
         intro_.fadeMs = int(float(intro_.fadeMs) - float(dtMs) * rate);
     }
@@ -2713,8 +2956,16 @@ void Session::startResults() {
     // included) holds the screen for 500 ms in state 5; the badge needs the level to have
     // been completed before as well (+0x1a = level data +0xf6 clear, set by SceneGame::initGame
     // @0x10636c).
-    setup.newBest = progress_.total > record_.best;
+    // (1.1.1 Profile::completeLevel @0x173a9e: the boss chase, game mode 1, keeps LevelState
+    // +0x24, the cheese brought home, instead of the total; see recordedScore.)
+    setup.newBest = record_.best < 0 || record_.best < recordedScore();
     setup.improvedScore = record_.best >= 0 && setup.newBest;
+    // (1.1.1) The cheese badge: the balance before, and with the cheese brought home
+    // (LevelState +0x70, CheeseTracker::add @0x220488 into the profile's tracker).
+    setup.delivered = progress_.delivered;
+    setup.cheeseBefore = cheeseBalance_;
+    setup.cheeseAfter = cheeseBalance_;
+    for (int n : progress_.deliveredKinds) setup.cheeseAfter += n;
     results_.start(setup);
 }
 
@@ -2943,6 +3194,12 @@ void Session::playScoreSound(bool big) {
     noteTimerMs_ = 600;
 }
 
+void Session::setDossiersFound(const std::array<bool, 21>& found) {
+    dossiersFound_ = found;
+    for (LevelObject& o : objects_)
+        if (o.type == kDossier && o.tag >= 0 && o.tag < 21 && found[std::size_t(o.tag)]) o.active = false;
+}
+
 void Session::tick(int dtMs) {
     ++frames_;
     // The results screen, pushed in the previous tick (its iris started closing then), runs
@@ -2955,7 +3212,16 @@ void Session::tick(int dtMs) {
     }
     if (notice_.active()) {
         // Only the popup (the top scene) runs; the level and its intro wait below it.
-        notice_.update(dtMs, random_, level_.eyeMapping());
+        notice_.update(dtMs);
+    } else if (dossier_.active()) {
+        // SceneDossier::update @0x286dc0: the HUD's update (SceneGame::updateHUD), then the page.
+        // Gone, the level carries on (hideScene: the HUD comes back).
+        hud_.updateItems(dtMs);
+        if (!dossier_.update(dtMs)) {
+            hud_.protractAll(0);
+            hud_.pauseHidden = false;
+        }
+        for (int e : dossier_.takeSounds()) sound(e);
     } else if (kiska_.active()) {
         // SceneLevelSkip::update @0x1faabc: its frames, the level's paused update (the darkening
         // comes up) and the particles; the level and its intro wait below. Sent away by a
@@ -3047,6 +3313,7 @@ void Session::tick(int dtMs) {
     updateIris(dtMs);
     ambienceSounds(ambience_.update(dtMs, random_));
     for (int n = particles_.takeTextPops(); n > 0; --n) sound(sfx::TextPop);
+    for (int e : particles_.takeSounds()) sound(e);
     for (int e : results_.takeSounds())
         sound(e < 0 ? -e : e, e < 0 ? SoundEvent::Stop : SoundEvent::Play, e == sfx::ScoreCountLoop);
 }
@@ -3090,7 +3357,16 @@ void Session::startLevelOver() {
 }
 
 void Session::step(int dtMs) {
-    // SceneGame::update @0x103528. First the sheen over loose cheese moves on (0.15 per ms)
+    // SceneGame::update @0x103528. (1.1.1) A notice the start asked for opens first, once the
+    // power-up bar is still (it is: hidden), and the rest of the update waits for the next
+    // tick; the iris finishes opening seven times faster (PinholeManager::finishTransition).
+    if (pendingNotice_) {
+        notice_.open(*pendingNotice_);
+        pendingNotice_.reset();
+        iris_.speed *= 7.0f;
+        return;
+    }
+    // First the sheen over loose cheese moves on (0.15 per ms)
     // and starts again at the left once past the view (@0x103558).
     sheenX_ += float(dtMs) * 0.150000006f;
     if (sheenX_ > kScreenWidth + viewLeft_) sheenX_ = viewLeft_;

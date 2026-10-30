@@ -37,6 +37,9 @@ public:
     // facing along the first leg.
     struct Sheets {
         SheetSize body, base, wreck;  // boss1_part1.png, boss1_part0.png, boss1_destroyed.png
+        // Quick saves (state_io.hpp).
+        template <class Io>
+        void io(Io& io) { io(body, base, wreck); }
     };
     Droid(int objectId, int floor, CatRoute rail, float radius, Vec2 size, const Sheets& sheets);
 
@@ -59,6 +62,7 @@ public:
     // ObjControllerBoss::updateAnimations: the body picture faces its heading (8 facings of
     // two frames, 400 ms each).
     void updateAnimations(int dtMs);
+    void faceBody();
     // ObjControllerBoss::receiveMessage: a trigger line's message (types 0 and 4).
     void receiveMessage(int type, BossWorld& world);
     // ScriptSequence::blowUpDroid @0x1d4604 (the droid's part): an explosion over it, broken
@@ -83,9 +87,13 @@ public:
     bool sparkShown() const { return sparkShown_; }
     Vec2 coastDirection() const { return coastDirection_; }
     // Before a frame is drawn: the spark flag is taken for this frame (renderAccela clears it).
+    // (1.1.1 renderAccela @0x1acd98) Outside the sensor's steps and step 1 the body is set to
+    // its heading's sixteenth of a turn every frame drawn, so it holds that picture (run
+    // lbf_win: a crash shows the facing's first frame until the droid moves on).
     void prepareFrame() {
         sparkShown_ = sparked_;
         sparked_ = false;
+        if (!showsSensor() && step_ != 1) body.setAnim(spriteDirection(heading_, 16), -1, SpriteAnim::Hold, 200);
     }
 
 private:
@@ -107,7 +115,7 @@ private:
     float heading_ = 0.0f;   // +0x108
     float aim_ = 0.0f;       // +0x10c
     Vec2 velocity_;          // +0x1ac: the last step
-    int state_ = 0x3C;
+    int state_ = 0x40;
     int step_ = 0;
     int talkPicture_ = -1;   // +0x21c: >= 0 while a cutscene animates one of its parts (not seen)
     int scriptFlag_ = -1;    // +0x204 (broken: time to the next puff of smoke)
@@ -131,6 +139,17 @@ private:
     float chargeSpeed_ = 0.0f;    // +0x610
     bool sparked_ = false;        // +0x614: it hit a wall (sparks)
     bool sparkShown_ = false;
+public:
+    // The handle its particle reports to (Particles::add).
+    const int* particleHandle() const { return &particleSlot_; }
+    int* particleHandle() { return &particleSlot_; }
+    // Quick saves (state_io.hpp).
+    template <class Io>
+    void io(Io& io) { io(winRequested, body, base, wreck, objectId_, floor_, position_, size_, radius_,
+                           heading_, aim_, velocity_, state_, step_, talkPicture_, scriptFlag_, movementSound_,
+                           particleSlot_, caughtTimerMs_, rail_, railIndex_, railDirection_, searchTimerMs_,
+                           stepClockMs_, sensorFrame_, sensorTick_, wobble_, coastFrom_, coastDirection_,
+                           coastDistance_, coastSpeed_, chargeSpeed_, sparked_, sparkShown_); }
 };
 
 }  // namespace doc::game
