@@ -13,13 +13,14 @@ constexpr float kDegrees = 0.0174532924f;
 
 // The droid's settings in the tuning table (Values::init @0x1449d0.., defaults in code).
 struct AccelaValues {
-    int rageBuildMs = 500;           // +0x250 "accelrobo_rage_build_time"
-    int searchMs = 2000;             // +0x254 "accelrobo_search_time"
-    int sensedDistance = 60;         // +0x258 "accelrobo_sensed_distance"
-    float maxSpeed = 3.00007606f;    // +0x25c "accelrobo_max_speed"
-    float returnSpeed = 0.600000024f;  // +0x260 "accelrobo_return_speed"
-    float acceleration = 0.200000003f; // +0x264 "accelrobo_acceleration"
-    float bounceBack = 0.350001007f;   // +0x268 "accelrobo_bounceback_speed"
+    // (1.1.1 values; 1.0.5 had rage 500, max speed 3.00007606, acceleration 0.2, bounce 0.350001.)
+    int rageBuildMs = 650;           // +0x258 "accelrobo_rage_build_time"
+    int searchMs = 2000;             // +0x25c "accelrobo_search_time"
+    int sensedDistance = 60;         // +0x260 "accelrobo_sensed_distance"
+    float maxSpeed = 2.60007691f;    // +0x264 "accelrobo_max_speed"
+    float returnSpeed = 0.600000024f;  // +0x268 "accelrobo_return_speed"
+    float acceleration = 0.349999994f; // +0x26c "accelrobo_acceleration"
+    float bounceBack = 0.550001025f;   // +0x270 "accelrobo_bounceback_speed"
     float turnRate = 1.0f;           // +0x60, the cats' turn rate
 };
 constexpr AccelaValues kValues{};
@@ -78,12 +79,29 @@ Droid::Droid(int objectId, int floor, CatRoute rail, float radius, Vec2 size, co
         const Vec2 d = rail_.points[1].position - rail_.points[0].position;
         heading_ = d.angleDegrees() * kDegrees;
     }
+    // (1.1.1 @0x1a919c) The aim too; the body shows the facing's frames from the start (the
+    // sprite direction postInit keeps, run lbf_explore2: frame 8 for a droid facing up).
+    aim_ = heading_;
     // ObjControllerBoss::loadAssets @0x1a92aa: body and base 64 wide, the wreck 90 wide
     // looping at 200 ms.
     body.setSheet(sheets.body.width, sheets.body.height, 64.0f);
     base.setSheet(sheets.base.width, sheets.base.height, 64.0f);
     wreck.setSheet(sheets.wreck.width, sheets.wreck.height, 90.0f);
     wreck.setAnim(0, wreck.frameCount() - 1, SpriteAnim::Loop, 200);
+    // (1.1.1) The body starts on its facing's first frame, standing (run lbf_explore2: frame 8
+    // throughout); updateAnimations only restarts it for another facing.
+    float a = std::fmod(heading_ + -1.17809725f, kTwoPi);
+    if (a < 0.0f) a = a + kTwoPi;
+    const int facing = int(a * 1.27323949f);
+    body.setAnim(facing * 2, facing * 2, SpriteAnim::Hold, 400);
+}
+
+// The body faces its heading: eighths of a turn starting 67.5 degrees before east.
+void Droid::faceBody() {
+    float a = std::fmod(heading_ + -1.17809725f, kTwoPi);
+    if (a < 0.0f) a = a + kTwoPi;
+    const int facing = int(a * 1.27323949f);
+    if (body.first() != facing * 2) body.setAnim(facing * 2, facing * 2 + 1, SpriteAnim::Loop, 400);
 }
 
 void Droid::restore(const ObjectSnapshot& o) {
@@ -97,7 +115,7 @@ void Droid::restore(const ObjectSnapshot& o) {
 
 void Droid::updateAnimations(int dtMs) {
     // (A part picture driven by a cutscene, +0x21c 0..5, runs instead; not used by world 1.)
-    if (state_ == 0x3C) {
+    if (state_ == 0x40) {
         if (scriptFlag_ == 1) wobble_ = float(dtMs) * 0.5f + wobble_;
     } else {
         // The dome turns faster while it rages, charges and rolls on (table @0x1a9bd4: 0.1, 0.5
@@ -105,17 +123,13 @@ void Droid::updateAnimations(int dtMs) {
         const float rate = (step_ >= Raging && step_ <= Coasting) ? 0.5f : 0.100000001f;
         wobble_ = float(dtMs) * rate + wobble_;
     }
-    // The body faces its heading: eighths of a turn starting 67.5 degrees before east.
-    float a = std::fmod(heading_ + -1.17809725f, kTwoPi);
-    if (a < 0.0f) a = a + kTwoPi;
-    const int facing = int(a * 1.27323949f);
-    if (body.first() != facing * 2) body.setAnim(facing * 2, facing * 2 + 1, SpriteAnim::Loop, 400);
+    faceBody();
     body.update(dtMs);
 }
 
 // ObjControllerBoss::update @0x1a9598 for the droid.
 void Droid::update(int dtMs, BossWorld& world) {
-    if (state_ == 0x18) {
+    if (state_ == 0x1c) {
         // Broken (updateBrokenState @0x1abd38): smoke puffs (particle 0x30) about it every
         // 1.5 s; the machine sounds are off.
         playMovementSound(-1, world);
@@ -130,10 +144,10 @@ void Droid::update(int dtMs, BossWorld& world) {
         for (int s : kMechSounds) world.sounds.push_back({SoundEvent::Stop, s});
         return;
     }
-    if (state_ == 0x16) {
-        state_ = 0x17;
+    if (state_ == 0x1a) {
+        state_ = 0x1b;
         step_ = Dormant;
-    } else if (state_ != 0x17) {
+    } else if (state_ != 0x1b) {
         return;
     }
     searchTimerMs_ -= dtMs;
@@ -176,7 +190,7 @@ void Droid::playMovementSound(int effect, BossWorld& world) {
 // ahead or behind, within 25 degrees. Just after a crash (step 8) any clear line will do.
 bool Droid::canSeeMouse(const BossWorld& world) const {
     Vec2 d = world.mousePosition - position_;
-    if (world.walls.lineTouches(position_, world.mousePosition, world.viewLeft, 0)) return false;
+    if (world.walls.lineTouches(position_, world.mousePosition, world.viewLeft, 1)) return false;
     if (step_ == Recoiling) return true;
     d.normalise(1.0f);
     const float along = Vec2{libCos(heading_), libSin(heading_)}.dot(d);
@@ -257,7 +271,7 @@ float Droid::followRail(float speed) {
             return 0.0f;
         }
         // (Rail points carry no pauses or cuts on map 791.)
-        if (state_ == 0x17) {
+        if (state_ == 0x1b) {
             if (step_ == Returning) railDirection_ = -1;
         }
         const int previous = railIndex_;
@@ -312,7 +326,7 @@ float Droid::followRail(float speed) {
 void Droid::touchTriggerLines(BossWorld& world) {
     Vec2 probe = position_;
     Vec2 found;
-    if (world.walls.collideSphereOfType(probe, radius_, kTriggerLine, found, 0.0f) == 0) return;
+    if (world.walls.collideSphereSpecific(probe, radius_, kTriggerLine, &found, 0.0f) == 0) return;
     const Wall& line = world.walls.walls()[std::size_t(int(found.x))];
     if (world.sendMessage) world.sendMessage(step_ == Sliding ? 4 : 0, int(found.y), line.type);
 }
@@ -373,9 +387,7 @@ float Droid::updateAccela(int dtMs, BossWorld& world) {
     case Coasting: {
         coastDistance_ = coastDistance_ + (coastSpeed_ * float(dtMs)) * 0.0500000007f;
         position_ = coastFrom_ + coastDirection_ * coastDistance_;
-        LevelGeometry::SphereOptions options;
-        options.viewLeft = 0.0f;
-        if (world.walls.collideSphere(position_, radius_, options) == 0) break;
+        if (world.walls.collideSphere(position_, radius_, 0.0f) == 0) break;
         // Crash: sparks fly back off the wall.
         step_ = Recoiling;
         base.setAnim(0, -1, SpriteAnim::Hold, 200);
@@ -471,7 +483,7 @@ void Droid::blowUp(BossWorld& world, const std::function<void()>& throwKey) {
     world.particles.add(kParticleExplosion, floor_, position_ + Vec2{0.0f, size_.y * 0.5f}, {}, nullptr, 0,
                         Vec2{-1.0f, -1.0f}, true);
     if (throwKey) throwKey();
-    state_ = 0x18;
+    state_ = 0x1c;
     scriptFlag_ = 1000;
     world.sounds.push_back({SoundEvent::Play, kSoundExplosion});
 }
@@ -480,10 +492,10 @@ void Droid::blowUp(BossWorld& world, const std::function<void()>& throwKey) {
 // broken, it catches the mouse (Player::kill): the machine sounds stop, a cloud and the
 // death sound.
 void Droid::touchMouse(bool mouseProtected, BossWorld& world) {
-    if (mouseProtected || state_ == 0x18) return;
+    if (mouseProtected || state_ == 0x1c) return;
     for (int s : kMechSounds) world.sounds.push_back({SoundEvent::Stop, s});
     if (world.killMouse) world.killMouse();
-    state_ = 0x15;
+    state_ = 0x19;
     playMovementSound(-1, world);
     caughtTimerMs_ = 5000;
     world.particles.add(kParticleCaught, floor_, position_, {}, nullptr, 0, Vec2{-1.0f, -1.0f}, true);

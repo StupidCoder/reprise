@@ -324,9 +324,9 @@ void MapView::draw(platform::Host& host, const game::WorldMap& map) {
     drawHouses(map, false);
     // Particles, pads, the mouse and its path, then the houses in front.
     for (const game::Particle& p : map.particles().slots()) {
-        if (!p.active || p.delayMs >= 1 || p.type >= 0x36) continue;
+        if (!p.active || p.delayMs >= 1 || p.type >= game::kSpriteParticleTypes) continue;
         const game::ParticleKind& kind = map.particles().kind(p.type);
-        const bool add = p.type == 0x2d || (p.type >= 0x17 && p.type < 0x1f);
+        const bool add = p.type == 0x2A || (p.type >= 0x18 && p.type <= 0x1B);
         if (const platform::Texture* t = canvas_.texture(kind.sheet))
             canvas_.drawSprite(*t, p.sprite.frame(), 0, p.sprite.frameWidth(), p.sprite.frameHeight(), p.position, p.alpha,
                                false, p.rotation, {p.red, p.green, p.blue, std::min(1.0f, p.scale)},

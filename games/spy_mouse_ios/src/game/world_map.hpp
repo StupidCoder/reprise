@@ -28,6 +28,7 @@
 #include "game/tuning.hpp"
 
 #include <array>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -51,6 +52,10 @@ public:
         const data::LevelInfo* level = nullptr;  // level pads
         float highlight = 0.0f;    // +0x118: glow of an open level not yet won (0..1)
         bool active = true;        // building markers are used up once matched to a level
+        // Quick saves (state_io.hpp).
+        // Not saved: level (the level table).
+        template <class Io>
+        void io(Io& io) { io(type, position, tag, highlight, active); }
     };
     // One level of the world in the original's order (the pads' levels plus the levels they
     // lead into, by uid): its picture pieces are numbered by this order.
@@ -66,11 +71,17 @@ public:
         std::vector<int> housesFront;    // world01_buildingNN in front of the mouse
         std::vector<int> housesBack;     // behind the landscape details (world_bg levels)
         std::vector<std::pair<int, Vec2>> housePositions;  // where each house stands
+        // Quick saves (state_io.hpp).
+        template <class Io>
+        void io(Io& io) { io(grass, roadPads, roads, housesFront, housesBack, housePositions); }
     };
     struct Cloud {
         bool active = false;
         Vec2 position;
         float speed = 0.0f;
+        // Quick saves (state_io.hpp).
+        template <class Io>
+        void io(Io& io) { io(active, position, speed); }
     };
     // The bubble that starts the chosen level (GuiMenuMapPlayItem).
     struct PlayBubble {
@@ -81,11 +92,17 @@ public:
         float swayPhase = 0.0f;
         int worldNumber = -1;  // world pads show "World N" instead of "Play!"
         int ageMs = 0;          // since it appeared (it pops in)
+        // Quick saves (state_io.hpp).
+        template <class Io>
+        void io(Io& io) { io(shown, node, base, centre, swayPhase, worldNumber, ageMs); }
     };
     enum class State { Opening, Revealing, Ready, Booting, Leaving, Arriving };
 
-    static std::optional<WorldMap> load(const data::GameFiles& files, const data::LevelTable& table,
-                                        Profile& profile, int world, std::uint32_t seed, std::string& error);
+    // Made in place and never moved or copied: its particles hold its random generator.
+    static std::unique_ptr<WorldMap> load(const data::GameFiles& files, const data::LevelTable& table,
+                                          Profile& profile, int world, std::uint32_t seed, std::string& error);
+    WorldMap(const WorldMap&) = delete;
+    WorldMap& operator=(const WorldMap&) = delete;
 
     // Touches in screen points (y down).
     void touchDown(Vec2 screen);
@@ -155,6 +172,9 @@ public:
         Vec2 from;       // +0x1566c: the pad, relative to where it went from
         SpriteAnim out;  // +0x154ec, player_blur1
         SpriteAnim in;   // +0x155a8, player_blur2
+        // Quick saves (state_io.hpp).
+        template <class Io>
+        void io(Io& io) { io(state, at, from, out, in); }
     };
     const Teleport& teleport() const { return teleport_; }
     Vec2 irisCentre() const { return irisCentre_; }
@@ -232,6 +252,9 @@ private:
         bool held = false, began = false;
         Vec2 down, at;        // map coordinates
         bool extend = false;  // went down at the end of the mouse's path
+        // Quick saves (state_io.hpp).
+        template <class Io>
+        void io(Io& io) { io(held, began, down, at, extend); }
     } finger_;
     bool drawing_ = false;
 
@@ -247,6 +270,24 @@ private:
     Vec2 irisCentre_;
     const data::LevelInfo* bootLevel_ = nullptr;
     bool bootDone_ = false;
+public:
+    // Quick saves (state_io.hpp).
+    // Not saved: table_ and levels_ (the level table), profile_ (the flow's), map_, walls_ and paths_
+    // (the map's file), tuning_ (constants).
+    template <class Io>
+    void io(Io& io) {
+        io(world_, nodes_, scenery_, sceneryCounts_, random_, particles_, mouse_, arriveNode_,
+           arrivePad_, irisKind_, leavingStep_, worldStep_, leavingShutTicks_, teleport_, path_,
+           sounds_, ambience_, state_, timeMs_, current_, focused_, focusedFallback_, pressed_,
+           pressedStart_, playShownFor_, sparkleMs_, play_, titleKey_, titleNumber_,
+           titleAgeMs_, clouds_, cloudSpawnMs_, cloudStart_, cloudEnd_, finger_, drawing_,
+           revealLevel_, revealPhase_, revealMs_, revealScroll_, housePop_, walkBounce_, iris_,
+           irisCentre_, bootDone_);
+        // The level the map is starting (by its number).
+        int bootUid = bootLevel_ ? bootLevel_->uid : -1;
+        io(bootUid);
+        if constexpr (Io::reading) bootLevel_ = bootUid < 0 ? nullptr : table_->byUid(bootUid);
+    }
 };
 
 }  // namespace doc::game

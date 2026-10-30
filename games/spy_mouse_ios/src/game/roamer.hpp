@@ -44,6 +44,11 @@ private:
     float heading_ = 0.0f;  // +0x10c
     float rotation_ = 0.0f; // +0x108
     int waitMs_ = 0;        // +0x874
+public:
+    // Quick saves (state_io.hpp).
+    template <class Io>
+    void io(Io& io) { io(anim, objectId_, type_, position_, radius_, route_, index_, direction_, speed_,
+                           heading_, rotation_, waitMs_); }
 };
 
 }  // namespace doc::game

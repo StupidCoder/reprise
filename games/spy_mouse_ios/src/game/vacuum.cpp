@@ -9,7 +9,7 @@ constexpr float kTwoPi = 6.28318548f, kPi = 3.14159274f;
 
 // The vacuum's settings in the tuning table (Values; defaults in docs/values-defaults.txt).
 struct VacuumValues {
-    int wakeMs = 1350;          // +0x23c mech_taunt_time: after the intro, before it starts
+    int wakeMs = 750;           // +0x244 mech_taunt_time: after the intro, before it starts (1.0.5: 1350)
     int phaseMs = 850;          // +0x240 mech_phase_time: each suction stage
     float speedMult = 1.29999995f;  // +0x244 mech_speed_mult
     float maxPull = 1.10000002f;    // +0x248 mech_max_vacuum: units a tick at full suction
@@ -56,7 +56,7 @@ Vacuum::Vacuum(int objectId, int floor, Vec2 position, Vec2 size, CatRoute route
 }
 
 void Vacuum::update(int dtMs, BossWorld& world, const VacuumTargets& targets) {
-    if (state_ == 0x18) {
+    if (state_ == 0x1c) {
         // Broken (updateBrokenState @0x1abd38): a puff of smoke about it every 1.5 s; the
         // machine sounds stay off.
         smokeMs_ -= dtMs;
@@ -69,13 +69,13 @@ void Vacuum::update(int dtMs, BossWorld& world, const VacuumTargets& targets) {
         for (int s : {kSoundBomb, kSoundMove, kSoundSuck}) soundEvent(world.sounds, SoundEvent::Stop, s);
         return;
     }
-    if (state_ == 0x16) {
+    if (state_ == 0x1a) {
         // Waking: active once its wait is over (it moves from the next tick on).
         timerMs_ -= dtMs;
-        if (timerMs_ <= 0) state_ = 0x17;
+        if (timerMs_ <= 0) state_ = 0x1b;
         return;
     }
-    if (state_ != 0x17) return;
+    if (state_ != 0x1b) return;
     // While it sucks the controller redraws a timer of its own (nothing reads it here).
     moodMs_ -= dtMs;
     if (moodMs_ < 1 && (stage_ == 1 || stage_ == 2)) moodMs_ = int(world.random.next() % 4000) + 8000;
@@ -157,7 +157,7 @@ float Vacuum::updateVaccuum(int dtMs, BossWorld& world, const VacuumTargets& tar
         stage_ = 0;
         timerMs_ = 0;
     }
-    if (walking && state_ == 0x17) speed = walk(speed, world, targets);
+    if (walking && state_ == 0x1b) speed = walk(speed, world, targets);
     if (stage_ >= 1 && world.mouseState == 0 && targets.mouse) {
         // The walking mouse is drawn towards the nozzle: a quarter, half or all of the pull.
         Vec2 pull = *targets.mouse - position_;
@@ -234,16 +234,16 @@ void Vacuum::blowUp(BossWorld& world, const std::function<void()>& throwKey) {
     world.particles.add(kParticleExplosion, floor_, position_ + Vec2{0.0f, size_.y * 0.5f}, {}, nullptr, 0,
                         Vec2{-1.0f, -1.0f}, true);
     if (throwKey) throwKey();
-    state_ = 0x18;
+    state_ = 0x1c;
     smokeMs_ = 1000;
     soundEvent(world.sounds, SoundEvent::Play, kSoundExplosion);
 }
 
 void Vacuum::touchMouse(bool mouseProtected, BossWorld& world) {
-    if (mouseProtected || state_ == 0x18) return;
+    if (mouseProtected || state_ == 0x1c) return;
     for (int s : {kSoundBomb, kSoundMove, kSoundSuck}) soundEvent(world.sounds, SoundEvent::Stop, s);
     if (world.killMouse) world.killMouse();
-    state_ = 0x15;
+    state_ = 0x19;
     timerMs_ = 5000;
     world.particles.add(kParticleCaught, floor_, position_, {}, nullptr, 0, Vec2{-1.0f, -1.0f}, true);
     soundEvent(world.sounds, SoundEvent::Play, kSoundCaught);

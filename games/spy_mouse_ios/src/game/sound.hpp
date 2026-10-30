@@ -20,6 +20,9 @@ struct SoundEvent {
     int effect = -1;      // sound table index, -1 when `file` is given
     std::string file;     // path under res/ (ambience sounds, music)
     bool loop = false;
+    // Quick saves (state_io.hpp).
+    template <class Io>
+    void io(Io& io) { io(kind, effect, file, loop); }
 };
 
 // Effect numbers used by the reconstructed rules (index into the sound table).

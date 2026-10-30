@@ -49,11 +49,11 @@ int Projectiles::create(const ProjectileSpec& spec) {
         // template's loop but sets the image again, which leaves it looping over frame 0 alone
         // at 250 ms (run lbf2_world2: a flying knife never changes its frame).
         p.anim = SpriteAnim{};
-        if (spec.picture >= 4 && spec.picture <= 6) {
+        if (isCutlery(spec.picture)) {
             const SheetSize sheet = pictures_[std::size_t(spec.picture)];
             p.anim.setSheet(sheet.width, sheet.height, 30.0f);
             p.anim.setAnim(0, 0, SpriteAnim::Loop, 250);
-        } else if (spec.picture == 0 || spec.picture == 3) {
+        } else if (isShuriken(spec.picture)) {
             // The shurikens (sprites/shuriken.png, boss4_shuriken.png: the whole picture one
             // frame).
             const SheetSize sheet = pictures_[std::size_t(spec.picture)];
@@ -79,9 +79,9 @@ void Projectiles::fire(int index, Vec2 at, Vec2 velocity, float spin, float lift
     along.normalise(1.0f);
     p.angle = wrapAngle(std::atan2(along.y, along.x));
     switch (p.picture) {
-    case 0: case 3: play(sounds, kSoundFireDart); break;
-    case 1: case 2: play(sounds, kSoundFireBall); break;
-    case 4: case 5: case 6: play(sounds, kSoundFireCutlery); break;
+    case kPictureShuriken: case kPictureBossShuriken: play(sounds, kSoundFireDart); break;
+    case kPictureFireball: play(sounds, kSoundFireBall); break;
+    case kPictureFork: case kPictureSpoon: case kPictureKnife: play(sounds, kSoundFireCutlery); break;
     default: break;
     }
 }
@@ -94,8 +94,8 @@ void Projectiles::trigger(int index, GameRandom& random, std::vector<SoundEvent>
     int effect = kSoundHitObject;
     if (p.stuckTo == -1) {
         switch (p.picture) {
-        case 1: case 2: effect = kSoundHitBall; break;
-        case 4: case 5: case 6: effect = kSoundHitCutlery; break;
+        case kPictureFireball: effect = kSoundHitBall; break;
+        case kPictureFork: case kPictureSpoon: case kPictureKnife: effect = kSoundHitCutlery; break;
         default: effect = random.next() % 3 + kSoundHitFirst; break;
         }
     }

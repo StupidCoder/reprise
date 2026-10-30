@@ -15,6 +15,9 @@ struct HudItem {
     Vec2 target;
     Vec2 out, in;       // off screen / on screen offsets
     int timerMs = 0;    // > 0: slides in when it runs out; < 0: slides out
+    // Quick saves (state_io.hpp).
+    template <class Io>
+    void io(Io& io) { io(position, target, out, in, timerMs); }
 };
 
 class Hud {
@@ -63,6 +66,11 @@ public:
     bool pauseVisible = true;
     float pauseAlpha = 1.0f;
     bool pauseHidden = false;  // under the pause menu (SceneGame::hidePauseButton)
+public:
+    // Quick saves (state_io.hpp).
+    template <class Io>
+    void io(Io& io) { io(items, fadeMs, scoreBounceMs, glowMs, glowLeft, handBounce, handWidth, shownScore,
+                           hand, topType, secondType, exitBonus, pauseVisible, pauseAlpha, pauseHidden); }
 };
 
 }  // namespace doc::game

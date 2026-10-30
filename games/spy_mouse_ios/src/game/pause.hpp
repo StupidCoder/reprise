@@ -47,6 +47,10 @@ private:
     BounceFrame card_, corner_;      // +0xb8, +0xbc
     GoalPopup popup_;                // +0xcc
     std::array<ResultsGoal, 3> goals_{};
+public:
+    // Quick saves (state_io.hpp).
+    template <class Io>
+    void io(Io& io) { io(active_, pending_, card_, corner_, popup_, goals_); }
 };
 
 }  // namespace doc::game

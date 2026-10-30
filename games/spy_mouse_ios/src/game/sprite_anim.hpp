@@ -12,6 +12,9 @@ namespace doc::game {
 
 struct SheetSize {
     int width = 0, height = 0;
+    // Quick saves (state_io.hpp).
+    template <class Io>
+    void io(Io& io) { io(width, height); }
 };
 
 class SpriteAnim {
@@ -65,6 +68,9 @@ public:
 private:
     struct State {
         int first = 0, last = 0, mode = Hold, frameMs = 250, frame = 0, timerMs = 0, step = 1;
+        // Quick saves (state_io.hpp).
+        template <class Io>
+        void io(Io& io) { io(first, last, mode, frameMs, frame, timerMs, step); }
     };
     int frames_ = 1;
     float frameWidth_ = 0.0f, frameHeight_ = 0.0f;
@@ -76,11 +82,20 @@ private:
         data::AnimSequence data;
         int frame = 0, row = 0, timerMs = 0, loopsDone = 0, mode = SequenceOnce;
         bool finished = false;
+        // Quick saves (state_io.hpp).
+        template <class Io>
+        void io(Io& io) { io(data, frame, row, timerMs, loopsDone, mode, finished); }
     };
     std::vector<SequenceState> sequences_;
     int sequence_ = -1;
     bool sequenceActive_ = false;
     void updateSequence(int dtMs);
+public:
+    // Quick saves (state_io.hpp).
+    template <class Io>
+    void io(Io& io) { io(frames_, frameWidth_, frameHeight_, first_, last_, mode_, frameMs_, frame_, timerMs_,
+                           step_, paused_, finished_, oneShot_, saved_, sequences_, sequence_,
+                           sequenceActive_); }
 };
 
 }  // namespace doc::game

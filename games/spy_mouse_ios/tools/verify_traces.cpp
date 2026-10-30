@@ -16,6 +16,7 @@
 #include "data/strings.hpp"
 #include "data/level_table.hpp"
 #include "game/session.hpp"
+#include "game/state_io.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -24,6 +25,7 @@
 #include <filesystem>
 #include <fstream>
 #include <zlib.h>
+#include <limits>
 #include <map>
 #include <sstream>
 #include <string>
@@ -56,19 +58,25 @@ constexpr std::size_t kDrawing = 0x330, kSnapped = 0x331, kSnapTarget = 0x334;
 constexpr std::size_t kX = 0x33c, kY = 0x340, kReach = 0x358, kHeading = 0x35c, kPathIndex = 0x360;
 constexpr std::size_t kAcceleration = 0x3b0, kIdleStep = 0x3b4, kIdleMs = 0x3b8, kLastStep = 0x3bc;
 constexpr std::size_t kDistance = 0x3c0, kScale = 0x3c4;
+constexpr std::size_t kPredictedCheese = 0xc8, kPredictedEnough = 0xd0, kPredictedSnapped = 0xd1;
 constexpr std::size_t kSlideX = 0x3d0, kSlideY = 0x3d4, kSlideMs = 0x3d8;  // (hypothesis)
-// Objects (SceneGame + 0x139d8, 0x884 bytes each): unchanged up to +0x110, 8 bytes later after.
-constexpr std::size_t kObjCarried = 0x180;
+// Objects (SceneGame + 0x139d8, 0x884 bytes each): unchanged up to +0x110, 8 bytes later after
+// (tools/v111/fieldvote.py over the Object and controller functions).
+// +6 is the snap target as in 1.0.5. 1.0.5's "open" byte (+7) is 0 for every object in the 1.1.1
+// runs and is not compared (HYPOTHESIS: the field is gone; ObjControllerHideable::init no longer
+// writes it).
+constexpr std::size_t kObjCarried = 0x180, kObjSnappable = 6;
 // Cats and the bosses' controllers (ObjControllerCat / ObjControllerBoss; hypothesis beyond
 // the heading fields until the cat runs are recorded on 1.1.1).
 constexpr std::size_t kRouteIndex = 0x174, kRouteDir = 0x17c, kVelocity = 0x1b4, kSeen = 0x1d0;
 constexpr std::size_t kStep = 0x1dc, kTarget = 0x1e0, kTimer = 0x1e4, kCalm = 0x1ec, kLook = 0x1f0;
-constexpr std::size_t kStepTimer = 0x1f4, kStreak = 0x1f8, kBackCount = 0x148, kBackIndex = 0x178;
+constexpr std::size_t kStepTimer = 0x1f4, kStreak = 0x1f8, kBackCount = 0x14c, kBackIndex = 0x178;
 constexpr std::size_t kWindUp = 0x200, kDue = 0x204, kThrowing = 0x20c;
-constexpr std::size_t kIdleFrame = 0x304 + 0x64, kFacing = 0x82c, kAnimated = 0x87c;
+constexpr std::size_t kIdleFrame = 0x308 + 0x64, kFacing = 0x82c, kAnimated = 0x87c;  // (idle sprite +0x308: stun @0x1a2fd0 sets its frame +0x36c)
 // LevelState (g_LevelState 0x5fa290): 1.1.1 adds a byte at +0x1b; results requested +0x1d.
 constexpr std::size_t kResultsRequested = 0x1d;
 // Scene vtables (the top scene's first word).
+constexpr std::uint32_t kDossierVtable = 0x5f6af8, kMsgBoxVtable = 0x5f5138;  // (1.1.1)
 constexpr std::uint32_t kIntroVtable = 0x5f39b8, kSkipVtable = 0x5f5b68, kHandVtable = 0x5f5aa8,
                         kResultsVtable = 0x5f5958;
 // GameBoot::bootLevel's draw (its return address): bootLevel @0x1f4fb8 + 0x159.
@@ -160,7 +168,7 @@ std::map<int, PlayerDump> readTrace(const std::string& path) {
         if (it == points.end()) continue;
         for (int i = 0; i < d.pathCount && std::size_t(i * 12 + 12) <= it->second.size(); ++i)
             d.points.push_back({at<float>(it->second, i * 12), at<float>(it->second, i * 12 + 4),
-                                at<float>(it->second, i * 12 + 8)});
+                                at<std::uint16_t>(it->second, i * 12 + 8)});
     }
     return frames;
 }
@@ -171,7 +179,7 @@ void loadPath(game::DrawnPath& path, const PlayerDump& d) {
     path.clear();
     for (const auto& p : d.points) {
         game::PathPoint& q = path.append({p.x, p.y});
-        q.z = p.z;
+        q.flag = p.flag;
     }
     path.resampledEnd = d.resampled;
     path.smoothedEnd = d.smoothed;
@@ -296,6 +304,26 @@ Watches readWatches(const std::string& path) {
     return w;
 }
 
+// A layout item's box in screen points (y down), the way the app's hit test finds it
+// (render/results_view.cpp findBox).
+bool layoutBox(const data::GuiNode& node, const std::string& name, float px, float py, float box[4]) {
+    float x = node.position.x, y = node.position.y;
+    if (node.relative) {
+        x += px;
+        y += py;
+    }
+    if (node.name == name) {
+        box[0] = x;
+        box[1] = 320.0f - (y + node.size.y);
+        box[2] = node.size.x;
+        box[3] = node.size.y;
+        return true;
+    }
+    for (const data::GuiNode& child : node.children)
+        if (layoutBox(child, name, x, y, box)) return true;
+    return false;
+}
+
 // Collects differences between port and original for one frame.
 struct Diff {
     std::vector<std::string> lines;
@@ -342,8 +370,7 @@ void compareObject(Diff& diff, const game::LevelObject& o, const std::vector<std
     };
     diff.i(name("active"), o.active, b[4]);
     diff.i(name("updating"), o.updating, b[5]);
-    diff.i(name("snappable"), o.snappable, b[6]);
-    diff.i(name("passable"), o.passable, b[7]);
+    diff.i(name("snappable"), o.snappable, b[orig::kObjSnappable]);
     diff.i(name("state"), int(o.state), at<int>(b, 0x1c));
     diff.f(name("pulse"), o.pulseMs, at<float>(b, 0x2c));
     diff.f(name("x"), o.position.x, at<float>(b, 0xf4));
@@ -362,6 +389,7 @@ int sessionReplay(const data::GameFiles& files, const std::map<int, PlayerDump>&
     static const char* levelNumber = std::getenv("DOC_LEVEL") ? std::getenv("DOC_LEVEL") : "1-1";
     const data::LevelInfo* info = table ? table->byNumber(levelNumber) : nullptr;
     auto level = info ? game::Level::load(files, *info, error) : std::nullopt;
+    const std::optional<game::Level> levelFiles = level;  // (for quick-save tests)
     if (!level) {
         std::printf("session replay: %s\n", error.c_str());
         return 1;
@@ -374,10 +402,62 @@ int sessionReplay(const data::GameFiles& files, const std::map<int, PlayerDump>&
     // labelled bootFrame were logged), with its generator state.
     const int firstFrame = rands.bootFrame + 1;
     // A restart (retry, or the level lost) replaces the session, as in the app.
-    auto owner = std::make_unique<game::Session>(std::move(*level), std::uint32_t(rands.stateBeforeBoot));
-    // A profile that has not seen Kiska's offer (the reference states have not), by the clock.
-    owner->setKiskaOffers({}, std::int64_t(std::time(nullptr)));
+    auto makeSession = [&]() {
+        auto session = std::make_unique<game::Session>(game::Level(*levelFiles), std::uint32_t(rands.stateBeforeBoot));
+        // A profile that has not seen Kiska's offer (the reference states have not), by the clock.
+        session->setKiskaOffers({}, std::int64_t(std::time(nullptr)));
+        // The reference states play later levels through another level's slot, whose saved best
+        // the trace does not show: a run whose level state ends without the new-best flag
+        // (LevelState +0x1d, Profile::completeLevel) is given a best it cannot beat.
+        if (const auto ls = watches.find("levelstate"); ls != watches.end() && !ls->second.empty()) {
+            const std::vector<std::uint8_t>& last = ls->second.rbegin()->second;
+            if (last.size() > 0x1d && last[0x1d] == 0) {
+                game::LevelRecord record;
+                record.best = std::numeric_limits<int>::max();
+                session->setRecord(record);
+            }
+        }
+        return session;
+    };
+    auto owner = makeSession();
+    // DOC_QUICKSAVE=K: every K frames the session is quick-saved and loaded into a new one built
+    // from the level's files (game/state_io.hpp), which plays on; an uninterrupted twin plays the
+    // same touches, and the two states must stay the same byte for byte.
+    const int quickSaveEvery = std::getenv("DOC_QUICKSAVE") ? std::atoi(std::getenv("DOC_QUICKSAVE")) : 0;
+    std::unique_ptr<game::Session> twin = quickSaveEvery > 0 ? makeSession() : nullptr;
+    int quickSaves = 0;
+    auto saved = [](const game::Session& s, std::vector<game::StateWriter::Mark>* marks = nullptr) {
+        game::StateWriter w;
+        w.marks = marks;
+        w.save(s);
+        return std::move(w.bytes);
+    };
     const auto kiskaLayout = data::loadGuiLayout(files, "level_skip", error);  // ("levelSkip" in 1.0.5)
+    // (1.1.1) The dossier page's back button and the message box's "Okay".
+    float backBox[4] = {0, 0, -1, -1}, okBox[4] = {0, 0, -1, -1};
+    if (const auto layout = data::loadGuiLayout(files, "dossier", error))
+        for (const data::GuiNode& top : layout->root.children)
+            if (layoutBox(top, "BTN_BACK", 0.0f, 0.0f, backBox)) break;
+    if (const auto layout = data::loadGuiLayout(files, "msgbox", error))
+        for (const data::GuiNode& top : layout->root.children)
+            if (layoutBox(top, "BTN_OK", 0.0f, 0.0f, okBox)) break;
+    auto inBox = [](const float box[4], float x, float y) {
+        return x >= box[0] && x < box[0] + box[2] && y >= box[1] && y < box[1] + box[3];
+    };
+    // The tutorial popup's continue button: a release over it closes the popup (GuiButton answers
+    // on release; DOC_NOTICE_ANY=1 takes any release, as the 1.0.5 scripts assumed).
+    float continueBox[4] = {0, 0, -1, -1};
+    if (const auto popup = data::loadGuiLayout(files, "popup_tutorial", error))
+        for (const data::GuiNode& top : popup->root.children)
+            if (layoutBox(top, "BTN_CONTINUE", 0.0f, 0.0f, continueBox)) break;
+    static const bool anyRelease = std::getenv("DOC_NOTICE_ANY") != nullptr;
+    auto onContinue = [&](float x, float y) {
+        return anyRelease || (x >= continueBox[0] && x < continueBox[0] + continueBox[2] && y >= continueBox[1] &&
+                              y < continueBox[1] + continueBox[3]);
+    };
+    if (std::getenv("DOC_NOTICE_BOX"))
+        std::printf("popup continue button: %.1f,%.1f %.1fx%.1f\n", continueBox[0], continueBox[1], continueBox[2],
+                    continueBox[3]);
     int lastFrame = frames.empty() ? 0 : frames.rbegin()->first;
     if (auto w = watches.find("top"); w != watches.end() && !w->second.empty())
         lastFrame = std::max(lastFrame, w->second.rbegin()->first);
@@ -411,24 +491,67 @@ int sessionReplay(const data::GameFiles& files, const std::map<int, PlayerDump>&
         auto it = w->second.find(frame);
         return it == w->second.end() ? nullptr : &it->second;
     };
+    // A script event into a session.
+    auto feed = [&](game::Session& s, const ScriptEvent& e) {
+        // A popup over the level takes the touches; the scripts tap only its button.
+        static const char* noticeKind = std::getenv("DOC_NOTICE_ON") ? std::getenv("DOC_NOTICE_ON") : "up";
+        if (s.notice().active() && e.kind == noticeKind && onContinue(e.x, e.y)) s.pressNoticeButton();
+        if (s.kiska().active() && e.kind == "up" && kiskaLayout)
+            s.pressKiskaButton(game::KiskaPopup::buttonAt(kiskaLayout->root, {e.x, e.y}));
+        if (s.dossierScreen().active() && e.kind == "up") {
+            if (s.dossierScreen().note().active) {
+                if (inBox(okBox, e.x, e.y)) s.pressDossierNote();
+            } else if (inBox(backBox, e.x, e.y)) {
+                s.pressDossierBack();
+            }
+        }
+        if (e.kind == "down") s.fingerDown({e.x, e.y});
+        if (e.kind == "move") s.fingerMove({e.x, e.y});
+        if (e.kind == "up") s.fingerUp({e.x, e.y});
+    };
     for (int frame = firstFrame + 1; frame <= lastFrame; ++frame) {
         // The harness injects events after presenting frame N; the game handles them in the
         // next tick, whose result is presented as frame N + 1.
         for (const ScriptEvent& e : script) {
             if (e.frame != frame - 1) continue;
-            // A popup over the level takes the touches; the scripts tap only its button.
-            static const char* noticeKind = std::getenv("DOC_NOTICE_ON") ? std::getenv("DOC_NOTICE_ON") : "up";
-            if (owner->notice().active() && e.kind == noticeKind) owner->pressNoticeButton();
-            if (owner->kiska().active() && e.kind == "up" && kiskaLayout)
-                owner->pressKiskaButton(game::KiskaPopup::buttonAt(kiskaLayout->root, {e.x, e.y}));
-            if (e.kind == "down") owner->fingerDown({e.x, e.y});
-            if (e.kind == "move") owner->fingerMove({e.x, e.y});
-            if (e.kind == "up") owner->fingerUp({e.x, e.y});
+            feed(*owner, e);
+            if (twin) feed(*twin, e);
         }
         owner->tick(game::kTickMs);
         // The level restarts (lost, or a retry): a new session takes over in the same tick.
         if (owner->retryRequested()) owner = owner->retry();
         owner->prepareFrame();
+        if (twin) {
+            twin->tick(game::kTickMs);
+            if (twin->retryRequested()) twin = twin->retry();
+            twin->prepareFrame();
+            if ((frame - firstFrame) % quickSaveEvery == 0) {
+                const std::vector<std::uint8_t> bytes = saved(*owner);
+                auto loaded = makeSession();
+                game::StateReader r{bytes};
+                try {
+                    r.load(*loaded);
+                    if (r.at != bytes.size()) throw game::StateError("bytes left over");
+                } catch (const std::exception& e) {
+                    std::printf("quick save: loading at frame %d failed: %s\n", frame, e.what());
+                    return 1;
+                }
+                owner = std::move(loaded);
+                ++quickSaves;
+            }
+            std::vector<game::StateWriter::Mark> marks;
+            const std::vector<std::uint8_t> a = saved(*owner), b = saved(*twin, &marks);
+            if (a != b) {
+                std::size_t at = 0;
+                while (at < a.size() && at < b.size() && a[at] == b[at]) ++at;
+                std::printf("quick save: first difference at frame %d (after %d loads), byte %zu of %zu/%zu, in:\n",
+                            frame, quickSaves, at, a.size(), b.size());
+                for (const game::StateWriter::Mark& m : marks)
+                    if (m.begin <= at && at < m.end)
+                        std::printf("  %*s%s +%zu\n", 2 * m.depth, "", m.type, at - m.begin);
+                return 1;
+            }
+        }
         // DOC_DUMP_PARTICLES=frame: the port's live particles at that frame.
         if (const char* dump = std::getenv("DOC_DUMP_PARTICLES"); dump && std::atoi(dump) == frame)
             for (std::size_t i = 0; i < owner->particles().slots().size(); ++i)
@@ -458,7 +581,10 @@ int sessionReplay(const data::GameFiles& files, const std::map<int, PlayerDump>&
             const game::HandTutorial& h = owner->hand();
             Diff diff;
             // (A tutorial popup goes on top of the intro: ScenePopupTutorial.)
-            const bool popup = owner->notice().active() || owner->kiska().active();
+            const bool popup = owner->notice().active() || owner->kiska().active() || owner->dossierScreen().active();
+            diff.i("top is dossier", owner->dossierScreen().active() && !owner->dossierScreen().note().active,
+                   vtable == orig::kDossierVtable);
+            diff.i("top is note", owner->dossierScreen().note().active, vtable == orig::kMsgBoxVtable);
             diff.i("top is intro", owner->intro().active && !popup, vtable == orig::kIntroVtable);
             diff.i("top is kiska", owner->kiska().active(), vtable == orig::kSkipVtable);  // SceneLevelSkip
             diff.i("top is finger", !popup && !owner->intro().active && h.active(), vtable == orig::kHandVtable);
@@ -477,19 +603,21 @@ int sessionReplay(const data::GameFiles& files, const std::map<int, PlayerDump>&
                 if (const auto* r = lookup("ripple", frame)) diff.i("finger.ripple", h.rippleState(), at<int>(*r, 0));
                 if (const auto* l = lookup("height", frame)) diff.f("finger.lift", h.lift(), at<float>(*l, 0));
             }
-            if (vtable == orig::kResultsVtable && b->size() >= 0x160) {  // (shorter watches miss its fields)
+            if (vtable == orig::kResultsVtable && b->size() >= 0x170) {  // (shorter watches miss its fields)
                 ++resultsChecks;
-                // SceneGameResults: +0x11c state, +0x120 timer, +0x124 points, +0x12c bonus,
-                // +0x134 total, +0x138 alpha, +0x158 ring.
+                // SceneGameResults (1.1.1, each 8 after 1.0.5's): +0x124 state, +0x128 timer,
+                // +0x12c points, +0x134 bonus, +0x13c total, +0x140 alpha, +0x150 cheese badge, +0x154 best badge, +0x168 ring.
                 const game::ResultsScreen& r = owner->results();
                 diff.i("results.active", r.active() || owner->progress().finished, 1);  // pushed, runs next tick
-                diff.i("results.state", r.state(), at<int>(*b, 0x11c));
-                diff.i("results.timer", r.timerMs(), at<int>(*b, 0x120));
-                diff.f("results.points", r.points(), at<float>(*b, 0x124));
-                diff.f("results.bonus", r.bonusShown(), at<float>(*b, 0x12c));
-                diff.f("results.total", r.total(), at<float>(*b, 0x134));
-                diff.f("results.alpha", r.alpha(), at<float>(*b, 0x138));
-                diff.f("results.ring", r.outline(), at<float>(*b, 0x158));
+                diff.i("results.state", r.state(), at<int>(*b, 0x124));
+                diff.i("results.timer", r.timerMs(), at<int>(*b, 0x128));
+                diff.f("results.points", r.points(), at<float>(*b, 0x12c));
+                diff.f("results.bonus", r.bonusShown(), at<float>(*b, 0x134));
+                diff.f("results.total", r.total(), at<float>(*b, 0x13c));
+                diff.f("results.alpha", r.alpha(), at<float>(*b, 0x140));
+                diff.f("results.cheeseBadge", r.cheeseScale(), at<float>(*b, 0x150));
+                diff.f("results.badge", r.badgeScale(), at<float>(*b, 0x154));
+                diff.f("results.ring", r.outline(), at<float>(*b, 0x168));
             }
             if (!diff.lines.empty()) {
                 std::printf("session replay: first top-scene difference at frame %d\n", frame);
@@ -503,9 +631,23 @@ int sessionReplay(const data::GameFiles& files, const std::map<int, PlayerDump>&
         const game::Mouse& m = owner->mouse();
         const game::DrawnPath& p = owner->path();
         Diff diff;
+        // DOC_TRACE_MOUSE=from,to: the mouse in both, frame by frame.
+        if (const char* t = std::getenv("DOC_TRACE_MOUSE")) {
+            int from = 0, to = 0;
+            if (std::sscanf(t, "%d,%d", &from, &to) == 2 && frame >= from && frame <= to)
+                std::printf("  mouse f%d port (%.4f,%.4f) s%d idx%d n%d view %.4f | original (%.4f,%.4f) s%d idx%d n%d\n", frame,
+                            m.position.x, m.position.y, m.state, m.pathIndex, p.size(), owner->viewLeft(), d.x, d.y, d.state, d.pathIndex,
+                            d.pathCount);
+        }
         diff.f("mouse.x", m.position.x, d.x);
         diff.f("mouse.y", m.position.y, d.y);
-        diff.f("mouse.heading", m.heading, d.heading);
+        // (Player::render wraps the heading into 0..2pi; the trace sometimes catches it before the
+        // frame's render, the same angle unwrapped: compared as an angle, run l110_win.)
+        {
+            float orig = d.heading;
+            if (orig < 0.0f && m.heading >= 0.0f) orig = std::fmod(orig, 6.28318548f) + 6.28318548f;
+            diff.f("mouse.heading", m.heading, orig);
+        }
         diff.i("mouse.state", m.state, d.state);
         diff.i("path.index", m.pathIndex, d.pathIndex);
         diff.i("path.count", p.size(), d.pathCount);
@@ -530,9 +672,10 @@ int sessionReplay(const data::GameFiles& files, const std::map<int, PlayerDump>&
             diff.i("path.drawing", p.drawing, (*b)[kDrawing]);
             diff.i("path.snapped", p.snapped, (*b)[kSnapped]);
             diff.i("path.has-target", p.snapTarget >= 0, at<std::uint32_t>(*b, kSnapTarget) != 0);
-            diff.i("predicted cheese", owner->prediction().cheeseAhead, at<int>(*b, 4));
-            diff.i("predicted enough", owner->prediction().enoughCheese, (*b)[0xc]);
-            diff.i("predicted snapped", owner->prediction().snappedToCheese, (*b)[0xd]);
+            // (Player::playerPredictivePathUpdate: 1.0.5's +4/+0xc/+0xd moved to +0xc8/+0xd0/+0xd1.)
+            diff.i("predicted cheese", owner->prediction().cheeseAhead, at<int>(*b, kPredictedCheese));
+            diff.i("predicted enough", owner->prediction().enoughCheese, (*b)[kPredictedEnough]);
+            diff.i("predicted snapped", owner->prediction().snappedToCheese, (*b)[kPredictedSnapped]);
             diff.f("slide.x", m.slidePosition.x, at<float>(*b, kSlideX));
             diff.f("slide.y", m.slidePosition.y, at<float>(*b, kSlideY));
             diff.i("slide.remaining", m.slideRemainingMs, at<int>(*b, kSlideMs));
@@ -546,8 +689,8 @@ int sessionReplay(const data::GameFiles& files, const std::map<int, PlayerDump>&
             if (const auto* b = lookup(("obj" + std::to_string(o.id)).c_str(), frame)) {
                 // DOC_TRACE_OBJ=id: print that object's port and original state every frame.
                 static const char* traced = std::getenv("DOC_TRACE_OBJ");
-                if (traced && std::atoi(traced) == o.id)
-                    std::printf("  obj%d f%d mouse (%.3f,%.3f) port (%.9g,%.9g) s%d c%d | original (%.9g,%.9g) s%d c%d\n", o.id, frame, m.position.x, m.position.y,
+                if (traced && (std::atoi(traced) == o.id || (std::atoi(traced) == -1 && o.inTrail)))
+                    std::printf("  obj%d t%x f%d mouse (%.3f,%.3f) m%d port (%.9g,%.9g) s%d c%d | original (%.9g,%.9g) s%d c%d\n", o.id, o.type, frame, m.position.x, m.position.y, m.state,
                                 o.position.x, o.position.y, int(o.state), int(o.inTrail), at<float>(*b, 0xf4),
                                 at<float>(*b, 0xf8), at<int>(*b, 0x1c), int((*b)[orig::kObjCarried]));
                 compareObject(diff, o, *b);
@@ -563,6 +706,12 @@ int sessionReplay(const data::GameFiles& files, const std::map<int, PlayerDump>&
                         // +0x110 steering, +0x16c route point, +0x1ac velocity, +0x1dc
                         // awareness timer, +0x1f0 collision streak.
                         const std::string catField = "cat" + std::to_string(o.id) + ".";
+                        if (traced && std::atoi(traced) == o.id)
+                            std::printf("  cat%d f%d s%d/%d h %.5f/%.5f aim %.5f/%.5f steer %.5f/%.5f step %d/%d v %.4f,%.4f/%.4f,%.4f seen %d/%d trail %d/%d awr %d/%d\n", o.id, frame,
+                                        cat.state(), at<int>(*b, 0x1c), cat.heading(), at<float>(*b, 0x108), cat.targetHeading(),
+                                        at<float>(*b, 0x10c), cat.steerOffset(), at<float>(*b, 0x110), cat.chaseStep(), at<int>(*b, orig::kStep),
+                                        cat.velocity().x, cat.velocity().y, at<float>(*b, orig::kVelocity), at<float>(*b, orig::kVelocity + 4),
+                                        int(cat.sawMouse()), int((*b)[0x1d8]), 0, int((*b)[0x1d9]), cat.awarenessMs(), at<int>(*b, orig::kTimer));
                         diff.i((catField + "state").c_str(), cat.state(), at<int>(*b, 0x1c));
                         diff.f((catField + "heading").c_str(), cat.heading(), at<float>(*b, 0x108));
                         diff.f((catField + "aim").c_str(), cat.targetHeading(), at<float>(*b, 0x10c));

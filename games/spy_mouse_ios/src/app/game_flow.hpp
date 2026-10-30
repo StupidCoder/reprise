@@ -8,9 +8,9 @@
 // nothing in the game: the per-frame presentation step the original's render performs
 // (Session::prepareFrame) runs once after every tick instead.
 //
-// Quick saves: the rules are deterministic for a given start (scene, profile, seed and clock)
-// and the same touches at the same ticks, so a save keeps the current scene's start and the
-// touches since then; restoring builds that scene again and runs it to the saved tick.
+// Quick saves keep the whole state of the current scene (game/state_io.hpp): restoring builds
+// that scene from the game's files as at its start and reads the saved state over it, so play
+// continues at once from the saved tick.
 #pragma once
 
 #include "app/sound_output.hpp"
@@ -18,6 +18,7 @@
 #include "data/level_table.hpp"
 #include "game/profile.hpp"
 #include "game/session.hpp"
+#include "game/state_io.hpp"
 #include "game/world_map.hpp"
 #include "platform/audio.hpp"
 #include "platform/host.hpp"
@@ -70,10 +71,12 @@ public:
     // (unlocks, best totals, goals) is kept: the restored profile takes it over.
     std::vector<std::uint8_t> saveState() const;
     bool restore(std::span<const std::uint8_t> state, std::string& error);
+    // For tests: the clock (time(), which seeds rand() as a scene starts) stays at `seconds`.
+    void setClock(std::int64_t seconds) { clock_ = seconds; }
 
 private:
     enum class Scene : std::uint8_t { None, Map, Level };
-    // What a scene starts from; with the touches since, everything a quick save needs.
+    // What the current scene was built from; a quick save builds it the same way.
     struct SceneStart {
         Scene scene = Scene::None;
         int world = 0;
@@ -81,11 +84,6 @@ private:
         int levelUid = 0;
         std::uint32_t seed = 1;    // rand()'s seed (the original seeds it from the clock)
         std::int64_t clock = 0;    // time() for Kiska's offer
-        std::string profile;       // the profile as the scene started
-    };
-    struct LoggedTouch {
-        std::uint32_t tick = 0;  // ticks of the scene before it was handled
-        Touch touch;
     };
 
     void startMap(int world, bool arriving, std::uint32_t seed);
@@ -97,7 +95,12 @@ private:
     void tickLevel();
     void retryLevel();
     void saveProfile();
+    std::int64_t now() const;
     void playSounds(std::vector<game::SoundEvent> events, std::int64_t nowMs);
+    // Quick saves: the scene built as at its start, then the saved state over it; or (version 1)
+    // run again from its start with the saved touches.
+    void restoreState(game::StateReader& r);
+    void restoreFromTouches(game::StateReader& r);
 
     const data::GameFiles& files_;
     std::filesystem::path profileFile_;
@@ -107,15 +110,14 @@ private:
     std::unique_ptr<SoundOutput> sound_;
 
     SceneStart start_;
-    std::uint32_t sceneTicks_ = 0;
-    std::vector<LoggedTouch> log_;
     std::vector<Touch> queued_;
-    bool replaying_ = false;  // restoring: no profile writes
+    bool restoring_ = false;  // building a saved scene: silent, no profile writes
     bool left_ = false;
     std::string failure_;
+    std::optional<std::int64_t> clock_;
 
     // The map.
-    std::optional<game::WorldMap> map_;
+    std::unique_ptr<game::WorldMap> map_;
     render::MapView mapButtons_;
     // The level.
     const data::LevelInfo* info_ = nullptr;

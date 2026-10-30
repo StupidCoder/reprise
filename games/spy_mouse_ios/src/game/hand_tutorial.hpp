@@ -22,6 +22,9 @@ public:
         Vec2 position;  // map space
         bool pressed = false;
         int waitMs = 0;  // how long the finger stays once it got there
+        // Quick saves (state_io.hpp).
+        template <class Io>
+        void io(Io& io) { io(position, pressed, waitMs); }
     };
     // The route of a map (empty: the map has none).
     static std::vector<Sample> route(const data::MapFile& map);
@@ -66,6 +69,11 @@ private:
     float lift_ = 25.0f;         // @0x5f1bfc: eases to 5 pressed, 25 lifted
     int rippleState_ = 0;        // @0x5fc4dc: 0 armed, 1 showing, 2 done for this loop
     SpriteAnim ripple_;          // sprites/node_ripple.png, 59 wide
+public:
+    // Quick saves (state_io.hpp).
+    template <class Io>
+    void io(Io& io) { io(route_, active_, delayMs_, playing_, index_, waitMs_, position_, velocity_, lift_,
+                           rippleState_, ripple_); }
 };
 
 }  // namespace doc::game

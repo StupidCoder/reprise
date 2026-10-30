@@ -70,6 +70,10 @@ void LevelView::loadButtons(const data::GameFiles& files) {
     worldLayout_ = data::loadGuiLayout(files, "world_complete", guiError);
     pauseLayout_ = data::loadGuiLayout(files, "pause", guiError);
     kiskaLayout_ = data::loadGuiLayout(files, "level_skip", guiError);  // (1.1.1; "levelSkip" in 1.0.5)
+    dossierLayout_ = data::loadGuiLayout(files, "dossier", guiError);
+    msgboxLayout_ = data::loadGuiLayout(files, "msgbox", guiError);
+    dossiers_ = data::readDossiers(files);
+    levelTable_ = data::LevelTable::load(files, guiError);
     if (auto bytes = files.readResource("hud/hud_paws.png"))
         if (auto image = platform::decodeImage(*bytes)) pausePaws_ = {float(image->width), float(image->height)};
 }
@@ -170,6 +174,7 @@ void LevelView::draw(platform::Host& host, const game::Session& session) {
     } else {
         drawNotice(session);
         drawKiska(session);  // SceneLevelSkip, above the level's intro
+        drawDossier(session);  // SceneDossier (1.1.1), above the level
         drawIris(session);
     }
     host.setTransform(1.0f, 1.0f, 0.0f, 0.0f);
@@ -237,7 +242,7 @@ void LevelView::drawCaughtAnimation(const game::Session& session) {
             cat = &o;
             break;
         }
-    if (!cat || cat->state != game::ObjectState(0x10)) return;
+    if (!cat || cat->state != game::ObjectState(0x12)) return;
     const game::Vec2 mouse = session.mouse().position;
     game::Vec2 dir = mouse - cat->position;
     const float distance = dir.normalise(1.0f);
@@ -369,7 +374,7 @@ void LevelView::drawFluff(const game::Session& session, bool high) {
 }
 
 // Particles::render @0x138714: particles of the mouse's floor whose delay has passed; colour and
-// alpha (at most 1) per particle; types 0x17..0x1e and 0x2d add light.
+// alpha (at most 1) per particle; firework bursts (0x18..0x1b) and kind 0x2a add light.
 void LevelView::drawParticles(const game::Session& session, bool lowLayer) {
     // The first call draws particles flagged for under the objects (byte +0x1f4); in levels no
     // particle sets it (only the world map does), so everything is drawn by the second.
@@ -380,25 +385,29 @@ void LevelView::drawParticles(const game::Session& session, bool lowLayer) {
         if (!p.active || p.delayMs >= 1) continue;
         const game::ParticleKind& kind = particles.kind(p.type);
         if (p.floor != session.shownFloor()) continue;
-        if (p.type >= 0x36) {
-            // Text particles: FNT_TXT for type 0x37, else FNT_HEADING; a brown copy 2 below,
-            // then cream, centred on the particle, scaled by it.
-            Font* font = p.type == 0x37 ? font_.get() : headingFont_.get();
+        if (p.type >= game::kSpriteParticleTypes) {
+            // Text particles: FNT_TXT for crumb points, else FNT_HEADING; a brown copy 2 below,
+            // then cream (a cat's stun text: orange, then yellow), centred on the particle,
+            // scaled by it.
+            Font* font = p.type == game::kTextPoints ? font_.get() : headingFont_.get();
             if (!font || p.text.empty()) continue;
             // (Particles::render: the colour's alpha is +0x1d4, `scale` here; the size +0x1d8,
             // `alpha`, times the level's text scale, LevelState +0x64 = 1.)
             const float a = std::min(1.0f, std::max(0.0f, p.scale));
             const float sx = game::kScreenHeight - p.position.y;
             const float x = p.position.x - canvas_.viewX;  // (drawn in the scrolled scene)
+            const bool stun = p.type == game::kTextStun;
             font->drawFlags(host, p.text, x, sx + 2.0f, 0x22, p.alpha, 0.0f, TextStyle{},
-                            Colour{0x72 / 255.0f, 0x23 / 255.0f, 0x0A / 255.0f, a});
+                            stun ? Colour{0xFA / 255.0f, 0x8C / 255.0f, 0x0A / 255.0f, a}
+                                 : Colour{0x72 / 255.0f, 0x23 / 255.0f, 0x0A / 255.0f, a});
             font->drawFlags(host, p.text, x, sx, 0x22, p.alpha, 0.0f, TextStyle{},
-                            Colour{1.0f, 0xF7 / 255.0f, 0xBE / 255.0f, a});
+                            stun ? Colour{1.0f, 0xDF / 255.0f, 0x3B / 255.0f, a}
+                                 : Colour{1.0f, 0xF7 / 255.0f, 0xBE / 255.0f, a});
             continue;
         }
         const platform::Texture* sheet = texture(kind.sheet);
         if (!sheet) continue;
-        const bool add = p.type == 0x2d || (p.type >= 0x17 && p.type < 0x1f);
+        const bool add = p.type == 0x2A || (p.type >= 0x18 && p.type <= 0x1B);
         // Particles::render @0x138714: the colour's alpha is the particle's +0x1d4 (`scale` here,
         // which also ends it at 0.01), at most 1; the picture's size is +0x1d8 (`alpha`).
         Tint tint{p.red, p.green, p.blue, std::min(1.0f, p.scale)};
@@ -525,7 +534,7 @@ void LevelView::drawObject(const game::Session& session, const game::LevelObject
     } else if (o.type == game::kTeacup) {
         // ObjControllerPickups::render @0x1b8a1c: on the floor, the picture grown while it
         // pulses (the generic pickup path @0x1b8ed0); worn, the player draws it.
-        if (pass != kPassNormal || o.state != game::ObjectState(0x1D) || session.mouse().cup == o.id) return;
+        if (pass != kPassNormal || o.state != game::ObjectState(0x21) || session.mouse().cup == o.id) return;
         const float scale = (o.pulseMs * 0.16f) * 0.00555555569f + 1.0f;
         if (const platform::Texture* sheet = texture(o.sprite))
             drawSprite(*sheet, 0, 0, o.size.x, o.size.y, o.position, scale, false, 0.0f, {});
@@ -562,7 +571,7 @@ void LevelView::drawObject(const game::Session& session, const game::LevelObject
         // heading) and the reflectors and the light (Object::render: their frame) in their
         // pass (+0x1c0: 2; the second reflector 8, the fifth 8 while it turns left).
         int mask = kPassNormal;
-        if (o.type == game::kReflector && (o.tag == 2 || (o.tag == 5 && o.state == game::ObjectState(0x39)))) mask = kPassHigh;
+        if (o.type == game::kReflector && (o.tag == 2 || (o.tag == 5 && o.state == game::ObjectState(0x3d)))) mask = kPassHigh;
         if (pass != mask || o.sprite.empty()) return;
         const float turn = o.type == game::kLauncher ? 360.0f : 0.0f;
         if (const platform::Texture* sheet = texture(o.sprite))
@@ -616,7 +625,7 @@ void LevelView::drawObject(const game::Session& session, const game::LevelObject
         if (const platform::Texture* sheet = texture(o.sprite))
             drawSprite(*sheet, o.anim.frame(), 0, o.size.x, o.size.y, o.position, scale, false, 0.0f,
                        Tint{1.0f, 1.0f, 1.0f, alpha});
-        if (o.state == game::ObjectState(0x19)) {
+        if (o.state == game::ObjectState(0x1d)) {
             if (const platform::Texture* mask = texture("sprites/mouse_trap_cheesemask.png"))
                 drawSprite(*mask, 0, 0, float(mask->width()), float(mask->height()), o.position, scale, false, 0.0f,
                            Tint{1.0f, 1.0f, 1.0f, alpha});
@@ -783,7 +792,7 @@ void LevelView::drawSpitterRoom(const game::Session& session, const game::LevelO
         if (pass != kPassNormal) return;
         for (const game::Spitter& s : session.spitters())
             if (s.objectId() == o.id) {
-                if (s.state() == 0x18) {
+                if (s.state() == 0x1c) {
                     if (const platform::Texture* wreck = texture("sprites/boss2/boss2_destroyed.png"))
                         drawSprite(*wreck, s.wreck.frame(), 0, 64.0f, float(wreck->height()), s.position(), 1.0f,
                                    false, 0.0f, {});
@@ -843,17 +852,17 @@ void LevelView::drawSpitterRoom(const game::Session& session, const game::LevelO
 // layer, on the shown floor; its picture turned along its flight; a straight one fading out
 // over its last second.
 void LevelView::drawProjectiles(const game::Session& session, int pass) {
-    static const char* const kPictures[7] = {"sprites/shuriken.png", nullptr, nullptr, "sprites/boss4_shuriken.png", "sprites/boss2/boss2_fork.png",
+    static const char* const kPictures[6] = {"sprites/shuriken.png", nullptr, "sprites/boss4_shuriken.png", "sprites/boss2/boss2_fork.png",
                                              "sprites/boss2/boss2_spoon.png", "sprites/boss2/boss2_knife.png"};
     for (const game::Projectile& p : session.projectiles().slots()) {
         if (!p.inUse() || p.status == game::ProjectileStatus::Made || p.status == game::ProjectileStatus::Gone) continue;
-        if (p.layer != pass || p.floor != session.shownFloor() || p.picture < 0 || p.picture > 6 || !kPictures[p.picture])
+        if (p.layer != pass || p.floor != session.shownFloor() || p.picture < 0 || p.picture > 5 || !kPictures[p.picture])
             continue;
         const platform::Texture* sheet = texture(kPictures[p.picture]);
         if (!sheet) continue;
         float alpha = 1.0f;
         if (p.flight == 2 && p.status == game::ProjectileStatus::Fading) alpha = clamp01(p.timerMs * 0.00100000005f);
-        const float frameW = p.picture == 0 || p.picture == 3 ? float(sheet->width()) : 30.0f;
+        const float frameW = game::isShuriken(p.picture) ? float(sheet->width()) : 30.0f;
         drawSprite(*sheet, p.anim.frame(), 0, frameW, float(sheet->height()), p.position, 1.0f, false,
                    p.angle * 57.2957764f, Tint{1.0f, 1.0f, 1.0f, alpha});
     }
@@ -876,7 +885,7 @@ void LevelView::drawDroid(const game::Session& session, const game::LevelObject&
         const float w = frameW > 0.0f ? frameW : float(t->width());
         drawSprite(*t, frame, 0, w, float(t->height()), at + offset, 1.0f, false, degrees, {});
     };
-    if (droid->state() == 0x18) {
+    if (droid->state() == 0x1c) {
         part("sprites/boss1/boss1_destroyed.png", droid->wreck.frame(), 90.0f, {}, 0.0f);
         return;
     }
@@ -915,7 +924,7 @@ void LevelView::drawVacuumRoom(const game::Session& session, const game::LevelOb
         const game::Vec2 at = v.position();
         if (!v.sucking()) {
             part("sprites/boss3/boss3_part1.png", v.body.frame(), 64.0f, at, 0.0f);
-            if (v.state() != 0x18) part("sprites/boss3/boss3_part0.png", 0, 64.0f, at, 0.0f);
+            if (v.state() != 0x1c) part("sprites/boss3/boss3_part0.png", 0, 64.0f, at, 0.0f);
             return;
         }
         part("sprites/boss3/boss3_part2.png", v.suction.frame(), 64.0f, at, 0.0f);
@@ -987,7 +996,7 @@ void LevelView::drawCat(const game::Session& session, const game::Cat& cat, cons
     if (pass != kPassNormal) return;
     // (ObjControllerCat::getActiveSprite @0x18c994 (1.0.5): Fluffy out of play, state 0x12, has no
     // picture: run lbf2_world2, where he waits by the exit in view.)
-    if ((cat.type() == game::kFluffy || cat.type() == game::kFluffy2) && cat.state() == 0x12) return;
+    if ((cat.type() == game::kFluffy || cat.type() == game::kFluffy2) && cat.state() == 0x16) return;
     const game::SpriteAnim& sprite = cat.activeSprite();
     const game::Cat::Picture picture = cat.picture();
     if (cat.type() == game::kFluffy2 && cat.henchmanLaunched() && picture == game::Cat::Picture::Common) {
@@ -1039,7 +1048,7 @@ void LevelView::drawCat(const game::Session& session, const game::Cat& cat, cons
                        left, 0.0f, {});
         return;
     }
-    if (cat.state() == 7 || picture == game::Cat::Picture::Common || cat.state() == 0xf) {
+    if (cat.state() == 9 || picture == game::Cat::Picture::Common || cat.state() == 0x11) {
         const float scale = (o.pulseMs * kPulseAmount) * 0.00555555569f + 1.0f;
         const float h = cat.heading();
         const bool left = 1.57079637f < h && h < 4.71238899f;
@@ -1214,7 +1223,7 @@ void LevelView::drawCheese(const game::Session& session, const game::LevelObject
 void LevelView::drawLure(const game::Session& session, const game::LevelObject& o) {
     if (o.state == game::ObjectState::Hidden) return;
     const float scale = (o.pulseMs * 0.16f) * 0.00555555569f + 1.0f;
-    const bool letGo = o.state == game::ObjectState(0x1E) && !o.inTrail;
+    const bool letGo = o.state == game::ObjectState(0x22) && !o.inTrail;
     const bool full = !o.inTrail && !letGo && session.carriedPickups() >= session.strength();
     if (full) {
         if (const platform::Texture* grey = texture("sprites/grey_pickups.png")) {

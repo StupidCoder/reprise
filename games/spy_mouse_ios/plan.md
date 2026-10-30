@@ -5,36 +5,91 @@ What is left before DoubleOCheese is a fully playable re-implementation of *Spy 
 evidence it cites lives in the local research archive (`.analysis`, not in the repository).
 
 State on 2026-10-29: worlds 1–3 and world 4 except the secret level 4-S2 play from the world map
-through each boss fight, frame-identical to recorded runs of the original. That verification was
-done on version **1.0.5**. The port now reads **1.1.1**, whose changed rules have not been
-re-verified yet. Music decodes portably (own HE-AAC decoder), but it has only been built on macOS.
+through each boss fight. The port follows version **1.1.1**; the reference runs were re-recorded
+on 1.1.1 and most of them verify again frame for frame (section 1 lists what does not yet).
+Music decodes portably (own HE-AAC decoder), but it has only been built on macOS.
 
 ## 1. Finish the move to version 1.1.1
 
-The port reads 1.1.1's program tables, sound and particle numbering, text ids and GUI format,
-builds, and plays 1-1. Everything else was verified on 1.0.5 only.
+Done: program tables, sound/particle/text numbering, GUI format 26, struct offsets for the
+verifier and the scripts, 1.1.1 reference runs (`refruns111/`, `evidence/touchhle111/`),
+results screen (cheese badge), dossiers, carry popups opened by `SceneGame::update`, boss chase
+and fights of worlds 1 and 2, checkpoint lines and safe-hole checkpoints, the new rollback
+details (whole-number radius, route trims, view), the cats' 1.1.1 init/postInit (boss cat,
+Fluffy, henchman pictures), the droid's render-driven body frame, no automatic Kiska offer.
 
-- [ ] Finish the Ghidra analysis of the 1.1.1 slice (project `ghidra/SpyMouse111`; the import was
-      still running and holding its lock at the last check).
-- [ ] Re-derive the struct offsets that the `doc-verify` watches and the touchHLE scripts use
-      (Player fields after +0x130 moved by about +0x180, Object by +8 around +0x114, …) and
-      re-key the scripts' RAM addresses (globals table in game.md).
-- [ ] Re-record the reference runs on 1.1.1 (same input scripts where the maps are unchanged,
-      inputs shifted +178 frames: 1.1.1 boots 1-1 at frame 1185, 1.0.5 at 1007) and compare. Each
-      mismatch leads to a changed function, which is re-derived from 1.1.1. Delete a run's 1.0.5
-      evidence once its 1.1.1 run verifies (disk budget).
+- [x] 62 runs of worlds 2–4 were recorded with the profile's world poked at 1.0.5's offset
+      (+0x18 instead of +0x1dc); re-recorded 2026-10-29 (`port_run.py` maps it now; four were
+      first recorded in the wrong slot and redone).
+- [x] Checkpoint reloads (2026-10-29): the cats' init runs again over the kept objects in all
+      modes (a back-and-forth route walks forward again, `l3h2_win`/`l3h2_caught`); the Spitter
+      keeps the whole-number radius (`lbf2_caught`); the mouse's hole tag comes back but not the
+      hole (`l24_win`: out at once, no grow).
+- [x] `l45_win` 4174: `Object::onFloorChanged` removes twine (state 0x22) and eaten catnip left
+      on other floors.
+- [x] `l17_win` 3020: one door timer (Player +0x364), reset when the floor shows.
+- [x] `l2s_win` 9481: a safe hole keeps the trail's items when the mouse is touched out.
+- [ ] `l37_win` 6760: the original snaps onto the safe hole (obj 17, type 0x16a) one tick before
+      the port (port's path end 30.07 from it, reach + radius 28.10). The trace has no path
+      points to compare the end with; `snapPath` @0x101070 reads the last point like the port.
+- [ ] `l110_win` 3338: the 1.0.5 plan is caught in 1.1.1 and the drag goes on across the retry
+      (finger/drawing state across `reloadFromSnapshot` not modelled); re-plan the run.
+- [ ] `l26_win` 5650: the 1.0.5 script's release at (20, 45) lands on 1.1.1's power-up button;
+      the original opens the power-up bar with Digger's introduction (the game pauses from
+      5651). Needs section 1a (or a moved release to keep the old plan).
+- [ ] `l11_hud`: the HUD watches (`hudA`/`hudB`) still use 1.0.5 offsets, and 1.1.1's HUD
+      items sit elsewhere (x 30 for the power-up button); re-derive with section 1a's HUD.
+- [ ] World-map runs (`map_walk`, `w2_enter`, `w2_back2`) compare nothing since the move
+      (found 2026-10-29): `mapcmp.py` still opens 1.0.5's app and evidence, and the 1.1.1
+      recording of `map_walk` never reaches the map (its screenshots show level 1-1). In 1.1.1
+      the map's Player is at SceneMenuMap +0x11140 (1.0.5 +0x11124; `SceneMenuMap::update`
+      @0x15c0c4 passes it to `Player::update`) and the update first reads +0x158e0 (1.0.5's
+      state was +0x152a0; that this is the state is a hypothesis). Re-record the map runs on
+      1.1.1 (how its front end reaches the map), then point `mapcmp.py` at them.
 - [ ] Check the 303 of 452 cited functions that differ after address masking, beyond struct
       offsets (`.analysis/tools/v111/fdiff.py`).
-- [ ] Find out which 54 maps changed in content and re-plan the affected winning runs.
-- [ ] Particles: which `crumb_eat` entry (0x15 or the new 0x16) crumbs use; the special (text and
-      score) kinds above the table; `Particles::addParticle/update/render` changed logic.
-- [ ] The results screen's "Please wait..." with a store tip after a level: in touchHLE the
-      original did not reach the map. Find out what it waits for (probably the store/online
-      layer) and what the offline game does.
-- [ ] Results layout items new in 1.1.1 (NEW_WORLD_UNLOCKED_BOUNCE, FRAME_CHEESE_COUNT,
-      IMG_CHEESE_FOUND) are hidden; confirm when the original shows them.
+- [ ] The results screen's "Please wait..." with a store tip after a level (touchHLE never
+      reached the map); find what the offline game does.
+- [ ] Results: the best badge's rotated caption (string 0x13b, `renderStrRotWrap`) is not drawn.
+- [ ] Dossier page: the scroll frame's offset from the paper and the "Level %i" numbering of
+      "First appearance" are hypotheses; the first-find note on leaving the page is not shown.
+- [ ] Type-0x11d chase branch (Player +0x42c); objects 0x1b8/0x1b9/0x109 (no map uses them);
+      `Player::kill` no longer plays 0x1d; patrol differences of cats 0x35/0x37 unchecked.
 - [ ] Convert code comments and research notes from 1.0.5 addresses to 1.1.1 (by symbol).
-- [ ] Copy the `/tmp`-built migration scripts into `.analysis/tools/v111/` if any are missing.
+- [x] Research archive and Ghidra projects moved into this game's folder (`.analysis`,
+      `ghidra`, both ignored by git; 2026-10-29). The old DoubleOCheese folder is no longer used.
+
+## 1a. Power-ups and the store (1.1.1)
+
+1.1.1 has six power-ups (banana, bomb, roller skates, hamster ball, Kiska, X-ray specs), bought
+with cheese in the store (`menu_store`) and used from an in-level bar: the power-up button
+(`hud/hud_powerup.png`, top left; the score pills sit to its right), a sliding frame
+(`popup_powerup.png`, SceneGame +0x57bf4), the info card, "Digger" the shopkeeper with the
+power-up tutorial (`setPowerupTutorialState` @0xf73ec, texts 0x6a8–0x6b1, layout
+`powerups_intro_tutorial`, reminder `digger_store_reminder`). The in-level HUD lacks the button
+and the shifted pills today. Kiska is now a power-up: the level skip opens only from the bar.
+
+- [ ] HUD: power-up button and the 1.1.1 pill positions; the bar, its buttons and info card.
+- [ ] Each power-up's effect in play (`ObjControllerPowerup`, `Player`), from the code.
+- [ ] The store scene, prices, the cheese balance; buying cheese with money is online and not
+      ported (show what the offline game shows).
+- [ ] The power-up tutorial (from world 1's boss chase on, profile +9) and the store reminder.
+
+## 1b. Quick save without re-running
+
+- [x] (2026-10-29) Quick saves keep the scene's whole state (`src/game/state_io.hpp`): each
+      class lists its changing fields once in `io()`, used for writing and reading; loading
+      builds the scene from the files as at its start and reads the state over it (about 26–50
+      KB, under 10 ms). `tools/check_quick_save.py` checks that every field is listed or named
+      as not saved. Verified with a save and load at every frame against an uninterrupted twin
+      (byte-equal states): all level reference runs (`DOC_QUICKSAVE=1 doc-verify`), the map
+      runs (`DOC_QUICKSAVE=1 doubleocheese ... --map`), and the whole flow from a fresh profile
+      through 1-1, its results and the map (`--flow-check`). Version 1 saves (scene start and
+      touches) still load by running the scene again. Damaged saves (30 cut short, 30 with a
+      flipped bit, under UBSan) are refused or load and run without faults.
+- [x] Moving a `WorldMap` left its particles holding the old map's random generator (a dangling
+      reference since the map was first made). Maps and sessions are now made in place and
+      cannot be moved or copied.
 
 ## 2. Remaining content
 
@@ -62,7 +117,7 @@ builds, and plays 1-1. Everything else was verified on 1.0.5 only.
       trigger, a projectile caught by and stuck to the mouse, objects 0x10a, 0x4b, 0x159..0x15c
       and flagged pickups being hit, and turrets of other tags (aiming at the mouse).
 - [ ] Room door type 33 (`loadNextRoomDoorSprite`), going up a floor through a room door, the
-      second snapshot handler (`g_pSnapshotHandlerFloor`), the checkpoint a safe hole takes.
+      second snapshot handler (`g_pSnapshotHandlerFloor`).
 - [ ] Wall spawners 269/270 and the bomb dropper's other facings (271..273).
 - [ ] Bank holes (0x168..0x16b) beyond the munch-hole case; water, platforms and cannons (player
       states not yet seen).
@@ -82,8 +137,8 @@ builds, and plays 1-1. Everything else was verified on 1.0.5 only.
 - [ ] Title screen and the original's first-boot path (logos, "touch to continue", the 1.1.1
       world carousel). The port goes from its launcher straight to the map.
 - [ ] Pause menu's settings and help scenes (`options`, `menu_help`); volume settings.
-- [ ] Kiska bought (FRAME_SKIP, states 1..3 of `SceneLevelSkip::update`). The offer works; the
-      purchase does not exist offline. Decide the offline behaviour from the code, do not invent.
+- [ ] Kiska as a power-up (1.1.1): the level skip from the bar (`SceneGame::guiEvent`), its
+      FRAME_SKIP states 1..3; the 1.0.5 automatic offer after the intro is gone.
 - [ ] 1.1.1's store, dossiers and cheese wedges: find what is reachable offline and what the
       game does without the online layer.
 - [ ] World map extras: birds/bats (`SceneMenuMapFluff`), cows, the backpack and its "New!"
@@ -138,9 +193,6 @@ Open differences between the port and the original, from the reference runs:
 - [ ] Catnip being eaten (state 0x21 fade) is not drawn.
 - [ ] Munch holes are drawn only approximately (low pass, frame, pulse).
 - [ ] Maps 710, 751, 761 and 785 parse short in the map reader (1.0.5; check on 1.1.1).
-- [ ] `Object::updatePositions` is applied to the clockwork mouse; whether resting or carried
-      cheese is pushed out of walls the same way (`ObjControllerPickups::update` @0x1a0c04, 1.0.5)
-      is not checked.
 
 Deliberate differences (not bugs): touchHLE ends sounds early relative to game time (ninja cry
 replayed after 1.43 s instead of 1.74 s); the port keeps the files' real lengths. In

@@ -40,6 +40,10 @@ private:
     bool active_ = false;
     bool leaving_ = false;  // +0xb8 = 4
     BounceFrame card_, kiska_;
+public:
+    // Quick saves (state_io.hpp).
+    template <class Io>
+    void io(Io& io) { io(active_, leaving_, card_, kiska_); }
 };
 
 }  // namespace doc::game

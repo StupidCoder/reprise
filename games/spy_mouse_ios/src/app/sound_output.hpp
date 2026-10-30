@@ -51,6 +51,9 @@ private:
     struct Listed {
         std::string file;
         int priority = 5;
+        // Quick saves (state_io.hpp).
+        template <class Io>
+        void io(Io& io) { io(file, priority); }
     };
     std::vector<Listed> listed_;
     bool sounding(const std::string& file, std::int64_t nowMs) const;
@@ -60,6 +63,13 @@ private:
     game::SoundEvent music_;                         // the music playing (kind Music), if any
     bool musicOn_ = false;
     std::map<std::string, game::SoundEvent> loops_;  // looping effects playing, by file
+public:
+    // Quick saves (state_io.hpp).
+    // What decides later sounds (what is sounding, the music, the loops); resume() starts the
+    // music and loops again. Not saved: files_, audio_, table_ (the game's sound table), cache_ and
+    // musicFiles_ (decoded files), voices_ (the mixer's), missing_ and played_ (diagnostics), silent_.
+    template <class Io>
+    void io(Io& io) { io(soundingUntil_, listed_, music_, musicOn_, loops_); }
 };
 
 }  // namespace doc::app

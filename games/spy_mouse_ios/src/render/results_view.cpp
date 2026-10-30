@@ -17,6 +17,7 @@ const game::BounceFrame* bounceFrameFor(const game::ResultsScreen& r, const std:
     if (name == "FRAME_RESULT") return &r.card();
     if (name == "FRAME_RETRY") return &r.retryFrame();
     if (name == "FRAME_CONT") return &r.continueFrame();
+    if (name == "FRAME_CHEESE_COUNT") return &r.cheeseFrame();
     if (name == "GOAL_FRAME1") return &r.goalFrame(0);
     if (name == "GOAL_FRAME2") return &r.goalFrame(1);
     if (name == "GOAL_FRAME3") return &r.goalFrame(2);
@@ -31,13 +32,11 @@ void LevelView::drawResultsNode(const game::Session& session, const data::GuiNod
     // Items the screen hides outside challenges and without a new best (showScene).
     // (The online rank badge is not ported.)
     if (node.name == "ITM_CHALLENGE" || node.name == "LBL_CHALLENGE_REQUIREMENT" || node.name == "IMPROVED_RANK" ||
-        (node.name == "IMG_IMPROVED_SCORE" && !results.badgeShown()))
+        (node.name == "IMG_IMPROVED_SCORE" && !results.badgeShown()) ||
+        (node.name == "IMG_CHEESE_FOUND" && !results.cheeseShown()))
         return;
-    // Version 1.1.1's additions, not reconstructed yet: the card for a newly opened world and
-    // the store's cheese wedges (counter and stamp). HYPOTHESIS: hidden unless they apply, as
-    // the 1.1.1 reference run of 1-1 shows no new-world card (v111_l11_obj).
-    if (node.name == "NEW_WORLD_UNLOCKED_BOUNCE" || node.name == "FRAME_CHEESE_COUNT" || node.name == "IMG_CHEESE_FOUND")
-        return;
+    // (1.1.1) The card for a newly opened world: hidden by showScene (@0x1ee0ee).
+    if (node.name == "NEW_WORLD_UNLOCKED_BOUNCE") return;
     if (node.name == "POPUP_GOAL_INFO") {
         drawGoalPopup(results.popup(), {results.goal(0), results.goal(1), results.goal(2)}, node);
         return;
@@ -48,14 +47,16 @@ void LevelView::drawResultsNode(const game::Session& session, const data::GuiNod
         y += parentY;
     }
     float w = node.size.x, h = node.size.y;
-    if (node.name == "IMG_IMPROVED_SCORE") {
-        // Sized to its picture (showScene), then scaled from 2 down to 1 (update: +0x140).
+    if (node.name == "IMG_IMPROVED_SCORE" || node.name == "IMG_CHEESE_FOUND") {
+        // Sized to its picture (showScene), then scaled down to 1 (update: the best badge's
+        // +0x154 from 2, the cheese stamp's +0x150 from 2).
         if (const platform::Texture* t = texture(node.image)) {
             w = float(t->width());
             h = float(t->height());
         }
-        w *= results.badgeScale();
-        h *= results.badgeScale();
+        const float k = node.name == "IMG_CHEESE_FOUND" ? results.cheeseScale() : results.badgeScale();
+        w *= k;
+        h *= k;
     }
     Affine xf = outer;
     if (node.name == "PLUS_FRAME_CONT") {
@@ -126,6 +127,11 @@ void LevelView::drawResultsNode(const game::Session& session, const data::GuiNod
         } else if (node.name == "LBL_TOTAL_SCORE_VALUE") {
             std::snprintf(buffer, sizeof buffer, "%.0f", double(results.total()));
             text = buffer;
+        } else if (node.name == "LBL_CHEESE_COUNT") {
+            // (1.1.1) The profile's cheese balance, counting up as the stamp lands
+            // (updateCheeseDisplay @0x1eb658, WideStr::formatNumber).
+            std::snprintf(buffer, sizeof buffer, "%d", results.cheeseCount());
+            text = buffer;
         } else if (node.name == "LBL_TIME") {
             // SceneGameResults::update @0x1ed3de: minutes and seconds played.
             const int ms = results.playTimeMs();
@@ -187,10 +193,11 @@ void LevelView::drawResults(const game::Session& session) {
     const game::ResultsScreen& results = session.results();
     if (!results.active() || !resultsLayout_) return;
     for (const data::GuiNode& node : resultsLayout_->root.children) drawResultsNode(session, node, 0.0f, 0.0f, {});
+    drawCheeseStamp(results);
 
     // The ring round the continue button (drawTexturedCircle @0x19d2b0): a fan from the top,
     // clockwise in 10 degree steps over the filled part, textured with the button's outline.
-    if (results.state() != 6 || results.outline() <= 0.0f) return;
+    if (results.state() != 7 || results.outline() <= 0.0f) return;
     const data::GuiNode* button = resultsLayout_->root.find("GAME_RESULTS_CONTINUE");
     const data::GuiNode* frame = resultsLayout_->root.find("FRAME_CONT");
     const data::GuiNode* plus = resultsLayout_->root.find("PLUS_FRAME_CONT");
@@ -219,6 +226,26 @@ void LevelView::drawResults(const game::Session& session) {
         indices.push_back(i + 1);
     }
     host_->drawTriangles(ring, vertices, indices);
+}
+
+// SceneGameResults::render @0x1ebe06 (1.1.1): over the shown cheese stamp, once the card is all
+// in, "+N" for the cheese brought home (LevelState +0x24) in FNT_MEDIUM with a 2 px orange
+// stroke, centred on the stamp at 0.8 of its scale.
+void LevelView::drawCheeseStamp(const game::ResultsScreen& results) {
+    if (!results.cheeseShown() || results.card().progress() != 1.0f || !mediumFont_) return;
+    const data::GuiNode* card = resultsLayout_->root.find("FRAME_RESULT");
+    const data::GuiNode* stamp = card ? card->find("IMG_CHEESE_FOUND") : nullptr;
+    const platform::Texture* t = stamp ? texture(stamp->image) : nullptr;
+    if (!t) return;
+    const float k = results.cheeseScale();
+    const float cx = card->position.x + stamp->position.x + float(t->width()) * k * 0.5f;
+    const float cy = card->position.y + stamp->position.y + float(t->height()) * k * 0.5f;
+    TextStyle style;
+    style.outline = Outline::Stroke;
+    style.outlineWidth = 2.0f;
+    style.outlineColour = {1.0f, 0.449999988f, 0.119999997f, 1.0f};
+    const std::string text = "+" + std::to_string(results.delivered());
+    mediumFont_->drawFlags(*host_, text, cx, kScreenH - cy, 0x22, k * 0.800000012f, 0.0f, style, {1, 1, 1, 1});
 }
 
 // SceneWorldCompleteResults (layout guis/world_complete.gui): the card and the continue button
@@ -329,6 +356,11 @@ std::string LevelView::buttonAt(const game::Session& session, game::Vec2 screen)
         return false;
     };
     if (session.kiska().active()) return kiskaLayout_ ? game::KiskaPopup::buttonAt(kiskaLayout_->root, screen) : "";
+    if (session.dossierScreen().active()) {
+        // (1.1.1) The dossier page's back button; over it the first-find note's "Okay".
+        if (session.dossierScreen().note().active) return inside(msgboxLayout_, "BTN_OK") ? "BTN_OK" : "";
+        return inside(dossierLayout_, "BTN_BACK") ? "BTN_BACK" : "";
+    }
     if (session.results().active()) {
         // The buttons answer once their frames have come in.
         if (session.results().continueFrame().progress() >= 1.0f && inside(resultsLayout_, "GAME_RESULTS_CONTINUE"))

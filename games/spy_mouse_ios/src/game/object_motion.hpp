@@ -23,6 +23,9 @@ struct RouteWalk {
     CatRoute route;
     int index = 0;
     int direction = 1;
+    // Quick saves (state_io.hpp).
+    template <class Io>
+    void io(Io& io) { io(route, index, direction); }
 };
 
 // Object::updatePath: heads for the route point `walk.index`; within `reach` of it the point

@@ -122,7 +122,7 @@ SpriteSheet spriteFor(int type, int tag, int world, int map, int floor) {
     if (type == kReflector) return tag == 1 ? SpriteSheet{} : SpriteSheet{"sprites/boss4/reflector_" + std::to_string(tag) + ".png", 32};
     if (type == kBreakable) return {"sprites/boss4/breakable.png", 40};
     if (type == 0x9b) return {"sprites/boss4/trigger_" + std::to_string(tag) + ".png", 20};
-    if (type == 366) return {"sprites/target_moving.png", 32};
+    if (type == 366) return {"sprites/target_moving.png", 48};  // (1.1.1 @0x117bbe; 1.0.5 32)
     if (type == 367) return {"sprites/emitter_boss2.png", 32};
     if (type == kFluffy) return {"sprites/bosscat01.png", 32};
     // ObjControllerPickups::loadAssets: "sprites/cwmouse" (an image set by facing, 32 wide);
@@ -136,6 +136,7 @@ SpriteSheet spriteFor(int type, int tag, int world, int map, int floor) {
     if (type == 411) return {"sprites/car02.png", 93};
     if (type == 412) return {"sprites/car03.png", 42};
     if (type == 420 || type == 421) return {"mapfluff/butterfly_anim.png", 16};  // ObjControllerPickups::loadAssets: frame 0
+    if (type == kDossier) return {"sprites/dossier_icon.png", 32};  // loadAssets @0x1b75ea (1.1.1)
     return {};
 }
 
@@ -157,8 +158,9 @@ LevelObject makeObject(int id, int type, Vec2 vertex, int tag, SheetSize sheetSi
         o.snappable = true;
     } else if (isHomeHole(type)) {
         // ObjControllerHideable::init: closed until enough cheese is carried; smaller
-        // collision circle than other objects. (The secret exits, 0xf4..0xf7, do not run.)
-        o.updating = isMainHomeHole(type);
+        // collision circle than other objects. (1.1.1 @0x1b3c90: the secret exits, 0xf4..0xf7,
+        // run too; 1.0.5 left them still. Run l38_watch.)
+        o.updating = true;
         o.snapsToCentre = true;
         o.passable = true;  // observed set at level start (reference run l11_obj)
         o.radiusFactor = 0.2f;
@@ -218,7 +220,7 @@ LevelObject makeObject(int id, int type, Vec2 vertex, int tag, SheetSize sheetSi
         // touch circle 0.16 of the frame, a 3 s fade once sprung.
         o.updating = true;
         o.snappable = true;
-        o.state = ObjectState(0x19);
+        o.state = ObjectState(0x1d);
         o.timerMs = 3000;
         o.radiusFactor = 0.159999996f;
     } else if (isBonusPickup(type)) {
@@ -230,11 +232,16 @@ LevelObject makeObject(int id, int type, Vec2 vertex, int tag, SheetSize sheetSi
         o.radiusFactor = 0.5f;
         o.snappable = true;
     } else if (type >= 410 && type <= 421) {
-        // Object::init: cars and butterflies run their own updates (state 0x19; run
-        // l111_explore shows them as snap targets too, Object::init's default).
+        // Object::init: cars and butterflies run their own updates (state 0x1d); cars are snap
+        // targets (Object::init's default), butterflies not (1.1.1 @0x11b1f4 clears +6).
+        o.updating = true;
+        o.snappable = type < 420;
+        o.state = ObjectState(0x1d);
+    } else if (type == kDossier) {
+        // ObjControllerPickups::loadAssets @0x1b75b4 (1.1.1): running, a snap target (Object::
+        // init's default), not one of the level's pickups (+0x871); a found one is not there.
         o.updating = true;
         o.snappable = true;
-        o.state = ObjectState(0x19);
     } else if (type == kEntranceDoor || type == kBossExitDoor) {
         // Object::init @0x11aa30: open (0x26), running, a way through, an exit for a hidden
         // mouse; that flag (+0x868) also makes a path end in its middle (SceneGame::snapPath
@@ -262,7 +269,7 @@ LevelObject makeObject(int id, int type, Vec2 vertex, int tag, SheetSize sheetSi
         // ObjControllerPickups::init @0x2987b8: on the floor (state 0x1d), running, a snap
         // target, rolling for its first second (+0x208 = 1000) on a clock that starts at
         // Object::init's 500 (+0x1dc; run l45_watch).
-        o.state = ObjectState(0x1D);
+        o.state = ObjectState(0x21);
         o.updating = true;
         o.snappable = true;
         o.rollMs = 1000;
@@ -274,7 +281,7 @@ LevelObject makeObject(int id, int type, Vec2 vertex, int tag, SheetSize sheetSi
         // ObjControllerPickups::init @0x1b6a1c: on the floor (state 0x1d), a snap target
         // (Object::init's default); how long it can be worn is the entity's value, else 10 s
         // (+0x1d8, +0x1dc).
-        o.state = ObjectState(0x1D);
+        o.state = ObjectState(0x21);
         o.snappable = true;
         o.playMs = tag > 0 ? tag : 10000;
         o.timerMs = o.playMs;
@@ -288,7 +295,7 @@ LevelObject makeObject(int id, int type, Vec2 vertex, int tag, SheetSize sheetSi
     } else if (type == kDroid) {
         // ObjControllerBoss::init @0x1a8afa: running, in its cutscene state (0x3c), a touch
         // circle of "mech_size_nudge" (0.2) of its frame.
-        o.state = ObjectState(0x3C);
+        o.state = ObjectState(0x40);
         o.updating = true;
         o.radiusFactor = 0.200000003f;
     } else if (isPipe(type)) {
@@ -306,18 +313,18 @@ LevelObject makeObject(int id, int type, Vec2 vertex, int tag, SheetSize sheetSi
     } else if (type == 302) {
         // ObjControllerBoss::init @0x1a8b28: running, asleep (0x15) until the intro is over, a
         // touch circle of "spitter_size_nudge" (0.25) of its frame (run lbf2_world2: 23.71).
-        o.state = ObjectState(0x15);
+        o.state = ObjectState(0x19);
         o.updating = true;
         o.radiusFactor = 0.25f;
     } else if (type == kVacuum) {
         // ObjControllerBoss::init @0x1a8b28: running, asleep (0x15) until the intro is over;
         // postInit @0x1a9128 sets its touch circle to 22.
-        o.state = ObjectState(0x15);
+        o.state = ObjectState(0x19);
         o.updating = true;
     } else if (type == kBomb) {
         // Object::init @0x11aa30: running, on the floor (0x1d), not passable, carried by
         // conveyors (+0x1bd), drawn in the high pass, a touch circle of 3.
-        o.state = ObjectState(0x1D);
+        o.state = ObjectState(0x21);
         o.updating = true;
     } else if (type == kBombTarget) {
         // Object::init: a marker, not drawn, not running (a snap target by Object::init's
@@ -330,29 +337,29 @@ LevelObject makeObject(int id, int type, Vec2 vertex, int tag, SheetSize sheetSi
     } else if (type == kLauncher) {
         // ObjControllerSpawner::init @0x1ba22c: running, not passable; the boss's launcher (tag
         // 0x66) waits (0x34) for the fight, any other starts at 0x2b; 3 s on its clock.
-        o.state = ObjectState(tag == 0x66 ? 0x34 : 0x2B);
+        o.state = ObjectState(tag == 0x66 ? 0x38 : 0x2f);
         o.updating = true;
         o.timerMs = 3000;
     } else if (type == kReflector) {
         // Object::init @0x11aa30: running, no snap target, not passable; turning a throw to its
-        // left (0x39: tags 1, 3, 4) or to its right (0x3a: tags 2, 5). Its touch circle is 3
+        // left (0x3d: tags 1, 3, 4) or to its right (0x3e: tags 2, 5; 1.1.1). Its touch circle is 3
         // (postInit @0x116e98), and tag 1, without a picture, stands 16 lower.
-        o.state = ObjectState(tag == 2 || tag == 5 ? 0x3A : 0x39);
+        o.state = ObjectState(tag == 2 || tag == 5 ? 0x3e : 0x3d);
         o.updating = true;
         o.snappable = false;
     } else if (type == kBreakable) {
-        // Object::init: whole (0x29), no snap target, not passable.
-        o.state = ObjectState(0x29);
+        // Object::init: whole (0x2d in 1.1.1; 1.0.5 0x29), no snap target, not passable.
+        o.state = ObjectState(0x2d);
         o.snappable = false;
     } else if (type == 366) {
         // Object::init @0x11aa30: a rail sphere, moving (0x1b), running, touch circle
         // "target_sizenudge" (0.4) of its frame.
-        o.state = ObjectState(0x1B);
+        o.state = ObjectState(0x1f);
         o.updating = true;
         o.radiusFactor = 0.400000006f;
     } else if (type == 367) {
         // Object::init: a wall device, dark (0x22), running; no touch circle.
-        o.state = ObjectState(0x22);
+        o.state = ObjectState(0x26);
         o.updating = true;
         o.radiusFactor = 0.0f;
     } else if (type == 332 || type == 333) {
@@ -374,6 +381,7 @@ LevelObject makeObject(int id, int type, Vec2 vertex, int tag, SheetSize sheetSi
     if (isFloorDoor(type)) o.radius = 5.0f;
     if (type == kVacuum) o.radius = 22.0f;
     if (type == kBomb || type == kReflector) o.radius = 3.0f;
+    if (type == 366) o.radius = o.radius * 0.699999988f;  // (1.1.1 Object::postInit @0x116e98, run lbf2_round)
     o.position = {vertex.x, vertex.y + o.size.y * 0.5f};
     if (isMouseHole(type) || isWallHole(type) || isMunchHole(type) || type == kExitDoor) {
         // ObjControllerHideable::postInit @0x1b3e54: holes sit 8 units lower (and the exit door).

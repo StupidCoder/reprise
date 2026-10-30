@@ -29,6 +29,10 @@ private:
     int goal_ = -1;
     int timerMs_ = 0;   // +0xa0
     float y_ = 0.0f;    // +0xcc (+0xd0 shown: 2, +0xd4 hidden: minus its height)
+public:
+    // Quick saves (state_io.hpp).
+    template <class Io>
+    void io(Io& io) { io(lines_, height_, queue_, goal_, timerMs_, y_); }
 };
 
 }  // namespace doc::game

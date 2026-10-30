@@ -1,7 +1,7 @@
 // Gameplay tuning values. The original keeps them in a table of named settings whose defaults
 // are set in code (Values::init @0x143548; names from Values::settingChanged @0x141e40) and
-// reads them through a global (g_pVal). Values below are the defaults, confirmed by reading
-// the table from the running original (reference run l11_60, .analysis/docs/level-1-1.md).
+// reads them through a global (g_pVal). Values below are 1.1.1's defaults, confirmed by reading
+// the table from the running original (reference run l11_60; .analysis/docs/values-live-111.txt).
 #pragma once
 
 namespace doc::game {
@@ -21,7 +21,7 @@ struct Tuning {
     int clockStepMs = 200;                // +0x1a4 game time per tick of the level clock
     int clockStep = 1;                    // +0x1a8 clock decrement per step
     int objectPulseMs = 600;              // +0x2f4 glow after a snap or pickup
-    int winBannerMs = 3000;               // +0x2f8 level-won banner before the results
+    int winBannerMs = 2000;               // +0x300 bonus_show_time: level-won banner before the results (1.0.5: 3000 at +0x2f8)
 };
 
 // Settings read by name with a default in code (ManagerSettings::getVarF/getVarI); the
@@ -34,7 +34,7 @@ struct ScoreSettings {
     float handBonus[8] = {1.0f, 2.0f, 3.0f, 4.0f, 4.0f, 5.0f, 7.0f, 6.0f};
     float exitBonusMultiplier = 2.0f;  // "exit_bonus_multiplier" (Player::scoreCurrentTrail)
     int timerMultiply = 1;             // "timer_multiply"
-    int resultsDelayMs = 500;          // results wait while cheese is still going in
+    int resultsDelayMs = 250;          // results wait while cheese is still carried (1.1.1 @0x103650; 1.0.5 500)
 };
 
 // Fixed-step clock of the original (iPhone::Update @0x111098, Application::s_nTickTime @0x5f1510):

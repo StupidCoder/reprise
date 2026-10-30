@@ -30,23 +30,17 @@ void PosedMouse::update(int dtMs, GameRandom& random, const EyeMapping& eyes) {
     eyes_ = at < eyes.size() && eyes[at] != 0 ? look : 1;
 }
 
-void NoticePopup::open(const LevelNotice& notice, GameRandom& random) {
+void NoticePopup::open(const LevelNotice& notice) {
     notice_ = notice;
-    mouse_ = PosedMouse{};
-    mouse_.setPose(1, false, random);  // GuiPosedMouse constructor
-    mouse_.setPose(notice.pose, notice.flip, random);  // ScenePopupTutorial::load
+    card_ = BounceFrame{};
+    updates_ = 0;
     active_ = true;
-    closing_ = false;
-    alpha_ = 1.0f;
 }
 
-void NoticePopup::update(int dtMs, GameRandom& random, const PosedMouse::EyeMapping& eyes) {
+void NoticePopup::update(int dtMs) {
     if (!active_) return;
-    ++updates_;  // Scene::update: the items, the scroll frame among them
-    mouse_.update(dtMs, random, eyes);
-    if (!closing_) return;
-    alpha_ += float(dtMs) * -0.00700000022f;
-    if (alpha_ <= 0.0f) active_ = false;  // Engine::popScene
+    ++updates_;
+    card_.update(dtMs);
 }
 
 }  // namespace doc::game
