@@ -1,5 +1,6 @@
 #include "app/catalog.hpp"
 #include <algorithm>
+#include "platform/resources.hpp"
 #include "fa_18_interceptor_amiga/entry.hpp"
 #include "spindizzy_worlds_amiga/entry.hpp"
 #include "beach_volley_amiga/entry.hpp"
@@ -106,6 +107,58 @@ std::vector<GameEntry> catalog() {
         game.history_sources = note.sources;
         break;
     }
+    // App-owned editorial articles also load from Android's packaged assets.
+    struct Article { const char* id; const char* title; const char* sources; };
+    constexpr Article articles[] = {
+        {"bruce_lee_c64", "A fortress, a rival and an Atari inheritance",
+         "Electronic Games, November 1984; Retro Gamer 145, 2015; Reprise's C64 research."},
+        {"stunt_car_racer_amiga", "The jump that became a racing game",
+         "Geoff Crammond interview, The Making of Stunt Car Racer (archived by Retro Isle); Reprise's Amiga research."},
+        {"fort_apocalypse_c64", "A helicopter beneath the surface",
+         "Steve Hales interviews: Halcyon Days, AtariOnline (2009), Retro Gamer 44; Reprise's C64 research."},
+        {"marble_madness_amiga", "A small marble, an elaborate world",
+         "Mark Cerny interview, Retro Gamer 53; Electronic Arts' original packaging; Reprise's Amiga research."},
+        {"mindwalker_amiga", "An unfamiliar machine, an inner world",
+         "Bill Williams interview, YAAM, February 1989; Commodore's original manual; Reprise's Amiga research."},
+        {"wizball_c64", "Painting a world into existence",
+         "Jon Hare interviews: Talkin'Games and Retro Gamesmaster; Reprise's C64 research."},
+        {"cannon_fodder_amiga", "Small soldiers, lasting losses",
+         "Jon Hare interviewed by Gary Penn, Sensible Software 1986\u20131999; Jon Hare and Stoo Cambridge interviews, Arcade Attack; Reprise's Amiga research."},
+        {"rock_n_roll_amiga", "A maze with momentum",
+         "Contemporary reviews: Amiga Computing, Amiga Format and CU Amiga; published credits; Reprise's Amiga research."},
+        {"tower_of_babel_amiga", "A puzzle box you can rebuild",
+         "Amiga Computing, July 1990; Amiga Format, June 1990; CU Amiga, April 1990; Reprise's Amiga research."},
+        {"wings_of_fury_amiga", "Relearning the flight of a Hellcat",
+         "Broderbund's original user's guide; Colin Fox and John Boechler interviewed for Game Not Over, episode 72; Reprise's Amiga research."},
+        {"fa_18_interceptor_amiga", "The arcade programmer who wanted to fly",
+         "Bob Dinnerman interviewed by Tom Steinberg, 2004 (preserved transcription); Amiga Computing, July 1988; Reprise's Amiga research."},
+        {"spindizzy_worlds_amiga", "Building worlds from a small vocabulary",
+         "Paul Shirley interview, Halcyon Days; Amiga Format, January 1991; Reprise's Amiga research."},
+        {"beach_volley_amiga", "A sporting cartoon from Ocean France",
+         "Marc Djan interview, Codetapper; original credits and presentation; Reprise's Amiga research."},
+        {"spy_mouse_ios", "From flight paths to a secret agent",
+         "Rob Murray interviews: Gamezebo, Pocket Gamer and GameSpot (2011); Rich McBride portfolio; EA launch announcement; Reprise's iOS research."},
+        {"sonic_gg", "A small Sonic starts a studio",
+         "Yuzo Koshiro interviews: Red Bull Music Academy (2018), testimony reproduced by Film Stories (2021); Reprise's cartridge research."},
+        {"sonic2_gg", "A sequel with a different destination",
+         "Sega's original Game Gear manual (1992); Reprise's cartridge research."},
+        {"triple_trouble_gg", "A new rival finds his personality",
+         "Shinichi Higashi interviewed by Jack Yarwood, Time Extension (2026); Reprise's cartridge research."},
+        {"sonic_advance_gba", "New hardware, familiar momentum",
+         "Yuji Naka and Shigeru Miyamoto interview (2001), translated by shmuplations; Takashi Iizuka interview (2010); GameSpot review (2002); Reprise's cartridge research."},
+        {"curious_village_ds", "A puzzle book opens onto a village",
+         "Akihiro Hino interviews: GameSpot (2008), Iwata Asks (2011); Reprise's DS research."},
+        {"pandoras_box_ds", "The journey that replaced a ghost island",
+         "Akihiro Hino interviews: Wired and Kotaku (2009); Reprise's DS research."},
+        {"lost_future_ds", "A familiar adventure with a new engine",
+         "Akihiro Hino interview, Nintendo Life (2017); Nintendo's original game description; Reprise's DS research."},
+        {"spectres_call_ds", "Beginning again beneath a familiar surface",
+         "Nintendo's launch announcement (2011); Nintendo UK confirmation reported by Nintendo Insider; Reprise's DS research."},
+        {"miracle_mask_3ds", "Rebuilding Layton for depth",
+         "Akihiro Hino, Iwata Asks (2011); GameSpot review and Nintendo launch material (2012); Reprise's 3DS research."},
+        {"azran_legacy_3ds", "A world tour to bring the journey home",
+         "Nintendo launch announcement (2013); Nintendo World Report review (2014); Akihiro Hino interview, Nintendo Life (2017); Reprise's 3DS research."},
+    };
     for (auto& game : games) game.collection = Collection::commodore;
     // Deliberately non-playable previews until the source projects hand off.
     struct Incoming { const char* id; const char* title; Machine machine;
@@ -123,9 +176,9 @@ std::vector<GameEntry> catalog() {
         auto game = spy_mouse_reprise::entry();
         game.release_year = 2011;
         game.description = "Draw a route, gather the cheese and slip past the cats. A steady hand and a clever escape plan can make all the difference.";
-        game.history_title = "From Agent Squeek to Spy Mouse";
-        game.history = "Firemint, the Australian studio behind Flight Control, first showed the game as an unnamed prototype at GDC 2010 and presented it as Agent Squeek in early 2011. After EA bought Firemint, a marketing revamp renamed it Spy Mouse shortly before its August 2011 release, carrying Flight Control's line drawing into a stealth game.";
-        game.history_sources = "Engadget, March and July 2011; Wikipedia: Spy Mouse (release date).";
+        game.history_title = "From flight paths to a secret agent";
+        game.history = "After Flight Control, Firemint explored line-drawing prototypes and developed one into a stealth adventure. Rob Murray described more than two years of work on Spy Mouse, with individually designed levels and a name chosen to make its premise immediately clear.";
+        game.history_sources = "Rob Murray interview, Gamezebo, 2011.";
         games.push_back(std::move(game));
     }
     // BlueStreak's games (games/sonic/reprise), in the Sonic collection's order. The card texts
@@ -141,18 +194,18 @@ std::vector<GameEntry> catalog() {
         const int years[] = {1991, 1992, 1994, 2001};
         struct History { const char* heading; const char* text; const char* sources; };
         const History history[] = {
-            {"A studio's first game",
-             "The 8-bit Sonic was the first game of Ancient, the studio composer Yuzo Koshiro had founded, and the only Sonic game it made. It was built for the Game Gear, and Sega also had Ancient make a Master System version.",
-             "Wikipedia: Sonic the Hedgehog (8-bit) and Ancient (company)."},
-            {"A bigger cartridge for a bigger adventure",
-             "Aspect developed this 8-bit sequel separately from the Mega Drive game, with its own levels, music and story of rescuing Tails. It was the first four-megabit Game Gear cartridge, the largest the handheld had seen.",
-             "Wikipedia: Sonic the Hedgehog 2 (8-bit video game)."},
-            {"A new rival in a handheld sequel",
-             "Aspect followed Sonic Chaos with Triple Trouble, a Game Gear exclusive. It introduced the treasure hunter known as Fang the Sniper in Japan and Nack the Weasel abroad; early promotional pictures showed him with a gun that the finished game left out.",
-             "Wikipedia: Sonic the Hedgehog: Triple Trouble; List of Sonic the Hedgehog characters."},
-            {"Sonic on a Nintendo handheld",
-             "Sonic Advance was the first Sonic game by Dimps, made with Sonic Team after Sega left the hardware business. It reached Japan in December 2001, around the same time as Sonic Adventure 2: Battle on the GameCube, among the first Sonic games on Nintendo machines.",
-             "Wikipedia: Sonic Advance (and its talk page on the shared first-release date)."},
+            {"A small Sonic starts a studio",
+             "Ancient took shape around Sega's commission for an 8-bit Sonic. Yuzo Koshiro recalled considerable freedom to create new stages, and said the game's success helped lead to work on Streets of Rage 2.",
+             "Yuzo Koshiro interviews: Red Bull Music Academy (2018), testimony reproduced by Film Stories (2021); Reprise's cartridge research."},
+            {"A sequel with a different destination",
+             "Aspect's Game Gear sequel has its own rescue story and a different engine from the first handheld Sonic. The cartridge is twice the size, and its technical lineage continues into Triple Trouble.",
+             "Sega's original Game Gear manual (1992); Reprise's cartridge research."},
+            {"A new rival finds his personality",
+             "Artist Shinichi Higashi recalled revising Fang's appearance and weapon as the new rival became more comical. He credited Tadashi Ihoroi with the character's personality and backstory.",
+             "Shinichi Higashi interviewed by Jack Yarwood, Time Extension (2026); Reprise's cartridge research."},
+            {"New hardware, familiar momentum",
+             "Sonic Advance began Sonic Team's collaboration with Dimps. Yuji Naka described the appeal of carefully tuned 2D play and the challenges of linking the handheld game to the GameCube.",
+             "Yuji Naka and Shigeru Miyamoto interview (2001), translated by shmuplations; Takashi Iizuka interview (2010); GameSpot review (2002); Reprise's cartridge research."},
         };
         auto sonic = sonic_reprise::entries();
         for (std::size_t i = 0; i < sonic.size(); ++i) {
@@ -170,24 +223,24 @@ std::vector<GameEntry> catalog() {
     // Editorial history of the connected adventures (docs/catalog-history.md; never evidence).
     struct LaytonHistory { const char* id; const char* heading; const char* text; const char* sources; };
     const LaytonHistory layton_history[] = {
-        {"curious_village_ds", "A puzzle book becomes a game",
-         "Level-5's president Akihiro Hino had grown up with Akira Tago's best-selling puzzle books. The studio started a prototype in 2006 and brought Tago, a psychology professor, in as the puzzle master; his team and the developers worked through the puzzles together at what Level-5 called puzzle camps. The game reached Japan in February 2007.",
-         "Wikipedia: Professor Layton and the Curious Village (development, credits)."},
-        {"pandoras_box_ds", "The sequel came the same year",
-         "Level-5 released the second adventure in Japan in November 2007, nine months after the first. Its downloadable weekly puzzles ran over Nintendo Wi-Fi Connection, and became unavailable when that service closed in May 2014.",
-         "Wikipedia: Professor Layton and the Diabolical Box."},
-        {"lost_future_ds", "The end of the first trilogy",
-         "Released in Japan in November 2008, the third adventure closed the first trilogy. Its Japanese title translates roughly as \"the final time travel\"; it was released in Europe as Lost Future and in North America as Unwound Future in 2010.",
-         "Wikipedia: Professor Layton and the Unwound Future."},
-        {"spectres_call_ds", "Going back to the beginning",
-         "The fourth adventure, released in Japan in November 2009, began a prequel trilogy set before the first game, telling how the professor met his young apprentice. It arrived in Europe two years later, in November 2011, as Spectre's Call.",
-         "Wikipedia: Professor Layton and the Last Specter (release dates)."},
-        {"miracle_mask_3ds", "A launch title for a new handheld",
-         "Level-5 released the fifth adventure in Japan on 26 February 2011, the day the Nintendo 3DS launched there. Western players received it in October 2012, and Japan later got an enhanced download edition with new puzzles.",
-         "Wikipedia: Professor Layton and the Miracle Mask; Nintendo World Report preview."},
-        {"azran_legacy_3ds", "The professor's last leading role",
-         "Released in Japan in February 2013, the sixth adventure completed the prequel trilogy. Level-5's Akihiro Hino said it would be the last game with the professor as its main character; Europe received it in November 2013.",
-         "Wikipedia: Professor Layton and the Azran Legacy; Giant Bomb release list."},
+        {"curious_village_ds", "A puzzle book opens onto a village",
+         "Akihiro Hino combined Akira Tago's puzzle-book tradition with a story-driven adventure designed to welcome players with little gaming experience. Overseas editions replaced puzzles that depended on Japanese language or customs.",
+         "Akihiro Hino interviews: GameSpot (2008), Iwata Asks (2011); Reprise's DS research."},
+        {"pandoras_box_ds", "The journey that replaced a ghost island",
+         "Hino recalled replacing a planned ghost-island premise and working to connect puzzles more closely to the narrative. Beneath its familiar appearance, the sequel substantially reorganised the first game's engine.",
+         "Akihiro Hino interviews: Wired and Kotaku (2009); Reprise's DS research."},
+        {"lost_future_ds", "A familiar adventure with a new engine",
+         "Hino later named the third adventure his favourite, citing its time-travel story. Improved hints and a more capable memo pad accompanied a new scripting system beneath the familiar DS presentation.",
+         "Akihiro Hino interview, Nintendo Life (2017); Nintendo's original game description; Reprise's DS research."},
+        {"spectres_call_ds", "Beginning again beneath a familiar surface",
+         "The fourth adventure tells how Layton met Luke and introduces Emmy. Its familiar hand-drawn presentation runs on a new engine design; the European edition omitted the separate London Life bonus found in Japan and North America.",
+         "Nintendo's launch announcement (2011); Nintendo UK confirmation reported by Nintendo Insider; Reprise's DS research."},
+        {"miracle_mask_3ds", "Rebuilding Layton for depth",
+         "Hino described substantially reworking the game after E3 2010 to demonstrate the 3DS hardware. New exploration and rendering techniques preserved the series' illustrated identity while adding depth.",
+         "Akihiro Hino, Iwata Asks (2011); GameSpot review and Nintendo launch material (2012); Reprise's 3DS research."},
+        {"azran_legacy_3ds", "A world tour to bring the journey home",
+         "Originally presented as the conclusion of the prequel arc, Azran Legacy expanded the journey into a world tour. It developed Miracle Mask's engine and added new diversions and StreetPass treasure hunts.",
+         "Nintendo launch announcement (2013); Nintendo World Report review (2014); Akihiro Hino interview, Nintendo Life (2017); Reprise's 3DS research."},
     };
     for (const auto& item : incoming) {
         GameEntry game;
@@ -214,6 +267,20 @@ std::vector<GameEntry> catalog() {
             game.progress = "Coming to Reprise";
         }
         games.push_back(std::move(game));
+    }
+    // Apply articles after every collection and standalone game has been added.
+    for (auto& game : games) for (const auto& article : articles) {
+        if (game.id != article.id) continue;
+        try {
+            const auto bytes = platform::resource("articles/" + game.id + ".txt");
+            game.history.assign(bytes.begin(), bytes.end());
+            game.history_title = article.title;
+            game.history_sources = std::string(article.sources) +
+                " References and evidence limits: docs/articles/sources.md.";
+        } catch (const std::exception&) {
+            // A missing optional article retains the catalog's short sourced note.
+        }
+        break;
     }
     return games;
 }

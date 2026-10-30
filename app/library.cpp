@@ -4,6 +4,10 @@
 #include "platform/sha256.hpp"
 #include <algorithm>
 #include <sstream>
+#include <map>
+#include <set>
+#include <iomanip>
+#include <chrono>
 #include <stdexcept>
 
 namespace app {
@@ -82,10 +86,10 @@ std::optional<Library::Install> Library::check_install(const GameEntry& game) co
     if (!game.import && !game.import_into) {
         return std::nullopt;
     }
-    return check_folder(root_ / "games" / game.id);
+    return check_folder(root_ / "games" / game.id, root_ / "validation" / (game.id + ".txt"));
 }
 
-std::optional<Library::Install> Library::check_folder(const fs::path& folder) const {
+std::optional<Library::Install> Library::check_folder(const fs::path& folder, const fs::path& cache) const {
     std::error_code error;
     if (!fs::exists(folder / "release.txt", error)) {
         return std::nullopt;
@@ -100,6 +104,45 @@ std::optional<Library::Install> Library::check_folder(const fs::path& folder) co
         while (std::getline(in, line)) {
             sizes_only |= line == "check sizes";
             lines.push_back(line);
+        }
+        // The cache is disposable, local to this data directory and outside imported game
+        // assets. Read the small manifest every time; changing it invalidates all receipts.
+        // Still stat every file: directory timestamps do not track file-content edits.
+        std::map<std::string, std::uintmax_t> file_sizes;
+        std::map<std::string, std::string> file_receipts;
+        std::set<std::string> verified_files;
+        const auto fingerprint = [&] {
+            std::ostringstream out;
+            out << "Reprise validation 1\n" << platform::sha256(text) << '\n';
+            for (const auto& entry : lines) {
+                if (!entry.starts_with("file ")) continue;
+                const auto name = entry.substr(70);
+                const auto path = folder / name;
+                const auto size = fs::file_size(path);
+                const auto stamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    fs::last_write_time(path).time_since_epoch()).count();
+                file_sizes[name] = size;
+                std::ostringstream record;
+                record << std::quoted(name) << ' ' << size << ' ' << stamp;
+                file_receipts[name] = record.str();
+                out << record.str() << '\n';
+            }
+            return out.str();
+        };
+        std::string receipt;
+        bool previously_verified = false;
+        if (!sizes_only && !cache.empty()) {
+            receipt = fingerprint();
+            try {
+                const auto saved = platform::read_file(cache);
+                const std::string saved_text(saved.begin(), saved.end());
+                previously_verified = saved_text == receipt;
+                std::istringstream records(saved_text);
+                std::string version, digest, record;
+                std::getline(records, version); std::getline(records, digest);
+                if (version == "Reprise validation 1" && digest == platform::sha256(text))
+                    while (std::getline(records, record)) verified_files.insert(record);
+            } catch (const std::exception&) { /* absent or unreadable cache: verify normally */ }
         }
         for (const auto& entry : lines) {
             if (entry.starts_with("release ")) {
@@ -120,15 +163,26 @@ std::optional<Library::Install> Library::check_folder(const fs::path& folder) co
             } else if (!sizes_only && entry.starts_with("file ")) {
                 const auto hash = entry.substr(5, 64);
                 const auto name = entry.substr(70);
-                const auto bytes = platform::read_file(folder / name);
-                if (platform::sha256(bytes) != hash) {
-                    return std::nullopt;
+                if (!cache.empty() && verified_files.contains(file_receipts.at(name))) {
+                    install.files.emplace_back(name, file_sizes.at(name));
+                } else {
+                    const auto bytes = platform::read_file(folder / name);
+                    if (platform::sha256(bytes) != hash) return std::nullopt;
+                    install.files.emplace_back(name, bytes.size());
                 }
-                install.files.emplace_back(name, bytes.size());
             }
         }
         if (install.files.empty()) {
             return std::nullopt;
+        }
+        if (!receipt.empty() && !previously_verified) {
+            // Do not cache a result if a file changed while it was being read.
+            if (fingerprint() != receipt) return std::nullopt;
+            try {
+                fs::create_directories(cache.parent_path());
+                // A partial write can only cause a cache miss on the next launch.
+                platform::write_text(cache, receipt);
+            } catch (const std::exception&) { /* caching must not make a valid game unavailable */ }
         }
         return install;
     } catch (const std::exception&) {

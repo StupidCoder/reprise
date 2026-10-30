@@ -220,7 +220,8 @@ struct Host::Implementation {
                 path = shaders[effect.shader->name].path;
                 SDL_Texture* to = effect_composite;
                 if (effect.raster_width > 0 && effect.raster_height > 0) {
-                    ensure_target(region_outputs[k], effect.raster_width, effect.raster_height);
+                    ensure_target(region_outputs[k], r.raster_width > 0 ? r.raster_width : effect.raster_width,
+                                  r.raster_height > 0 ? r.raster_height : effect.raster_height);
                     to = region_outputs[k];
                 }
                 plain(to);
@@ -249,6 +250,7 @@ struct Host::Implementation {
                 path = "CPU";
             }
             plain(effect_composite);
+            SDL_SetTextureScaleMode(filtered, effect.linear_output ? SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_NEAREST);
             SDL_RenderTexture(renderer, filtered, nullptr, &shown);
         }
         if (path != effect_path && !path.empty()) {
@@ -753,6 +755,7 @@ void Host::present_game_gpu(int width, int height, double pixel_aspect,
         SDL_SetRenderViewport(i.renderer, nullptr);
         SDL_SetRenderDrawColor(i.renderer, 0, 0, 0, 255);
         SDL_RenderClear(i.renderer);
+        SDL_SetTextureScaleMode(shown, effect->linear_output ? SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_NEAREST);
         i.show_frame(shown, target, dim, overlay, note, note_opacity, note_offset, cw, ch, state);
         return;
     }

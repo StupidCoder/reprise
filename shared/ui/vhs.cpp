@@ -82,21 +82,38 @@ VhsFrame vhs_frame(long frame, int level) {
     return t;
 }
 
-platform::Image vhs(const platform::Image& in, long frame, int level) {
+int vhs_raster_width(int width, int height, double pixel_aspect) {
+    const double aspect = double(std::max(1, width)) * pixel_aspect / std::max(1, height);
+    // Two output samples per signal sample; 360 signal samples across a 4:3 screen.
+    return 2 * int(std::lround(std::clamp(270.0 * aspect, 1.0, 2160.0)));
+}
+
+platform::Image vhs(const platform::Image& in, long frame, int level, double pixel_aspect) {
     level = std::clamp(level, 0, vhs_levels - 1);
     if (level == 0 || in.width <= 0 || in.height <= 0) {
         return in;
     }
-    constexpr int sw = vhs_signal_width, sh = vhs_signal_height;
+    const int sw = vhs_raster_width(in.width, in.height, pixel_aspect) / 2;
+    constexpr int sh = vhs_signal_height;
     const VhsFrame t = vhs_frame(frame, level);
-    // Sample the game into video space before any tape processing. Centre-based
-    // nearest sampling preserves low-resolution pixel boundaries and matches the
-    // shader exactly; no noise or smear is ever indexed in game pixels.
+    // Integrate each horizontal video sample's source footprint. Point sampling at
+    // two unrelated resolutions periodically duplicates/drops native columns.
+    // Integer overlap weights also preserve the result for pixel-doubled sources.
+    // Vertical sampling stays on the fixed 240-line video clock.
     platform::Image signal(sw, sh);
     for (int y = 0; y < sh; ++y) for (int x = 0; x < sw; ++x) {
-        const int sx = std::min(in.width - 1, int((std::int64_t(2 * x + 1) * in.width) / (2 * sw)));
         const int sy = std::min(in.height - 1, int((std::int64_t(2 * y + 1) * in.height) / (2 * sh)));
-        signal.pixels[y * sw + x] = in.pixels[std::size_t(sy) * in.width + sx];
+        const int left = x * in.width, right = (x + 1) * in.width;
+        std::array<std::int64_t, 3> sum{};
+        for (int sx = left / sw; sx <= (right - 1) / sw; ++sx) {
+            const int weight = std::min(right, (sx + 1) * sw) - std::max(left, sx * sw);
+            const auto c = in.pixels[std::size_t(sy) * in.width + sx];
+            sum[0] += weight * c.r; sum[1] += weight * c.g; sum[2] += weight * c.b;
+        }
+        signal.pixels[y * sw + x] = {
+            std::uint8_t((sum[0] + in.width / 2) / in.width),
+            std::uint8_t((sum[1] + in.width / 2) / in.width),
+            std::uint8_t((sum[2] + in.width / 2) / in.width), 255};
     }
     const float a = t.wear;
     const int w = sw * 2, h = sh * 2;
@@ -243,26 +260,27 @@ platform::Image vhs(const platform::Image& in, long frame, int level) {
     return out;
 }
 
-platform::ScreenEffect vhs_effect(long frame, int level, int /*width*/, int /*height*/) {
+platform::ScreenEffect vhs_effect(long frame, int level, int width, int height, double pixel_aspect) {
     static const platform::FragmentShader shader{"vhs", shaders::vhs_spirv, shaders::vhs_msl};
     level = std::clamp(level, 0, vhs_levels - 1);
     const VhsFrame t = vhs_frame(frame, level);
     // The shader's uniform block (std140: five vec4 and one uvec4).
     const std::array<float, 20> values{
-        float(vhs_signal_width), float(vhs_signal_height), t.wear, t.dropouts,
+        float(vhs_raster_width(width, height, pixel_aspect) / 2), float(vhs_signal_height), t.wear, t.dropouts,
         t.slip, t.roll, t.saturation, t.brightness,
         t.tear_centre, t.tear_half, t.tear_shift, t.track_top,
         t.bar_at, t.chroma_delay, float(t.head_lines), float(t.chroma_radius),
         t.time, 0, 0, 0};
     const std::array<std::uint32_t, 4> clock{t.frame, 0, 0, 0};
     platform::ScreenEffect effect;
-    effect.raster_width = vhs_video_width;
+    effect.raster_width = vhs_raster_width(width, height, pixel_aspect);
+    effect.linear_output = true;
     effect.raster_height = vhs_video_height;
     effect.shader = &shader;
     effect.uniforms.resize(sizeof(values) + sizeof(clock));
     std::memcpy(effect.uniforms.data(), values.data(), sizeof(values));
     std::memcpy(effect.uniforms.data() + sizeof(values), clock.data(), sizeof(clock));
-    effect.cpu = [frame, level](const platform::Image& picture) { return vhs(picture, frame, level); };
+    effect.cpu = [frame, level, pixel_aspect](const platform::Image& picture) { return vhs(picture, frame, level, pixel_aspect); };
     return effect;
 }
 

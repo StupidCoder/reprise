@@ -1,0 +1,45 @@
+# A car balanced on three springs
+
+The track is narrow, the next ramp is steep, and a successful jump depends on more than keeping a car icon inside the road. Stunt Car Racer carries a moving, tilting body through three-dimensional space. The road pushes back through suspension contacts. That exchange explains why a crest, a banked bend and a hard landing can feel so different even when the speedometer shows the same speed.
+
+!figure profile
+
+## 1 / One surface for the picture and the tyres
+
+A collision surface does not have to be a second, invisible version of the level. Here, the physics samples the same decoded road profiles that supply the drawing routines. Around a contact point it takes the four surrounding road-corner heights. It blends along the section and across its width to estimate the height between them. This is bilinear interpolation: a small continuous patch built from four samples.
+
+!figure surface
+
+The illustration above uses a real adjacent pair of cross-sections from your imported circuit. Its centre height is the average of those four corners. A contact elsewhere in the patch uses different weights. This supplies a surface between the stored rungs; it does not make the entire course perfectly smooth. Moving off the lateral edge is handled separately, so interpolating the road does not imply an invisible floor extending into space.
+
+## 2 / Three contacts describe a tilting body
+
+The recovered suspension has three support points. Two forces are averaged together; the third contributes as much to the total lift as that pair combined. A difference between the pair produces one turning force, while a difference between their average and the third point produces another. The car can therefore rise, pitch and roll instead of merely following the height at its centre.
+
+!figure springs
+
+For each point, the engine compares the road height with the corresponding chassis height and the suspension's resting length. Chassis height changes with the body's attitude, so tilting the car also changes how much each support is compressed. The diagram shows the weighting of the three supports, not a mechanical blueprint or a four-wheel modern vehicle simulation.
+
+## 3 / Compression remembers the previous step
+
+A spring contributes more force when compressed, but compression alone would make a very lively trampoline. The recovered calculation also uses how much compression changed since the preceding step. Its change term has a multiplier of 276 divided by 256, approximately 1.078. A sudden squeeze therefore produces a different response from holding the same compression steady. Extension reduces the response; a negative result supplies no lifting force.
+
+!figure damping
+
+The original bounds suspension travel and the resulting force, and tracks unusually large impacts for damage. These limits matter: the arithmetic is part of a game designed to remain controllable, not an unrestricted laboratory spring. The example above deliberately stays away from the limits and shows only the spring-and-change calculation. It is not a replay of a landing, and its units are the game's numerical scale rather than newtons.
+
+## 4 / Grip depends on contact
+
+Suspension is also the link between the body and the tyres. The resulting load feeds the available grip. Drive force is limited by that grip, and the lateral response is limited too. When the car is airborne, the ground-contact grip vanishes. Accelerating on the road and crossing a gap therefore cannot be treated as the same movement with a different height drawn underneath.
+
+The engine performs much of this work in the car's own coordinate frame. It transforms velocity and gravity into that frame, computes the forces there, and transforms the results back into the world. Gravity continues to pull downward in the world even while the car banks. This is one reason a full position and attitude model matters: a tilted chassis does not redefine which way is down.
+
+## 5 / A simulation with a deliberately managed feel
+
+The update proceeds through orientation, contact geometry, surface sampling, suspension and ground-dependent forces, before advancing motion. Force changes velocity; the updated velocity then changes position. Integer arithmetic, rounding and damping are part of that sequence. Reordering the steps or substituting a modern physics engine could preserve a vaguely similar car while changing how it takes a particular ramp.
+
+There are also explicit aids, including corrections tied to the road's heading and pitch stabilisation. The result mixes a physical model with rules that shape the driving experience. The useful question is not whether it is a perfect model of a real car. It is how a small set of coupled quantities creates the sensation of weight, grip, airtime and a landing that has consequences.
+
+## Evidence and scope
+
+This article draws on the Amiga program and earlier reconstruction experiments, which compared individual calculations and short simulation sequences with execution of the original. The figures are imported surface data or labelled explanatory models. They do not run a complete playable car, and the research checks do not establish complete race equivalence.

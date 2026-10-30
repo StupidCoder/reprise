@@ -73,6 +73,12 @@ Reprise's interface and rendering use SDL; platform document selection is
 accessed through SDL. Filters affect gameplay, keeping app menus and save/load
 notifications sharp. Original gameplay remains separate from optional enhancements.
 
+## Build downloads
+
+GitHub can build the macOS app and Android APK on demand, or when a version tag
+is pushed. Ordinary commits do not trigger builds. See [Build downloads](docs/BUILD_DOWNLOADS.md)
+for setup, signing and release instructions.
+
 ## Build and test
 
 ### macOS

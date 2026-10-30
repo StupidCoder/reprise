@@ -180,3 +180,21 @@ release (above).
   [Giant Bomb releases](https://giantbomb.com/professor-layton-and-the-azran-legacy/3030-39570/releases/)
   (Japan 28 February 2013; final game with the professor as lead per Hino;
   Europe November 2013).
+
+## Beach Volley and Stunt Car Racer — planned Amiga entries
+
+- [Beach Volley — Lemon Amiga](https://www.lemonamiga.com/game/beach-volley):
+  1989, Ocean / Ocean France, design, programming, art and music credits.
+  [Manual](https://www.lemonamiga.com/doc/beach-volley/175): volleyball rules.
+- [Stunt Car Racer — Lemon Amiga](https://www.lemonamiga.com/game/stunt-car-racer):
+  1989, MicroStyle, Geoff Crammond, John Cumming and serial-link play.
+  [OpenRetro](https://openretro.org/amiga/stunt-car-racer): elevated-course overview.
+
+These are editorial references only, not sources for game reconstruction.
+
+## Extended development articles
+
+Bruce Lee and Stunt Car Racer now have seven-paragraph articles in
+resources/articles/. Detailed attribution and evidence limits are recorded in
+[the article source notes](articles/sources.md). Future contributions should
+follow [the editorial guide](WRITING_DEVELOPMENT_ARTICLES.md).

@@ -1,5 +1,6 @@
 #include "app/launcher.hpp"
 #include "app/catalog.hpp"
+#include "stunt_car_racer_amiga/lessons/technical_article.hpp"
 #include "mindwalker_amiga/game/player_guide.hpp"
 #include "bruce_lee_c64/game/room_chapter.hpp"
 #include "bruce_lee_c64/game/background_article.hpp"
@@ -40,6 +41,10 @@ constexpr LessonEntry marble_lessons[] = {
     {"Inside the black marble", "Follow imported routes, inspect patrol and chase decisions, and experiment with momentum.", "Decision diagram + live laboratory"},
     {"How Silly Race bends the rules", "Reverse the slope response, chase the critters and inspect the course-specific surprises.", "Illustrated explanation + live laboratory"},
 };
+constexpr LessonEntry stunt_lessons[] = {
+    {"A world measured in angles", "How bearings, elevation and roll turn the imported road into a cockpit view.", "Illustrated article"},
+    {"A car balanced on three springs", "Road sampling, suspension, grip and the forces behind a convincing landing.", "Illustrated article"},
+};
 constexpr LessonEntry mindwalker_guide[] = {
     {"The whole journey", "How the landscape, tunnel, arena and picture puzzle fit together.",
      "Player guide"},
@@ -57,6 +62,7 @@ std::span<const LessonEntry> lessons_for(const GameEntry& game) {
         return mindwalker_guide;
     if(game.id=="bruce_lee_c64") return lessons;
     if(game.id=="marble_madness_amiga") return marble_lessons;
+    if(game.id=="stunt_car_racer_amiga") return stunt_lessons;
     return {};
 }
 constexpr const char* filters[] = {"All games", "Continue playing", "Commodore classics", "Sonic collection", "Layton collection"};
@@ -97,6 +103,7 @@ void Launcher::set_canvas(int width, int height) {
     portrait_ = portrait;
     shelf_height_ = logical_height;
     shelf_width_ = logical_width;
+    if (chapter_) chapter_->set_canvas(shelf_width_, shelf_height_);
     columns_ = portrait ? 2 : std::max(1, (shelf_width_ - 198 - 24 + gap) / (card_w + gap));
     manual_scroll_.reset();
     grid_x = portrait ? 79 : shelf_width_ == 960 ? 198 :
@@ -499,11 +506,14 @@ void Launcher::open_lesson(double now) {
     if(!library_.installed(selected_)) {show_error("Import your copy to open this lesson.",now);return;}
     try {
         const auto path=library_.content_directory(selected_);
-        if(library_.games()[selected_].id=="marble_madness_amiga")
+        if(library_.games()[selected_].id=="stunt_car_racer_amiga")
+            chapter_=std::make_unique<stuntcar::lessons::TechnicalArticle>(path,lesson_selected_);
+        else if(library_.games()[selected_].id=="marble_madness_amiga")
             chapter_=std::make_unique<marble_madness::game::MechanicsChapter>(path,lesson_selected_);
         else if(lesson_selected_==0) chapter_=std::make_unique<bruce_lee::game::EnemyChapter>(path);
         else if(lesson_selected_==1) chapter_=std::make_unique<bruce_lee::game::RoomChapter>(path);
         else chapter_=std::make_unique<bruce_lee::game::BackgroundArticle>(path);
+        chapter_->set_canvas(shelf_width_, shelf_height_);
     } catch(const std::exception& e){show_error(std::string("Could not open lesson: ")+e.what(),now);}
 }
 void Launcher::draw_lessons(Image& im) const {
@@ -615,12 +625,25 @@ void Launcher::draw_details(Image& im) const {
     }
     ui::rounded(im, 288, 102, (648 + dx), (446 + dy), 10, theme().card);
     if (about_) {
-        s::text(im, "Development notes", 312, 124, 23, theme().ink, true);
-        if (game.history.empty()) s::wrap(im, "Development notes will arrive with this game. This preview does not yet include its documentation.", 312, 174, (594 + dx), 4, 19, theme().muted);
-        s::wrap(im, game.history_title, 312, 174, (594 + dx), 2, 24, theme().ink);
-        s::wrap(im, game.history, 312, 246, (594 + dx), 9 + dy / 24, 19, theme().ink);
-        s::wrap(im, "Sources: " + game.history_sources, 312, 488 + dy, (594 + dx), 3, 13, theme().muted);
-        s::text(im, "Esc: details", 24, (582 + dy), 14, theme().muted);
+        Image body(624 + dx, 398 + dy);
+        ui::fill(body, theme().card);
+        int y = 0 - document_scroll_;
+        y += s::prose(body, game.history_title.empty() ? "Development notes" : game.history_title,
+                      12, y, body.width - 40, 24, theme().ink);
+        y += s::prose(body, game.history.empty() ? "Development notes will arrive with this game." : game.history,
+                      12, y, body.width - 40, 19, theme().ink);
+        y += s::prose(body, "Sources: " + game.history_sources, 12, y, body.width - 40, 13, theme().muted);
+        document_height_ = y + document_scroll_;
+        for (int row = 0; row < body.height; ++row)
+            std::copy_n(body.pixels.begin() + row * body.width, body.width,
+                        im.pixels.begin() + (126 + row) * im.width + 300);
+        if (document_height_ > body.height) {
+            const int thumb = std::max(24, body.height * body.height / document_height_);
+            ui::rounded(im, im.width - 34, 126, 4, body.height, 2, theme().line);
+            ui::rounded(im, im.width - 34, 126 + document_scroll_ * (body.height - thumb) /
+                        (document_height_ - body.height), 4, thumb, 2, theme().muted);
+        }
+        s::text(im, "Scroll / Up / Down: read    Esc: details", 24, 582 + dy, 14, theme().muted);
         return;
     }
 
@@ -813,6 +836,23 @@ Launcher::Request Launcher::update(const platform::Controls& raw, double now) {
     const bool was_assets = details_ && documentation_ && !about_ && !lessons_ && page_ > 0 && !chapter_;
     auto from = details_ ? std::array<int, 4>{24, 106, 240, 158} : cover_bounds(now);
     if (actionable && !reduced_motion_) old = draw(now);
+    // Desktop/landscape article input; portrait uses the shared document gesture handler.
+    if (!portrait_ && details_ && documentation_ && about_ && !chapter_) {
+        const int height = detail_height() - 242;
+        document_scroll_ += in.wheel * 64 + (int(in.page_down) - int(in.page_up)) * (height - 32);
+        if (!doc_navigation_) document_scroll_ += (int(in.nav_down) - int(in.nav_up)) * 40;
+        if (in.click && in.mouse_x >= 300 && in.mouse_y >= 126 && in.mouse_y < 126 + height) {
+            document_press_ = {in.mouse_x, in.mouse_y};
+            document_drag_y_ = in.mouse_y;
+        }
+        if (document_press_ && in.ui_pointer) {
+            const int y = (*in.ui_pointer)[1];
+            document_scroll_ += document_drag_y_ - y;
+            document_drag_y_ = y;
+        }
+        if (!in.mouse_held) document_press_.reset();
+        document_scroll_ = std::clamp(document_scroll_, 0, std::max(0, document_height_ - height));
+    }
     const auto request = portrait_ && details_ && !chapter_ ? update_portrait_details(in, now) : update_input(in, now);
     if (key() != before) { document_scroll_ = 0; document_press_.reset(); }
     update_preview(in, now, request);
@@ -1102,7 +1142,7 @@ Image Launcher::draw_portrait_details() const {
         if (installed) { button(body, "Delete game files", 32, y, 224, 42, detail_focus_ == 3, true); y += 62; }
     } else if (about_) {
         paragraph(game.history_title.empty() ? "Development notes" : game.history_title, 25, theme().ink);
-        paragraph(game.history.empty() ? "Development notes will arrive with this game." : game.history, 20, theme().ink);
+        y += s::prose(body, game.history.empty() ? "Development notes will arrive with this game." : game.history, 32, y, 568, 20, theme().ink);
         if (!game.history_sources.empty()) { ui::rect(body, 32, y, 568, 1, theme().line); y += 24; paragraph("Sources: " + game.history_sources, 15, theme().muted); }
     } else if (lessons_) {
         for (int i = 0; i < int(lessons_for(game).size()); ++i) {

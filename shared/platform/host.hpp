@@ -93,6 +93,7 @@ struct FragmentShader {
 struct ScreenEffect {
     // Optional fixed processing raster; zero draws the shader directly at display size.
     int raster_width{}, raster_height{};
+    bool linear_output{}; // reconstruct a sampled video signal without repeating whole columns
     const FragmentShader* shader{};
     std::vector<std::uint8_t> uniforms;     // the shader's uniforms for this frame
     std::function<Image(const Image&)> cpu; // the frame's picture -> the picture to show
@@ -104,6 +105,7 @@ struct ScreenEffect {
     // (`uniforms` and `cpu` above).
     struct Region {
         int x{}, y{}, width{}, height{};
+        int raster_width{}, raster_height{}; // each screen may have a different aspect
         std::vector<std::uint8_t> uniforms;
         std::function<Image(const Image&)> cpu;
     };

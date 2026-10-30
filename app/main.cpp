@@ -1,3 +1,4 @@
+#include <SDL3/SDL_log.h>
 #include <SDL3/SDL_main.h> // SDLActivity calls SDL_main on Android.
 #include "app/quick_save.hpp"
 #include "app/event_script.hpp"
@@ -14,6 +15,8 @@
 #include "app/touch_controls.hpp"
 #include "app/library.hpp"
 #include "app/import_screen.hpp"
+#include "app/startup_screen.hpp"
+#include <atomic>
 #include <future>
 #include <mutex>
 #include <chrono>
@@ -131,7 +134,57 @@ Options parse(int argc, char** argv) {
 
 int run(const Options& options) {
     const auto data = options.data ? *options.data : platform::data_directory();
-    app::Library library(data, app::catalog());
+    const auto startup_begin = std::chrono::steady_clock::now();
+    const auto log_startup = [&](const char* stage) {
+        const double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - startup_begin).count();
+        SDL_Log("Reprise startup: %s at %.3f s", stage, elapsed);
+    };
+    const bool interactive = !options.import_image && !options.preview;
+    std::unique_ptr<platform::Host> window;
+    std::optional<app::Library> prepared;
+    std::string taken;
+    if (interactive) {
+        // Present before catalog loading, file verification or legacy migration. Only the
+        // worker touches the library until get(); all SDL drawing stays on this thread.
+        window = std::make_unique<platform::Host>("Reprise");
+        std::atomic<int> phase{0};
+        bool quitting = false;
+        const auto draw_loading = [&] {
+            const auto canvas = window->canvas_size();
+            const double scale = 640.0 / std::max(1, std::min(canvas[0], canvas[1]));
+            static constexpr const char* labels[]{"Opening your library", "Checking imported games",
+                                                   "Checking previous imports", "Preparing your shelf"};
+            window->present(app::startup_screen(int(canvas[0] * scale), int(canvas[1] * scale),
+                quitting ? "Finishing safely before closing" : labels[phase.load()], window->seconds()));
+        };
+        draw_loading();
+        log_startup("loading screen");
+        auto work = std::async(std::launch::async, [&] {
+            auto entries = app::catalog();
+            log_startup("catalog loaded");
+            phase = 1;
+            app::Library result(data, std::move(entries));
+            log_startup("imports verified");
+            phase = 2;
+            for (const auto& line : result.adopt_legacy())
+                taken += (taken.empty() ? "" : " ") + line;
+            log_startup("migration checked");
+            return result;
+        });
+        while (work.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) {
+            const auto controls = window->poll();
+            quitting |= controls.quit;
+            draw_loading();
+            std::this_thread::sleep_for(std::chrono::milliseconds(16));
+        }
+        prepared.emplace(work.get());
+        if (quitting) return 0;
+        phase = 3;
+        draw_loading();
+    } else {
+        prepared.emplace(data, app::catalog());
+    }
+    auto& library = *prepared;
 
     if (options.import_image) {
         const auto outcome = library.import(*options.import_image, std::nullopt);
@@ -200,23 +253,14 @@ int run(const Options& options) {
         return 0;
     }
 
-    platform::Host host("Reprise");
+    auto& host = *window;
     std::optional<app::EventScript> script;
     if (options.events) {
         script.emplace(*options.events, [&](const std::filesystem::path& file) { host.capture_next_frame(file); });
     }
     const double started = host.seconds();
-    // What earlier applications of the games left (their imports and progress), taken over
-    // once; the messages say what was copied and what could not be.
-    {
-        std::string taken;
-        for (const auto& line : library.adopt_legacy()) {
-            taken += (taken.empty() ? "" : " ") + line;
-        }
-        if (!taken.empty()) {
-            launcher.show_message(taken, true, host.seconds());
-        }
-    }
+    if (!taken.empty()) launcher.show_message(taken, true, host.seconds());
+    bool first_shelf_frame = true;
     std::unique_ptr<app::GameModule> game;
     std::size_t playing = 0;
     app::PauseMenu menu;
@@ -245,7 +289,7 @@ int run(const Options& options) {
                                   [&](const platform::GpuFrame& frame) { game->draw_gpu(frame); }, overlay, dim, note,
                                   opacity, offset, effect ? &*effect : nullptr);
         } else {
-            auto effect = ui::vhs_effect(frames_run, game->vhs_level(), shown.image.width, shown.image.height);
+            auto effect = ui::vhs_effect(frames_run, game->vhs_level(), shown.image.width, shown.image.height, game->pixel_aspect());
             if (game->vhs_level() > 0) app::add_filter_regions(effect, *game, frames_run, game->vhs_level());
             host.present_game(shown.image, game->pixel_aspect(), overlay, dim, note, opacity, offset,
                               game->vhs_level() > 0 ? &effect : nullptr);
@@ -582,6 +626,10 @@ int run(const Options& options) {
         }
         launcher_audio_clock = now;
         host.present(launcher.draw(now));
+        if (first_shelf_frame) {
+            log_startup("first shelf frame");
+            first_shelf_frame = false;
+        }
     }
     return 0;
 }

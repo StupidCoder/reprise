@@ -27,7 +27,7 @@ jobs:
       - name: Build pinned dependencies, Reprise and shell checks
         run: python3 tools/build_ci_macos.py
       - name: Check shell without game images
-        run: ctest --test-dir build --output-on-failure -R '^(shell_navigation|shell_motion|import_progress)$'
+        run: ctest --test-dir build --output-on-failure -R '^(shell_navigation|shell_motion|import_progress|development_articles|technical_articles|library_validation_cache)$'
       - name: Package app
         run: |
           python3 tools/package_macos.py

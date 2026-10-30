@@ -4,8 +4,8 @@
 #include <cstdint>
 
 // A worn VHS tape played on an old CRT, over a game's finished picture. The
-// picture is sampled into a fixed virtual video signal, then returned at
-// 720 x 480 with 240 progressive picture lines and scanline gaps. This is a
+// picture is sampled into an aspect-adaptive virtual video signal, with
+// 480 output lines (240 picture lines and scanline gaps). This is a
 // stylised CRT/VHS model, independent of game and window resolution, with:
 // - colour carried as on tape: luma sharpened with a little ringing, chroma
 //   at low bandwidth (smeared and late), so colour edges bleed;
@@ -25,7 +25,9 @@ constexpr int vhs_levels = 5;
 constexpr int vhs_signal_width = 360, vhs_signal_height = 240;
 constexpr int vhs_video_width = vhs_signal_width * 2, vhs_video_height = vhs_signal_height * 2;
 
-platform::Image vhs(const platform::Image& picture, long frame, int level);
+// 720 samples across a 4:3 display, more for wide views; vertical timing stays fixed.
+int vhs_raster_width(int width, int height, double pixel_aspect = 1.0);
+platform::Image vhs(const platform::Image& picture, long frame, int level, double pixel_aspect = 1.0);
 
 // The tape's state for one whole frame of the fixed virtual signal: what does not change
 // from line to line. vhs() works from it, and so does the host's GPU version of the look
@@ -50,7 +52,8 @@ VhsFrame vhs_frame(long frame, int level);
 
 // The look as the host's screen effect over a frame of `width` x `height` (a GPU-drawn game's
 // logical size): the shader with this frame's tape, and vhs() for where no shader runs. The
-// source dimensions affect image sampling only; all faults use the fixed video grid.
-platform::ScreenEffect vhs_effect(long frame, int level, int width, int height);
+// Display aspect sets horizontal signal density; all faults remain in video space.
+// Doubling native resolution without changing aspect leaves the video grid unchanged.
+platform::ScreenEffect vhs_effect(long frame, int level, int width, int height, double pixel_aspect = 1.0);
 
 } // namespace ui

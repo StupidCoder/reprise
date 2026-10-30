@@ -1,6 +1,7 @@
 // Interaction checks against the real catalog, without importing or changing any
 // user data. A fake module isolates menu navigation from game rules.
 #include "app/catalog.hpp"
+#include "stunt_car_racer_amiga/lessons/technical_article.hpp"
 #include "mindwalker_amiga/game/player_guide.hpp"
 #include "marble_madness_amiga/game/mechanics_chapter.hpp"
 #include "bruce_lee_c64/game/room_chapter.hpp"
@@ -43,6 +44,101 @@ platform::Controls click(int x, int y) {
 }
 int main(int argc, char** argv) {
     try {
+        if (argc == 3 && std::string(argv[1]) == "--stunt-lessons") {
+            const auto root=std::filesystem::temp_directory_path()/
+                ("reprise-stunt-browser-"+std::to_string(SDL_GetTicksNS()));
+            app::Library library(root,app::catalog());
+            const auto& games=library.games();
+            const auto it=std::find_if(games.begin(),games.end(),[](const auto& g){return g.id=="stunt_car_racer_amiga";});
+            check(it!=games.end(),"Stunt game is catalogued");
+            const auto index=std::size_t(it-games.begin());
+            check(library.import(argv[2],index).ok,"Stunt lesson fixture imports");
+            app::Launcher browser(library);
+            browser.select(index);browser.open_details();browser.open_lessons();
+            auto same=[](const platform::Image& a,const platform::Image& b) {
+                return a.width==b.width && a.height==b.height &&
+                    std::memcmp(a.pixels.data(),b.pixels.data(),a.pixels.size()*sizeof(platform::Color))==0;
+            };
+            for(int chapter=0;chapter<2;++chapter) {
+                browser.set_canvas(960,640);
+                browser.update(click(450,210+chapter*106),0);
+                stuntcar::lessons::TechnicalArticle expected(library.content_directory(index),chapter);
+                check(same(browser.draw(1),expected.draw()),"Browser opens the selected Stunt article");
+                browser.set_canvas(640,1138);expected.set_canvas(640,1138);
+                check(same(browser.draw(2),expected.draw()),"Open lesson follows portrait resize");
+                platform::Controls back;back.back=true;browser.update(back,3);
+                check(!same(browser.draw(4),expected.draw()),"Back returns to the lesson list");
+            }
+            std::filesystem::remove_all(root);
+            std::cout<<"Stunt lesson browser OK\n";return 0;
+        }
+        if (argc >= 2 && std::string(argv[1]) == "--articles") {
+            auto same = [](const platform::Image& a, const platform::Image& b) {
+                return a.width == b.width && a.height == b.height &&
+                    std::memcmp(a.pixels.data(), b.pixels.data(), a.pixels.size() * sizeof(platform::Color)) == 0;
+            };
+            app::Library library(std::filesystem::temp_directory_path() / "reprise-article-check", app::catalog());
+            for (const auto* id : {"bruce_lee_c64", "stunt_car_racer_amiga", "fort_apocalypse_c64",
+                                   "marble_madness_amiga", "mindwalker_amiga",
+                                   "wizball_c64",
+                                   "cannon_fodder_amiga",
+                                   "rock_n_roll_amiga",
+                                   "tower_of_babel_amiga",
+                                   "wings_of_fury_amiga",
+                                   "fa_18_interceptor_amiga",
+                                   "spindizzy_worlds_amiga",
+                                   "beach_volley_amiga", "spy_mouse_ios",
+                                   "sonic_gg", "sonic2_gg", "triple_trouble_gg", "sonic_advance_gba",
+                                   "curious_village_ds", "pandoras_box_ds", "lost_future_ds", "spectres_call_ds", "miracle_mask_3ds", "azran_legacy_3ds"}) {
+                const auto& games = library.games();
+                const auto found = std::find_if(games.begin(), games.end(), [&](const auto& e) { return e.id == id; });
+                check(found != games.end(), "Article game is catalogued");
+                check(std::count(found->history.begin(), found->history.end(), '\n') >= 12,
+                      "Packaged article has seven paragraphs, rather than short fallback");
+                for (const bool portrait : {false, true}) {
+                    std::cout << "Checking " << id << (portrait ? " portrait" : " landscape") << std::endl;
+                    app::Launcher shell(library);
+                    if (portrait) shell.set_canvas(640, 1138);
+                    shell.select(std::size_t(found - games.begin()));
+                    shell.open_details();
+                    shell.open_history();
+                    const auto top = shell.draw(1);
+                    platform::Controls down; down.page_down = true;
+                    shell.update(down, 2);
+                    const auto middle = shell.draw(3);
+                    check(!same(top, middle), "Article scrolls with page keys");
+                    platform::Controls bottom; bottom.wheel = 1000;
+                    shell.update(bottom, 4);
+                    const auto end = shell.draw(5);
+                    if (argc == 3) {
+                        const auto prefix = std::filesystem::path(argv[2]) /
+                            (std::string(id) + (portrait ? "-portrait" : "-landscape"));
+                        platform::save_png(top, prefix.string() + "-top.png");
+                        platform::save_png(end, prefix.string() + "-end.png");
+                    }
+                    shell.update(bottom, 6);
+                    check(same(end, shell.draw(7)), "Article clamps at its end");
+                    platform::Controls up; up.wheel = -1000;
+                    shell.update(up, 8);
+                    check(same(top, shell.draw(9)), "Article returns to its first paragraph");
+                    platform::Controls drag;
+                    drag.click = true; drag.mouse_held = true;
+                    drag.mouse_x = 400; drag.mouse_y = 500;
+                    drag.ui_pointer = std::array<int, 2>{400, 500};
+                    shell.update(drag, 10);
+                    drag.click = false; drag.ui_pointer = std::array<int, 2>{400, 380};
+                    shell.update(drag, 11);
+                    drag.mouse_held = false;
+                    shell.update(drag, 12);
+                    check(!same(top, shell.draw(13)), "Article scrolls by pointer or touch drag");
+                    platform::Controls back; back.back = true;
+                    shell.update(back, 14);
+                    check(!same(top, shell.draw(15)), "Back returns from article to details");
+                }
+            }
+            std::cout << "Article layout and scrolling checks passed\n";
+            return 0;
+        }
         if (argc >= 2 && std::string(argv[1]) == "--import-progress") {
             const auto root = std::filesystem::temp_directory_path() / ("reprise-import-" + std::to_string(SDL_GetTicksNS()));
             struct Cleanup { std::filesystem::path path; ~Cleanup() { std::filesystem::remove_all(path); } } cleanup{root};
@@ -793,10 +889,24 @@ int main(int argc, char** argv) {
             }
             for (int level = 1; level < ui::vhs_levels; ++level) {
                 const auto a = ui::vhs(low, 241, level), b = ui::vhs(doubled, 241, level);
-                check(a.width == 720 && a.height == 480, "VHS uses a fixed virtual video raster");
+                check(a.width == 720 && a.height == 480, "VHS uses the standard video raster for 4:3");
                 check(a.pixels.size() == b.pixels.size() && std::memcmp(a.pixels.data(), b.pixels.data(), a.pixels.size()*sizeof(platform::Color)) == 0,
                       "VHS noise, scanlines and chroma must not depend on native resolution");
             }
+            check(ui::vhs_raster_width(480, 270) == 960 && ui::vhs_raster_width(630, 270) == 1260,
+                  "Wide video rasters retain horizontal sample density");
+            check(ui::vhs_raster_width(320, 200, 5.0 / 6.0) == 720,
+                  "Video aspect includes non-square source pixels");
+            struct DualScreen : Module {
+                double pixel_aspect() const override { return 1; }
+                std::vector<std::array<int,4>> filter_regions() const override {
+                    return {{0,0,400,240}, {40,240,320,240}};
+                }
+            } dual;
+            auto effect = ui::vhs_effect(0, 1, 400, 480);
+            app::add_filter_regions(effect, dual, 0, 1);
+            check(effect.regions[0].raster_width == 900 && effect.regions[1].raster_width == 720,
+                  "Each handheld screen gets its own aspect-adaptive raster");
             check(ui::vhs(low, 1, 0).width == 32, "Filter off retains native raster");
             app::ShownPicture shown{platform::Image(720,480), 320,200};
             check(std::abs(shown.display_pixel_aspect(1.2)*720/480 - 1.2*320/200) < .000001,

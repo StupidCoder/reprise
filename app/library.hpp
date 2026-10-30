@@ -25,7 +25,7 @@ public:
 
     const std::vector<GameEntry>& games() const { return games_; }
 
-    // Installed and intact (every file matches the manifest).
+    // Installed and validated against the manifest (unchanged files reuse prior validation).
     bool installed(std::size_t game) const { return installs_[game].has_value(); }
     // The recognised release, for an installed game.
     std::string release(std::size_t game) const;
@@ -66,7 +66,8 @@ private:
     };
 
     std::optional<Install> check_install(const GameEntry& game) const;
-    std::optional<Install> check_folder(const std::filesystem::path& folder) const;
+    std::optional<Install> check_folder(const std::filesystem::path& folder,
+                                        const std::filesystem::path& cache = {}) const;
     void install(const GameEntry& game, const ImportResult& result,
                  const std::filesystem::path& source);
     // Installs files `fill` writes into an empty staging folder (returning their release):

@@ -87,6 +87,52 @@ int wrap(Image& im, std::string_view s, int x, int y, int w, int lines, int size
     }
     return row;
 }
+int prose(Image& im, std::string_view content, int x, int y, int w, int size, Color color) {
+    // Cache line breaks, not a tall bitmap. Scrolling only draws visible lines.
+    struct Layout { std::vector<std::pair<int, std::string>> lines; int height{}; };
+    using Key = std::tuple<std::string, int, int>;
+    static std::map<Key, Layout> layouts;
+    const Key key{std::string(content), w, size};
+    auto found = layouts.find(key);
+    if (found == layouts.end()) {
+        if (layouts.size() >= 32) layouts.clear();
+        Layout layout;
+        auto remaining = content;
+        while (!remaining.empty()) {
+            const auto end = remaining.find("\n\n");
+            auto paragraph = remaining.substr(0, end);
+            std::string current;
+            auto flush = [&] {
+                if (current.empty()) return;
+                layout.lines.emplace_back(layout.height, current);
+                layout.height += size + 5;
+                current.clear();
+            };
+            while (!paragraph.empty()) {
+                const auto start = paragraph.find_first_not_of(" \n\r\t");
+                if (start == std::string_view::npos) break;
+                paragraph.remove_prefix(start);
+                const auto space = paragraph.find_first_of(" \n\r\t");
+                const std::string word(paragraph.substr(0, space));
+                const std::string candidate = current.empty() ? word : current + " " + word;
+                if (!current.empty() && width(candidate, size) > w) flush();
+                if (!current.empty()) current += ' ';
+                current += word;
+                if (space == std::string_view::npos) break;
+                paragraph.remove_prefix(space);
+            }
+            flush();
+            layout.height += 20;
+            if (end == std::string_view::npos) break;
+            remaining.remove_prefix(end + 2);
+        }
+        found = layouts.emplace(key, std::move(layout)).first;
+    }
+    for (const auto& [offset, line] : found->second.lines)
+        if (y + offset + size + 5 > 0 && y + offset < im.height)
+            clipped(im, line, x, y + offset, w, size, color);
+    return found->second.height;
+}
 void button(Image& im, std::string_view s, int x, int y, int w, int h, bool primary) {
     ui::rounded(im, x, y, w, h, 7, primary ? cobalt : line);
     if (!primary) ui::rounded(im, x + 1, y + 1, w - 2, h - 2, 6, card);

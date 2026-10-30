@@ -378,7 +378,8 @@ add_library(stunt_car_racer_amiga
     games/stunt_car_racer_amiga/race/smoke.cpp
     games/stunt_car_racer_amiga/race/tables.cpp
     games/stunt_car_racer_amiga/render/race_screen.cpp
-    games/stunt_car_racer_amiga/render/race_view.cpp)
+    games/stunt_car_racer_amiga/render/race_view.cpp
+    games/stunt_car_racer_amiga/lessons/technical_article.cpp)
 target_include_directories(stunt_car_racer_amiga PUBLIC ${SOURCE_ROOT})
 target_link_libraries(stunt_car_racer_amiga PUBLIC amiga platform ui)
 target_compile_options(stunt_car_racer_amiga PRIVATE ${PROJECT_WARNINGS})
@@ -585,6 +586,10 @@ add_dependencies(reprise reprise_resources)
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(library_cache_checks tests/library_cache.cpp app/library.cpp)
+    target_link_libraries(library_cache_checks PRIVATE platform)
+    target_compile_options(library_cache_checks PRIVATE ${PROJECT_WARNINGS})
+    add_test(NAME library_validation_cache COMMAND library_cache_checks)
     add_executable(shell_checks tests/shell.cpp app/catalog.cpp app/library.cpp
         games/bruce_lee_c64/game/chapter.cpp
     games/bruce_lee_c64/game/room_chapter.cpp
@@ -595,6 +600,12 @@ if(BUILD_TESTING)
     add_dependencies(shell_checks reprise_resources)
     add_test(NAME shell_navigation COMMAND shell_checks)
     add_test(NAME shell_motion COMMAND shell_checks --motion)
+    add_test(NAME development_articles COMMAND shell_checks --articles)
+    add_executable(stunt_lesson_checks tests/stunt_lessons.cpp)
+    target_link_libraries(stunt_lesson_checks PRIVATE stunt_car_racer_amiga)
+    target_compile_options(stunt_lesson_checks PRIVATE ${PROJECT_WARNINGS})
+    add_dependencies(stunt_lesson_checks reprise_resources)
+    add_test(NAME technical_articles COMMAND stunt_lesson_checks)
     add_test(NAME import_progress COMMAND shell_checks --import-progress)
 endif()
 

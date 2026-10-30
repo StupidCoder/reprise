@@ -12,6 +12,8 @@ int width(std::string_view, int size = 16, bool bold = false);
 int text(Image&, std::string_view, int x, int y, int size = 16, Color = ink, bool bold = false);
 void right(Image&, std::string_view, int x, int y, int size = 16, Color = ink, bool bold = false);
 void clipped(Image&, std::string_view, int x, int y, int w, int size = 16, Color = ink, bool bold = false);
+// Paragraph-aware prose layout. Returns consumed pixel height, including gaps.
+int prose(Image&, std::string_view, int x, int y, int w, int size, Color);
 int wrap(Image&, std::string_view, int x, int y, int w, int lines, int size = 16, Color = muted);
 void button(Image&, std::string_view, int x, int y, int w, int h, bool primary = false);
 // A destructive action: red outline and text, or filled red for the

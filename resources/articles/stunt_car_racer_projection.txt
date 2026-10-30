@@ -1,0 +1,43 @@
+# A world measured in angles
+
+A ramp rises ahead, the horizon tilts and the next corner sweeps towards the cockpit. Stunt Car Racer builds that view from a genuine three-dimensional track. The surprise is how it turns a point in that world into a point on the screen: it asks which direction the point lies in, then gives that direction a screen position.
+
+!figure race
+
+## 1 / A viewing direction becomes a pixel
+
+In a conventional perspective camera, a point's sideways displacement is divided by its forward distance. That ratio, multiplied by a camera scale, determines its horizontal screen position. Stunt Car Racer takes a different route. It finds the point's horizontal bearing, subtracts the car's heading and scales the remaining angle into pixels. A point straight ahead belongs in the middle; equal changes in bearing produce equal movements across the image.
+
+!figure angles
+
+The original picture window is 256 pixels wide and 128 high. Its angular scale is 2,048 pixels for a complete turn. That makes the horizontal field of view 45 degrees and the vertical span 22.5 degrees, before the image is tilted by the car's roll. Ten degrees away from the heading is about 57 pixels away from the centre. The diagrams use smooth mathematical angles; the original obtains approximations using integer arithmetic and tables.
+
+## 2 / Looking down is another angle
+
+Height needs a little more care. The engine compares the point's height with the eye height, then relates that difference to the horizontal distance from the car. The resulting elevation angle, adjusted for the camera's pitch, gives the vertical coordinate. Road heights and horizontal positions use different units: four stored height units equal one horizontal unit. Forget that conversion and a plausible-looking road becomes four times too steep.
+
+The pair of angular coordinates is then turned around the middle of the picture to represent roll. That separation is useful to understand: bearing places a point left or right, elevation places it up or down, and roll tilts the resulting view. The whole scene responds to the car's attitude without storing a separate picture for every viewpoint.
+
+!figure projection
+
+## 3 / Similar near the centre, different at the edges
+
+This is still a three-dimensional projection, but it is not the same projection as a flat photographic image. Perspective follows the tangent of the viewing angle; Stunt Car Racer follows the angle itself. They look similar for small angles. As a point moves farther off axis, their positions diverge. The comparison above gives both models the same scale at the centre so that the difference is visible rather than hidden by a change of zoom.
+
+There is a consequence for the road. Joining the projected endpoints of a long edge with one straight screen line need not follow the projected edge between them. Close to the car, a coarse polygon can cut across the view. The original includes a correction that pushes sufficiently far-offscreen points downward. Reprise's current renderer instead subdivides road edges before projection. Those are different remedies; the illustration of the imported track is a reconstruction, not a capture of the original program.
+
+## 4 / From reusable pieces to a road
+
+The track is not a collection of unrelated screen polygons. Each circuit visits cells in a 16 by 16 layout. A segment selects a plan shape and a height profile for each road edge. Walking through those samples produces pairs of points across the road, rather like the rungs of a ladder. Successive pairs form the surface panels and their sides. The same compact description can produce a course map, the cockpit view and the surface used by the physics.
+
+!figure road
+
+## 5 / Choosing what to draw
+
+Once projected, the road panels are painted from farther away towards the car, allowing nearer surfaces to cover farther ones. The original also makes a simplified set of distant cross-sections when loading a track: it retains significant changes in the left edge's height and the final section. That reduces the number of pieces to process without changing the stored course. Reprise currently retains the full decoded set.
+
+The interesting economy is the combination: shared track shapes, sampled heights, integer angle calculations and ordered polygon filling. Avoiding the conventional perspective divide does not mean that every division disappears, or that the camera becomes free to compute. It means the engine organises the problem around directions, with its own visual character and its own edge cases.
+
+## Evidence and scope
+
+The track diagrams are generated from your imported Amiga data. The camera explanation follows the projection reconstructed from that program; the comparison curves are mathematical illustrations. Original-frame comparisons support the current rendering model, but do not establish exact equivalence for every viewpoint. Detailed addresses, validation coverage and the original-versus-Reprise differences are recorded in the repository's technical lesson evidence notes.

@@ -17,3 +17,7 @@ Build and package with `./build.sh`; run CTest for relevant host/UI changes.
 Preserve the source projects until their handoffs are validated. Do not change
 other agents' working trees. Do not commit or push unless asked.
 See `docs/MIGRATION.md` for the pinned baseline and outstanding handoffs.
+
+For game development-history articles, follow [docs/WRITING_DEVELOPMENT_ARTICLES.md](docs/WRITING_DEVELOPMENT_ARTICLES.md).
+
+For illustrated technical articles and live lessons, follow [docs/WRITING_TECHNICAL_LESSONS.md](docs/WRITING_TECHNICAL_LESSONS.md).

@@ -196,7 +196,7 @@ public:
 };
 
 // The picture the player sees: the game's own picture with the launcher's
-// effects on top (the VHS look, which uses a fixed virtual video raster). `frame` counts the
+// effects on top (the VHS look, which uses an aspect-adaptive virtual video raster). `frame` counts the
 // frames run, for the look's moving noise.
 struct ShownPicture {
     platform::Image image{1, 1};
@@ -225,8 +225,8 @@ inline void add_filter_regions(platform::ScreenEffect& effect, const GameModule&
     const auto regions = game.filter_regions();
     for (std::size_t k = 0; k < regions.size(); ++k) {
         const auto& r = regions[k];
-        auto own = ui::vhs_effect(frame + long(k) * 7919, level, r[2], r[3]);
-        effect.regions.push_back({r[0], r[1], r[2], r[3], std::move(own.uniforms), std::move(own.cpu)});
+        auto own = ui::vhs_effect(frame + long(k) * 7919, level, r[2], r[3], game.pixel_aspect());
+        effect.regions.push_back({r[0], r[1], r[2], r[3], own.raster_width, own.raster_height, std::move(own.uniforms), std::move(own.cpu)});
     }
 }
 
@@ -241,7 +241,7 @@ inline ShownPicture shown_picture(const GameModule& game, long frame, bool cpu_f
     auto picture = game.picture();
     const int width = std::max(picture.width, 1), height = std::max(picture.height, 1);
     const int level = game.vhs_level();
-    if (cpu_filter && level > 0) picture = ui::vhs(picture, frame, level);
+    if (cpu_filter && level > 0) picture = ui::vhs(picture, frame, level, game.pixel_aspect());
     return {std::move(picture), width, height};
 }
 
@@ -253,7 +253,7 @@ inline std::optional<platform::ScreenEffect> screen_effect(const GameModule& gam
     const auto size = game.gpu_frame_size();
     const int level = game.vhs_level();
     if (!size || level <= 0) return std::nullopt;
-    auto effect = ui::vhs_effect(frame, level, (*size)[0], (*size)[1]);
+    auto effect = ui::vhs_effect(frame, level, (*size)[0], (*size)[1], game.pixel_aspect());
     add_filter_regions(effect, game, frame, level);
     return effect;
 }

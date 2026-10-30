@@ -319,3 +319,62 @@ inspected. A live UI drop of the 1 GiB Miracle Mask CCI into an isolated tempora
 library displayed the loading screen and produced the verified installation.
 The Android APK built and passed signature verification. Android document-picker
 return, rotation and suspend/resume still require testing on physical hardware.
+
+### Widescreen VHS sampling correction (2026-10-29)
+
+Supersedes the fixed-width raster described above. The video clock remains
+240 signal lines / 480 output lines, but horizontal density follows displayed
+aspect, including non-square source pixels: 720 samples at 4:3, 900 at 5:3,
+960 at 16:9 and 1260 at 21:9. Each handheld screen supplies its own dimensions.
+The old 360-sample signal plus nearest scaling could periodically duplicate or
+omit source columns. Horizontal footprint integration now resamples the source;
+linear final reconstruction avoids repeating whole intermediate columns.
+Noise, tracking and chroma still operate in video space, independent of native
+resolution. Final reconstruction intentionally differs from direct point-sampled
+shading; GPU/CPU agreement is the reference, not equality to that old path.
+
+`screen_effect_check` passed with the default fractional-sampling test card and
+16:9 / 21:9 stripe-and-gradient fixtures, including 3024x1834 Retina output.
+All strengths and six frame numbers matched the CPU reference (reported mean
+error zero), and filter-off output stayed identical before/after filtering.
+Pixel-doubled input retained identical output. Adaptive raster checks cover
+4:3, 5:3, 16:9, 21:9 and non-square pixels. Wide stripe output was inspected.
+Android APK compiled and passed signing checks; physical Android rendering
+has not been validated in this change.
+
+### Android startup and development articles (2026-10-30)
+
+- The long development articles and reader were still local changes; clean GitHub
+  builds contained only the short catalog fallback notes. No article reversion
+  was involved. Publication must include `resources/articles`, the catalog/reader,
+  and their writing/source documentation together.
+- Interactive startup now presents a pure SDL loading screen before catalog and
+  imported-file checks. A worker owns library verification and legacy migration;
+  the UI keeps polling and drawing, and joins the worker before using the library.
+  Command-line imports and preview rendering remain headless.
+- Startup stage timings use SDL logging (including Android logcat). Desktop smoke
+  check showed the first loading frame at 0.205 seconds and completed migration
+  into an isolated temporary library before showing the shelf. These are desktop
+  measurements, not Android performance claims.
+- Native build and shell navigation, motion, import progress and all 24 development
+  article checks passed. Article checks cover scrolling in both orientations.
+  ARM64 APK built and signature verification passed; all 26 packaged article
+  files (24 development stories and two technical articles) match source bytes.
+- Device follow-up: cold-start on the Thor and Galaxy with imported games; confirm
+  loading visibility and collect `Reprise startup` log lines if a long pause remains.
+
+### Imported-file validation cache (2026-10-30)
+
+Checksummed imports now keep disposable per-file validation receipts under the
+app data directory's `validation/`. The manifest is read on every launch. Matching
+manifest content, file size and modification timestamp let a file skip content
+reads and SHA-256; changing one file rechecks that file, while a changed manifest
+invalidates every receipt. Missing files remain unavailable. Cache read/write
+failures fall back to validation, never hide a valid game. Staging validation is
+uncached, and large imports retain their existing size-only policy.
+
+`library_validation_cache` covers initial validation, reuse across Library
+instances, per-file reuse, changed timestamps/sizes/manifests, missing assets,
+malformed receipts and an unwritable cache. It also demonstrates the deliberate
+limit: edits that preserve both size and timestamp cannot be detected by this
+optimization. Receipts can be removed to force a full checksum pass.

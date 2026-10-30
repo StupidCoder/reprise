@@ -1,0 +1,13 @@
+Mind Walker treats its landscape as the inside of a troubled mind. The manual casts the player as a professor whose identity has split into four forms, then turns recovery into a journey through terrain, a brain-like maze and fragments of a picture. Even by the standards of an unfamiliar new computer, this was an unusual introduction to what an Amiga game could be.
+
+Bill Williams recalled that sound first attracted him to the Amiga. Ihor Wolosenko's description of four-channel stereo caught his attention more than the graphics. Once the prototype arrived, its visual capabilities opened further possibilities. He had acquired more creative freedom than he initially expected.
+
+Synapse and Commodore-Amiga let him discard an initial concept and reshape the game as he worked. With Synapse breaking apart, Williams associated its emerging theme of fragmentation with his own uncertainty. Commodore licensed what he remembered as one of Synapse's last projects.
+
+That freedom had a boundary: 256 KB. Williams wanted to target 512 KB, but had to support the smaller machine while using its Intuition interface. The manual confirms the minimum specification: this ambitious game retained the Amiga's own interface facilities.
+
+The original program reveals an elegant way of dividing that workload. A small loader brings in separate programs for the title, landscape, tunnel, arena and picture sequence, passing a compact shared game record between them. The landscape is generated from a seed instead of being stored as one enormous finished map. Four preset seeds offer repeatable worlds, while another choice creates a new one. Those arrangements help explain how the game can feel much larger and more varied than its minimum memory specification suggests, without proving that memory was the sole reason for every design decision.
+
+Williams said the Freud picture sequence arrived in the final month before beta testing, prompted by an idea for graphics routines. He also credited Roxy Wolosenko with making his confusing manual draft understandable to newcomers. Both the adventure and its explanation were still taking shape.
+
+That manual is part of the design's personality. It gives names and meaning to actions that might otherwise seem disconnected: changing forms, tracing a route, passing through the brain and recovering fragments. Our examination finds distinct systems behind those stages, joined by shared progress rather than a single repeated challenge. The resulting game asks players to learn its private vocabulary as well as its controls. Its appeal lies partly in that strangeness: a new computer offered room for an adventure whose world, rules and imagery had to be discovered together.
