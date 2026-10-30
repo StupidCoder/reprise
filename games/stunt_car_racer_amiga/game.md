@@ -362,6 +362,109 @@ real arithmetic, about a pixel along edges and lines. Known differences:
 a near side seen at a glancing angle shows thin stripes in the original
 (Hump Back, h4), and the thinned far segments.
 
+## Race screen (Observed, verified)
+
+The whole race screen is 320 × 200 (display window $3C81–$04C1), double
+buffered ($6A584 and +$7D00; the frame is finished at the swap, $5DAC0).
+
+**Cockpit picture**: packed at $201A4 (PackBits, unpacked by $593F8: 200
+rows, each the four planes' 40 bytes in turn), race colours at $20184.
+
+**Overlay items**: 52 items, records of 16 bytes at $6A16C (source column
+and row, columns − 1, rows − 1, screen column and row). They are cut at
+start ($69CFC) from the sprite sheet at $6A5B6 (a 320 × 200 picture with
+the planes interleaved a word at a time, plain in the program; colour 1 is
+see-through), except $0A–$0E, cut from the cockpit picture itself.
+$69F42 draws an item at its record's place (masked, CPU), $6A0BE at any
+pixel, clipped to the view. Items: $00–$05 front wheels (right and left,
+three steering frames), $06–$09/$31/$32 boost flames, $0A engine, $0B/$0C
+pieces under the view's lower corners, $0D/$0E the window's top corners,
+$0F/$10 and $11/$12 the dashboard lamps (lit/dim), $13–$16 crane chain
+links, $17–$1C roll-bar marks (hole, cracking, whole; +1 for odd
+positions), $1D–$24 smoke puffs, $25–$30 tyre treads (hardware sprites:
+plane A = sheet plane 0 inverted, plane B = sheet plane 2; colours 17–19
+black, white, $C88 from $69EB4), $33 the message box.
+
+**Each frame, after the view** ($650E2 on): crane chains ($662B4), the
+window corners, the front wheels (frame $1BBDB on the right, 5 − that on
+the left, top row from the suspension via $5E778, cut off at row $9F), the
+engine, the corner pieces, boost flames while $1BB62 (frame $1BB69, 0–2),
+the messages ($5E508). The tyre-tread sprites follow the wheels (item $25 +
+frame, + 6 when the wheel is above row $7E; $651B8, moved in the vertical
+blank).
+
+**Crane**: while the car hangs ($1BBDF counting down), the chains hang from
+the top of the view: links every 8 rows from (bottom − $30) up to row 16,
+bottom $1BBEA = $B0. Once the car is down they retract in five frames
+(bottom less 8, 16, 24, 32; gone at $60).
+
+**Dashboard** (drawn when it changes, into both buffers): the speed bar
+(speed $1BD30 → (speed − $1100) × $B700 >> 23, 0–127, rows 174–175 from x
+96, colour 3, dark 0; $5E23E); the ten roll-bar marks ($60988: the first
+$1C9CF whole, the rest holes); the chequered-flag lamp ($5E0C4, lit from a
+comparison with the opponent's laps and place, $607D0) and the right lamp
+($5E098, lit while $1BBB2 is 0); texts in the dashboard font (8 bytes a
+character from ' ' at $1FE82, 7 pixels wide, columns of 7 and rows of 8
+plus pixel offsets, each character filling its cell with colour 14 and its
+glyph 0; $594D6): "L" and the lap ($1BB20) at (37/45, 178), "B" and in
+league races ($1CA22 bit 7) the boost left ($1CA20, BCD) at (60, 178) and
+(68/76, 178), the distance to the opponent ($1BC38 × 5/16, minus while
+$1BBB8 bit 7) at (44…76, 188); lap times ($5E326: M:SS. and hundredths,
+BCD in $1C908/$1C920/$1C938) on row 178 (current lap, slot 0) and 188
+(slot 2), ':' and '.' drawn without filling their cells.
+
+**Messages** ($5E508, table at $5E65C): groups of a control byte ('!'
+starts the second line) and three characters ('<' a 4-pixel gap), named by
+their start and group count: WRECK, RACE WON, RACE LOST, DROP / START,
+PRESS FIRE, PAUSED, LAPS OVER, DEFINE KEYS, STEER LEFT/RIGHT, AHEAD/BACK +
+BOOST, VERIFY KEYS, FAULT FOUND. Printed from column 19 of row 4 (y 32;
+y 37 for a one-line two-group message), second line y 42, glyphs only,
+black (white while $1BB88); shown while $1BB8E bit 7. PRESS FIRE comes
+with the message box (Interpreted: its caller was not found).
+
+**Verification** (`harness/full.py`, `harness/screencheck.py`): whole
+frames captured at the swap with the cockpit state read from RAM, compared
+pixel for pixel with the port: practice (99.99 % outside the view), the
+crane (chains, swinging car: 99.88 %), boost flames, the speed bar (44
+pixels), messages, the end of a league race with PRESS FIRE (99.96 %).
+The tyre treads are sprites and not in the captured buffer. Known
+differences: the timer's '.' (3 pixels).
+
+## Opponent car (Observed, verified)
+
+Drawn by $67AA6 while 10 ≤ $1BC38 < $C80 and $1BBB8 bit 7 is clear, at
+its place in the painter's order: after the road piece just nearer than
+its rear axle ($1BC12, set while the rows are built, $66FF0; one more row
+when $63EDE ≥ $FF00, not understood).
+
+**Placement** ($5A356–$5A51C): its segment ($1BB1D), its rear axle's step
+($1BB13 fraction; Interpreted from $1BB0C − 64 over 256 in captures), the
+front axle half a step on; across the road $1BBEC (0 at the left edge, 256
+at the right), the wheels ± 27 ($1BB43). Road points and heights are
+interpolated linearly between the cross-sections and edges ($5C554).
+Corner body heights $1BF64/$1BF68/$1BF66/$1BF6A (rear left, rear right,
+front left, front right; about 15 above the road at rest); the shadow's
+heights are the lower of those and the road + $50.
+
+**Construction** ($599E2–$5A182, in screen space): the four corners are
+projected (at body and shadow height). For each axle, U is half the
+projected axle vector (each part limited to 255), V = (U.y, −U.x) / 2, the
+centre the axle's middle; U/2, U/4, U/8, V/2 truncated toward zero. Rear
+cross-section: −U/2 − V/2, V − 3U/8, V + 3U/8, U/2 − V/2; front: −U/2 −
+V/2, −U/2, U/2, U/2 − V/2; wheels from the axle's ends (−U to −U/2, U − U/2
+to U), V deep; the shadow's rear corners lowered by V − 1, its front by V;
+several corners one pixel larger (the game's ADDQ #1s). Faces in order:
+shadow (5, while across is $1C–$E4), front wheels, both sides (12), back
+(10), top (15), underside (9), rear wheels (0). The filler ($66618) follows
+each outline both ways from its top and fills a row only where the left
+end lies left of the right: faces turned away vanish, faces seen nearly
+edge-on leave slivers.
+
+**Verification**: the construction reproduces every vertex the game
+computed in a captured frame (RAM $1BFB0/$1C0F0 slots $100–$11E); posed
+behind the opponent (harness/behind.py) on Little Ramp and Hump Back the
+car matches to a pixel or two (the corners' projection).
+
 ## Lesson candidates
 
 - Copylock, and how a cracked image still yields the genuine key.
@@ -403,6 +506,16 @@ a near side seen at a glancing angle shows thin stripes in the original
   original, pixel for pixel; uses `stunt_car_racer_assets view`).
   `work/ram/race_*.{bin,png}`: two kept frames (Little Ramp f1, Hump Back
   h1); `work/compare/*.png`: original | port | difference for every frame
-  listed under "Race view".
+  listed under "Race view" and "Race screen".
+- `harness/full.py OUT [N] [D]` (whole frames at the buffer swap),
+  `harness/screencheck.py CAPTURE TRACK OUT` (whole screen port vs original,
+  state read from RAM; uses `stunt_car_racer_assets screen`),
+  `harness/items.py` (overlay items drawn in a frame), `harness/text.py N
+  [KEY]` (characters printed), `harness/behind.py OUT TRACK BACK STEP|auto`
+  (pose behind the opponent). The stub reports breakpoint stops only when
+  interrupted and queues replies: drain after every stop.
+- `tools/screens.py`: prototype decoders for the cockpit, palettes, sheet
+  and items.
 - `tools/dis68k`, built from RetroReverse's general 68000 disassembler
   (`go build ./cmd/dis68k` in `RetroReverse/tools`).
+

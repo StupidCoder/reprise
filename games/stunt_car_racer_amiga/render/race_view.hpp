@@ -5,6 +5,7 @@
 #include "stunt_car_racer_amiga/data/track.hpp"
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 // The view through the windscreen: sky, ground, and the circuit ahead as
@@ -35,9 +36,23 @@ struct View {
     std::array<std::uint8_t, view_width * view_height> pixels{}; // colour indices
 };
 
+// The opponent's car on the road (game.md, "Opponent car"): its rear axle
+// at `step` cross-sections into `segment` (fractions between), the front
+// axle half a step further on; `across` places its middle from the road's
+// left edge (0) to its right edge (256); its body's corners sit `lift`
+// height units above the road (about 15 at rest, observed; rear left, rear
+// right, front left, front right).
+struct Opponent {
+    int segment{};
+    double step{};
+    double across{128};
+    std::array<double, 4> lift{15, 15, 15, 15};
+};
+
 // Draws the hills and `track` as seen from `camera`, the car being on
-// `segment`.
-View draw_race_view(const data::Circuits&, const data::Scenery&, const data::Track&, int segment, const Camera&);
+// `segment`, with the opponent's car where given.
+View draw_race_view(const data::Circuits&, const data::Scenery&, const data::Track&, int segment, const Camera&,
+                    const std::optional<Opponent>& opponent = std::nullopt);
 
 platform::Image to_image(const View&, const Palette&);
 

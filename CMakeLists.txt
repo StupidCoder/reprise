@@ -362,10 +362,12 @@ target_compile_options(fa_18_interceptor_amiga PRIVATE ${PROJECT_WARNINGS})
 add_library(stunt_car_racer_amiga
     games/stunt_car_racer_amiga/entry.cpp
     games/stunt_car_racer_amiga/data/assets.cpp
+    games/stunt_car_racer_amiga/data/cockpit.cpp
     games/stunt_car_racer_amiga/data/preview.cpp
     games/stunt_car_racer_amiga/data/scenery.cpp
     games/stunt_car_racer_amiga/data/track.cpp
     games/stunt_car_racer_amiga/import/disk_import.cpp
+    games/stunt_car_racer_amiga/render/race_screen.cpp
     games/stunt_car_racer_amiga/render/race_view.cpp)
 target_include_directories(stunt_car_racer_amiga PUBLIC ${SOURCE_ROOT})
 target_link_libraries(stunt_car_racer_amiga PUBLIC amiga platform ui)

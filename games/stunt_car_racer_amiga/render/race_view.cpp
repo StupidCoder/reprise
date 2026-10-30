@@ -235,8 +235,164 @@ Palette race_palette(const data::Program& program) {
     return palette;
 }
 
+// The opponent's car, drawn as the game does it: its four corners are
+// projected (at the body's height, and at the lower of that and $50 above
+// the road for the shadow); everything else is built on screen from each
+// axle's projected half-vector U and V = (U.y, -U.x) / 2, which points up
+// the screen, in halves, quarters and eighths ($599E2-$5A182). The rear
+// axle's cross-section is tall (from -V/2 to V), the front one low (from 0
+// to -V/2), the body the box between them; each wheel a quad from the
+// axle's end half-way in, hanging V below. Faces ($67AA6): the shadow (5,
+// while over the road), far wheels (0), sides (12), back (10), top (15),
+// underside (9), near wheels (0); the body's faces only when facing the eye.
+constexpr std::uint8_t opponent_shadow = 5, opponent_wheel = 0, opponent_side = 12, opponent_back = 10,
+                       opponent_top = 15, opponent_underside = 9;
+constexpr int opponent_half_width = 27;           // lateral units of 256 across the road
+constexpr double opponent_axles = 0.5;            // steps between the axles
+constexpr int opponent_shadow_height = 0x50;      // the shadow sits at most this far above the road
+constexpr int opponent_shadow_road_min = 0x1C, opponent_shadow_road_max = 0xE4; // its middle over the road
+
+namespace {
+
+struct Pixel {
+    int x, y;
+};
+
+// The game's polygon filler for the opponent: from the top corner, the
+// polygon's outline is followed both ways; going forward gives each row's
+// right end, going back its left end, and a row is filled only where its
+// left end lies left of its right end. A face turned away fills nothing; one
+// seen almost edge-on leaves the slivers the game shows.
+void fill_chains(View& view, const std::vector<Screen>& loop, std::uint8_t colour) {
+    const int n = int(loop.size());
+    if (n < 3) return;
+    int top = 0, bottom = 0;
+    for (int i = 1; i < n; ++i) {
+        if (loop[std::size_t(i)].y < loop[std::size_t(top)].y) top = i;
+        if (loop[std::size_t(i)].y > loop[std::size_t(bottom)].y) bottom = i;
+    }
+    // x where a chain (stepping `dir` from the top) crosses row centre cy.
+    const auto cross = [&](int dir, double cy, double& x) {
+        for (int i = top, k = 0; k < n; ++k) {
+            const int j = ((i + dir) % n + n) % n;
+            const auto& a = loop[std::size_t(i)];
+            const auto& b = loop[std::size_t(j)];
+            if ((a.y <= cy && b.y > cy) || (b.y <= cy && a.y > cy)) {
+                x = a.x + (cy - a.y) * (b.x - a.x) / (b.y - a.y);
+                return true;
+            }
+            if (i == bottom && k > 0) break;
+            i = j;
+        }
+        return false;
+    };
+    const int y0 = std::max(0, int(std::ceil(loop[std::size_t(top)].y - 0.5)));
+    const int y1 = std::min(view_height - 1, int(std::floor(loop[std::size_t(bottom)].y - 0.5)));
+    for (int y = y0; y <= y1; ++y) {
+        double right = 0, left = 0;
+        if (!cross(+1, y + 0.5, right) || !cross(-1, y + 0.5, left) || left >= right) continue;
+        const int x0 = std::max(0, int(std::ceil(left - 0.5))), x1 = std::min(view_width - 1, int(std::floor(right - 0.5)));
+        for (int x = x0; x <= x1; ++x) view.pixels[std::size_t(y * view_width + x)] = colour;
+    }
+}
+
+// Truncating division by a power of two, as the game's shift-and-negate does.
+int toward_zero(int v, int shift) { return v < 0 ? -((-v) >> shift) : v >> shift; }
+
+void draw_opponent(View& view, const Projector& projector, const std::vector<std::vector<data::CrossSection>>& sections,
+                   const Opponent& opponent) {
+    const auto& cs = sections[std::size_t(opponent.segment)];
+    struct Corner {
+        Point3 body, low;
+    };
+    // Corner on the road at a step position and a lateral position.
+    const auto corner = [&](double step, double across, double lift) -> std::optional<Corner> {
+        const int i = int(std::floor(step));
+        if (i < 0 || i + 1 >= int(cs.size())) return std::nullopt;
+        const double f = step - i, t = across / 256;
+        const auto lerp = [](double a, double b, double k) { return a + (b - a) * k; };
+        const auto& a = cs[std::size_t(i)];
+        const auto& b = cs[std::size_t(i + 1)];
+        const double lx = lerp(a.left.x, b.left.x, f), lz = lerp(a.left.z, b.left.z, f);
+        const double rx = lerp(a.right.x, b.right.x, f), rz = lerp(a.right.z, b.right.z, f);
+        const double road = lerp(lerp(a.left_height, b.left_height, f), lerp(a.right_height, b.right_height, f), t);
+        const double x = lerp(lx, rx, t), z = lerp(lz, rz, t), body = road + lift;
+        return Corner{{x, z, body}, {x, z, std::min(body, road + opponent_shadow_height)}};
+    };
+    const double left = opponent.across - opponent_half_width, right = opponent.across + opponent_half_width;
+    const auto rear_left = corner(opponent.step, left, opponent.lift[0]);
+    const auto rear_right = corner(opponent.step, right, opponent.lift[1]);
+    const auto front_left = corner(opponent.step + opponent_axles, left, opponent.lift[2]);
+    const auto front_right = corner(opponent.step + opponent_axles, right, opponent.lift[3]);
+    if (!rear_left || !rear_right || !front_left || !front_right) return;
+    for (const auto* c : {&*rear_left, &*rear_right, &*front_left, &*front_right})
+        if (projector.ahead(c->body) < near_distance) return;
+    const auto pixel = [&](const Point3& p) {
+        const auto s = projector.project(p);
+        return Pixel{int(std::floor(s.x)), int(std::floor(s.y))};
+    };
+
+    struct Axle {
+        Pixel centre, u, v, u2, u4, u8, v2;
+    };
+    const auto axle = [&](Pixel a, Pixel b) {
+        int dx = (b.x - a.x) >> 1, dy = (b.y - a.y) >> 1;
+        dx = std::clamp(dx, -0xFF, 0xFF), dy = std::clamp(dy, -0xFF, 0xFF);
+        Axle x;
+        x.centre = {a.x + dx, a.y + dy};
+        x.u = {dx, dy};
+        x.v = {dy >> 1, (-dx) >> 1};
+        x.u2 = {toward_zero(dx, 1), toward_zero(dy, 1)};
+        x.u4 = {toward_zero(dx, 2), toward_zero(dy, 2)};
+        x.u8 = {toward_zero(dx, 3), toward_zero(dy, 3)};
+        x.v2 = {toward_zero(x.v.x, 1), toward_zero(x.v.y, 1)};
+        return x;
+    };
+    const auto rear = axle(pixel(rear_left->body), pixel(rear_right->body));
+    const auto front = axle(pixel(front_left->body), pixel(front_right->body));
+    const auto at = [](const Axle& a, int x, int y, int grow_x = 0, int grow_y = 0) {
+        return Screen{double(a.centre.x + x + grow_x), double(a.centre.y + y + grow_y)};
+    };
+    // A wheel from the axle's end (-1: left, +1: right) half-way in.
+    const auto wheel = [&](const Axle& a, int side) {
+        const int ox = side < 0 ? -a.u.x : a.u.x - a.u2.x, oy = side < 0 ? -a.u.y : a.u.y - a.u2.y;
+        return std::vector<Screen>{at(a, ox - a.v.x, oy - a.v.y, 0, 1), at(a, ox, oy),
+                                   at(a, ox + a.u2.x, oy + a.u2.y, 1, 0), at(a, ox + a.u2.x - a.v.x, oy + a.u2.y - a.v.y, 1, 1)};
+    };
+    // Rear cross-section (108, 10A, 10C, 10E) and front one (110-116).
+    const Screen r0 = at(rear, -rear.u2.x - rear.v2.x, -rear.u2.y - rear.v2.y, 0, 1);
+    const Screen r1 = at(rear, rear.v.x - rear.u4.x - rear.u8.x, rear.v.y - rear.u4.y - rear.u8.y);
+    const Screen r2 = at(rear, rear.v.x + rear.u4.x + rear.u8.x, rear.v.y + rear.u4.y + rear.u8.y, 1, 0);
+    const Screen r3 = at(rear, rear.u2.x - rear.v2.x, rear.u2.y - rear.v2.y, 1, 1);
+    const Screen f0 = at(front, -front.u2.x - front.v2.x, -front.u2.y - front.v2.y, 0, 1);
+    const Screen f1 = at(front, -front.u2.x, -front.u2.y);
+    const Screen f2 = at(front, front.u2.x, front.u2.y, 1, 0);
+    const Screen f3 = at(front, front.u2.x - front.v2.x, front.u2.y - front.v2.y, 1, 1);
+
+    if (opponent.across >= opponent_shadow_road_min && opponent.across <= opponent_shadow_road_max) {
+        auto s0 = pixel(rear_left->low), s1 = pixel(front_left->low), s2 = pixel(front_right->low), s3 = pixel(rear_right->low);
+        s0.x -= rear.v.x, s0.y -= rear.v.y - 1, s3.x -= rear.v.x, s3.y -= rear.v.y - 1;
+        s1.x -= front.v.x, s1.y -= front.v.y, s2.x -= front.v.x, s2.y -= front.v.y;
+        fill_chains(view, {{double(s0.x), double(s0.y)}, {double(s1.x), double(s1.y)}, {double(s2.x), double(s2.y)},
+                           {double(s3.x), double(s3.y)}},
+                    opponent_shadow);
+    }
+    fill_chains(view, wheel(front, -1), opponent_wheel);
+    fill_chains(view, wheel(front, +1), opponent_wheel);
+    const auto face = [&](std::vector<Screen> loop, std::uint8_t colour) { fill_chains(view, loop, colour); };
+    face({f0, f1, r1, r0}, opponent_side);
+    face({r3, r2, f2, f3}, opponent_side);
+    face({r0, r1, r2, r3}, opponent_back);
+    face({r1, f1, f2, r2}, opponent_top);
+    face({f0, r0, r3, f3}, opponent_underside);
+    fill_chains(view, wheel(rear, -1), opponent_wheel);
+    fill_chains(view, wheel(rear, +1), opponent_wheel);
+}
+
+} // namespace
+
 View draw_race_view(const data::Circuits& circuits, const data::Scenery& scenery, const data::Track& track,
-                    int segment, const Camera& camera) {
+                    int segment, const Camera& camera, const std::optional<Opponent>& opponent) {
     View view;
     const Projector projector(camera);
     for (int y = 0; y < view_height; ++y)
@@ -332,6 +488,17 @@ View draw_race_view(const data::Circuits& circuits, const data::Scenery& scenery
         return road_colours[0];
     };
 
+    // The road piece after which the opponent is drawn: the one ending at
+    // the cross-section behind its rear axle (or the previous segment's
+    // last, at a segment's start).
+    std::pair<int, int> opponent_piece{-1, -1};
+    bool opponent_drawn = false;
+    if (opponent) {
+        const int k = int(std::floor(opponent->step));
+        opponent_piece = k >= 1 ? std::pair{opponent->segment, k}
+                                : std::pair{wrap_segment(opponent->segment - 1), int(at(wrap_segment(opponent->segment - 1)).size()) - 1};
+    }
+
     // Painted from the far end back to the car, each segment from its far
     // end; the one behind the car last, from its near end.
     const Painter painter(view, projector);
@@ -350,6 +517,12 @@ View draw_race_view(const data::Circuits& circuits, const data::Scenery& scenery
             painter.draw_side({al, base(al), base(bl), bl}, wall_colours[parity]);
             painter.draw_side({br, base(br), base(ar), ar}, wall_colours[parity]);
             painter.draw({al, bl, br, ar}, road_colour(s, i));
+            // The opponent after the road piece just nearer than its rear
+            // axle (the row before its cross-section, $66FF0).
+            if (opponent && s == opponent_piece.first && i == opponent_piece.second && !opponent_drawn) {
+                draw_opponent(view, projector, sections, *opponent);
+                opponent_drawn = true;
+            }
             if (i == steps && s == track.start_line_segment) painter.draw_line(bl, br, start_line);
             if (s == behind) continue;
             const int ahead = steps_ahead(s, i);
@@ -362,6 +535,7 @@ View draw_race_view(const data::Circuits& circuits, const data::Scenery& scenery
             }
         }
     }
+    if (opponent && !opponent_drawn) draw_opponent(view, projector, sections, *opponent);
     return view;
 }
 
