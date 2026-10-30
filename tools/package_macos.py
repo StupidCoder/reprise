@@ -5,13 +5,15 @@ license); no game data. It is signed ad hoc, which is enough to run locally
 but not notarized for distribution.
 """
 import plistlib
+import re
 import shutil
 import stat
 import subprocess
 import tempfile
 from pathlib import Path
 
-VERSION = '0.2.0'
+VERSION = re.search(r'project\(Reprise VERSION ([\d.]+)',
+                    (Path(__file__).resolve().parents[1] / 'CMakeLists.txt').read_text()).group(1)
 BUILD = '1'
 
 root = Path(__file__).resolve().parents[1]

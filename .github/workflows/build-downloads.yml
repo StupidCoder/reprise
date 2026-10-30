@@ -1,0 +1,126 @@
+name: Build downloads
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v[0-9]*']
+
+permissions:
+  contents: read
+
+# Keep an existing build running; queue another request instead of wasting its work.
+concurrency:
+  group: downloads-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  macos:
+    name: macOS (Apple Silicon)
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install build tools
+        run: brew install cmake ninja
+      - name: Build pinned dependencies, Reprise and shell checks
+        run: python3 tools/build_ci_macos.py
+      - name: Check shell without game images
+        run: ctest --test-dir build --output-on-failure -R '^(shell_navigation|shell_motion|import_progress)$'
+      - name: Package app
+        run: |
+          python3 tools/package_macos.py
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc --keepParent build/Reprise.app dist/Reprise-macOS-arm64.zip
+          shasum -a 256 dist/Reprise-macOS-arm64.zip > dist/Reprise-macOS-arm64.zip.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Reprise-macOS-arm64
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  android:
+    name: Android (ARM64 test APK)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install build tools and pinned Android SDK
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build
+          python3 - <<'PY'
+          import subprocess
+          from tools.build_android import NDK_VERSION, TOOLS_VERSION, TARGET_API
+          subprocess.run(['sdkmanager', 'platform-tools', f'platforms;android-{TARGET_API}',
+                          f'build-tools;{TOOLS_VERSION}', f'ndk;{NDK_VERSION}'], check=True)
+          PY
+      - name: Prepare Android signing identity
+        env:
+          KEYSTORE_BASE64: ${{ secrets.REPRISE_ANDROID_DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          python3 - <<'PY'
+          import base64, os
+          from pathlib import Path
+          encoded = os.environ.get('KEYSTORE_BASE64', '')
+          if encoded:
+              key = Path.home() / '.android/debug.keystore'
+              key.parent.mkdir(parents=True, exist_ok=True)
+              key.write_bytes(base64.b64decode(encoded, validate=True))
+              key.chmod(0o600)
+          elif os.environ['GITHUB_REF'].startswith('refs/tags/'):
+              raise SystemExit('Set REPRISE_ANDROID_DEBUG_KEYSTORE_BASE64 before creating release builds.')
+          else:
+              print('::warning::No shared signing key: this test APK cannot update APKs from other builds.')
+          PY
+      - name: Build and verify APK
+        run: |
+          unset ANDROID_NDK_HOME ANDROID_NDK_ROOT
+          ./build-android.sh --jobs 4 --version-code "$((1000 + GITHUB_RUN_NUMBER))"
+          mkdir -p dist
+          cp build-android/Reprise.apk dist/Reprise-Android-arm64.apk
+          cp build-android/build-info.json dist/Android-build-info.json
+          sha256sum dist/Reprise-Android-arm64.apk > dist/Reprise-Android-arm64.apk.sha256
+      - name: Remove signing material
+        if: always()
+        run: rm -f "$HOME/.android/debug.keystore"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Reprise-Android-arm64
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Prepare draft release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [macos, android]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create or update draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "Reprise $RELEASE_TAG" --notes "Test builds: Apple Silicon macOS app (ad-hoc signed, not notarized) and ARM64 Android APK (debug signed). Supply your own game images. Review and edit these notes before publishing."
+          fi
+          gh release upload "$RELEASE_TAG" dist/* --clobber
