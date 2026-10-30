@@ -250,7 +250,8 @@ for (`ramp_inputs`: pitch and rudder 20, roll 60, a deflection d gives
 back by the ramp's own steps. The keys and the recorded control bytes
 use deflection 1, so every check is unchanged. The slider sets the
 throttle target in the F-keys' tenths (0 idle, 10 full power then the
-afterburner, as F10); GEAR is the G key. Fire and the weapon keys have
+afterburner, as F10); GEAR is the G key. VIEW (above GEAR) is keypad Enter: the
+cockpit or the outside camera. Fire and the weapon keys have
 no touch buttons yet.
 
 **Taps on the front end (port, 2026-10-30).** A tap on a menu or mission
@@ -2489,7 +2490,7 @@ Research files live in `.analysis/fa_18_interceptor_amiga/` (`harness/`,
   pictures and `!wav`; keys: digits, `*` Return, `~` Tab (Esc), `^`
   Ctrl+Tab (Shift-Esc), `_` space, capitals the letter keys, `@ [ ] { }`
   the keypad's 0 4 6 8 2; touch: `?stick=X,Y` held until the next stick
-  step, `?throttle=Y`, `?gear`, `?tap=X,Y` in picture pixels - quote
+  step, `?throttle=Y`, `?gear`, `?view`, `?tap=X,Y` in picture pixels - quote
   them in zsh), `stickcheck` (the pitch input's ramp for a half
   deflection).
 - `harness/proc.py`: the running original's screen procedure, frame

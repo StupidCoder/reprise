@@ -27,7 +27,7 @@ deflection sets the inputs the original ramps (`ramp_inputs`: pitch and
 rudder ±20, roll ±60, looked up in the response tables) and a throttle
 axis the throttle target; the digital path stays the default (faithful
 play, the demo, the checks). Done for touch (2026-10-30): the shared
-touch framework's stick, throttle slider and GEAR button (game.md
+touch framework's stick, throttle slider, GEAR and VIEW buttons (game.md
 "Input"), and taps on the front end's menus, map and aircraft question.
 Left: fire and weapon buttons for touch, a gamepad's analog axes (the
 app has none yet).

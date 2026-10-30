@@ -710,6 +710,8 @@ public:
         layout.push_back({"throttle", "THROTTLE", Kind::slider, .89f, .30f, .09f, .62f, throttle});
         layout.back().displayed_value = throttle;
         layout.push_back({"gear", "GEAR", Kind::button, .75f, .76f, .12f, .16f});
+        // The cockpit / outside camera (keypad Enter).
+        layout.push_back({"view", "VIEW", Kind::button, .75f, .56f, .12f, .16f});
         return layout;
     }
     void set_option(std::size_t index, int value) override {
@@ -1547,7 +1549,9 @@ private:
             c.throttle_down = input.c64_keys[key::minus];
             // The touch controls: the stick's deflection, the throttle slider
             // in the original's tenths (F1 - F10; 0: down to idle), the gear.
+            touch_view_ = false;
             for (const auto& v : input.touch_controls) {
+                if (v.id == "view") touch_view_ = v.held;
                 if (v.id == "stick" && (v.x != 0 || v.y != 0)) {
                     c.stick = std::array<float, 2>{v.x, v.y};
                 } else if (v.id == "throttle" && v.changed) {
@@ -2100,7 +2104,7 @@ private:
             outside_ = true;
             chase_set_ = false;
         }
-        if (edge(input.fire2, pad_was_[0])) {
+        if (edge(input.fire2 || touch_view_, pad_was_[0])) {
             above_ = false;
             // $10E3B8 / $1041E8: the outside view starts in front of the
             // aircraft ($13ABA2 = 4) at the nearest distance ($13AA75 = -1).
@@ -2622,6 +2626,7 @@ private:
     long ticks_ = 0;
     bool smooth_ = true, widescreen_ = false, sound_ = true;
     int vhs_ = 0;
+    bool touch_view_ = false; // the VIEW touch button, held
     int controls_ = 0; // the controls' scheme (0 automatic, 1 keyboard / gamepad, 2 touch stick)
     platform::InputCapabilities input_caps_{};
     int margin_ = 0, canvas_width_ = 0, canvas_height_ = 0;

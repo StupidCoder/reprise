@@ -2030,7 +2030,7 @@ int fly_script(const std::filesystem::path& content, const std::string& prefix, 
     }
     std::string held;
     // Touch controls (`?stick=X,Y` held until the next touch step, `?throttle=Y`
-    // a slider move, `?gear` a tap) and taps on the picture (`?tap=X,Y`).
+    // a slider move, `?gear` / `?view` a tap) and taps on the picture (`?tap=X,Y`).
     std::optional<std::array<float, 2>> stick;
     for (int tick = 0; tick <= last; ++tick) {
         app::GameInput input;
@@ -2053,9 +2053,9 @@ int fly_script(const std::filesystem::path& content, const std::string& prefix, 
                 e.y = std::stof(t.substr(comma + 1));
                 e.touch = true;
                 input.pointer_events.push_back(e);
-            } else if (t == "?gear") {
+            } else if (t == "?gear" || t == "?view") {
                 platform::TouchValue v;
-                v.id = "gear";
+                v.id = t.substr(1);
                 v.pressed = v.held = true;
                 input.touch_controls.push_back(v);
             }
