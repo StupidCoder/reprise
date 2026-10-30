@@ -2,6 +2,9 @@
 // the original (.analysis/rock_n_roll_amiga/harness/play.py record).
 //
 //   rock_n_roll_replay ball <content> <level> <recording> [<recording> …] [all]
+//   rock_n_roll_replay logo <content> <frames folder> [png folder]
+//       the Rainbow Arts logo against the frames comp/cdbg.py record_logo
+//       wrote (planes and colours at each interrupt's entry)
 //
 // The recording holds the original's state at the top of each update of
 // the in-level loop and the mouse counters the harness set for it. The
@@ -17,11 +20,16 @@
 #include "rock_n_roll_amiga/data/assets.hpp"
 #include "rock_n_roll_amiga/game/ball.hpp"
 #include "rock_n_roll_amiga/game/module.hpp"
+#include "rock_n_roll_amiga/intro/band_intro.hpp"
+#include "rock_n_roll_amiga/intro/rainbow_logo.hpp"
 #include "rock_n_roll_amiga/sound/game_sound.hpp"
+#include "rock_n_roll_amiga/sound/tfmx.hpp"
 #include "platform/host.hpp"
 #include <cstdio>
 #include <cstring>
+#include <algorithm>
 #include <exception>
+#include <filesystem>
 #include <fstream>
 #include <map>
 #include <sstream>
@@ -454,6 +462,126 @@ void start_from(const Row& first, game::Ball& ball, game::Pocket& pocket, game::
 int main(int argc, char** argv) {
     const std::string command = argc > 1 ? argv[1] : "";
     try {
+        if (command == "band" && argc >= 4) {
+            // band <content> <folder>: the wipe and the band against
+            // comp/cdbg.py record_band (screens at each wipe wait, then per
+            // frame the count, slots and turn, and every 50th screen).
+            const auto assets = data::load_assets(platform::utf8_path(argv[2]));
+            const std::filesystem::path dir = platform::utf8_path(argv[3]);
+            intro::BandIntro band(assets.intro);
+            while (!band.wiping_in()) band.tick(false); // the tick ending the pause makes the first swap
+            int bad = 0;
+            auto compare_screen = [&](const std::filesystem::path& file, const char* what, int n) {
+                if (!std::filesystem::exists(file)) return;
+                const auto want = platform::read_file(file);
+                const auto got = band.screen();
+                std::size_t differ = 0;
+                for (std::size_t i = 0; i < got.size(); ++i) differ += want[i] != got[i];
+                if (differ && bad++ < 12) std::printf("%s %d: %zu screen bytes differ\n", what, n, differ);
+            };
+            char name[32];
+            int wipe = 1;
+            for (; wipe < 199; ++wipe) {
+                if (wipe > 1) band.tick(false);
+                std::snprintf(name, sizeof name, "w%03d.bin", wipe);
+                compare_screen(dir / name, "wipe", wipe);
+            }
+            std::ifstream log(dir / "log.txt");
+            std::string line;
+            int frames = 0;
+            while (std::getline(log, line)) {
+                band.tick(false);
+                std::istringstream words(line);
+                int n = 0;
+                std::string pc, hex;
+                words >> n >> pc >> hex;
+                auto value = [&](std::size_t byte, std::size_t len) { return std::stoul(hex.substr(byte * 2, len * 2), nullptr, 16); };
+                const auto slots = band.slot_words();
+                bool same = int(value(0, 4)) == band.timeline() && int(value(48, 4)) == band.turn() * 4;
+                for (std::size_t i = 0; i < slots.size(); ++i) same = same && value(4 + i * 2, 2) == slots[i];
+                if (!same && bad++ < 12) std::printf("frame %d (%s): count %lx/%d turn %lx/%d slots differ\n", n, pc.c_str(), value(0, 4),
+                                                     band.timeline(), value(48, 4), band.turn() * 4);
+                std::snprintf(name, sizeof name, "b%05d.bin", n);
+                compare_screen(dir / name, "band", n);
+                ++frames;
+            }
+            std::printf("%d wipe steps, %d band frames, %d differ\n", wipe, frames, bad);
+            return bad ? 1 : 0;
+        }
+        if (command == "curtain" && argc >= 4) {
+            // curtain <content> <frames folder>: the band intro's curtain
+            // against comp/cdbg.py record_curtain (the screen at each pass's
+            // wait, $7C52E; one tick per pass, the pause between the signs
+            // skipped).
+            const auto assets = data::load_assets(platform::utf8_path(argv[2]));
+            std::vector<std::filesystem::path> frames;
+            for (const auto& e : std::filesystem::directory_iterator(platform::utf8_path(argv[3]))) frames.push_back(e.path());
+            std::sort(frames.begin(), frames.end());
+            intro::BandIntro band(assets.intro);
+            int bad = 0;
+            std::size_t n = 0;
+            for (int tick = 0; n + 1 < frames.size() && tick < 4000; ++tick) {
+                band.tick(false);
+                if (band.pausing()) continue;
+                const auto want = platform::read_file(frames[n]);
+                const auto got = band.screen();
+                std::size_t differ = 0;
+                for (std::size_t i = 0; i < got.size(); ++i) differ += want[i] != got[i];
+                if (differ && bad++ < 10) std::printf("pass %zu: %zu bytes differ\n", n, differ);
+                ++n;
+            }
+            std::printf("%zu passes, %d differ\n", n, bad);
+            return bad ? 1 : 0;
+        }
+        if (command == "logo" && argc >= 4) {
+            const auto assets = data::load_assets(platform::utf8_path(argv[2]));
+            std::vector<std::filesystem::path> frames;
+            for (const auto& e : std::filesystem::directory_iterator(platform::utf8_path(argv[3]))) frames.push_back(e.path());
+            std::sort(frames.begin(), frames.end());
+            intro::RainbowLogo logo(assets.logo);
+            constexpr std::size_t plane_bytes = 4 * 0x2260, colours_at = plane_bytes + (0x30DDC - 0x30AD0);
+            int bad = 0;
+            for (std::size_t n = 0; n < frames.size(); ++n) {
+                if (n > 0) logo.tick(false);
+                const auto want = platform::read_file(frames[n]);
+                const auto got = logo.shown_planes();
+                std::size_t differ = 0, first = 0;
+                for (std::size_t i = 0; i < plane_bytes; ++i)
+                    if (want[i] != got[i] && differ++ == 0) first = i;
+                const auto colours = logo.colours();
+                int colour_differ = 0;
+                for (std::size_t c = 0; c < 16; ++c)
+                    if (colours[c] != std::uint16_t(want[colours_at + c * 4] << 8 | want[colours_at + c * 4 + 1])) ++colour_differ;
+                // The sound's counters, slides, wobble and fades (the random
+                // volume aside).
+                int sound_differ = 0;
+                for (const auto& [address, value] : logo.sound_state()) {
+                    const std::size_t at = plane_bytes + (address - 0x30AD0);
+                    const bool byte = address == 0x30B00 || address == 0x30B03;
+                    const bool is_long = address == 0x30AEC || address == 0x30AF0;
+                    std::uint32_t original = 0;
+                    for (std::size_t k = 0; k < (byte ? 1u : is_long ? 4u : 2u); ++k) original = original << 8 | want[at + k];
+                    if (original != value) {
+                        if (sound_differ++ == 0 && bad < 12)
+                            std::printf("frame %zu: sound %05x native %x original %x\n", n, address, value, original);
+                    }
+                }
+                if (sound_differ) ++bad;
+                if (differ || colour_differ) {
+                    if (bad++ < 12)
+                        std::printf("frame %zu (%s): %zu plane bytes differ (first plane %zu row %zu byte %zu), %d colours\n", n,
+                                    frames[n].filename().string().c_str(), differ, first / 0x2260, first % 0x2260 / 40, first % 40,
+                                    colour_differ);
+                }
+                if (argc >= 5 && n % 20 == 0) {
+                    char name[32];
+                    std::snprintf(name, sizeof name, "/logo%04zu.png", n);
+                    platform::save_png(logo.picture(), platform::utf8_path(std::string(argv[4]) + name));
+                }
+            }
+            std::printf("%zu frames, %d differ\n", frames.size(), bad);
+            return bad ? 1 : 0;
+        }
         if (command == "ball" && argc >= 5) {
             std::vector<std::string> recordings;
             bool all = false;
@@ -661,6 +789,60 @@ int main(int argc, char** argv) {
             }
             return 0;
         }
+        if (command == "intromusic" && argc >= 4) {
+            // intromusic <content> <dump>: the TFMX player on the band
+            // intro's song against comp/cdbg.py record_music (the state at
+            // each frame call's entry: line n+1 follows n frames).
+            const auto assets = data::load_assets(platform::utf8_path(argv[2]));
+            const auto& intro = assets.intro;
+            constexpr std::uint32_t song_at = 0x1BE50, samples_at = 0x1EB08, periods_at = 0x1BDCA;
+            sound::Tfmx player;
+            std::vector<std::uint16_t> periods;
+            for (std::uint32_t i = 0; i < 256; ++i) periods.push_back(intro.u16(periods_at + i * 2));
+            player.set_periods(periods);
+            player.set_sample_base(samples_at);
+            const auto song = intro.bytes(song_at, samples_at - song_at);
+            player.init(std::vector<std::uint8_t>(song.begin(), song.end()));
+            player.start_song(0);
+            const auto sample_bytes = intro.bytes(samples_at, intro.end() - samples_at);
+            std::vector<std::int8_t> memory(sample_bytes.begin(), sample_bytes.end());
+            amiga::PaulaChannels paula;
+            paula.set_memory(memory);
+            std::ifstream in(argv[3]);
+            std::string line;
+            int frames = 0, bad = 0;
+            std::getline(in, line); // before the first frame
+            while (std::getline(in, line) && bad < 12) {
+                player.frame(paula, memory);
+                std::istringstream words(line);
+                std::string w;
+                words >> w;
+                std::map<std::string, std::int64_t> original;
+                while (words >> w) {
+                    const auto eq = w.find('=');
+                    original[w.substr(0, eq)] = std::int64_t(std::stoull(w.substr(eq + 1), nullptr, 16));
+                }
+                const auto snapshot = player.snapshot(song_at);
+                std::map<std::string, std::int64_t> native(snapshot.begin(), snapshot.end());
+                for (const auto& [name, value] : snapshot) {
+                    const auto it = original.find(name);
+                    if (it == original.end()) continue;
+                    if (name.size() > 2 && name[0] == 'c' && (name.substr(2) == "macro" || name.substr(2) == "key")) {
+                        const auto state = name.substr(0, 2) + "state";
+                        if (original[state] == 0 && native[state] == 0) continue;
+                    }
+                    const std::int64_t mine = value & 0xFFFFFFFF;
+                    if (it->second != mine) {
+                        std::printf("frame %d: %s native %llx original %llx\n", frames, name.c_str(), (unsigned long long)mine,
+                                    (unsigned long long)it->second);
+                        ++bad;
+                    }
+                }
+                ++frames;
+            }
+            std::printf("%d frames checked, %d differences\n", frames, bad);
+            return bad ? 1 : 0;
+        }
         if (command == "musiccheck" && argc >= 5) {
             // musiccheck <content> <world 1-7 | title> <dump>: the player
             // against the original's state per frame (harness/snd_dump.py).
@@ -751,6 +933,11 @@ int main(int argc, char** argv) {
             // read into a fresh game, both run on and their pictures
             // compared every update).
             auto game = game::start(platform::utf8_path(argv[2]));
+            // "intro": start with the Rainbow Arts logo and the band intro
+            // (otherwise straight at the title, as the runs were recorded).
+            bool with_intro = false;
+            for (int i = 5; i < argc; ++i) with_intro |= std::string(argv[i]) == "intro";
+            if (!with_intro) game::skip_intro(*game);
             const int updates = std::stoi(argv[3]);
             struct Step { int a, b, dx, dy; bool l, r, f; int key; };
             std::vector<Step> steps;
@@ -771,6 +958,7 @@ int main(int argc, char** argv) {
                 st.key = -1;
                 char buttons[4] = {};
                 char shot[512] = {};
+                if (std::string(argv[i]) == "intro") continue;
                 if (std::sscanf(argv[i], "check_save=%d", &check_save) == 1) continue;
                 if (int index = 0, value = 0; std::sscanf(argv[i], "option=%d,%d", &index, &value) == 2) {
                     game->set_option(std::size_t(index), value);
@@ -872,6 +1060,7 @@ int main(int argc, char** argv) {
                         std::printf("update %d: no state to save here\n", n);
                     } else {
                         twin = game::start(platform::utf8_path(argv[2]));
+                        game::skip_intro(*twin);
                         twin->read_state(state);
                         std::printf("update %d: saved %zu bytes into a fresh game\n", n, state.size());
                     }

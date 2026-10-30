@@ -287,7 +287,10 @@ add_library(rock_n_roll_amiga
     games/rock_n_roll_amiga/sound/game_sound.cpp
     games/rock_n_roll_amiga/sound/tfmx.cpp
     games/rock_n_roll_amiga/import/cruncher.cpp
-    games/rock_n_roll_amiga/import/disk_import.cpp)
+    games/rock_n_roll_amiga/import/disk_import.cpp
+    games/rock_n_roll_amiga/import/packers.cpp
+    games/rock_n_roll_amiga/intro/band_intro.cpp
+    games/rock_n_roll_amiga/intro/rainbow_logo.cpp)
 target_include_directories(rock_n_roll_amiga PUBLIC ${SOURCE_ROOT})
 target_link_libraries(rock_n_roll_amiga PUBLIC amiga platform ui)
 target_compile_options(rock_n_roll_amiga PRIVATE ${PROJECT_WARNINGS})

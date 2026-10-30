@@ -6,12 +6,16 @@ the original's own bugs. The remaining work is in [plan.md](plan.md).
 
 ## Sources and evidence
 
-- **Disk image:** `Rock'n Roll (1989)(Rainbow Arts)[cr PNA].adf` (901,120
-  bytes).
-  - SHA-256 `1d89a8e7b51a3f76a20be9f78229f46c6cac1339f4135d1e5078b1a228615e60`.
-  - It is a crack by "PNA" ("Paranoimia", per its intro) that puts the
-    two-disk original on one disk. The "INSERT DISK 2" texts remain in the
-    program.
+- **Disk image:** `Rock'n Roll (1991)(Rainbow Arts)[compilation 5th
+  Anniversary].adf` (901,120 bytes), the one-disk release on Rainbow Arts'
+  1991 compilation, with the Rainbow Arts logo and the band intro.
+  - SHA-256 `09ca427b211c1cf88ca879d261bc0b01ce5dc2864a0dbc4e2383ebf511ed22d4`,
+    MD5 `3ac42a5a46f5f6cca87e8acc8b238203`.
+  - Until 2026-10-30 the work used a crack, `Rock'n Roll (1989)(Rainbow
+    Arts)[cr PNA].adf` (SHA-256 `1d89a8e7…228615e60`), which lacks the band
+    intro. Its program and all 63 game files are byte for byte those of the
+    compilation disk, so everything learned from it stands; the port no
+    longer imports it.
 - **Method:** everything here comes from this image and from running it in
   FS-UAE (Kickstart 1.3, A500).
   - No outside material on this game was used; RetroReverse has nothing on
@@ -22,13 +26,17 @@ the original's own bugs. The remaining work is in [plan.md](plan.md).
     copy inside the program.
 - **Addresses:** `$xxxxx` is a location in the running program. Main is
   unpacked to $1A578; the flat image from 0 is `work/M.bin`. Game files are
-  numbered in hex.
+  numbered in hex. The logo runs from $30000 and the band intro from
+  $1087E; their addresses are in those programs.
 - **Local evidence:** kept outside the repository, in
   `.analysis/rock_n_roll_amiga/`:
   - `harness/`: the FS-UAE reference machine and the recorder;
   - `runs/`: the recordings;
   - `work/`: unpacked files and the Ghidra decompile `work/all.c`;
-  - `tools/`: the research unpacker and render scripts.
+  - `tools/`: the research unpacker and render scripts;
+  - `comp/`: the compilation disk's harness (`run.sh`, FS-UAE on port 6874,
+    `cdbg.py` with the recorders), its research unpackers and blitter
+    model (`tools/`), listings and recordings (`work/`).
 
   The flow of `$6858A` is hard to follow in Ghidra; check the instructions.
 - **"Update":** one pass of the in-level loop, which is one PAL frame.
@@ -38,41 +46,70 @@ the original's own bugs. The remaining work is in [plan.md](plan.md).
 
 ## Disk and boot
 
-- **File system:** AmigaDOS OFS, volume `Rock&Roll`. `s/startup-sequence`
-  runs `intro`. Files:
-  - `intro`: the crack intro, a hunk file;
-  - `Main`: the game, a hunk file of 156,792 bytes;
-  - `devs/System-Configuration` and `Disk.info`;
-  - 63 numbered game files, `00`–`41`.
-- **No band intro:** the original's intro with the rock band is not on this
-  one-disk crack. `intro` (7,360 bytes) is the crack's own demo; no file,
-  and none of the 274 unused blocks (old copies of `intro`'s blocks and a
-  counting pattern), holds its pictures or music. The game itself still
-  checks for a disk 2 (`$71554`), so the original came on two disks.
-- **Cruncher:**
+The compilation disk has no file system. Its parts, by offset in the image
+(a track is $1600 bytes):
+
+| Offset | Contents |
+| --- | --- |
+| 0 | Boot block ("DOS\0", custom code; credits "Postproduction by Dennis M. Ploeger", "Copyright 1989/90 by Rainbow Arts") |
+| $200, $D9C00 | The boot program (a hunk file split in two), packed ("FUCK" header): the Rainbow Arts logo |
+| $DB600 | The track loader (a hunk file), packed |
+| tracks 2–85 | The game's files $00–$41, at the offsets the loader's table gives |
+| $7E800 (track 92) | File $44: the band intro (a hunk file, DefJam-packed) |
+| $B1600 (track 129) | File $43: 8 KB of trainer code, then `Main` (the game, a hunk file of 156,792 bytes) |
+
+- **Boot:**
+  1. The boot block reads $2A00 bytes from $200 to $50000 and $2400 bytes
+     from $D9C00 to $52A00 (trackdisk), copies the loader hunk's first
+     $A00 bytes ($54400 on) to $60000, and enters $50000 in supervisor mode
+     (TRAP 0).
+  2. $50000 (the hunk header runs as harmless ORI instructions) unpacks the
+     logo to $30000 and jumps to $30002 (`unpack_boot`, `$50020`–`$50164`).
+  3. The logo ends with RTE back into the boot block, which jumps to the
+     loader at $60024. It unpacks the loader to $A000 (`unpack_loader`) and
+     jumps to `$AAAC`: load file $44 to $3A000 and enter it; the intro's
+     DefJam code (copied to $7F000) unpacks it to $1087E and enters $7BC44
+     (`unpack_defjam`).
+  4. The intro ends with `JMP ($4)` = `$AADE`: clear memory, load file $43
+     to $10000, install the trainer hook at $7F000 (its options at $7EFFD,
+     cleared just before), and jump to $12024, Main's stub. The stub is the
+     crack's except that it does not flash the background and ends with a
+     jump to the trainer's set-up at $11200, which patches nothing with all
+     options clear, and on to $68166.
+- **Loader** (`$A000`): file n's entry at `$A65C` + 16n: load address,
+  length, track (×$1600), offset in the track, crunched flag (the game's
+  cruncher, unpacked from load address − $500). Number $30 first goes
+  through the game's `$71554` (the disk-2 check). $3D and $3E point at the
+  data of $33 and $39.
+- **Packers** (`import/packers.cpp`, research copies in `comp/tools/unpackers.py`):
+  - the boot program's: a Huffman-coded stream (a tree of word nodes, bits
+    from longs read backwards, the reader fetching a long ahead), then two
+    run-length passes with escape bytes from the header;
+  - the loader's and DefJam's: LZ streams read backwards (each long's bits
+    end at a marker bit); DefJam codes literals through a 264-byte table and
+    ends with a run-length pass (escape $95, count + 3 copies).
+  - *Checked:* all three unpack byte for byte as the original does in
+    memory (logo 31,272 bytes, loader 3,414 bytes, intro $6E3D2 bytes from
+    $1087E).
+- **Game files:** *checked:* Main unpacks to the same program as the
+  crack's (SHA-256 `fe997f4a…`), and the 63 numbered files equal the
+  crack's.
+- **Main's cruncher:**
   - `Main`'s code hunk starts with an unpacking stub (+$0..$E6). It unpacks
-    the stream at +$E8 to $1A578 (length $61800, up to $7BD78) and jumps to
-    $68166. A failed checksum flashes the background.
+    the stream at +$E8 to $1A578 (length $61800, up to $7BD78) and jumps on.
   - The numbered files use the same format, with a 12-byte header: packed
     length, unpacked length, XOR checksum. Only file `35` is stored raw.
   - Everything unpacks with good checksums.
   - Code: `import/cruncher.cpp`; research copy `tools/bk.py`.
-- **Boot:**
-  1. `intro` (also crunched) unpacks to $50000. It calls the demo
-     (`$5334C`) and copies the crack's file loader $50200..$51200 to $A000.
-     Then it loads `Main` by name to $10000 and jumps into Main's stub.
-  2. Main takes over the hardware and makes no OS calls. Its loader glue
-     (`$7103A`, `$7108E`) disables interrupts and calls `jsr $A000` with the
-     file number in `$70DCC`.
-  3. The crack's loader builds the file name from two hex digits of the
-     number, except $3D → "33" and $3E → "39".
-     - The destination is the long at `$78136` + n×8 + 4. The file is
-       unpacked from destination − $500.
-     - File $35 is not unpacked.
-     - Number $30 first goes through the game's own `$71554` (the
-       disk-2 check, original code).
+- **Main's loading:** Main takes over the hardware and makes no OS calls.
+  Its loader glue (`$7103A`, `$7108E`) disables interrupts and calls
+  `jsr $A000` with the file number in `$70DCC`.
 - *Checked:* the program in memory at its entry ($68166) equals the
   unpacked image byte for byte.
+- **The crack** (history): an OFS disk whose startup-sequence ran the
+  cracker's demo `intro`, which loaded `Main` by name and served the files
+  by their hex numbers. It has no band intro anywhere on the disk; the
+  game's disk-2 check shows the original came on two disks.
 
 ### Load table `$78136` (8 bytes per file number)
 
@@ -88,6 +125,142 @@ the original's own bugs. The remaining work is in [plan.md](plan.md).
 | 3F | $1A578 | Main itself |
 | 40 | $10360 | Three TFMX song sets: title $10360, $13240, $16120 (copied by `$70E40`) |
 | 41 | $18F46 | The ending picture ("YOU MADE IT") |
+
+## The intros (compilation disk)
+
+### Rainbow Arts logo (`$30000`, "CODED IN 1990 BY MANFRED TRENZ")
+
+Rebuilt in `intro/rainbow_logo.cpp`; all of its data is read from the
+installed `logo` (the program as it runs).
+
+- **Screen:** copper list `$30D9A`: 4 bitplanes of 320 × 220 one after the
+  other from $383C8 ($2260 bytes each), 16 colours, no sprites. A copper
+  interrupt at line $F0 runs the frame's work once a frame.
+- **Pen** (`$3025A`):
+  - The XOR fuse (`$30312`) runs in plane 0 from the pen down to the
+    anchor's row (160, 219), one pixel a row, a sideways step only where
+    the error term reaches 0 (at most one a row), the first 5 rows left out.
+    It is taken off at the frame's start and drawn again at its end, so the
+    burn never meets it. The set-up draws it once.
+  - The sparkler: a 32 × 28 bob of 4 planes, 10 frames at `$30E80` (448
+    bytes a frame), its mask the OR of its planes, cookie-cut at (x − 15,
+    y − 14). It is drawn at the pen's place before the step and the fuse
+    to the place after it.
+  - The path (`$30D66`): 4 segments (dx, dy, steps), 2 pixels a frame, 208
+    frames round the box from (87, 110).
+  - The burnt edge (`$30572`): 7 layers wait 0, 11, 15, 19, 23, 27, 31
+    frames (`$30D38`), then each draws its next piece every 4 frames (53
+    pieces, `$30B6E`: plane offset, picture offset, word/byte flag and
+    rows), the last layer first; layer n's pictures from $32000 + $900n.
+  - When the last layer has drawn its 53rd piece (frame 240) the reveal
+    begins; the box's bottom edge (rows 110–128, bytes 11–28) is saved.
+- **Reveal** (`$302B0`, `$30634`): the 61 rows below the roll's row (from
+  49) move down by the speed (rows over 208 are not taken), then that many
+  rows are laid from the roll's row: the logo's rows ($35F00, 18 bytes, 4
+  planes $44A apart) to row 110, the saved edge to row 128, then black.
+  Passing row 110 lays one row more (the count is not taken for it);
+  reaching row 128 clears a whole frame's rows more. The speed runs 1, 1,
+  1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 5, 6 … 11 (`$30CEE`). Clearing past
+  row 219 runs on into the next plane's first rows (the planes lie one
+  after another); nothing shows there.
+- **Bars** (`$307D0`, from roll row 217 on): 5 bars (`$30CAC`–`$30CDF`), the
+  last first. Bars 0, 1 and 4 write a byte pattern into the 4 planes, 3
+  rows a frame, moving 40 bytes up or down (yellow left, blue right); bars
+  2 and 3 widen a 4-row red line in plane 3 by 2 pixels a frame from the
+  top corners, a byte on when it is full.
+- **Sound:** channels 0 and 1 loop the program's own bytes.
+  - The crackle (`$3085E`, pen frames): from $37028, 256 and 512 bytes at
+    periods $A0 and $200; both starts slide 16 bytes a frame forward for 64
+    frames and back for 64, 16 times. Channel 1's period wobbles ±64 (6
+    frames each way, `$30A68`); channel 0's volume is 0 or 64 by a random
+    bit (the original takes it from the beam position, `$30AC2`; the port
+    from a standard generator). Silenced when the pen is done.
+  - The chord (`$30972`, from roll row 180): channel 0 starts on $37028's
+    bytes (its first long cleared; still silent), channel 1 at frame 5; at
+    frame 6 both are pointed at $376E8 (832 bytes, periods $400 and $600)
+    and set to volume 64, which falls by 1 and by 5/8 a frame.
+- **End:** the main loop (`$3010C`) counts $80000 passes, about 596
+  frames on an A500 (*checked* in FS-UAE), or ends at a mouse or fire
+  button or a key. It silences the channels and hands the interrupt to the
+  fade (`$302C6`): every other frame each colour's red, green and blue fall
+  by 1; the logo ends at the first pass that changes nothing (628 frames in
+  all).
+- *Checked:* `rock_n_roll_replay logo` against a recording of every
+  interrupt (`comp/cdbg.py record_logo`): planes, colours and the sound's
+  counters, slides, wobble and fades equal in all 628 frames.
+
+### The pauses
+
+The track loader reads file $44 (208 KB) and DefJam unpacks it: the
+screen stays black about 32.5 s (1,625 frames), measured in FS-UAE from the
+logo's last frame to the curtain's first. After the credits the game loads
+for 49.1 s (below). The port shows a 1-second blank for each instead.
+
+### Band intro (`$1087E`–`$7EC50`, entry `$7BC44`)
+
+Rebuilt in `intro/band_intro.cpp` from the installed `intro`.
+
+- **Memory:** the curtain ILBM at $1087E (320 × 200, 32 colours, its BODY
+  at $10938 shown in place: 5 interleaved planes, 200 bytes a line), the
+  TFMX player at $1ABB8 (jump table $1ABDC), the song at $1BE50
+  ("TFMX-SONG"), samples from $1EB08, the stage picture $44D2E, the frame
+  store $4EA36 (296 lines), the credits picture $5D176, code and tables
+  from $7BC44.
+- **Colours** (`$7C8F2`): from the CMAP bytes, (r << 4) | g | (b >> 4).
+- **The curtain** (`$7C452`–`$7C6E0`), one pass a frame:
+  1. the fellow (table `$7CD1A`, entry pass / 4: 4 walking frames at
+     $59F8C–$59F98, shifts 15 to 0; 128 plane rows × 3 words) and the sign
+     (table `$7CC0A`: $59F80 "PRESENTED BY", later $59F76 "Rainbow Arts";
+     160 rows × 6 words) are cookie-cut onto the screen, their mask $1900
+     bytes after the picture, at the table's address less the crossing's
+     byte position;
+  2. a copy (entry `$7CE1A`, which the code rewrites) moves 64 lines of a
+     6-word column down by a line, starting at line 142, on the side of the
+     screen away from the sign: an ascending copy one line ahead smears
+     line 142 down, which restores the curtain because its stripes are
+     vertical, and wipes what of the sign wrapped round the screen's edge;
+  3. the wait for line 255 (the picture);
+  4. the same smear 7 words wide over the sign's place takes fellow and
+     sign off (its source steps 2 bytes a row further than its target, the
+     modulos being set for B and D only);
+  5. the pass goes on by 2; after 32 passes the crossing moves a word
+     (16 pixels) left, 21 times. Then 52 frames' pause (`$7C6E2`), the
+     second sign's crossing, another pause.
+  - A click (left button, `$7C59C`) ends the crossing; the pause follows
+    and the second sign is skipped.
+  - *Checked:* a literal model of the blits (`comp/tools/curtain_model.py`)
+    and then the port (`rock_n_roll_replay curtain`) equal the screen at
+    all 1,344 passes' waits.
+- **Wipe in** (`$7C384`): line 199 up to line 1 swapped with the stage
+  picture's, a line a frame; line 0 stays the curtain's.
+- **The band** (`$7BC72`): each frame the count (`$7BD14`) moves on and
+  starts or stops animations at fixed counts, the music plays a frame,
+  and two animations (of 11, in turn, `$7C048`) move a frame on: a plain
+  copy (B to D) of a frame from the store to the screen. An animation's
+  slot (`$7C018`) counts 4 a frame up to its end, then rests a turn at 0;
+  $FFFF stops it. One slot's end changes with the count (`$7C036`), once
+  to 9 frames of a list of 8, which reads the next descriptor's screen
+  offset as a frame.
+  - At count $3E07 (15,879 frames, about 5 min 18 s) or a click, the
+    ending loop runs 300 frames more (a click also fades the music:
+    player entry +$4C, speed $10).
+- **Wipe out** (`$7C3DA`): the music stops; the credits ("Rock'n Roll was
+  developed by …") are swapped in from line 1 down, a line a frame.
+  `$7CEB6` then waits (17 × 65536 DBRA passes) and jumps to the loader,
+  which clears the screen and loads the game: the credits stay 85 frames
+  after the wipe, then the screen is black 49.1 s (2,455 frames) until the
+  title (both measured in FS-UAE; the port: a 1-second blank).
+- **Music:** the intro's player is a slightly different version of the
+  game's (sound effect priorities per channel, the key-up wait $17 with a
+  time limit, signed volume tests). The song uses none of the differences:
+  the port plays it on the game's player (`sound/tfmx.cpp`), *checked*
+  frame for frame for the first 1,499 frames (`rock_n_roll_replay
+  intromusic`).
+- **Frames:** each wait for line 255 is a frame, except one that follows
+  another directly (the pause's last and the wipe's first).
+- *Checked:* `rock_n_roll_replay band` against `comp/cdbg.py record_band`:
+  every wipe step's screen, and per band frame the count, the slots, the
+  turn and every 50th screen.
 
 ## Data formats
 
@@ -1545,6 +1718,21 @@ The port keeps these, because they are part of how the game plays:
   start wait). `rock_n_roll_replay musiccheck <content> <title|world>
   <dump>` runs the native player beside it. `rock_n_roll_replay music`
   renders a world's music to a WAV file.
+- **The intros** (compilation disk, `comp/`): `comp/run.sh` starts a
+  second FS-UAE on port 6874 with that disk; `comp/cdbg.py` boots it and
+  records:
+  - `unpack`, `stage2`, `to_intro`: memory after each unpacking stage;
+  - `record_logo`: the logo's planes and state at every interrupt
+    (`rock_n_roll_replay logo <content> <folder> [png folder]`);
+  - `record_curtain`: the screen at each curtain pass's wait
+    (`rock_n_roll_replay curtain`);
+  - `record_band`: the wipe's screens, then per band frame the count,
+    slots and turn, and every 50th screen (`rock_n_roll_replay band`);
+  - `record_music`: the intro player's state per frame
+    (`rock_n_roll_replay intromusic`).
+  The GDB stub cannot read the beam position or the CIAs, so frames are
+  counted by the program's own waits; wall-clock times (the loading pause)
+  come from window captures of a free-running FS-UAE.
 - **Headless runs of the whole game:** `tools/rock_n_roll_replay play`
   takes:
   - mouse steps `a-b:dx,dy[,l|r]`;

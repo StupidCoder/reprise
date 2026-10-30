@@ -233,6 +233,19 @@ void Tfmx::start_fade(std::uint8_t target, std::uint8_t speed) {
     }
 }
 
+void Tfmx::fade_to(std::uint8_t target, std::uint8_t speed) {
+    if (!playing_) {
+        fade_direction_ = 0;
+        fade_busy_ = false;
+        return;
+    }
+    fade_busy_ = true;
+    fade_target_ = target;
+    fade_count_ = fade_speed_ = speed;
+    fade_direction_ = master_ == target ? 0 : master_ < target ? 1 : -1;
+    if (fade_direction_ == 0) fade_busy_ = false;
+}
+
 void Tfmx::load_step() {
     for (int guard = 0; guard < 1024; ++guard) {
         const std::uint32_t at = 0x800 + std::uint32_t(step_) * 16;
@@ -582,7 +595,7 @@ std::vector<std::pair<std::string, std::int64_t>> Tfmx::snapshot(std::uint32_t a
         add(n + "mwait", h.macro_wait);
         add(n + "vol", h.volume);
         add(n + "period", h.period);
-        add(n + "sample", address(sample_base, h.sample));
+        add(n + "sample", address(sample_base_, h.sample));
         add(n + "len", h.length);
         add(n + "vib", h.vibrato_offset);
         add(n + "porta", h.porta_step);

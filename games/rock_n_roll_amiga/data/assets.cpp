@@ -145,6 +145,20 @@ std::span<const std::uint8_t> Program::bytes(std::uint32_t address, std::uint32_
     return std::span<const std::uint8_t>(bytes_).subspan(address - base, length);
 }
 
+std::uint16_t Memory::u16(std::uint32_t address) const {
+    const auto b = bytes(address, 2);
+    return std::uint16_t(b[0] << 8 | b[1]);
+}
+
+std::uint32_t Memory::u32(std::uint32_t address) const {
+    return std::uint32_t(u16(address)) << 16 | u16(address + 2);
+}
+
+std::span<const std::uint8_t> Memory::bytes(std::uint32_t address, std::uint32_t length) const {
+    if (!contains(address, length)) throw std::runtime_error("The intro programs are shorter than a table they should hold.");
+    return std::span<const std::uint8_t>(bytes_).subspan(address - base_, length);
+}
+
 std::string Program::text(std::uint32_t address, std::uint32_t limit, std::uint8_t terminator) const {
     std::string out;
     for (std::uint32_t i = 0; i < limit; ++i) {
@@ -211,6 +225,14 @@ Assets load_assets(const std::filesystem::path& content) {
         throw std::runtime_error("The content folder has no program; import the disk again.");
     }
     assets.program = Program(platform::read_file(main_path));
+    for (const char* name : {"logo", "intro"}) {
+        if (!std::filesystem::exists(content / name)) {
+            throw std::runtime_error("This copy of Rock 'n Roll was imported from a disk Reprise no longer supports. "
+                                     "Import the 1991 Rainbow Arts 5th Anniversary compilation disk again.");
+        }
+    }
+    assets.logo = Memory(platform::read_file(content / "logo"), logo_base);
+    assets.intro = Memory(platform::read_file(content / "intro"), intro_base);
     const auto& program = assets.program;
     assets.scores.bytes = read(content, ScoreTable::file);
     {

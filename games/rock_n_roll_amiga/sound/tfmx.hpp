@@ -36,10 +36,16 @@ public:
     // +$34 ($38D98): the song data; the per-song start steps and speeds are
     // taken as the positions to resume from.
     void init(std::vector<std::uint8_t> song_data);
+    // Where the samples' offsets count from, for snapshot() (the band
+    // intro's copy of the player is given $1EB08).
+    void set_sample_base(std::uint32_t address) { sample_base_ = address; }
     // +$2C ($38D1A): the song starts at the next frame.
     void start_song(int song) { request_ = song; }
     // +$28 ($38D3A): everything stops; the song's step is kept.
     void stop(amiga::PaulaChannels&);
+    // +$4C ($38BCC): the master volume fades to `target` (0-$40), a step
+    // every `speed` frames; nothing while no song plays.
+    void fade_to(std::uint8_t target, std::uint8_t speed);
     // +$40 ($38AC4): one channel stops.
     void stop_channel(int channel, amiga::PaulaChannels&);
     // +$60 ($38CBA): a sound effect from the table, by its priority.
@@ -106,6 +112,7 @@ private:
     std::uint16_t note_period(int note) const;             // table $390A6
 
     std::vector<std::uint8_t> data_;
+    std::uint32_t sample_base_{sample_base};
     std::array<std::uint16_t, 256> periods_{};
     bool initialised_{}, playing_{};     // $8, $2E
     int request_{-1};                    // $3C: bit 5 keep the channels, bit 6 resume

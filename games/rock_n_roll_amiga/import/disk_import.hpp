@@ -6,25 +6,27 @@
 
 // Importing Rock 'n Roll from the user's disk image (ADF).
 //
-// The image this was recovered from is a one-disk crack of the two-disk
-// original (games/rock_n_roll_amiga/game.md "Disk and boot"): an AmigaDOS (OFS) disk,
-// volume "Rock&Roll", whose startup-sequence runs the cracker's intro, which
-// installs a file loader at $A000 and starts `Main`. Main is a self-unpacking
-// program that takes over the machine and loads the game's numbered files
-// through that loader. Their names are the game's file numbers in hex, except
-// that numbers $3D and $3E are read from "33" and "39" (the loader's rule at
-// $A02A; those files are identical).
+// The supported image is the one-disk release on Rainbow Arts' 1991
+// "5th Anniversary" compilation (games/rock_n_roll_amiga/game.md "Disk and
+// boot"). It has no file system: its boot block reads a packed program that
+// shows the Rainbow Arts logo, then a track loader that reads the band intro
+// (file $44), runs it, and loads the game (file $43, holding `Main`) and its
+// numbered files by a table of tracks and offsets. Main is a self-unpacking
+// program that takes over the machine and loads the files through that loader.
 //
-// The import unpacks everything (cruncher.hpp) and installs:
+// The import unpacks everything (packers.hpp, cruncher.hpp) and installs:
 //
 //   main        the unpacked program as it runs from $1A578 (Program); its
 //               tables, texts and some graphics are read from it
 //   00 … 41     each of the game's files by its own number in hex, unpacked
-//               ("3d" and "3e" are the copies the loader reads; "3f" is the
+//               ("3d" and "3e" are copies of "33" and "39"; "3f" is the
 //               program itself and not installed)
+//   logo        the Rainbow Arts logo program as it runs from $30000
+//   intro       the band intro as it runs from $1087E
 //
-// The release is recognised by the SHA-256 of the unpacked program; every
-// data file is checked by the SHA-256 of its unpacked bytes.
+// The disk is recognised by its boot block; every unpacked part is checked
+// by its SHA-256. The one-disk crack used before (no band intro) is refused
+// with a message saying which disk is supported.
 namespace rocknroll::import {
 
 // The installed name of game file `number` ("0a").

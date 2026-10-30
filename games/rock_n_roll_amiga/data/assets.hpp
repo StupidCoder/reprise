@@ -34,6 +34,32 @@ private:
     std::vector<std::uint8_t> bytes_;
 };
 
+// The memory image of one of the compilation disk's other programs, read by
+// address like the game's: the Rainbow Arts logo (installed as "logo", from
+// $30000) and the band intro ("intro", from $1087E).
+class Memory {
+public:
+    Memory() = default;
+    Memory(std::vector<std::uint8_t> bytes, std::uint32_t base) : bytes_(std::move(bytes)), base_(base) {}
+
+    std::uint32_t base() const { return base_; }
+    std::uint32_t end() const { return base_ + std::uint32_t(bytes_.size()); }
+    bool contains(std::uint32_t address, std::uint32_t length = 1) const {
+        return address >= base_ && address - base_ + length <= bytes_.size();
+    }
+    std::uint8_t u8(std::uint32_t address) const { return bytes(address, 1)[0]; }
+    std::uint16_t u16(std::uint32_t address) const;
+    std::uint32_t u32(std::uint32_t address) const;
+    std::span<const std::uint8_t> bytes(std::uint32_t address, std::uint32_t length) const;
+
+private:
+    std::vector<std::uint8_t> bytes_;
+    std::uint32_t base_{};
+};
+
+inline constexpr std::uint32_t logo_base = 0x30000;
+inline constexpr std::uint32_t intro_base = 0x1087E;
+
 // A world: one of the game's sets of graphics and music. The program's world
 // table ($70E94, 16 bytes per world) names four files for each: the graphics
 // (an ILBM with more graphics behind it), a 6,144-byte file that repeats the
@@ -143,6 +169,7 @@ struct ScoreTable {
 
 struct Assets {
     Program program;
+    Memory logo, intro; // the compilation's Rainbow Arts logo and band intro
     ScoreTable scores;
     // Game file $31 (12,288 bytes, raw): the title's name box, 60 rows in
     // the bank's format, copied over the title picture's rows 124-183 when

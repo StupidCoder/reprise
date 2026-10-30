@@ -15,6 +15,8 @@ namespace rocknroll::game {
 
 std::unique_ptr<app::GameModule> start(const std::filesystem::path& content);
 
+// Research and tests only: from the intros straight to the title.
+void skip_intro(app::GameModule&);
 // Research and tests only (rock_n_roll_replay play): puts a running game's
 // ball at a camera and view position with the given speeds, rolling, as
 // the recorder's placement does on the original. False when the game is

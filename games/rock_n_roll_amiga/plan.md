@@ -3,9 +3,13 @@
 What is left before the re-implementation is fully playable, and the known
 bugs. How the original works, and where the evidence is: [game.md](game.md).
 
-## Where it stands (2026-10-29)
+## Where it stands (2026-10-30)
 
-A game runs from the title to the end:
+The port imports the 1991 Rainbow Arts 5th Anniversary compilation disk
+(the cracked copy used before lacks the band intro and is refused now). It
+starts like the original: the Rainbow Arts logo, the loading pause, the
+band intro with its music, the credits and the game's loading pause. Then a game runs from the title to
+the end:
 - the title, with the hall of fame and every level's time records;
 - name entry with the letter wheel or typed keys, and level codes;
 - each level from its start wait to its exit, with the panel, items, falls
@@ -81,6 +85,16 @@ Finished, in order:
     kept on disk by the app; in widescreen the border's corner pieces move
     out with the pillars. The pillars sat one pixel too far left; fixed
     against a capture.
+19. The compilation disk: its boot, logo, loader and intro packers rebuilt
+    (each unpacks as the original does in memory), the import switched to
+    it (the game files and program are the crack's byte for byte; 63 runs
+    still equal). The Rainbow Arts logo (equal in all 628 frames, planes,
+    colours and sound state) and the band intro: the curtain with the two
+    signs (1,344 passes equal), the wipes, the timeline with its eleven
+    animations and the ending loop (16,178 frames equal), the credits; the
+    intro's song on the game's TFMX player (1,499 frames equal); the
+    loading pauses (32.5 s and 49.1 s in the original) shortened to a
+    1-second blank each.
 
 ## Remaining tasks
 
@@ -112,9 +126,10 @@ port's additions"). Left:
 
 ### Intro
 
-- [ ] The original's band intro (before the title) is not on the provided
-  disk (game.md, "Disk and boot"). It needs an image of the original
-  release that holds it; then rebuild it natively from its code and data.
+Done: logo, loading pause and band intro (game.md, "The intros"). Left:
+- [ ] The intro's music is checked for its first 1,499 frames only; the
+  band plays about 5 minutes. Check a later stretch and the click's fade.
+- [ ] Try the intros in the app (sound, widescreen, a click to skip).
 
 ### Verification
 
@@ -124,6 +139,15 @@ Done: every item listed before is recorded or captured (game.md,
   the replay stops at the notice.
 
 ## Known bugs and differences
+
+- The original's loading pauses before the band intro (32.5 s) and before
+  the title (49.1 s) are a 1-second blank each in the port.
+
+- The logo's crackle switches its volume by a standard random generator,
+  not the original's beam-position one (the sequence differs, the rule is
+  the same).
+- The logo ends on any key in the original; the port takes any key it
+  reports as typed, plus the mouse and fire buttons.
 
 - The original reloads a level's files from disk on a restart (a black
   view for several seconds); the port goes on at once.

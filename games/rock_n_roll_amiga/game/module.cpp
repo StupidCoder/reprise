@@ -8,6 +8,8 @@
 #include "rock_n_roll_amiga/game/overview_map.hpp"
 #include "rock_n_roll_amiga/game/records.hpp"
 #include "rock_n_roll_amiga/game/screen.hpp"
+#include "rock_n_roll_amiga/intro/band_intro.hpp"
+#include "rock_n_roll_amiga/intro/rainbow_logo.hpp"
 #include "rock_n_roll_amiga/sound/game_sound.hpp"
 #include "state/archive.hpp"
 #include "ui/vhs.hpp"
@@ -96,6 +98,17 @@ public:
             area = std::max({area, data::level_cells_at + level.stored_cells + level.padding.size(), data::level_cells_at + level.cells.size()});
         const auto image = assets_.program.bytes(data::level_load_address, std::uint32_t(area));
         load_area_.assign(image.begin(), image.end());
+        // The compilation disk's start: the Rainbow Arts logo, the band
+        // intro, then the game's title.
+        logo_ = std::make_unique<intro::RainbowLogo>(assets_.logo);
+        phase_ = Phase::logo;
+    }
+
+    // Research and tests: straight to the title, as the original after
+    // its intros.
+    void skip_intro() {
+        logo_.reset();
+        band_.reset();
         open_front_end(std::nullopt);
     }
 
@@ -103,7 +116,9 @@ public:
 
     void audio(std::span<float> stereo, int rate) override {
         std::fill(stereo.begin(), stereo.end(), 0.0f);
-        sound_->render(stereo, rate);
+        if (logo_) logo_->render(stereo, rate);
+        else if (band_) band_->render(stereo, rate);
+        else sound_->render(stereo, rate);
     }
     double pixel_aspect() const override { return 1.0; }
     bool captures_mouse() const override { return true; } // steered by the mouse counters' movement
@@ -149,7 +164,7 @@ public:
     // The cheats (additions): the energy and the purse topped up around
     // each update (the panel follows the energy at the update's start).
     void apply_cheats() {
-        if (phase_ == Phase::front_end) return;
+        if (phase_ == Phase::front_end || in_intro()) return;
         if (infinite_energy_) pocket_.energy = pocket_.shown_energy = 0x7FF;
         if (infinite_money_) pocket_.money = 9900; // the panel's maximum ($26AC)
     }
@@ -184,6 +199,30 @@ public:
         const char key = typed_key(input);
 
         switch (phase_) {
+        case Phase::logo:
+            // The logo ends at a mouse or fire button or a key ($3010C).
+            if (logo_->tick(left || key != 0)) {
+                logo_.reset();
+                phase_ = Phase::loading;
+                loading_frames_ = intro_loading_frames;
+            }
+            break;
+        case Phase::loading:
+            if (--loading_frames_ > 0) break;
+            if (!band_) {
+                band_ = std::make_unique<intro::BandIntro>(assets_.intro);
+                phase_ = Phase::band;
+            } else {
+                skip_intro();
+            }
+            break;
+        case Phase::band:
+            // The band intro reads the left mouse button ($7C59C, $7C71E).
+            if (band_->tick(input.mouse_button || input.fire)) {
+                phase_ = Phase::loading; // the game loads: black until the title
+                loading_frames_ = game_loading_frames;
+            }
+            break;
         case Phase::front_end: {
             FrontEndInput in;
             in.mouse_x = counts_x;
@@ -375,6 +414,15 @@ public:
 
     platform::Image picture() const override {
         switch (phase_) {
+        case Phase::logo:
+            return widened(logo_->picture());
+        case Phase::loading: {
+            platform::Image black(intro::BandIntro::width, intro::BandIntro::height);
+            for (auto& p : black.pixels) p = platform::Color{0, 0, 0, 255};
+            return widened(black);
+        }
+        case Phase::band:
+            return widened(band_->picture());
         case Phase::front_end:
             return widened(front_end_->picture());
         case Phase::ending:
@@ -531,6 +579,7 @@ private:
     }
 
     enum class Phase {
+        logo, loading, band,
         front_end, message, waiting, playing, paused, fall_pause, prompt, results, notice, continue_offer, ending, overview
     };
     enum class AfterMessage { start_wait, game_over, restart };
@@ -912,6 +961,8 @@ private:
         phase_ = Phase::front_end;
     }
 
+    bool in_intro() const { return phase_ == Phase::logo || phase_ == Phase::loading || phase_ == Phase::band; }
+
     void save_scores() {
         try {
             platform::write_file(scores_path_, scores_.bytes);
@@ -1046,6 +1097,14 @@ private:
     std::filesystem::path scores_path_;
     data::ScoreTable scores_;
     std::unique_ptr<FrontEnd> front_end_;
+    std::unique_ptr<intro::RainbowLogo> logo_;
+    std::unique_ptr<intro::BandIntro> band_;
+    // Black where the original loads: the band intro after the logo (32.5 s
+    // in FS-UAE) and the game after the credits (49.1 s). The port keeps
+    // only a short blank for each.
+    static constexpr int intro_loading_frames = 50;
+    static constexpr int game_loading_frames = 50;
+    int loading_frames_{};
     std::unique_ptr<sound::GameSound> sound_;
     std::vector<ScreenText> prompt_;
     std::string player_name_;
@@ -1114,6 +1173,10 @@ private:
 
 std::unique_ptr<app::GameModule> start(const std::filesystem::path& content) {
     return std::make_unique<Module>(content);
+}
+
+void skip_intro(app::GameModule& game) {
+    if (auto* module = dynamic_cast<Module*>(&game)) module->skip_intro();
 }
 
 bool place_ball(app::GameModule& game, std::int32_t camera_x, std::int32_t camera_y, std::int32_t view_x, std::int32_t view_y,
