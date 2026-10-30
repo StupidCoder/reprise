@@ -59,9 +59,10 @@ bool Profile::fromText(const std::string& text) {
             metDigger = met != 0;
             powerupTutorialDone = done != 0;
             for (PowerupRecord& r : powerups) {
-                int active = 0;
-                ss >> r.count >> r.bought >> r.used >> active;
+                int active = 0, introduced = 0;
+                ss >> r.count >> r.bought >> r.used >> active >> introduced;
                 r.active = active != 0;
+                r.introduced = introduced != 0;
             }
             continue;
         }
@@ -114,7 +115,7 @@ std::string Profile::toText() const {
     for (int n : cheese) out << ' ' << n;
     out << '\n';
     out << "powerups " << metDigger << ' ' << powerupTutorialDone << ' ' << sincePowerupUse;
-    for (const PowerupRecord& r : powerups) out << ' ' << r.count << ' ' << r.bought << ' ' << r.used << ' ' << r.active;
+    for (const PowerupRecord& r : powerups) out << ' ' << r.count << ' ' << r.bought << ' ' << r.used << ' ' << r.active << ' ' << r.introduced;
     out << '\n';
     for (const auto& [uid, r] : levels_)
         out << uid << ' ' << r.best << ' ' << r.goals[0] << ' ' << r.goals[1] << ' ' << r.goals[2] << ' ' << r.plays

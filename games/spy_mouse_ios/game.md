@@ -553,6 +553,17 @@ tag's walls react first (0 toggles, 2 on, others off); then every object on the 
 - Dossiers: 21 pages (names 0x5F6100, types 0x526C80, tips 0x526AD0, last seen 0x526CE0);
   `SceneDossier` eases folder/pictures by 1/8, the paper by 1/16 (@0x286f96); the first-find
   note waits for the paper to settle (the pictures' step is re-armed while it is near).
+- Power-ups (details and evidence: `.analysis/docs/powerups.md`): six records in the profile
+  (+0x120, 0x18 each: kind, count, bought, used, active, introduced); banana, flour bomb and
+  Kiska are used up, roller skates (run speed × 2.1), the Invinciball (× 1.35) and the X-ray
+  specs last the attempt. The power-up button (top left) slides a list of them down; while it
+  or Digger's tutorial shows, the level waits (its paused update only) and darkens. A press on
+  the button does not take the touch from the level; a release over it opens the bar. Each
+  power-up gets a "New Power-up!" card the first time the bar opens with it there. Digger's
+  tutorial runs on the button's first press, or by itself from world 1's sixth level (or a
+  later world's second) and for a player who has met him.
+- The HUD (1.1.1): the power-up button at (1, 2), the pause button at (455, 1); both pills hide
+  30 above their place, the score pill rests 26 to the right and the trail pill follows it.
 
 ## Quirks and bugs in the original
 

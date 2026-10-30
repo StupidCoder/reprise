@@ -1,5 +1,6 @@
 #include "game/mouse.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 namespace doc::game {
@@ -50,8 +51,15 @@ void Mouse::tick(int dtMs, DrawnPath& path, float weight, const Tuning& tuning, 
     }
     if (boostTimerMs > 0) boostTimerMs -= dtMs;
 
-    // Base speed, slowed by a heavy trail of cheese.
+    // Base speed (1.1.1: faster on roller skates or in the Invinciball, Player::update
+    // @0x125d38), slowed by a heavy trail of cheese.
     float speed = tuning.playerRunSpeed;
+    if (skating) speed = speed * 2.0999999f;
+    else if (inBall) speed = speed * 1.35000002f;
+    // Their pictures grow to full size (@0x125f40: by (1 - s) x dt x 0.02).
+    if (inBall && ballScale < 1.0f) ballScale = std::min(1.0f, ballScale + (1.0f - ballScale) * float(dtMs) * 0.0199999996f);
+    if (skating && skateScale < 1.0f)
+        skateScale = std::min(1.0f, skateScale + (1.0f - skateScale) * float(dtMs) * 0.0199999996f);
     if (weight > tuning.totalWeight) {
         float factor = state == 8 ? tuning.playerCarrySpeed : tuning.totalWeight / weight;
         speed = factor * speed;

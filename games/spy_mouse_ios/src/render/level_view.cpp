@@ -72,6 +72,7 @@ void LevelView::loadButtons(const data::GameFiles& files) {
     kiskaLayout_ = data::loadGuiLayout(files, "level_skip", guiError);  // (1.1.1; "levelSkip" in 1.0.5)
     dossierLayout_ = data::loadGuiLayout(files, "dossier", guiError);
     msgboxLayout_ = data::loadGuiLayout(files, "msgbox", guiError);
+    diggerLayout_ = data::loadGuiLayout(files, "powerups_intro_tutorial", guiError);  // (1.1.1)
     dossiers_ = data::readDossiers(files);
     levelTable_ = data::LevelTable::load(files, guiError);
     if (auto bytes = files.readResource("hud/hud_paws.png"))
@@ -157,6 +158,9 @@ void LevelView::draw(platform::Host& host, const game::Session& session) {
         host.fillRect(0, 0, game::kScreenWidth, game::kScreenHeight,
                       (3u << 16) | (31u << 8) | std::uint32_t(std::lround(session.dimFade() * 0.6f * 255.0f)));
     drawHud(session);
+    drawPowerupBar(session);  // (the level's GUI items, after the HUD)
+    drawPowerupButton(session);
+    drawDigger(session);
     drawHandTutorial(session);  // its scene is above the level's (and below the intro's)
     if (session.intro().active) drawIntro(session);
     drawSpeech(session);  // SceneSpeech, above the game and its cutscene

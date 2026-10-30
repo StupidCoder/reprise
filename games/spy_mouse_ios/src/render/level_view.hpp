@@ -88,6 +88,13 @@ private:
     void drawResults(const game::Session& session);
     void drawWorldComplete(const game::Session& session);
     void drawHudButtons(const game::Session& session);
+    void drawPowerupBar(const game::Session& session);  // (1.1.1) powerup_view.cpp
+    void drawPowerupButton(const game::Session& session);
+    void drawPowerupCard(const game::Session& session, float dy);
+    void drawDigger(const game::Session& session);
+    void drawDiggerNode(const game::Session& session, const data::GuiNode& node, float parentX, float parentY,
+                        const Affine& outer);
+    void drawHighlight(const char* overImage, float x, float y, float w, float h, int highlightMs, int arrowDir);
     void drawDroid(const game::Session& session, const game::LevelObject& o, int pass);
     void drawSpeech(const game::Session& session);
     void drawWorldNode(const game::Session& session, const data::GuiNode& node, float parentX, float parentY,
@@ -122,6 +129,7 @@ private:
     std::optional<data::GuiLayout> kiskaLayout_;         // guis/level_skip.gui (1.0.5: levelSkip.gui)
     std::optional<data::GuiLayout> dossierLayout_;       // guis/dossier.gui (1.1.1)
     std::optional<data::GuiLayout> msgboxLayout_;        // guis/msgbox.gui
+    std::optional<data::GuiLayout> diggerLayout_;        // guis/powerups_intro_tutorial.gui (1.1.1)
     std::vector<data::DossierData> dossiers_;
     std::optional<data::LevelTable> levelTable_;
     game::Vec2 pausePaws_;                               // hud/hud_paws.png size

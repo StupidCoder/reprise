@@ -33,6 +33,11 @@ public:
     int chilliMs = 0;             // speed cheese time left (+0x220)
     int chilliTotalMs = 0;        // its whole time, "chilli_duration" 16 s (+0x224)
     int boostTimerMs = 0;         // 5x speed while positive (not yet driven)
+    // (1.1.1) Power-ups worn for the rest of the attempt: roller skates (Player +0xbc, the
+    // run speed x 2.1) and the Invinciball (+0x6c8, x 1.35); their pictures grow in from 0.3
+    // (+0xc0, +0x6cc).
+    bool skating = false, inBall = false;
+    float skateScale = 0.0f, ballScale = 0.0f;
     bool seenByBoss = false;      // the level's boss cat is in its "seen you" state (0x10)
     bool viewScrolling = false;   // an infinite level's view moves faster than 0.1 a tick
     Vec2 velocity;                // last movement step
@@ -122,7 +127,8 @@ public:
                            slideRemainingMs, slideDurationMs, slideDirection, growing, slideTarget,
                            slidePosition, drawScale, footprintSide, lastFootprint, wetMs, wetKind, wetFactor,
                            wetRed, wetGreen, wetBlue, footprintPending, footprintColour, sprite, sequenceIds,
-                           cupSprite, bucket, idleMs, idleStep, moving_, speed_); }
+                           cupSprite, bucket, idleMs, idleStep, moving_, speed_, skating, inBall, skateScale,
+                           ballScale); }
 };
 
 // Speed factor table for carried cheese (Player::updateTrail @0x1236c0): the weight of one

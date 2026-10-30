@@ -67,6 +67,7 @@ Session::Session(Level level, std::uint32_t seed, Tuning tuning, int strength, c
         random_ = previous->random_;
         musicTrack_ = previous->musicTrack_;
         record_ = previous->record_;
+        setPowerups(previous->powerups_, previous->powerupTutorialDone_, previous->metDigger_, previous->lateLevel_);
     } else {
         random_.seed(seed);
         // GameBoot::bootLevel @0x1f4fb8: one of three music tracks, then the game starts.
@@ -354,6 +355,9 @@ void Session::fingerDown(Vec2 screen) {
         (cutscene_.active && !intro_.active))
         return;
     if (intro_.active) intro_.skipped = true;  // SceneLevelIntro::mouseEvent: hurries the fade
+    // (1.1.1) The level's GUI buttons first (the power-up button and bar); while the bar is
+    // out the level takes no touches.
+    else if (powerupTouchDown(screen)) return;
     finger_.active = finger_.held = finger_.began = true;
     finger_.screen = screen;
     finger_.downScreen = screen;
@@ -363,6 +367,7 @@ void Session::fingerMove(Vec2 screen) {
     if (notice_.active() || kiska_.active() || results_.active() || dossier_.active() ||
         (cutscene_.active && !intro_.active))
         return;
+    if (!intro_.active && (bar_.showing() || bar_.tutorial() != 0)) return;
     finger_.active = finger_.held = true;
     finger_.screen = screen;
 }
@@ -378,6 +383,7 @@ void Session::fingerUp(Vec2 screen) {
         return;
     }
     if (notice_.active() || kiska_.active() || results_.active() || dossier_.active()) return;
+    if (!intro_.active && powerupTouchUp(screen)) return;
     finger_.active = true;
     finger_.held = false;
     finger_.screen = screen;
@@ -3082,6 +3088,19 @@ void Session::pressPauseButton(const std::string& name) {
 
 // SceneGame::updatePaused @0xff028: the darkening over the level comes up while the pause menu
 // shows and goes back down after (0.005 per ms; drawn at 0.6 of it).
+// SceneGame::update @0x103528 while the power-up bar shows: its message timers, then
+// updatePaused (the HUD's items; the darkening comes up) and Scene::update (the clock and the
+// GUI items, the bar's slide among them).
+void Session::pausedStep(int dtMs) {
+    hud_.updateItems(dtMs);
+    updateDim(dtMs, true);
+    gameTimeMs_ += dtMs;
+    bar_.slide().update(dtMs);
+    bar_.card().update(dtMs);
+    updatePowerupHighlights(dtMs);
+    if (bar_.card().takeWobble()) sound(sfx::UiWobble);
+}
+
 void Session::updateDim(int dtMs, bool paused) {
     if (paused) dimFade_ = std::min(1.0f, dimFade_ + float(dtMs) * 0.00499999989f);
     else if (dimFade_ > 0.0f) dimFade_ = std::max(0.0f, dimFade_ + float(dtMs) * -0.00499999989f);
@@ -3360,10 +3379,33 @@ void Session::step(int dtMs) {
     // SceneGame::update @0x103528. (1.1.1) A notice the start asked for opens first, once the
     // power-up bar is still (it is: hidden), and the rest of the update waits for the next
     // tick; the iris finishes opening seven times faster (PinholeManager::finishTransition).
-    if (pendingNotice_) {
+    // (1.1.1) The power-up bar out, or Digger's tutorial on: the level waits (the paused part
+    // of the update only).
+    if (pendingNotice_ && bar_.slide().finished()) {
         notice_.open(*pendingNotice_);
         pendingNotice_.reset();
         iris_.speed *= 7.0f;
+        return;
+    }
+    // (Digger gone, his tutorial is over.)
+    if (bar_.tutorial() == 5 && bar_.digger().digger.finished()) setPowerupTutorial(0);
+    if (bar_.tutorial() != 0) {
+        // His continue button shows (highlighted) once its wait is over; the layout updates.
+        PowerupBar::Tutorial& d = bar_.digger();
+        if (d.continueDelayMs > 0) {
+            d.continueDelayMs -= dtMs;
+            if (d.continueDelayMs < 1) {
+                d.continueShown = true;
+                d.continueHighlightMs = 0;
+                d.continueDelayMs = 0;
+            }
+        }
+        bar_.updateTutorialLayout(dtMs);
+        pausedStep(dtMs);
+        return;
+    }
+    if (bar_.slide().animatingIn() || bar_.slide().progress() > 0.0f) {
+        pausedStep(dtMs);
         return;
     }
     // First the sheen over loose cheese moves on (0.15 per ms)
@@ -3404,6 +3446,9 @@ void Session::step(int dtMs) {
     // Scene::update @0x103ae0: the game's clock (SceneGame +8) moves on here, before the
     // objects' update (world 4's henchman sways by it, run lbf4_clock).
     gameTimeMs_ += dtMs;
+    bar_.slide().update(dtMs);  // (the scene's GUI items)
+    bar_.card().update(dtMs);
+    updatePowerupHighlights(dtMs);
     hud_.updateCounters(dtMs);
     progress_.bannerMs = progress_.bannerMs < 1 ? 0 : progress_.bannerMs - dtMs;
     // The wait after the boss cat has seen the mouse (SceneGame +0x13890, @0x103b3e).

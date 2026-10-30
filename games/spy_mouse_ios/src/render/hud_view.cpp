@@ -246,9 +246,19 @@ void LevelView::drawHudButtons(const game::Session& session) {
     if (paws && hud.pauseAlpha > 0.0f && !hud.pauseHidden)
         hudRect(*paws, kScreenW - float(paws->width()) - 1.0f, kScreenH - float(paws->height()) - 1.0f,
                 float(paws->width()), float(paws->height()), hud.pauseAlpha);
-    if (const platform::Texture* powerup = texture("hud/hud_powerup.png"); powerup && paws)
+}
+
+// The power-up button (item 1), drawn over the power-up bar (run x_pu3); hidden while Digger
+// talks unless it opened the bar, highlighted with an arrow when he asks for it.
+void LevelView::drawPowerupButton(const game::Session& session) {
+    if (session.powerupButtonHidden()) return;
+    const platform::Texture* paws = texture("hud/hud_paws.png");
+    if (const platform::Texture* powerup = texture("hud/hud_powerup.png"); powerup && paws) {
         hudRect(*powerup, 1.0f, kScreenH - float(paws->height()) - 2.0f, float(powerup->width()),
                 float(powerup->height()), 1.0f);
+        drawHighlight("hud/hud_powerup_over.png", 1.0f, 2.0f, float(powerup->width()), float(powerup->height()),
+                      session.powerupButtonHighlightMs(), 2);
+    }
 }
 
 }  // namespace doc::render

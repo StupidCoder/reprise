@@ -17,6 +17,7 @@
 #include "data/level_table.hpp"
 #include "game/session.hpp"
 #include "game/state_io.hpp"
+#include "app/script_pokes.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -251,6 +252,9 @@ std::vector<ScriptEvent> readScript(const std::string& path) {
     return events;
 }
 
+// The profile the script set with pokes (the power-ups; see app/script_pokes.hpp).
+app::ScriptProfile gScriptProfile;
+
 // rand() calls of the original by frame: value and caller (return address).
 struct RandCall {
     long value;
@@ -406,6 +410,8 @@ int sessionReplay(const data::GameFiles& files, const std::map<int, PlayerDump>&
         auto session = std::make_unique<game::Session>(game::Level(*levelFiles), std::uint32_t(rands.stateBeforeBoot));
         // A profile that has not seen Kiska's offer (the reference states have not), by the clock.
         session->setKiskaOffers({}, std::int64_t(std::time(nullptr)));
+        // (Reference runs play through level 1-1's or 1-2's slot: too early for Digger by itself.)
+        session->setPowerups(gScriptProfile.powerups, gScriptProfile.tutorialDone, gScriptProfile.metDigger);
         // The reference states play later levels through another level's slot, whose saved best
         // the trace does not show: a run whose level state ends without the new-best flag
         // (LevelState +0x1d, Profile::completeLevel) is given a best it cannot beat.
@@ -851,6 +857,7 @@ int sessionReplay(const data::GameFiles& files, const std::map<int, PlayerDump>&
             diff.i("level.delivered", g.delivered, at<int>(*b, 0x24));
             diff.i("level.cheese", g.cheeseTotal, at<int>(*b, 0x28));
             diff.i("level.score", g.score, at<int>(*b, 0x2c));
+            diff.i("level.powerupUsed", owner->powerupUsed(), (*b)[0x5c]);  // (1.1.1) Profile::usePowerup
             // (The port fills them in when the level's numbers are taken: at the finish, or earlier
             // when the boss cat has seen the mouse.)
             const bool taken = g.finished || g.distance != 0;
@@ -925,6 +932,7 @@ int main(int argc, char** argv) {
         return 2;
     }
     auto script = readScript(argv[3]);
+    gScriptProfile = app::readScriptProfile(argv[3]);
     int first = argc > 4 ? std::atoi(argv[4]) : frames.empty() ? 0 : frames.begin()->first;
     // The follower check assumes the shipped level's single cheese; replaced levels are checked
     // by the session replay alone.

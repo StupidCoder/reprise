@@ -61,6 +61,9 @@ add_library(doc_game
     src/game/session_spitter.cpp
     src/game/session_vacuum.cpp
     src/game/session_turret.cpp
+    src/game/session_powerups.cpp
+    src/game/powerup_bar.cpp
+    src/game/progress_frame.cpp
     src/game/turret.cpp
     src/game/session_switches.cpp
     src/game/spitter.cpp
@@ -117,6 +120,7 @@ add_library(doc_shell
     src/render/map_view.cpp
     src/render/text.cpp
     src/render/hud_view.cpp
+    src/render/powerup_view.cpp
     src/render/popup_view.cpp
     src/render/results_view.cpp
     src/render/kiska_view.cpp

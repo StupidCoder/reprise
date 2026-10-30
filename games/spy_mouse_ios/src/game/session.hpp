@@ -29,6 +29,7 @@
 #include "game/world_complete.hpp"
 #include "game/roamer.hpp"
 #include "game/profile.hpp"
+#include "game/powerup_bar.hpp"
 #include "game/sound.hpp"
 
 #include <cstdint>
@@ -289,6 +290,37 @@ public:
     }
     // The profile's cheese balance as the level starts (the results' cheese badge).
     void setCheeseBalance(int balance) { cheeseBalance_ = balance; }
+    // (1.1.1) Power-ups (see powerup_bar.hpp): the profile's records and whether the button's
+    // tutorial has run go in before the first tick; the app takes them back when they change.
+    // `metDigger`: the profile has met Digger (+8); `lateLevel`: the profile's current level is
+    // world 1's sixth or later, or a later world's second or later (Digger's tutorial starts by
+    // itself there while the button's has not run).
+    void setPowerups(const std::array<PowerupRecord, kPowerupCount>& records, bool tutorialDone, bool metDigger = false,
+                     bool lateLevel = false);
+    bool powerupButtonHidden() const { return powerupButtonHidden_; }
+    // Highlighted buttons (GuiScaleButton::setHighlight): the time since, or -1.
+    int powerupButtonHighlightMs() const { return powerupButtonHighlighted_ ? powerupButtonHighlightMs_ : -1; }
+    int storeHighlightMs() const { return storeHighlighted_ ? storeHighlightMs_ : -1; }
+    // The store was asked for (Digger's "Get More"; the store is not part of the port yet).
+    bool takeStoreRequest() {
+        const bool r = storeRequested_;
+        storeRequested_ = false;
+        return r;
+    }
+    const std::array<PowerupRecord, kPowerupCount>& powerups() const { return powerups_; }
+    bool powerupTutorialDone() const { return powerupTutorialDone_; }
+    bool powerupUsed() const { return powerupUsed_; }  // g_LevelState +0x5c: one was used in this level
+    const PowerupBar& powerupBar() const { return bar_; }
+    bool powerupAvailable(Powerup t) const;
+    bool powerupEnabled(Powerup t) const;
+    // The bar's GUI item under a screen point (PowerupBar::Item, rows 100 + type).
+    int powerupItemAt(Vec2 screen) const;
+    // The bar's picture's height (hud/popup_powerup.png) and the power-up button's touch box
+    // (x, y, width, height; y down).
+    static constexpr float kBarHeight = 292.0f;
+    // (Runs xhit1..14 on the original: x 55 and y 56 answer, x 60 and y 60 do not; 57.5 =
+    // GuiScaleButton's touch child, 1.25 x the button's size as made (HYPOTHESIS: 46).)
+    static constexpr float kPowerupTouch[4] = {1.0f, 2.0f, 57.5f, 57.5f};
     // Continue or retry on the results screen; false while its buttons are not in yet.
     // Continue fades the screen out (state 7); retry asks the app for retry() at once.
     bool pressResultsButton(bool retry) {
@@ -709,6 +741,30 @@ private:
     std::array<int, 5> floorCheese_{};  // +0x13868: cheese (and mouse traps) placed on each floor
     std::int64_t ticks_ = 0;
     std::int64_t frames_ = 0;
+    // (1.1.1) Power-ups (session_powerups.cpp).
+    PowerupBar bar_;
+    std::array<PowerupRecord, kPowerupCount> powerups_{};
+    bool powerupTutorialDone_ = true;
+    bool powerupUsed_ = false;
+    int guiPressed_ = PowerupBar::kNone;  // the GUI button a touch went down on
+    bool powerupTouchDown(Vec2 screen);
+    bool powerupTouchUp(Vec2 screen);
+    void pressPowerupItem(int item);
+    void showPowerupBar(bool byTutorial);
+    bool showPowerupCard();
+    void setPowerupTutorial(int state);
+    void setPowerupTutorialText(int text);
+    void updatePowerupHighlights(int dtMs);
+    bool metDigger_ = false;
+    bool lateLevel_ = false;
+    bool powerupButtonHidden_ = false;
+    bool powerupButtonHighlighted_ = false;
+    int powerupButtonHighlightMs_ = 0;
+    bool storeHighlighted_ = false;
+    int storeHighlightMs_ = 0;
+    bool storeRequested_ = false;
+    void hidePowerupBar();
+    void pausedStep(int dtMs);
 public:
     // Quick saves (state_io.hpp).
     // Not saved: level_ (the level as loaded from its files), tuning_ and scoring_ (constants).
@@ -728,7 +784,10 @@ public:
            tutorialSide_, crumbComboMs_, crumbCombo_, noteTimerMs_, finger_, progress_,
            prediction_, carried_, carryCapacity_, exitShut_, snapHold_, fingerDrawing_,
            fingerHasPath_, viewLeft_, shake_, cutscene_, spottedDelayMs_, spottedTimerMs_,
-           scrollSpeed_, gameTimeMs_, deliveredOn_, floorCheese_, ticks_, frames_, pendingNotice_);
+           scrollSpeed_, gameTimeMs_, deliveredOn_, floorCheese_, ticks_, frames_, pendingNotice_, bar_,
+           powerups_, powerupTutorialDone_, powerupUsed_, guiPressed_, metDigger_, lateLevel_,
+           powerupButtonHidden_, powerupButtonHighlighted_, powerupButtonHighlightMs_, storeHighlighted_,
+           storeHighlightMs_, storeRequested_);
         // The checkpoint (shared with the sessions retry() makes) and the cat or droid each
         // particle belongs to (Particle::owner points at its handle).
         std::optional<Checkpoint> checkpoint;

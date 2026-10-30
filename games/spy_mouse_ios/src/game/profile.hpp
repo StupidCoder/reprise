@@ -51,10 +51,11 @@ struct PowerupRecord {
     int bought = 0;      // +0xc
     int used = 0;        // +0x10
     bool active = false; // +0x14 (kind 1)
+    bool introduced = false;  // +0x15: its "New Power-up!" card has shown (showPowerupInfoTutorial)
     bool operator==(const PowerupRecord&) const = default;
     // Quick saves (state_io.hpp).
     template <class Io>
-    void io(Io& io) { io(kind, count, bought, used, active); }
+    void io(Io& io) { io(kind, count, bought, used, active, introduced); }
 };
 
 class Profile {

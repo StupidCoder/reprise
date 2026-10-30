@@ -34,9 +34,8 @@ Fluffy, henchman pictures), the droid's render-driven body frame, no automatic K
       points to compare the end with; `snapPath` @0x101070 reads the last point like the port.
 - [ ] `l110_win` 3338: the 1.0.5 plan is caught in 1.1.1 and the drag goes on across the retry
       (finger/drawing state across `reloadFromSnapshot` not modelled); re-plan the run.
-- [ ] `l26_win` 5650: the 1.0.5 script's release at (20, 45) lands on 1.1.1's power-up button;
-      the original opens the power-up bar with Digger's introduction (the game pauses from
-      5651). Needs section 1a (or a moved release to keep the old plan).
+- [x] `l26_win` 5650 (2026-10-30): the release over the power-up button opens the bar with
+      Digger's introduction (section 1a); identical through the run's end.
 - [x] `l11_hud` (2026-10-30): the HUD watch read SceneGame +0xc4 (a wrong guess; the HUD fields
       stay at +0xb8 in 1.1.1) and the score watch 1.0.5's spacing (1.1.1 Player +0x670 shown,
       +0x674 last score, +0x6a0 exit bonus); re-recorded. The port now has 1.1.1's offsets (pills
@@ -81,8 +80,21 @@ and the shifted pills today. Kiska is now a power-up: the level skip opens only 
       pill after the score pill, the hand name 3 right (run x_pu1 pixel-compared; the empty slot's
       ring is drawn 1 pixel higher than the original's, a half-pixel placement).
 - [x] Profile power-up records, Digger and tutorial flags, kept in the progress file.
-- [ ] The bar (slide frame, scroll list, counts, "Get More"), the info card, Digger's tutorial
-      (states 0–6, `.analysis/docs/powerups.md`); then `l26_win` (Digger's introduction).
+- [x] The bar (2026-10-30): slide frame, rows with counts and active/unlimited/empty pictures,
+      fades, scroll arrow, "Get More", the "New Power-up!" cards and their arrow, the level
+      waiting and darkening under it, touches (runs l12_pubar, l26_win, x_pu1..4; details and
+      evidence in `.analysis/docs/powerups.md`).
+- [x] Digger's tutorial (states 1–5: lines, poses, continue button after 750 ms, the
+      highlighted power-up and store buttons, the automatic start) (runs l12_digger,
+      l12_digger3).
+- [ ] Drag scrolling of the list (the skate, ball and Kiska rows are partly or wholly below
+      it), and scrolling to a card's power-up.
+- [ ] The bar's two message popups (none left: pointing at "Get More"; refused: its reason).
+- [ ] The X-ray card's darker "X-ray Specs" (no markup in the text; not understood).
+- [ ] The highlight arrow's pulse phase differs from the original's (l12_digger, frames
+      2600–2700); the arrow's other three directions are placed by symmetry.
+- [ ] The store ("Get More", Digger's state 3): `menu_store` is not part of the port yet; the
+      request is recorded (`Session::takeStoreRequest`) and nothing opens.
 - [ ] The 1.1.1 pause menu (Digger, the Shop button with the cheese balance, settings and help
       buttons, the resume button where the pause button was).
 - [ ] Map decorations (bushes) near the top of level 1-2 sit 2–3 pixels off the original's

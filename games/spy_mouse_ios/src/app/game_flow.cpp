@@ -35,6 +35,19 @@ void releaseButton(game::Session& session, const std::string& button) {
     if (button.rfind("LEVEL_GOAL_BTN_", 0) == 0) session.pressResultsGoal(button.back() - '1');
 }
 
+// Digger's tutorial starts by itself from world 1's sixth level and a later world's second on
+// (SceneGame::startGame @0x10681c: the level data's world, +0xc, and its index there, +0x10).
+bool lateForDigger(const data::LevelTable& table, int uid) {
+    const data::LevelInfo* info = table.byUid(uid);
+    if (!info) return false;
+    int index = 0;
+    for (const data::LevelInfo& level : table.levels()) {
+        if (level.uid == uid) break;
+        if (level.world == info->world) ++index;
+    }
+    return info->world == 0 ? index >= 5 : index >= 1;
+}
+
 // Touches reach the level unless a menu above it or a button takes them.
 bool touchesLevel(const game::Session& session, const std::string& button) {
     return !session.pause().active() && !session.kiska().active() && button != "PAUSE";
@@ -134,6 +147,7 @@ bool GameFlow::startLevel(int uid, std::uint32_t seed, std::int64_t clock) {
     session_->setRecord(profile_.record(uid));
     session_->setCheeseBalance(profile_.cheeseBalance());
     session_->setDossiersFound(profile_.dossiers);
+    session_->setPowerups(profile_.powerups, profile_.powerupTutorialDone, profile_.metDigger, lateForDigger(*table_, uid));
     session_->setKiskaOffers(profile_.kiska, clock);
     profile_.strength = std::max(profile_.strength, info_->trailLength);
     recorded_ = false;
@@ -216,6 +230,8 @@ void GameFlow::retryLevel() {
     session_->setRecord(profile_.record(info_->uid));
     session_->setCheeseBalance(profile_.cheeseBalance());
     session_->setDossiersFound(profile_.dossiers);
+    session_->setPowerups(profile_.powerups, profile_.powerupTutorialDone, profile_.metDigger,
+                          lateForDigger(*table_, info_->uid));
     recorded_ = false;
 }
 
@@ -263,6 +279,15 @@ void GameFlow::tickLevel() {
     if (const int dossier = session_->takeFoundDossier(); dossier >= 0) {
         // (1.1.1) Profile::foundDossier saves at once.
         profile_.foundDossier(dossier);
+        saveProfile();
+    }
+    if (session_->powerups() != profile_.powerups || session_->powerupTutorialDone() != profile_.powerupTutorialDone) {
+        // (1.1.1) A power-up used, or the button's tutorial run: the profile keeps it at once
+        // (a use also restarts the store reminder's count, Profile +0x2c4).
+        for (std::size_t t = 0; t < profile_.powerups.size(); ++t)
+            if (session_->powerups()[t].used != profile_.powerups[t].used) profile_.sincePowerupUse = 0;
+        profile_.powerups = session_->powerups();
+        profile_.powerupTutorialDone = session_->powerupTutorialDone();
         saveProfile();
     }
     if (!(session_->kiskaOffers() == profile_.kiska)) {

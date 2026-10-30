@@ -12,6 +12,7 @@
 // X Y) are fed in one 17 ms tick per frame from FIRST-FRAME on, and the given frames are saved.
 #include "game/float_mode.hpp"
 #include "app/game_flow.hpp"
+#include "app/script_pokes.hpp"
 #include "game/state_io.hpp"
 #include "app/launcher.hpp"
 #include "app/sound_output.hpp"
@@ -152,6 +153,10 @@ int replay(const data::GameFiles& files, game::Level level, int argc, char** arg
     auto owned = std::make_unique<game::Session>(std::move(level), seed, game::Tuning{}, strength, record.best >= 0);
     owned->setRecord(record);
     owned->setKiskaOffers({}, std::int64_t(std::time(nullptr)));  // a profile that has not seen it
+    if (script) {
+        const app::ScriptProfile poked = app::readScriptProfile(script);
+        owned->setPowerups(poked.powerups, poked.tutorialDone, poked.metDigger);
+    }
     // Sound events are decoded (not played) to check that every file the run needs is there.
     platform::Audio silent;
     app::SoundOutput sound(files, silent);
