@@ -79,6 +79,10 @@ struct Spark {
     bool burst = false;
 };
 
+// The road strips' corners the game builds into the ground shapes' point
+// blocks as it starts ($1197E0).
+data::BuiltPoints road_points(const amiga::LoadedImage& program);
+
 class Scene {
 public:
     Scene(const data::Assets& assets, const data::World& world);
@@ -88,6 +92,11 @@ public:
     void draw(IndexedImage& image, int centre, int bottom, const Camera& camera,
               const std::vector<Vehicle>& vehicles = {}, const std::vector<Spark>& sparks = {},
               const std::vector<SmokeColumn>& smoke = {}) const;
+
+    // High detail (an enhancement, off in the original): every object takes
+    // its nearest level of detail at any distance (still the level its pass
+    // draws), and the ground shapes show from any height.
+    void set_high_detail(bool on) { high_detail_ = on; }
 
     // A vehicle type is drawn at this distance (one of its detail levels
     // reaches it).
@@ -99,6 +108,7 @@ public:
 
 private:
     const data::World& world_;
+    bool high_detail_ = false;
     const amiga::LoadedImage& program_;
     mutable std::map<int, std::vector<data::DetailLevel>> vehicle_levels_; // read when first drawn
     const std::vector<data::DetailLevel>& vehicle_levels(int type) const;

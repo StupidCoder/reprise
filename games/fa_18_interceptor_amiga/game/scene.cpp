@@ -1,4 +1,6 @@
 #include "fa_18_interceptor_amiga/game/scene.hpp"
+#include "fa_18_interceptor_amiga/game/attitude.hpp"
+#include "fa_18_interceptor_amiga/game/flight_tables.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -19,7 +21,13 @@ class Raster {
 public:
     Raster(IndexedImage& image, int centre, int bottom, const Camera& camera)
         : image_(image), centre_(centre), bottom_(std::min(bottom, image.height - 1)), camera_(camera),
-          depth_(std::size_t(image.width * image.height), 1e30) {}
+          depth_(std::size_t(image.width * image.height), 1e30), owner_(depth_.size(), -1) {}
+
+    // The original paints back to front ($112650 orders each object's
+    // lists from the camera). Here a depth buffer settles only what is in
+    // front between objects: within one object (since the last call) later
+    // parts paint over earlier ones, as in the original.
+    void begin_object() { ++object_; }
 
     Point to_camera(const Point& p) const {
         const double dx = p[0] - camera_.position[0], dy = p[1] - camera_.position[1], dz = p[2] - camera_.position[2];
@@ -156,9 +164,13 @@ private:
     }
     void plot(int x, int y, double z, int colour, bool test) {
         if (x < 0 || y < 0 || x >= image_.width || y > bottom_) return;
-        auto& d = depth_[std::size_t(y * image_.width + x)];
-        if (test && z >= d) return;
-        if (test) d = z;
+        const auto at = std::size_t(y * image_.width + x);
+        auto& d = depth_[at];
+        if (test && owner_[at] != object_ && z >= d) return;
+        if (test) {
+            d = z;
+            owner_[at] = object_;
+        }
         image_.pixels[std::size_t(y * image_.width + x)] = std::uint8_t(colour & 31);
     }
     void triangle(const Point& a, const Point& b, const Point& c, int colour, bool test) {
@@ -175,7 +187,8 @@ private:
                 const double wb = ((c[0] - px) * (a[1] - py) - (a[0] - px) * (c[1] - py)) / area;
                 const double wc = 1 - wa - wb;
                 if (wa < 0 || wb < 0 || wc < 0) continue;
-                plot(x, y, wa * a[2] + wb * b[2] + wc * c[2], colour, test);
+                // (Depth is linear in 1 / z across the screen.)
+                plot(x, y, 1 / (wa / a[2] + wb / b[2] + wc / c[2]), colour, test);
             }
         }
     }
@@ -184,19 +197,50 @@ private:
     int centre_, bottom_;
     const Camera& camera_;
     std::vector<double> depth_;
+    std::vector<int> owner_; // the object that painted each pixel's depth
+    int object_ = 0;
 };
 
 } // namespace
 
+data::BuiltPoints road_points(const amiga::LoadedImage& program) {
+    // $1197E0, once as the game starts: a list of word offsets from
+    // $139B74 (negative: the end), each to runs of 20-byte records in the
+    // ground shapes' point blocks: a road's two ends A and B (x, z words;
+    // x $FFFF ends the run), then three points it fills in: the corners of
+    // the road's strip, from the direction A -> B made 46 long ($119CAE)
+    // and turned both ways by about 160 degrees (cos -88/256, sin 241/256):
+    // A + one turn, A + the other, B - the first.
+    constexpr std::uint32_t table = 0x139B74;
+    const auto tables = read_flight_tables(program);
+    data::BuiltPoints built;
+    for (std::uint32_t entry = table; program.s16(entry) >= 0; entry += 2) {
+        for (std::uint32_t at = table + program.u16(entry); program.u16(at) != 0xFFFF; at += 20) {
+            const std::int16_t ax = program.s16(at), az = program.s16(at + 2);
+            const std::int16_t bx = program.s16(at + 4), bz = program.s16(at + 6);
+            const auto v = scaled_vector(tables, 46, std::int16_t(bx - ax), 0, std::int16_t(bz - az));
+            const int u = v[0], w = v[2];
+            const auto word = [](int value) { return int(std::int16_t(value)); };
+            const int x1 = (u * -88 + w * 241) >> 8, z1 = (u * -241 + w * -88) >> 8;
+            const int x2 = (u * -88 + w * -241) >> 8, z2 = (u * 241 + w * -88) >> 8;
+            built[at + 8] = {word(ax + x1), word(az + z1)};
+            built[at + 12] = {word(ax + x2), word(az + z2)};
+            built[at + 16] = {word(bx - x1), word(bz - z1)};
+        }
+    }
+    return built;
+}
+
 Scene::Scene(const data::Assets& assets, const data::World& world)
     : world_(world), program_(assets.program), explosions_(data::read_explosions(assets.program)) {
     for (int i = 0; i < 3; ++i) smoke_shapes_[std::size_t(i)] = data::read_smoke_shape(assets.program, 33 + i);
+    const auto roads = road_points(assets.program);
     for (const auto* map : {&world.pass_a, &world.pass_b, &world.near}) {
         for (const auto& object : map->objects) {
             if (levels_.count(object.type) || ground_.count(object.type)) continue;
             const auto family = data::shape_family(assets.program, object.type);
             if (family == data::ShapeFamily::none) continue;
-            if (family == data::ShapeFamily::ground) ground_.emplace(object.type, data::read_ground_levels(assets.program, object.type));
+            if (family == data::ShapeFamily::ground) ground_.emplace(object.type, data::read_ground_levels(assets.program, object.type, roads));
             else levels_.emplace(object.type, data::read_detail_levels(assets.program, object.type));
         }
     }
@@ -226,6 +270,91 @@ bool Scene::in_range(int type, double distance) const {
 }
 
 namespace {
+
+// Paints a shape as the original does ($112650, $11284E): the draw list's
+// tree walked from the camera gives the polygon lists in order, each list
+// painted part by part; a one-sided face seen from behind ends its list
+// ($113836). `origin` is the object's place, `place` a shape point's world
+// place; `depth` false paints flat on the ground (no depth test).
+template <class Place>
+void paint_shape(Raster& r, const data::Shape& shape, const Point& origin, const Place& place, const Point& eye,
+                 bool depth) {
+    using Kind = data::DrawNode::Kind;
+    std::vector<int> order;
+    if (shape.tree.empty()) {
+        for (int i = 0; i < shape.lists; ++i) order.push_back(i);
+    } else {
+        int at = 0;
+        for (int guard = 0; at >= 0 && guard < 512; ++guard) {
+            const auto& node = shape.tree[std::size_t(at)];
+            switch (node.kind) {
+            case Kind::leaf:
+                order.insert(order.end(), node.lists.begin(), node.lists.end());
+                at = node.stop ? -1 : node.next;
+                break;
+            case Kind::facing:
+                at = r.faces_camera({place(node.points[0]), place(node.points[1]), place(node.points[2])}) ? node.first
+                                                                                                            : node.second;
+                break;
+            case Kind::plane: {
+                const auto& p = node.points[0];
+                const auto& n = node.points[1];
+                const double side = (origin[0] + p.x - eye[0]) * n.x + (origin[1] + p.y - eye[1]) * n.y +
+                                    (origin[2] + p.z - eye[2]) * n.z;
+                at = side < 0 ? node.first : node.second;
+                break;
+            }
+            case Kind::axis: {
+                const auto& p = node.points[0];
+                const double model = (node.axis == 0 ? p.x : node.axis == 1 ? p.y : p.z) * shape.scale;
+                const double camera = eye[std::size_t(node.axis)] - origin[std::size_t(node.axis)];
+                at = (camera < model) != node.invert ? node.second : node.first;
+                break;
+            }
+            }
+        }
+    }
+    // Each list's parts in their order.
+    struct Part {
+        int order;
+        int kind; // 0 face, 1 line, 2 dot
+        std::size_t index;
+    };
+    std::vector<std::vector<Part>> lists(std::size_t(std::max(shape.lists, 1)));
+    const auto add = [&](const data::ListPlace& at, int kind, std::size_t index) {
+        const auto list = at.list >= 0 && at.list < int(lists.size()) ? std::size_t(at.list) : 0;
+        lists[list].push_back({at.order, kind, index});
+    };
+    for (std::size_t i = 0; i < shape.faces.size(); ++i) add(shape.faces[i], 0, i);
+    for (std::size_t i = 0; i < shape.lines.size(); ++i) add(shape.lines[i], 1, i);
+    for (std::size_t i = 0; i < shape.dots.size(); ++i) add(shape.dots[i], 2, i);
+    std::vector<Point> corners;
+    for (const int list : order) {
+        auto& parts = lists[std::size_t(list)];
+        std::sort(parts.begin(), parts.end(), [](const Part& a, const Part& b) { return a.order < b.order; });
+        for (const auto& part : parts) {
+            if (part.kind == 1) {
+                const auto& line = shape.lines[part.index];
+                r.line(place(line.from), place(line.to), line.colour);
+                continue;
+            }
+            if (part.kind == 2) {
+                const auto& dot = shape.dots[part.index];
+                r.dot(place(dot.at), dot.colour);
+                continue;
+            }
+            const auto& face = shape.faces[part.index];
+            corners.clear();
+            for (const auto& c : face.corners) corners.push_back(place(c));
+            int colour = face.colour;
+            if (face.facing != data::Facing::always && !r.faces_camera(corners)) {
+                if (face.facing == data::Facing::one_sided) break;
+                colour = face.back_colour;
+            }
+            r.polygon(corners, colour, depth);
+        }
+    }
+}
 
 // The camera-space point of a world point (the original's `$13AEC8` rows,
 // world units), and whether it lies in the view's pyramid (`$121AD6`,
@@ -389,7 +518,16 @@ void Scene::draw(IndexedImage& image, int centre, int bottom, const Camera& came
     // The scenery in the builder's window. Each object shows the level of
     // detail for its distance; each pass draws only the models meant for it
     // ($111DD2): the coarse maps the ones marked for them, the fine map the
-    // others. The flat ground shapes are drawn by every pass.
+    // others. The flat ground shapes are drawn by every pass. With high
+    // detail (an enhancement) every object takes the nearest level its pass
+    // draws, at any distance in the window and at any height.
+    struct Placed {
+        const data::MapObject* object;
+        const data::Shape* shape;
+        double distance;
+    };
+    std::array<std::vector<Placed>, 3> passes;
+    std::size_t pass = 0;
     for (const auto* map : {&world_.pass_a, &world_.pass_b, &world_.near}) {
         const bool near_pass = map == &world_.near;
         const double window = near_pass ? fine_window : coarse_window;
@@ -399,36 +537,86 @@ void Scene::draw(IndexedImage& image, int centre, int bottom, const Camera& came
             const data::Shape* chosen = nullptr;
             const double distance = std::sqrt(dx * dx + eye[1] * eye[1] + dz * dz);
             if (const auto g = ground_.find(object.type); g != ground_.end()) {
-                if (eye[1] > data::ground_ceiling(program_, object.type)) continue;
+                if (!high_detail_ && eye[1] > data::ground_ceiling(program_, object.type)) continue;
                 for (const auto& level : g->second) {
-                    if (distance >= level.nearer_than) continue;
+                    if (!high_detail_ && distance >= level.nearer_than) continue;
                     if (level.shape) chosen = &*level.shape;
                     break;
                 }
             } else if (const auto l = levels_.find(object.type); l != levels_.end()) {
                 for (const auto& level : l->second) {
-                    if (distance >= level.nearer_than) continue;
+                    if (high_detail_) {
+                        if (!level.shape || level.shape->coarse_pass == near_pass) continue;
+                    } else if (distance >= level.nearer_than) {
+                        continue;
+                    }
                     if (level.shape && level.shape->coarse_pass != near_pass) chosen = &*level.shape;
                     break;
                 }
             }
-            if (!chosen) continue;
-            const auto& shape = *chosen;
-            const auto place = [&](const data::ShapePoint& p) {
-                return Point{object.x + p.x * shape.scale, p.y * shape.scale, object.z + p.z * shape.scale};
-            };
-            for (const auto& face : shape.faces) {
-                corners.clear();
-                for (const auto& c : face.corners) corners.push_back(place(c));
-                int colour = face.colour;
-                if (face.facing != data::Facing::always && !r.faces_camera(corners)) {
-                    if (face.facing == data::Facing::one_sided) continue;
-                    colour = face.back_colour;
-                }
-                r.polygon(corners, colour, true);
+            if (chosen) passes[pass].push_back({&object, chosen, distance});
+        }
+        ++pass;
+    }
+    // What lies flat on the ground (the ground shapes, the airfields'
+    // paving) is painted first, pass by pass and far to near within a pass,
+    // with no depth test: it is all on one level, so only its order counts
+    // (hypothesis: the original's lists run far to near). Then the
+    // aircraft's shadows, then everything standing.
+    const auto scenery_place = [](const data::MapObject& object, const data::Shape& shape) {
+        return [&object, &shape](const data::ShapePoint& p) {
+            return Point{object.x + p.x * shape.scale, p.y * shape.scale, object.z + p.z * shape.scale};
+        };
+    };
+    for (auto& placed : passes) {
+        std::stable_sort(placed.begin(), placed.end(), [](const Placed& a, const Placed& b) { return a.distance > b.distance; });
+        for (const auto& p : placed) {
+            if (!p.shape->flat) continue;
+            r.begin_object();
+            paint_shape(r, *p.shape, {p.object->x, 0, p.object->z}, scenery_place(*p.object, *p.shape), eye, false);
+        }
+    }
+    const auto vehicle_shape = [&](const Vehicle& v) -> const data::Shape* {
+        const double dx = v.position[0] - eye[0], dy = v.position[1] - eye[1], dz = v.position[2] - eye[2];
+        const double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+        for (const auto& level : vehicle_levels(v.type)) {
+            if (high_detail_) {
+                if (level.shape) return &*level.shape;
+                continue;
             }
-            for (const auto& line : shape.lines) r.line(place(line.from), place(line.to), line.colour);
-            for (const auto& dot : shape.dots) r.dot(place(dot.at), dot.colour);
+            if (distance >= level.nearer_than) continue;
+            return level.shape ? &*level.shape : nullptr;
+        }
+        return nullptr;
+    };
+    const auto vehicle_place = [](const Vehicle& v, const data::Shape& shape) {
+        return [&v, &shape](const data::ShapePoint& p) {
+            const auto& b = v.body;
+            const double x = p.x * shape.scale, y = p.y * shape.scale, z = p.z * shape.scale;
+            return Point{v.position[0] + (b[0] * x + b[3] * y + b[6] * z) / 16384.0,
+                         v.position[1] + (b[1] * x + b[4] * y + b[7] * z) / 16384.0,
+                         v.position[2] + (b[2] * x + b[5] * y + b[8] * z) / 16384.0};
+        };
+    };
+    for (const auto& v : vehicles) {
+        const auto* shape = vehicle_shape(v);
+        if (!shape || !v.model || !v.shadow || v.position[1] > shape->shadow_height) continue;
+        const auto place = vehicle_place(v, *shape);
+        for (const auto& shadow : shape->shadows) {
+            corners.clear();
+            for (const auto& c : shadow) {
+                auto p = place(c);
+                p[1] = 0;
+                corners.push_back(p);
+            }
+            r.polygon(corners, 0, false);
+        }
+    }
+    for (const auto& placed : passes) {
+        for (const auto& p : placed) {
+            if (p.shape->flat) continue;
+            r.begin_object();
+            paint_shape(r, *p.shape, {p.object->x, 0, p.object->z}, scenery_place(*p.object, *p.shape), eye, true);
         }
     }
     // The moving objects ($10FC0C): their shape for the distance, turned
@@ -442,54 +630,21 @@ void Scene::draw(IndexedImage& image, int centre, int bottom, const Camera& came
         return Seen{v, in};
     };
     for (const auto& v : vehicles) {
-        const double dx = v.position[0] - eye[0], dy = v.position[1] - eye[1], dz = v.position[2] - eye[2];
-        const double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
-        const data::Shape* chosen = nullptr;
-        for (const auto& level : vehicle_levels(v.type)) {
-            if (distance >= level.nearer_than) continue;
-            if (level.shape) chosen = &*level.shape;
-            break;
-        }
+        const auto* chosen = vehicle_shape(v);
         if (!chosen) continue;
+        r.begin_object();
         if (v.explosion_age >= 0) draw_explosion(r, explosions_, v, eye, seen);
+        r.begin_object();
         if (v.trail) draw_trail(r, *v.trail, v.position, eye, seen);
         if (!v.model) continue;
-        const auto& b = v.body;
-        const double scale = chosen->scale;
-        const auto place = [&](const data::ShapePoint& p) {
-            const double x = p.x * scale, y = p.y * scale, z = p.z * scale;
-            return Point{v.position[0] + (b[0] * x + b[3] * y + b[6] * z) / 16384.0,
-                         v.position[1] + (b[1] * x + b[4] * y + b[7] * z) / 16384.0,
-                         v.position[2] + (b[2] * x + b[5] * y + b[8] * z) / 16384.0};
-        };
-        if (v.shadow && v.position[1] <= chosen->shadow_height) {
-            for (const auto& shadow : chosen->shadows) {
-                corners.clear();
-                for (const auto& c : shadow) {
-                    auto p = place(c);
-                    p[1] = 0;
-                    corners.push_back(p);
-                }
-                r.polygon(corners, 0, false);
-            }
-        }
-        for (const auto& face : chosen->faces) {
-            corners.clear();
-            for (const auto& c : face.corners) corners.push_back(place(c));
-            int colour = face.colour;
-            if (face.facing != data::Facing::always && !r.faces_camera(corners)) {
-                if (face.facing == data::Facing::one_sided) continue;
-                colour = face.back_colour;
-            }
-            r.polygon(corners, colour, true);
-        }
-        for (const auto& line : chosen->lines) r.line(place(line.from), place(line.to), line.colour);
-        for (const auto& dot : chosen->dots) r.dot(place(dot.at), dot.colour);
+        r.begin_object();
+        paint_shape(r, *chosen, v.position, vehicle_place(v, *chosen), eye, true);
     }
     // The smoke slots ($111D5C for types 33-35): near, the patch and the
     // column of discs for the slot's timer; farther, a two-pixel dot.
     for (const auto& column : smoke) {
         if (column.type < 33 || column.type > 35) continue;
+        r.begin_object();
         const auto& shape = smoke_shapes_[std::size_t(column.type - 33)];
         const auto& at = column.position;
         const double dx = at[0] - eye[0], dy = at[1] - eye[1], dz = at[2] - eye[2];
@@ -531,6 +686,7 @@ void Scene::draw(IndexedImage& image, int centre, int bottom, const Camera& came
     }
     static constexpr int burst[3][6] = {{-3, 3, -3, 3, -3, 3}, {2, 1, -2, -2, -1, 2}, {-3, -3, -3, 3, 3, 3}};
     for (const auto& s : sparks) {
+        r.begin_object();
         const auto& p = s.position;
         if (!s.burst) {
             r.dot(p, s.colour);

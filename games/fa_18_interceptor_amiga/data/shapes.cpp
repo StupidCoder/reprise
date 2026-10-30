@@ -129,50 +129,92 @@ public:
         if (flat_ && (flags & 4)) strip_points();
     }
 
-    // The draw list's facing-test tree ($112650): every branch, polygon
-    // lists in the order first reached.
-    void walk_tree(std::uint32_t at, int depth = 0) {
-        if (depth > 64) return;
-        while (visited_nodes_.insert(at).second) {
-            const auto word = m_.u16(at);
-            if (word & 0x8000) { // a leaf
-                if (word == 0xFFFF) return;
-                if (word & 0x2000) { // one polygon list, the last thing drawn
-                    add_list(word & 0x1000 ? m_.u32(at + 2) : base_ + (word & 0xFFF));
-                    return;
-                }
-                // a list of polygon-list references, bit 15 on the last
+    // The draw list's facing-test tree ($112650) from `at` as the shape's
+    // nodes (returns the node's index); the polygon lists it names are
+    // numbered in the order first reached.
+    int build_tree(std::uint32_t at, int depth = 0) {
+        if (depth > 64) return -1;
+        if (const auto found = node_at_.find(at); found != node_at_.end()) return found->second;
+        const int index = int(shape_.tree.size());
+        shape_.tree.emplace_back();
+        node_at_[at] = index;
+        DrawNode node;
+        const auto word = m_.u16(at);
+        if (word & 0x8000) { // a leaf
+            if (word == 0xFFFF) {
+                node.stop = true;
+            } else if (word & 0x2000) { // one polygon list, the last thing drawn
+                node.lists.push_back(add_list(word & 0x1000 ? m_.u32(at + 2) : base_ + (word & 0xFFF)));
+                node.stop = true;
+            } else { // a list of polygon-list references, bit 15 on the last
                 std::uint32_t refs = word & 0x1000 ? m_.u32(at + 2) : base_ + (word & 0xFFF);
-                at += word & 0x1000 ? 6 : 2;
                 for (int guard = 0; guard < 64; ++guard) {
                     const auto ref = m_.u16(refs);
-                    if (ref & 0x1000) { add_list(m_.u32(refs + 2)); refs += 6; }
-                    else { add_list(base_ + (ref & 0xFFF)); refs += 2; }
+                    if (ref & 0x1000) { node.lists.push_back(add_list(m_.u32(refs + 2))); refs += 6; }
+                    else { node.lists.push_back(add_list(base_ + (ref & 0xFFF))); refs += 2; }
                     if (ref & 0x8000) break;
                 }
-                if (word & 0x4000) return; // drawing stops after this leaf
-                continue;
+                node.stop = word & 0x4000; // drawing stops after this leaf
+                if (!node.stop) node.next = build_tree(at + (word & 0x1000 ? 6 : 2), depth + 1);
             }
-            const auto test = m_.u16(at + 2);
-            if ((test & 0xFC00) == 0xFC00) { at = base_ + m_.u16(at + 4); continue; } // a jump
-            // A facing test: three points ($112AD4), an explicit plane
-            // (bit 13, six words: a point and a normal, $1126B8) or an axis
-            // comparison (bits 10-11); then
-            // the offsets of the two branches.
-            const std::uint32_t branches = test & 0x0C00 ? at + 4 : test & 0x2000 ? at + 16 : at + 8;
-            walk_tree(base_ + m_.u16(branches), depth + 1);
-            walk_tree(base_ + m_.u16(branches + 2), depth + 1);
-            return;
+            shape_.tree[std::size_t(index)] = std::move(node);
+            return index;
         }
+        const auto test = m_.u16(at + 2);
+        std::uint32_t branches = at + 4;
+        if ((test & 0xFC00) == 0xFC00) { // a jump: a leaf with nothing to paint
+            node.next = build_tree(base_ + m_.u16(at + 4), depth + 1);
+            shape_.tree[std::size_t(index)] = std::move(node);
+            return index;
+        }
+        if (test & 0x0C00) { // the camera against a model point on one axis ($112B8A)
+            node.kind = DrawNode::Kind::axis;
+            const int kind = (test & 0x0C00) >> 10;
+            node.axis = kind == 1 ? 1 : kind == 2 ? 0 : 2;
+            node.invert = test & 0x1000;
+            node.points[0] = stored((word & 0x3FFF) / point_size);
+        } else if (test & 0x2000) { // an explicit plane: a point and a normal ($112AE4)
+            node.kind = DrawNode::Kind::plane;
+            const auto w = [&](int i) { return double(m_.s16(at + 4 + std::uint32_t(2 * i))); };
+            node.points[0] = {w(0), w(1), w(2)};
+            node.points[1] = {w(3), w(4), w(5)};
+            branches = at + 16;
+        } else { // three points ($112B1C), resolved once the lists have run
+            node.kind = DrawNode::Kind::facing;
+            facing_.push_back({index, {word, m_.u16(at + 4), m_.u16(at + 6)}});
+            branches = at + 8;
+        }
+        node.first = build_tree(base_ + m_.u16(branches), depth + 1);
+        node.second = build_tree(base_ + m_.u16(branches + 2), depth + 1);
+        shape_.tree[std::size_t(index)] = std::move(node);
+        return index;
     }
 
     void run_lists() {
-        for (const auto list : lists_) run_list(list);
+        for (std::size_t i = 0; i < lists_.size(); ++i) {
+            list_ = int(i);
+            order_ = 0;
+            run_list(lists_[i]);
+        }
+        list_ = -1;
+        shape_.lists = int(lists_.size());
+        shape_.flat = flat_;
+        for (const auto& [node, offsets] : facing_)
+            for (std::size_t k = 0; k < 3; ++k) shape_.tree[std::size_t(node)].points[k] = at_offset(offsets[k]);
     }
 
 private:
-    void add_list(std::uint32_t list) {
-        if (std::find(lists_.begin(), lists_.end(), list) == lists_.end()) lists_.push_back(list);
+    int add_list(std::uint32_t list) {
+        const auto found = std::find(lists_.begin(), lists_.end(), list);
+        if (found != lists_.end()) return int(found - lists_.begin());
+        lists_.push_back(list);
+        return int(lists_.size() - 1);
+    }
+    // Tags a part with the list being run and its place in it.
+    template <class Part> Part tagged(Part part) {
+        part.list = list_;
+        part.order = order_++;
+        return part;
     }
 
     // Point i of the model: x, y, z words, or x, z on the object's level
@@ -293,7 +335,9 @@ private:
     }
     std::uint32_t face_colour(std::uint32_t a, std::vector<ShapePoint> corners) {
         const auto word = m_.u16(a); a += 2;
-        ShapeFace face{std::move(corners), word & 0x1F};
+        ShapeFace face;
+        face.corners = std::move(corners);
+        face.colour = word & 0x1F;
         if (!(word & 0x8000)) {
             face.facing = Facing::one_sided;
             if (word & 0x4000) {
@@ -304,16 +348,26 @@ private:
                 a += 2;
             }
         }
-        shape_.faces.push_back(std::move(face));
+        shape_.faces.push_back(tagged(std::move(face)));
         return a;
     }
 
     void add_face(std::vector<ShapePoint> corners, int colour) {
-        shape_.faces.push_back({std::move(corners), colour & 0x1F, false});
+        ShapeFace face;
+        face.corners = std::move(corners);
+        face.colour = colour & 0x1F;
+        shape_.faces.push_back(tagged(std::move(face)));
     }
 
     void line(std::uint16_t from, std::uint16_t to, std::uint16_t colour) {
-        shape_.lines.push_back({at_offset(from), at_offset(to), colour & 0x1F});
+        add_line(at_offset(from), at_offset(to), colour);
+    }
+    void add_line(ShapePoint from, ShapePoint to, int colour) {
+        ShapeLine line;
+        line.from = from;
+        line.to = to;
+        line.colour = colour & 0x1F;
+        shape_.lines.push_back(tagged(line));
     }
 
     // A polygon list as $11284E runs it at distance 0.
@@ -347,7 +401,12 @@ private:
         switch (op) {
         case 0x00: return true;                                   // nothing
         case 0x04:                                                // a dot ($1135AC)
-            shape_.dots.push_back({at_offset(m_.u16(a)), m_.u16(a + 2) & 0x1F});
+            {
+                ShapeDot dot;
+                dot.at = at_offset(m_.u16(a));
+                dot.colour = m_.u16(a + 2) & 0x1F;
+                shape_.dots.push_back(tagged(dot));
+            }
             a += 4;
             return true;
         case 0x08: case 0xC0: case 0x128:                         // a line (thick, thin, near only)
@@ -402,7 +461,7 @@ private:
                 const auto start = point(first + 2 + row);
                 for (int i = 0; i < count; ++i) {
                     const auto from = start + (0.5 * i) * step;
-                    shape_.lines.push_back({from, from + across, colour & 0x1F});
+                    add_line(from, from + across, colour);
                 }
             }
             return true;
@@ -448,8 +507,8 @@ private:
             const auto back = point(v + 2) - 0.5 * step + across;
             for (int j = 0; j < n; ++j) {
                 const auto s1 = point(v + 2) + (0.5 * j) * step, s2 = back - (0.5 * j) * step;
-                shape_.lines.push_back({s1, s1 + across, colour & 0x1F});
-                shape_.lines.push_back({s2, s2 - across, colour & 0x1F});
+                add_line(s1, s1 + across, colour);
+                add_line(s2, s2 - across, colour);
             }
             return true;
         }
@@ -498,7 +557,7 @@ private:
             const int v = m_.u16(a) / point_size;
             a += 2;
             for (int i = 0; i < (word >> 8); ++i) {
-                shape_.lines.push_back({point(v + 2 * i) - shift, point(v + 2 * i + 1) - shift, word & 0x1F});
+                add_line(point(v + 2 * i) - shift, point(v + 2 * i + 1) - shift, word);
             }
             return true;
         }
@@ -509,7 +568,7 @@ private:
             for (int guard = 0; guard < 64; ++guard) {
                 const auto from = m_.u16(a), to = m_.u16(a + 2);
                 a += 4;
-                shape_.lines.push_back({at_offset(from) - shift, at_offset(to) - shift, colour & 0x1F});
+                add_line(at_offset(from) - shift, at_offset(to) - shift, colour);
                 if (to & 0x8000) break;
             }
             return true;
@@ -596,8 +655,10 @@ private:
     Shape& shape_;
     std::uint32_t base_, model_;
     bool flat_;
-    std::set<std::uint32_t> visited_nodes_;
+    std::map<std::uint32_t, int> node_at_;
+    std::vector<std::pair<int, std::array<std::uint16_t, 3>>> facing_; // facing nodes' point offsets
     std::vector<std::uint32_t> lists_;
+    int list_ = -1, order_ = 0;
     Points points_;
 };
 
@@ -615,7 +676,7 @@ Shape decode_model(const amiga::LoadedImage& program, int type, std::uint32_t ba
     shape.coarse_pass = model_word & 0x2000;
     shape.scale = std::ldexp(1.0, -(program.u8(shape.model + 6) & 15));
     Decoder decoder(program, shape, base, shape.model);
-    decoder.walk_tree(model_word_at + 2);
+    decoder.build_tree(model_word_at + 2);
     decoder.run_lists();
     return shape;
 }
@@ -680,7 +741,7 @@ Shape read_shape(const amiga::LoadedImage& program, int type) {
     shape.coarse_pass = model_word & 0x2000;
     shape.scale = std::ldexp(1.0, -(program.u8(shape.model + 6) & 15));
     Decoder decoder(program, shape, base, shape.model);
-    decoder.walk_tree(model_word_at + 2);
+    decoder.build_tree(model_word_at + 2);
     decoder.run_lists();
     return shape;
 }
@@ -694,7 +755,7 @@ Shape read_shape(const amiga::LoadedImage& program, int type) {
 // $68 (n points from an offset, colour 7).
 namespace {
 
-Shape read_ground_list(const amiga::LoadedImage& m, int type, std::uint32_t list) {
+Shape read_ground_list(const amiga::LoadedImage& m, int type, std::uint32_t list, const BuiltPoints& built) {
     Shape shape;
     shape.type = type;
     shape.detail_levels = 1;
@@ -704,12 +765,17 @@ Shape read_ground_list(const amiga::LoadedImage& m, int type, std::uint32_t list
     std::map<int, ShapePoint> points;
     const int count = m.u16(model);
     const auto stored = [&](int i) {
-        return ShapePoint{double(m.s16(model + 6 + std::uint32_t(4 * i))), 0,
-                          double(m.s16(model + 8 + std::uint32_t(4 * i)))};
+        const auto at = model + 6 + std::uint32_t(4 * i);
+        if (const auto found = built.find(at); found != built.end())
+            return ShapePoint{double(found->second[0]), 0, double(found->second[1])};
+        return ShapePoint{double(m.s16(at)), 0, double(m.s16(at + 2))};
     };
     for (int i = 0; i < count; ++i) points[i] = stored(i);
     const auto point = [&](int i) { return points.count(i) ? points[i] : ShapePoint{}; };
     std::uint32_t a = list + 10;
+    shape.lists = 1;
+    shape.flat = true;
+    int order = 0;
     for (int guard = 0; guard < 200; ++guard) {
         auto word = m.u16(a);
         a += 2;
@@ -765,7 +831,13 @@ Shape read_ground_list(const amiga::LoadedImage& m, int type, std::uint32_t list
             for (int guard = 0; guard < 64; ++guard) {
                 const int from = m.u16(a), to = m.u16(a + 2);
                 a += 4;
-                shape.lines.push_back({point((from & 0x7FFF) / point_size), point((to & 0x7FFF) / point_size), colour});
+                ShapeLine line;
+                line.from = point((from & 0x7FFF) / point_size);
+                line.to = point((to & 0x7FFF) / point_size);
+                line.colour = colour;
+                line.list = 0;
+                line.order = order++;
+                shape.lines.push_back(line);
                 if (to & 0x8000) break;
             }
         } else {
@@ -774,6 +846,8 @@ Shape read_ground_list(const amiga::LoadedImage& m, int type, std::uint32_t list
             shape.problems.push_back(text);
             break;
         }
+        face.list = 0;
+        face.order = order++;
         if (face.corners.size() >= 3) shape.faces.push_back(std::move(face));
         if (word & 0x4000) break;
     }
@@ -783,13 +857,13 @@ Shape read_ground_list(const amiga::LoadedImage& m, int type, std::uint32_t list
 } // namespace
 
 Shape read_ground_shape(const amiga::LoadedImage& m, int type) {
-    return read_ground_list(m, type, m.u32(type_table + std::uint32_t(type) * type_size + 8));
+    return read_ground_list(m, type, m.u32(type_table + std::uint32_t(type) * type_size + 8), {});
 }
 
 // The ground lists' chain: each list's first word is how near (x 16 world
 // units) the object must be for it ($7FFF: any distance), the long after it
 // the next, simpler list for farther away (negative: nothing farther).
-std::vector<DetailLevel> read_ground_levels(const amiga::LoadedImage& m, int type) {
+std::vector<DetailLevel> read_ground_levels(const amiga::LoadedImage& m, int type, const BuiltPoints& built) {
     std::vector<DetailLevel> levels;
     std::uint32_t list = m.u32(type_table + std::uint32_t(type) * type_size + 8);
     std::vector<std::uint32_t> seen;
@@ -800,7 +874,7 @@ std::vector<DetailLevel> read_ground_levels(const amiga::LoadedImage& m, int typ
         if (threshold & 0x8000) break;
         DetailLevel level;
         level.nearer_than = threshold == 0x7FFF ? 1e30 : threshold * 16.0;
-        level.shape = read_ground_list(m, type, list);
+        level.shape = read_ground_list(m, type, list, built);
         levels.push_back(std::move(level));
         if (threshold == 0x7FFF) break;
         list = m.u32(list + 2);
@@ -917,7 +991,10 @@ SmokeShape read_smoke_shape(const amiga::LoadedImage& m, int type) {
             const auto model = base + (m.u16(entry + 2) & 0xFFF);
             if ((m.u16(list) & 0x3FFF) == 0xE8) {
                 const auto at = model + 0xA + m.u16(list + 2);
-                s.far_dot = ShapeDot{{double(m.s16(at)), double(m.s16(at + 2)), double(m.s16(at + 4))}, m.u16(list + 4) & 0x1F};
+                ShapeDot dot;
+                dot.at = {double(m.s16(at)), double(m.s16(at + 2)), double(m.s16(at + 4))};
+                dot.colour = m.u16(list + 4) & 0x1F;
+                s.far_dot = dot;
                 s.far_limit = levels[1].nearer_than;
             }
         }

@@ -693,7 +693,11 @@ public:
                  "the further the original's stick input goes), a slider on the right sets the throttle "
                  "in the original's tenths, and a button lowers or raises the gear. Automatic uses it on "
                  "a touch screen without a gamepad.",
-                 "Controls", true}};
+                 "Controls", true},
+                {"High detail", {"Off", "On"}, high_detail_ ? 1 : 0,
+                 "Draws every building, bridge and city block with its most detailed model at any "
+                 "distance and height, instead of the original's simpler models and early cut-off far "
+                 "away. The game plays the same."}};
     }
     // The flight's touch controls ($10DFD2's stick, F1 - F10, key G), while
     // the player flies.
@@ -725,6 +729,10 @@ public:
         if (index == 2) vhs_ = std::clamp(value, 0, ui::vhs_levels - 1);
         if (index == 3) sound_ = value != 0;
         if (index == 4) controls_ = std::clamp(value, 0, 2);
+        if (index == 5) {
+            high_detail_ = value != 0;
+            scene_.set_high_detail(high_detail_);
+        }
     }
     void set_canvas(int width, int height) override {
         canvas_width_ = width;
@@ -2629,6 +2637,7 @@ private:
     bool smooth_ = true, widescreen_ = false, sound_ = true;
     int vhs_ = 0;
     bool touch_view_ = false; // the VIEW touch button, held
+    bool high_detail_ = false; // the scenery's nearest levels of detail at any distance (enhancement)
     int controls_ = 0; // the controls' scheme (0 automatic, 1 keyboard / gamepad, 2 touch stick)
     platform::InputCapabilities input_caps_{};
     int margin_ = 0, canvas_width_ = 0, canvas_height_ = 0;

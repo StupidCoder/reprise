@@ -422,8 +422,11 @@ while the distance (>> the scale shift $13ADA8) is below its threshold;
 $FFFF or a negative word ends the list (nothing drawn: hidden when far).
 Shapes have 1-4 levels; at distance 0 the first. The model word: low 12
 bits the point block, bit 14 no clipping test, bit 13 special (scenery).
-**Owner's planned enhancement:** an option to always take the nearest
-level (and distance 0 in the polygon lists below), off by default.
+**High detail (option, enhancement, 2026-10-30):** every scenery and
+ground object takes its nearest level that its pass draws (the pass rule
+below stays), at any distance in the builder's window and with the ground
+shapes' height limit lifted; vehicles take their nearest level. Off by
+default; the polygon lists are decoded at distance 0 either way.
 
 **Point block** (model): +0 word (low byte an id), +2 and +4 two
 distances, +6 scale nibbles, +7 flags (bit 0: rotated with the object,
@@ -441,8 +444,34 @@ test through three points; bit 13: an explicit plane, six words; bits
 branch offsets from the base. Leaves are negative words: bit 13 one
 polygon list drawn last; otherwise a list of polygon-list references
 (bit 15 on the last; bit 12: a long pointer), and bit 14 stops after it.
-It orders the parts back to front; a depth-buffered viewer can draw every
-branch.
+It orders the parts back to front. The tests (2026-10-30, from the
+code): **facing** (`$112B1C`) takes P0-P2 from the camera-space buffer,
+n = (P1 - P0) x (P2 - P0) (the differences shifted by bits 7-9 of the
+test word), the first branch when n . P0 < 0, else the second;
+**plane** (`$112AE4`) the six words a point (world units about the
+object, shifted by `$13ADA8` like the positions) and a normal, the first
+branch when (point + object - camera) . normal < 0; **axis**
+(`$112B8A`) the model point at offset v0 (>> the scale nibble) on axis
+y (bits 10-11 = 1, against `-$13AD68`), x (2) or z (3, with the cell
+offsets `$13AE1A` / `$13AE1E`; hypothesis: the camera's place about the
+object), the second branch when the camera's coordinate is smaller than
+the point's, the other way round with bit 12. Census: vehicles use facing
+tests (and the ships two axis tests), the bridge sections 50-57 plane
+tests, 48/49 and 102/103 axis tests; most scenery has no test and paints
+its lists in order. A one-sided face seen from behind ends its list
+(`$113836`).
+
+**The port's renderer** (`game/scene.cpp`, 2026-10-30) paints like this:
+each object's lists in the order its tree gives from the camera, parts
+in list order, later parts over earlier ones; a depth buffer (depth
+linear in 1/z) settles only what is in front between different objects.
+Flat things (ground shapes, flag-2 models such as the airfields' paving)
+are painted first with no depth test, pass by pass and far to near
+within a pass (hypothesis: the original's lists run far to near), then
+the aircraft's shadows, then everything standing. Before this a depth
+buffer per face let coplanar ground shapes fight (the city streaked
+with green) and the F/A-18's wings and stabilizers cut jaggedly through
+its body in the start's close-up.
 
 **Polygon lists** ($11284E): opcode words `$8000 | offset into $113470`
 (bit 14: the last). A positive word is a distance band: `T, $FFFF` (only
@@ -541,9 +570,10 @@ The C++ decoder (`read_shapes`) covers vehicles, scenery and ground
 shapes and agrees with the research decoder on every type's face and
 line counts. Dots (`$04`) are kept; faces record their facing rule
 (always, one-sided, two-sided with a back colour). The smoke's discs
-and its `$118` variants have their own reader (`read_smoke_shape`). Not
-decoded yet: `$18`; other discs, lights and shadows; the drawing order
-and the original's rounding.
+and its `$118` variants have their own reader (`read_smoke_shape`). The
+facing tree is kept as `DrawNode`s and every part names its list, so the
+renderer paints in the original's order. Not decoded yet: `$18`; other
+discs, lights and shadows; the original's rounding.
 
 ### World
 
@@ -604,6 +634,21 @@ with bit 15 before a count is a height threshold (× 4): that polygon and
 the rest of the cell only from that height up (`$11F73C`). 1024 cells,
 the near versions draw the bay's coastline (`.analysis/fa_18_interceptor_amiga/work/terrain.png`, the
 viewer's world map).
+
+**The roads** (`$1197E0`, run once by `$101628` as the game starts,
+2026-10-30): the program on the disk holds zeros for some of the ground
+shapes' points; the game builds them. A list of word offsets from
+`$139B74` (negative: the end) leads to runs of 20-byte records inside the
+point blocks: a road's ends A and B (x, z), then three points to fill (x
+`$FFFF` ends a run). v = B - A made 46 long (`$119CAE`, the length
+estimate `$1108C4`), then A + ((-88 vx + 241 vz) >> 8, (-241 vx - 88 vz)
+>> 8), A + ((-88 vx - 241 vz) >> 8, (241 vx - 88 vz) >> 8) and B minus
+the first offset: the corners of the road's strip, drawn by the city
+blocks' `$78` parallelograms and `$12C` lines. **Checked:** all 120 built
+points equal the running original's memory (the port's `road_points`);
+the city from the original's camera (`$13AD6C`, `$13AEC8`, read at a
+frame start) matches the port's picture (`sceneshot` with
+`F18_CAMERA`). Without them the city blocks lost their roads.
 
 **Ground shapes** (`$112D76`, types 36-42 and 98-132): `threshold, next
 list (long), point block (long)`, a polygon list; points from +6
@@ -2492,7 +2537,10 @@ Research files live in `.analysis/fa_18_interceptor_amiga/` (`harness/`,
   the keypad's 0 4 6 8 2; touch: `?stick=X,Y` held until the next stick
   step, `?throttle=Y`, `?gear`, `?view`, `?tap=X,Y` in picture pixels - quote
   them in zsh), `stickcheck` (the pitch input's ramp for a half
-  deflection).
+  deflection). `sceneshot <content> <out.png> x y z heading pitch normal|high`
+  (the port's outside view from any place; with `F18_CAMERA=file` the
+  original's camera: `$13AD6C` place and `$13AEC8` matrix / 256, 12
+  numbers).
 - `harness/proc.py`: the running original's screen procedure, frame
   countdown and text queue (the front end's traces).
 - Captures in `work/ref/`: `em4a`-`em4c` (mission 4: the enemies'

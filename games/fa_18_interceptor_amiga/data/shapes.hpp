@@ -1,6 +1,7 @@
 #pragma once
 #include "amiga/hunk.hpp"
 #include <array>
+#include <map>
 #include <cstdint>
 #include <string>
 #include <optional>
@@ -14,10 +15,10 @@
 // builders and parts shown only in some states or at some distances.
 //
 // This decoder takes what the lists draw at distance 0, the nearest view,
-// with every branch of the facing tree and the first frame of animated
-// parts: the full model a viewer (or a renderer with the original's
-// simplification of distant objects switched off) shows. The game's own
-// drawing order and distance rules are not modelled here yet.
+// with the first frame of animated parts. It runs every polygon list once
+// and keeps the facing tree (`DrawNode`), so a renderer can walk the tree
+// from its camera and paint the lists in the original's order, as $112650
+// does; each face, line and dot names the list it came from.
 namespace interceptor::data {
 
 struct ShapePoint {
@@ -29,7 +30,14 @@ struct ShapePoint {
 // drawn: $112B1C's test), or two-sided with a colour for each side.
 enum class Facing { always, one_sided, two_sided };
 
-struct ShapeFace {
+// What a drawn part belongs to: its polygon list (an index into the shape's
+// lists, -1 for none) and its place in that list.
+struct ListPlace {
+    int list = -1;
+    int order{};
+};
+
+struct ShapeFace : ListPlace {
     std::vector<ShapePoint> corners;
     int colour{};             // palette index (flight palette); the front for two-sided faces
     bool two_sided{};
@@ -37,14 +45,37 @@ struct ShapeFace {
     int back_colour{};        // two-sided faces
 };
 
-struct ShapeLine {
+struct ShapeLine : ListPlace {
     ShapePoint from, to;
     int colour{};
 };
 
-struct ShapeDot {
+struct ShapeDot : ListPlace {
     ShapePoint at;
     int colour{};
+};
+
+// A node of the draw list's tree ($112650). A test picks one of two
+// branches; a leaf names polygon lists to paint, then goes on to `next`
+// unless it stops the walk.
+//  - facing: three points; n = (P1 - P0) x (P2 - P0) in camera space, the
+//    first branch when n . P0 < 0 (the side facing the camera, $112B1C);
+//  - plane: a point and a normal (world units about the object, not
+//    turned with it); the first branch when (point - camera) . normal < 0
+//    ($112AE4);
+//  - axis: the camera's coordinate about the object on one axis against a
+//    model point's; the second branch when the camera's is smaller,
+//    the other way round with bit 12 ($112B8A; x and z: hypothesis).
+struct DrawNode {
+    enum class Kind { facing, plane, axis, leaf };
+    Kind kind{Kind::leaf};
+    std::array<ShapePoint, 3> points{}; // facing: P0-P2; plane: point, normal; axis: points[0]
+    int axis{};                          // 0 x, 1 y, 2 z
+    bool invert{};
+    int first = -1, second = -1;         // branches (node indices; -1: nothing)
+    std::vector<int> lists;              // leaf: polygon lists in order
+    bool stop{};                         // leaf: the walk ends after it
+    int next = -1;                       // leaf: the node after it
 };
 
 struct Shape {
@@ -62,6 +93,12 @@ struct Shape {
     std::vector<ShapeFace> faces;
     std::vector<ShapeLine> lines;
     std::vector<ShapeDot> dots;          // single pixels ($04)
+    // The facing tree (node 0 the root; empty: paint the lists in order)
+    // and how many polygon lists the parts name.
+    std::vector<DrawNode> tree;
+    int lists{};
+    // Flat (flag 2: points on the object's level): drawn on the ground.
+    bool flat{};
     // The ground shadow ($10, $11392E): polygons of the shape's points laid
     // flat on the ground in colour 0 while the object is below the height.
     std::vector<std::vector<ShapePoint>> shadows;
@@ -155,7 +192,13 @@ struct DetailLevel {
     std::optional<Shape> shape;
 };
 std::vector<DetailLevel> read_detail_levels(const amiga::LoadedImage& program, int type);
+// Points the game builds into the ground shapes' point blocks when it
+// starts (game::road_points, `$1197E0`): by the address of a point's x
+// word, its x and z. The program on the disk holds zeros there.
+using BuiltPoints = std::map<std::uint32_t, std::array<int, 2>>;
+
 // A ground shape's lists by distance ($112D76).
-std::vector<DetailLevel> read_ground_levels(const amiga::LoadedImage& program, int type);
+std::vector<DetailLevel> read_ground_levels(const amiga::LoadedImage& program, int type,
+                                            const BuiltPoints& built = {});
 
 } // namespace interceptor::data

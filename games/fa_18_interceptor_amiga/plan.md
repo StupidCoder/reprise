@@ -19,9 +19,9 @@ VHS, sound. Checked against the original: `flightcheck`, `soundcheck`,
 (game.md sections 2 and 7). Committed and pushed step by step.
 
 Owner's design notes: widescreen and smooth motion stay (own renderer from
-game state, rules at 15 Hz); a planned option, off by default, always
-draws the nearest detail level (the renderer keeps the level choice apart
-from drawing, and must still respect the passes' model rule). Later
+game state, rules at 15 Hz); the High detail option (done 2026-10-30,
+off by default) draws the nearest detail level that each pass may draw,
+at any distance and height. Later
 (owner, 2026-10-30): analog joystick input as an option - the stick's
 deflection sets the inputs the original ramps (`ramp_inputs`: pitch and
 rudder ±20, roll ±60, looked up in the response tables) and a throttle
@@ -171,8 +171,10 @@ app has none yet).
   the octant lists (`$136464`).
 - Shapes: scenery opcode $18 (types 107, 108); discs (other than the
   smoke's), dots, lights, deck stripes ($80/$50) and shadows; the vertex
-  builders' rounding; the facing tree's drawing order and distance bands
-  in the renderer.
+  builders' rounding; the polygon lists' distance bands in the renderer;
+  the order of flat ground shapes between objects (taken far to near per
+  pass: hypothesis); the axis tests on x and z (offsets `$13AE1A` /
+  `$13AE1E` taken as the camera about the object).
 - The enemies' missiles: `$13AA79` (always 1, no writer found) and
   `$13AAAC` (never set) taken as constants; the threats' beeps and the
   message order checked only for an enemy (`democheck`, bit 2) and a

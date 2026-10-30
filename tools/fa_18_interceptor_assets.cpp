@@ -1024,6 +1024,47 @@ int stick_check() {
     return 0;
 }
 
+// The port's outside view from a chosen place (world units), heading
+// (degrees, clockwise) and pitch (degrees, down), with or without high
+// detail: for looking at the scenery's drawing anywhere.
+int scene_shot(const std::filesystem::path& content, const std::filesystem::path& out, double x, double y, double z,
+               double heading, double pitch, bool high) {
+    using namespace interceptor;
+    const auto assets = data::load_assets(content);
+    const auto world = data::read_world(assets.program);
+    game::Scene scene(assets, world);
+    scene.set_high_detail(high);
+    game::Camera camera;
+    camera.position = {x, y, z};
+    const double h = heading * 3.14159265358979 / 180, p = pitch * 3.14159265358979 / 180;
+    const double f[3] = {-std::sin(h) * std::cos(p), -std::sin(p), std::cos(h) * std::cos(p)};
+    const double r[3] = {std::cos(h), 0, std::sin(h)};
+    const double u[3] = {f[1] * r[2] - f[2] * r[1], f[2] * r[0] - f[0] * r[2], f[0] * r[1] - f[1] * r[0]};
+    for (std::size_t k = 0; k < 3; ++k) {
+        camera.matrix[k] = r[k] * 0xA8 / 256.0;
+        camera.matrix[3 + k] = u[k] * 0xFC / 256.0;
+        camera.matrix[6 + k] = f[k] * 0x80 / 256.0;
+    }
+    if (const char* file = std::getenv("F18_CAMERA")) {
+        // (The original's camera instead: `$13AD6C` place and `$13AEC8`
+        // matrix as read from the machine, 12 numbers.)
+        std::ifstream in(file);
+        for (auto& v : camera.position) in >> v;
+        for (auto& v : camera.matrix) in >> v;
+    }
+    game::IndexedImage view(320, 168);
+    scene.draw(view, 159, 167, camera);
+    const auto& palette = assets.palettes.at(data::flight_palette);
+    platform::Image image(640, 336);
+    for (int py = 0; py < 336; ++py)
+        for (int px = 0; px < 640; ++px) {
+            const auto c = palette[view.pixels[std::size_t(py / 2 * 320 + px / 2)] & 31];
+            image.put(px, py, {std::uint8_t((c >> 8 & 15) * 17), std::uint8_t((c >> 4 & 15) * 17), std::uint8_t((c & 15) * 17)});
+        }
+    platform::save_png(image, out);
+    return 0;
+}
+
 int effect_shot(const std::filesystem::path& content, const std::filesystem::path& capture, int index,
                 const std::filesystem::path& out) {
     using namespace interceptor;
@@ -2229,6 +2270,11 @@ int main(int argc, char** argv) {
             return trail_check(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]), std::stoi(argv[4]));
         }
         if (command == "stickcheck") return stick_check();
+        if (command == "sceneshot" && argc == 10) {
+            return scene_shot(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]), std::stod(argv[4]),
+                              std::stod(argv[5]), std::stod(argv[6]), std::stod(argv[7]), std::stod(argv[8]),
+                              std::string(argv[9]) == "high");
+        }
         if (command == "effectshot" && argc == 6) {
             return effect_shot(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]), std::stoi(argv[4]),
                                platform::utf8_path(argv[5]));
