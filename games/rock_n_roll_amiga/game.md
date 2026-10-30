@@ -44,6 +44,11 @@ the original's own bugs. The remaining work is in [plan.md](plan.md).
   - `Main`: the game, a hunk file of 156,792 bytes;
   - `devs/System-Configuration` and `Disk.info`;
   - 63 numbered game files, `00`–`41`.
+- **No band intro:** the original's intro with the rock band is not on this
+  one-disk crack. `intro` (7,360 bytes) is the crack's own demo; no file,
+  and none of the 274 unused blocks (old copies of `intro`'s blocks and a
+  counting pattern), holds its pictures or music. The game itself still
+  checks for a disk 2 (`$71554`), so the original came on two disks.
 - **Cruncher:**
   - `Main`'s code hunk starts with an unpacking stub (+$0..$E6). It unpacks
     the stream at +$E8 to $1A578 (length $61800, up to $7BD78) and jumps to

@@ -110,6 +110,12 @@ port's additions"). Left:
   prompts) saving reports "not available", as the state is kept for levels
   only.
 
+### Intro
+
+- [ ] The original's band intro (before the title) is not on the provided
+  disk (game.md, "Disk and boot"). It needs an image of the original
+  release that holds it; then rebuild it natively from its code and data.
+
 ### Verification
 
 Done: every item listed before is recorded or captured (game.md,
