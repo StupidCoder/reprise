@@ -1,8 +1,10 @@
 # Stunt Car Racer — remaining work
 
-Status (2026-10-29): importer, the loading picture and the eight circuits
-(decoded from the track bank, shown as turnable 3D models) are connected;
-nothing is playable yet. Findings are in [game.md](game.md).
+Status (2026-10-30): importer, the loading picture, the eight circuits
+(decoded from the track bank, shown as turnable 3D models) and the race view
+(sky, hills, road, sides, edge and start lines, verified against the
+original frame by frame) are connected; nothing is playable yet. Findings
+are in [game.md](game.md).
 
 Done:
 
@@ -17,22 +19,35 @@ Done:
 - [x] Track format re-derived from the unpacker ($5AE46) and verified
       against the original's RAM tables (Little Ramp, Hump Back); circuits
       as 3D model previews (`data/track.*`, `data/preview.*`).
+- [x] Race view renderer (`render/race_view.*`, hills `data/scenery.*`):
+      angle projection, palette, sky/ground/hills, road pieces with the
+      profile marks, sides, edge lines, start line; 15 frames of Little Ramp
+      and Hump Back compared with the original (95–99.8 % equal pixels);
+      start views as previews. Height scale ¼ confirmed.
 
 Next:
 
 - [ ] Map the front end's state machine and the main race loop in Ghidra
       (the 6502-style code decompiles poorly; read assembly where needed).
-- [ ] Interpret the rest of a track definition: header bytes 1–3 (start
-      line?), the four trailer bytes, the (segment, value) pairs and the
-      segment list, and the per-segment table built at $1C952 (opponent
-      speeds?); the shape description bytes ($1BB7B, $1BBD9, $1BBD4).
-- [ ] Confirm the height scale (¼ of plan units, from the view code) once
-      the renderer is recovered; the drawbridge animation ($5A794).
+- [ ] Interpret the rest of a track definition: the third header byte, the
+      four trailer bytes, the (segment, value) pairs and the segment list,
+      and the per-segment table built at $1C952 (opponent speeds?); the
+      shape description bytes ($1BB7B, $1BBD9, $1BBD4).
+- [ ] The drawbridge animation ($5A794) in the race view.
+- [ ] Race view, remaining: the cockpit frame, dashboard and the car's own
+      engine/wheels (not stored as plain planes; find the packer); the
+      opponent car; the crane and chains at the start; "DROP"/"PRESS FIRE"
+      texts; sides in colour 9 while $1BB66 is set; thin stripes on near
+      sides at glancing angles; the thinned far segments (check on the tall
+      tracks); facing backwards ($1BC32) once the car can turn round;
+      verify Divisions 1–3 circuits (needs league progress or a pose on a
+      loaded track).
 - [ ] Font and front-end screens (menu, league tables, track select) from the
       program's data.
 - [ ] Car physics, opponent driving, damage, race rules and the league.
-- [ ] Renderer: filled-vector 3D view, cockpit/panel, horizon; widescreen
-      by widening the view, smooth motion up to 120 Hz.
+- [ ] Renderer enhancements: widescreen by widening the view (the angle
+      projection extends naturally), smooth motion up to 120 Hz, higher
+      resolution.
 - [ ] Sound effects (engine, impacts).
 - [ ] Keyboard, gamepad and touch controls; quick saves of real state;
       VHS/screen filter; cheats (e.g. no damage, practice any track).

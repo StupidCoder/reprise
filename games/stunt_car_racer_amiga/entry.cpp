@@ -2,6 +2,7 @@
 #include "stunt_car_racer_amiga/data/assets.hpp"
 #include "stunt_car_racer_amiga/data/preview.hpp"
 #include "stunt_car_racer_amiga/import/disk_import.hpp"
+#include "stunt_car_racer_amiga/render/race_view.hpp"
 
 namespace stuntcar {
 namespace {
@@ -15,6 +16,14 @@ std::vector<app::Preview> previews(const std::filesystem::path& content) {
         app::Preview preview{"Circuit: " + track.name, data::circuit_image(*model)};
         preview.model = std::move(model);
         result.push_back(std::move(preview));
+    }
+    // The view from the car where it is lowered onto each circuit.
+    const auto scenery = data::load_scenery(assets.program);
+    const auto palette = render::race_palette(assets.program);
+    for (const auto& track : circuits.tracks) {
+        const auto view = render::draw_race_view(circuits, scenery, track, track.car_start_segment,
+                                                 render::start_camera(circuits, track));
+        result.push_back({"Race view: " + track.name, render::to_image(view, palette)});
     }
     return result;
 }
@@ -30,7 +39,7 @@ app::GameEntry entry() {
         .media = "the disk image (ADF)",
         .import = import::import_disk,
         .previews = previews,
-        .progress = "Import, the loading picture and the eight circuits as 3D models; nothing of the game can be played yet.",
+        .progress = "Import, the loading picture, the eight circuits as 3D models and the race view from each start; nothing of the game can be played yet.",
     };
 }
 

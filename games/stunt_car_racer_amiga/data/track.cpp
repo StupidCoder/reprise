@@ -73,7 +73,11 @@ Track decode_track(const Bank& bank, const Circuits& circuits, int index) {
     Track track;
     track.name = track_name(bank.program, index);
     const int count = next();
-    for (auto& b : track.header) b = next();
+    // Three header bytes: the car's start segment, the start line's segment
+    // (the race view compares segments with it) and one not yet understood.
+    track.car_start_segment = next();
+    track.start_line_segment = next();
+    track.header_third = next();
     const int low = next();
     track.start_height = next() << 8 | low;
 
@@ -144,6 +148,8 @@ Track decode_track(const Bank& bank, const Circuits& circuits, int index) {
         segment.right_base = base[1];
         track.segments.push_back(segment);
     }
+    if (track.car_start_segment >= count || track.start_line_segment >= count)
+        throw std::runtime_error("A track starts outside its segments.");
     for (auto& b : track.trailer) b = next();
     const int marks = next(), listed = next();
     for (int i = 0; i < marks; ++i) {
@@ -166,6 +172,12 @@ int Profile::offset(int step, bool wide) const {
     if (std::size_t(step) >= bytes.size()) throw std::runtime_error("A height profile is too short.");
     const auto b = bytes[std::size_t(step)];
     return (b & 0x0F) << 8 | (b << 1 & 0xE0);
+}
+
+bool Profile::marked(int step, bool wide) const {
+    const auto i = std::size_t(step) * (wide ? 2 : 1);
+    if (step < 0 || i >= bytes.size()) throw std::runtime_error("A height profile is too short.");
+    return bytes[i] & 0x80;
 }
 
 Circuits load_circuits(const Program& program) {
@@ -218,7 +230,8 @@ std::vector<CrossSection> road(const Circuits& circuits, const Track& track) {
         for (int i = 0; i < int(steps.size()); ++i) {
             sections.push_back({place(steps[std::size_t(i)][0]), place(steps[std::size_t(i)][1]),
                                 s.left_base + left.offset(i, s.wide_profiles),
-                                s.right_base + right.offset(i, s.wide_profiles), int(n)});
+                                s.right_base + right.offset(i, s.wide_profiles), int(n),
+                                left.marked(i, s.wide_profiles)});
         }
     }
     return sections;

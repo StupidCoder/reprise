@@ -203,13 +203,20 @@ quarter-turn curves (9 steps; Stepping Stones uses only 0, 6 and 7), 4 and
 low 4 bits whole units of $100, bits 4–6 eighths: `(b & $F) << 8 | (b << 1
 & $E0)`), wide form (two bytes, high byte masked $7F) chosen per segment by
 bit 7 of its left profile number. A profile's bytes run to the next thing the
-bank points at.
+bank points at. Bit 7 of a step's (first) byte is not height but a mark; on
+the left profile the race view splits the road surface there (see "Race
+view").
 
 ### Track definition (unpacker $5AE46, helpers $5AE00 byte read, $5AE0C cell step, $5FE56 segment set-up, $5B2D2/$5B2C8 profile read)
 
-- 4 bytes: segment count, then three bytes kept at $1CA1B–$1CA1D (not yet
-  interpreted; bytes 1 and 2 are equal on every track; byte 2 + 1 is stored at
-  $1CA32 as a segment number: Hypothesis start/finish line).
+- 4 bytes: segment count, then three bytes kept at $1CA1B–$1CA1D: the
+  segment the car is lowered onto (copied to $1BB1D at the race start,
+  $5D3C6; observed: the car came down in that segment's cell on Little Ramp
+  and Hump Back), the start/finish line's segment (the race view compares
+  segments with $1CA1C; the line is drawn across that segment's last
+  cross-section, observed on Little Ramp), and a third byte not yet
+  interpreted. The first two are equal on every track; the second + 1 is
+  stored at $1CA32.
 - 2 bytes: start height (little-endian) for both road edges.
 - Per segment: a code byte. Low nibble $F: repeat the previous code
   (high nibble) times, each in the next cell along its heading (a reversed
@@ -242,11 +249,11 @@ read from RAM on their track pictures; each of the seven measurable blocks
 is consumed to its last byte; the port's export (`tracks.txt`) equals the
 prototype for all 445 segments.
 
-**Height scale** (Interpreted from code): the view code takes a point's
-horizontal angle with an atan2 ($64D66) and its distance with a hypot
-approximation ($64DE8); the vertical angle ($624C2) uses (height difference
-÷ 4) against that distance, so heights are a quarter of plan units in the
-race view. The track-picture mode halves x/z and scales heights by about
+**Height scale** (Observed, verified by the race view below): the view code
+takes a point's horizontal angle with an atan2 ($64D66) and its distance
+with a hypot approximation ($64DE8); the vertical angle ($624C2) uses
+(height difference ÷ 4, truncated) against that distance, so heights are a
+quarter of plan units in the race view. The track-picture mode halves x/z and scales heights by about
 0.59 (factor $4C1B), about 0.3 overall; measured from the original's Hump
 Back picture ≈ 0.37. The preview models use ¼. Plan handedness: seen from
 +z (z towards the onlooker) the decoded circuits match the original's
@@ -258,6 +265,103 @@ Draw Bridge's segments 51–55 use profiles 95–98, which rise to $3840 in the
 middle step; the routine at $5A794 (runs only on track 5) rewrites profile
 95's bytes every frame to animate the bridge. The previews show the stored
 state.
+## Race view (Observed, verified)
+
+The view through the windscreen is 256 × 128 pixels at screen (32, 16),
+drawn by the CPU into four bitplanes ($1F40 bytes apart, 40 bytes a row) by
+a span filler ($68544 → $686E0); the colour of a polygon is the low nibble
+of $69AEC, one bit a plane (solid colours only). The frame routine is
+$64E4C (called from the race loop at $5D496): camera ($60190), the car's
+segment and the next two in full ($6521C, $655EA, $65A18, $6702E/$67092),
+the far segments ($65EC4), the horizon and hills ($6953E), then the
+polygons and lines from a row table at $7B08A ($68F28 and helpers).
+
+**Colours**: the race palette is 16 words at $20184 with three bits a gun;
+the game widens each gun c to 2c + 1 (0 stays 0) when it loads them
+($1BA82). Sky 7, ground 13, hills 5, road 1/2, sides 15/10, edge lines
+3/9/10/11, start line 15, jump face 0.
+
+**Camera** ($60190): car position longs $1BCD8 (x), $1BCE0 (z), $1BCDC (y);
+plan = x >> 12, height = y >> 11. Eye height $1BBFA = (y >> 11) + (($1BD38 +
+$780 [or 2·$1BD38 + $280 when $1BD38 ≥ $500] − car pitch / 2 when nose up)
+>> 4), about 100 units above the road for a car at rest. Yaw $1BCE6 (0 = +z,
+$4000 = +x), car pitch $1BCE4 (the view uses $1BC42 = −pitch, $61ACC), roll
+$1BCE8 with sine/cosine kept at $1C250/$1C252 ($61368). To keep angles
+small the code turns the world in quarter turns ($1BC30) so the view's yaw
+stays within ±45°; the port does not need this.
+
+**Projection** ($62454, $624C2, $62518): by angles, not by division. For a
+point, across = atan2(dx, dz) − yaw and down = atan2((eye − h) ÷ 4, √(dx² +
+dz²)) − view pitch, both in 65536ths of a turn and shifted right 3; then
+turned by the roll: x = (cos·across + sin·down) ÷ 4 + 128, y = (cos·down −
+sin·across) ÷ 4 + 64. So 2048 pixels a turn: the view is 45° wide, 22.5°
+high. Straight edges between projected corners would cut a near road short
+(its near corners lie far to the sides at large bearings); the game pushes
+points beyond |x − 128| > 160 down by (|x − 128| − 160) ÷ 8 ($617D0) and
+extends off-screen edges to the border ($65B80). The port instead cuts long
+edges into short pieces before projecting, which gives the true picture.
+
+**What is drawn, in what order**: sky above the horizon, ground below
+(turned by the roll); the hills; then the track. The track is walked from
+the car's segment onwards (the one behind too) until a segment ends off the
+side of the view (the last cross-section's x outside 0–255; $660B0), and
+painted from the far end back to the car. Sides (each road edge down to
+height $200, the ground level) are drawn only when seen from outside.
+Segments beyond the first three come from a thinned copy built at track
+load ($65BEC into $7ABDA, pointers per segment at $7AA1A): only
+cross-sections where the left height bends by $A0 or more from its
+neighbours' mean, and each segment's last. The port draws every
+cross-section (the difference is within a pixel at that distance;
+Hypothesis to check on the tall tracks).
+
+**Road pieces** (loader $65756, colours $68D82): the surface is filled in
+pieces between boundaries. A cross-section is a boundary where segments
+meet, and inside a segment where the left profile's step has bit 7 set; a
+segment's last step with bit 7 set is *not* a boundary (so a curve's colour
+can change one step before the segment ends, as the original shows). A
+piece takes the colour of the segment at its far boundary: 1 for even, 2
+for odd segments. When the left edge rises or falls by $280 or more at the
+boundary, the piece is a jump face, colour 0.
+
+**Sides** ($68A..., $68BEC): 15 for even segments, 10 for odd ($691B2);
+colour 9 ($691B3) for all sides while $1BB66 is set (not yet understood).
+
+**Edge lines** ($6893A..., colour per row at $673EE): one-pixel lines along
+both road edges for the nearest steps: from the row counter $1BB58 ($20
+minus the high byte of $1BB10 at the car's segment, then one per row;
+Interpreted: $1BB10 is the car's position along its segment in steps) red 9 below $26, 10 below
+$2A, 11 below $2C, none beyond; yellow 3 instead on alternate steps (phase
+from the segment's kerb bit). The line routine starts one row above the
+edge's first row ($69342), so the lines sit a row higher than the outline.
+
+**Start line**: a white (15) line across the start/finish segment's last
+cross-section (row flag 1 from $657BC).
+
+**Hills** ($6953E; data at $69A80/$699B8): the first scenery set (the game
+always uses set 0): 32 placements of 14 shapes, each a four-cornered hill in
+colour 5. A shape's corners are offsets in eighths of the angle unit from
+its bearing (256ths of a turn) and above the horizon; a negative coordinate
+word stands for the next value of the shape's own value list. Then edges
+(point pairs) and polygons (colour, 3 or 4 edges). Drawn when the bearing
+lies from $1C left to $10 right of the view's heading (high byte of yaw).
+
+**Facing backwards**: the game walks the track backwards when the car
+faces against it ($1BC32 set by the physics). Not yet observed: a pose with
+only the yaw turned (the flag unchanged) draws garbage in the original. The
+port picks the direction from the camera and the road at the car.
+
+**Verification** (`harness/pose.py`, `harness/view.py`): the original was
+stopped before a frame's drawing, given a pose, and its drawn buffer
+compared pixel for pixel with the port's view from the same camera. Little
+Ramp: 8 frames (start with the start line, straight, the ramp, the jump,
+the banked hairpin, a diagonal, pitch + roll, off the road) 98.4–99.8 %
+equal; Hump Back: 7 frames (humps, banked turns, a tilted landing, sides
+in view) 95.2–98.8 % (the tilted one lowest). The rest are edge pixels: the
+original's integer atan2/hypot tables and truncations against the port's
+real arithmetic, about a pixel along edges and lines. Known differences:
+a near side seen at a glancing angle shows thin stripes in the original
+(Hump Back, h4), and the thinned far segments.
+
 ## Lesson candidates
 
 - Copylock, and how a cracked image still yields the genuine key.
@@ -266,8 +370,9 @@ state.
   pointers, byte-wise carries) and why the port reads the data, not the
   layout.
 - Tracks as a grid of cells with a few plan shapes and height profiles.
-- Filled-vector 3D on the Amiga; rigid-body car physics in fixed point (to be
-  recovered).
+- Filled-vector 3D on the Amiga with the CPU: projecting by angles (atan2)
+  instead of division, and what that does to straight edges.
+- Rigid-body car physics in fixed point (to be recovered).
 
 ## Evidence
 
@@ -290,5 +395,14 @@ state.
 - `tools/tracks.py [TRACK DUMP]`: track-bank prototype decoder and the RAM
   comparison; `work/ram/*_picture.{bin,png}`: RAM and screen on the Little
   Ramp and Hump Back pictures.
+- `harness/prof.py N` (PC and return-address sampling), `harness/frame.py
+  OUT` (one frame: RAM at the start of drawing, the drawn buffer after),
+  `harness/pose.py OUT X Z HEIGHT YAW PITCH ROLL` (the same from a chosen
+  pose), `harness/poses.py TRACK SEGMENT STEP [SIDE] [TURN]` (poses on a
+  circuit), `harness/view.py DUMP PICTURE TRACK SEGMENT|cell OUT` (port vs
+  original, pixel for pixel; uses `stunt_car_racer_assets view`).
+  `work/ram/race_*.{bin,png}`: two kept frames (Little Ramp f1, Hump Back
+  h1); `work/compare/*.png`: original | port | difference for every frame
+  listed under "Race view".
 - `tools/dis68k`, built from RetroReverse's general 68000 disassembler
   (`go build ./cmd/dis68k` in `RetroReverse/tools`).

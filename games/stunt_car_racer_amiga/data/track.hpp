@@ -33,10 +33,13 @@ struct Shape {
 
 // How one road edge rises along a segment, step by step. The same bytes
 // read in two ways: narrow (one byte a step: 4 bits whole, 3 bits eighths)
-// for low tracks, wide (two bytes a step) for tall ones.
+// for low tracks, wide (two bytes a step) for tall ones. The top bit of a
+// step's (first) byte is a mark, not height: on the left edge it splits the
+// road surface there for the race view (game.md, "Race view").
 struct Profile {
     std::vector<std::uint8_t> bytes;
     int offset(int step, bool wide) const;
+    bool marked(int step, bool wide) const;
 };
 
 struct Segment {
@@ -55,9 +58,11 @@ struct Track {
     std::string name;
     int start_height{};
     std::vector<Segment> segments;
+    int car_start_segment{};  // where the car is lowered onto the track
+    int start_line_segment{}; // the start/finish line is its last cross-section
     // Stored with the track and used by the game, not yet interpreted
     // (game.md lists what is known of each).
-    std::array<std::uint8_t, 3> header{};
+    std::uint8_t header_third{};
     std::array<std::uint8_t, 4> trailer{};
     std::vector<std::pair<std::uint8_t, std::uint8_t>> segment_marks;
     std::vector<std::uint8_t> segment_list;
@@ -77,6 +82,7 @@ struct CrossSection {
     PlanPoint left, right;
     int left_height{}, right_height{};
     int segment{};
+    bool marked{}; // the left profile's mark at this step
 };
 
 // The road of `track` in driving order, segment by segment (each segment's
