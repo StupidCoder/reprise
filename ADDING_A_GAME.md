@@ -128,6 +128,14 @@ loop, audio device, timing, pause menu, notifications and presentation.
   cancellation and focus loss. Test touch and gamepad navigation without a
   keyboard. If analog axes, multitouch or another facility is missing, extend
   the shared input contract and adapters instead of bypassing the host.
+- Offer platform-appropriate control schemes in the game's **Controls** options
+  (for example keyboard/gamepad, touch stick, or tilt). Use the host-provided
+  capabilities, retain the player's preference, and provide a usable fallback
+  when hardware is unavailable. Control schemes are presentation preferences;
+  loading a save must not revert them. See [Touch, tilt and orientation](docs/TOUCH_CONTROLS.md)
+  for the shared API, lifecycle rules and integration examples. Modules declare
+  landscape, portrait or flexible layout; landscape is the default and Layton
+  uses flexible layout.
 - `audio()` supplies interleaved stereo at the requested rate. Use portable
   decoding and account for the game's timing; do not open a second audio device.
 - CPU-rendered games return `picture()` and `pixel_aspect()`. GPU-rendered games

@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <iostream>
 #include <cstring>
+#include <utility>
 
 namespace fs = std::filesystem;
 void check(bool ok, const std::string &why) {
@@ -62,6 +63,19 @@ std::string picture_hash(app::GameModule &game) {
 struct Fake : app::GameModule {
     int tick_{};
     bool fail{};
+    platform::InputCapabilities capabilities;
+    void set_input_capabilities(platform::InputCapabilities value) override { capabilities=value; }
+    platform::Orientation orientation() const override { return platform::Orientation::portrait; }
+    std::optional<platform::TiltConfig> tilt_controls() const override {
+        return capabilities.accelerometer ? std::optional{platform::TiltConfig{}} : std::nullopt;
+    }
+    std::vector<platform::TouchControl> touch_controls() const override {
+        if (!capabilities.touchscreen) return {};
+        platform::TouchControl control; control.id="fire"; control.width=control.height=.2f;
+        return {control};
+    }
+    bool calibrate{true};
+    bool take_tilt_calibration_request() override { return std::exchange(calibrate,false); }
     double step_seconds() const override { return .02; }
     double pixel_aspect() const override { return 1; }
     void tick(const app::GameInput &) override { ++tick_; }
@@ -355,6 +369,10 @@ int main(int argc, char **argv) try {
     entry.id = "bruce_lee_c64";
     entry.start = [](const fs::path &) { return std::make_unique<Fake>(); };
     auto game = app::with_quick_save(entry, content);
+    game->set_input_capabilities({true,true,false,true});
+    check(game->orientation()==platform::Orientation::portrait && game->tilt_controls().has_value() &&
+          game->touch_controls().size()==1, "save wrapper forwards input metadata");
+    check(game->take_tilt_calibration_request() && !game->take_tilt_calibration_request(), "one-shot calibration forwarded");
     check(!game->has_save(), "empty slot");
     advance(*game, 0, 12);
     const auto expected = picture_hash(*game);
@@ -363,7 +381,10 @@ int main(int argc, char **argv) try {
     check(preview.available && preview.image.has_value(), "saved PNG preview");
     game.reset();
     game = app::with_quick_save(entry, content);
+    game->set_input_capabilities({true,true,false,true});
     check(game->has_save() && game->load(), "fresh module loads disk slot");
+    check(game->tilt_controls().has_value() && game->touch_controls().size()==1,
+          "recreated module receives capabilities before restoring options");
     check(picture_hash(*game) == expected, "disk progress");
     // Loading brings the save's game options back, but the screen filter (a presentation
     // option) keeps the player's current choice.

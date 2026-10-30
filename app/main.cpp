@@ -11,6 +11,7 @@
 
 #include "app/catalog.hpp"
 #include "app/launcher.hpp"
+#include "app/touch_controls.hpp"
 #include "app/library.hpp"
 #include "app/import_screen.hpp"
 #include <future>
@@ -271,19 +272,49 @@ int run(const Options& options) {
         }
     };
     auto restore_options = [&](app::GameModule& module) {
+        module.set_input_capabilities(host.input_capabilities());
         app::restore_options(module, options_file());
         written[library.games()[playing].id] = app::options_text(module);
     };
+    platform::TouchDeck touch_deck;
+    platform::TiltAdapter tilt_adapter;
+    app::TouchPainter touch_painter;
+    const app::GameModule* input_owner=nullptr;
+    bool had_gamepad=false, was_paused=false, had_tilt=false;
+    auto last_input_time=host.seconds();
+    host.set_touch_overlay([&](const platform::GpuFrame& frame) { touch_painter.draw(touch_deck,frame); });
     while (true) {
+        host.set_orientation(game ? game->orientation() : platform::Orientation::flexible);
         if (script) script->pump(host.seconds() - started);
-        const auto controls = host.poll();
+        auto controls = host.poll();
+        if (game) game->set_input_capabilities(host.input_capabilities());
+        const auto layout=game ? game->touch_controls() : std::vector<platform::TouchControl>{};
+        const auto tilt_config=game ? game->tilt_controls() : std::nullopt;
+        if (input_owner!=game.get()) {
+            touch_deck.clear(); tilt_adapter.reset(); input_owner=game.get();
+            had_gamepad=controls.gamepad_connected;
+        }
+        if (game && had_gamepad && !controls.gamepad_connected && (!layout.empty() || tilt_config)) controls.menu=true;
+        had_gamepad=controls.gamepad_connected;
+        const bool paused=!game || menu.open() || controls.menu || controls.input_cancelled;
+        if (controls.input_cancelled || paused!=was_paused || (game && game->take_tilt_calibration_request())) tilt_adapter.reset();
+        if (tilt_config.has_value()!=had_tilt) tilt_adapter.reset();
+        had_tilt=tilt_config.has_value();
+        was_paused=paused;
+        touch_deck.configure(layout,host.safe_area(),!paused && controls.touch_available && !controls.gamepad_connected);
+        if (controls.input_cancelled) touch_deck.cancel();
+        else for (const auto& e:controls.touch_events) touch_deck.event(e);
+        const auto input_time=host.seconds();
+        auto tilt=tilt_config && !paused && !controls.gamepad_connected
+            ? tilt_adapter.update(controls.motion,*tilt_config,input_time-last_input_time) : std::nullopt;
+        last_input_time=input_time;
         if (controls.quit) {
             break;
         }
         // A game steered by mouse movement holds the mouse while it runs.
         host.set_mouse_captured(game && !menu.open() && game->captures_mouse());
         // A game reading the device's tilt keeps the accelerometer open while it runs.
-        host.set_motion_wanted(game && !menu.open() && game->wants_motion());
+        host.set_motion_wanted(game && !menu.open() && (game->wants_motion() || (tilt_config.has_value() && !controls.gamepad_connected)));
         const double now = host.seconds();
 
         if (game) {
@@ -362,7 +393,7 @@ int run(const Options& options) {
                     quick_message_until = now + 3;
                     game_clock = now;
                     sample_credit = 0;
-                    if (controls.quick_load) pending_pointer.clear();
+                    if (controls.quick_load) { pending_pointer.clear(); touch_deck.cancel(); tilt_adapter.reset(); tilt.reset(); }
                 }
                 // Fixed steps at the original's frame rate; at most a few per
                 // displayed frame, so a stall does not fast-forward the game.
@@ -387,6 +418,7 @@ int run(const Options& options) {
                 input.start = controls.start;
                 // Pointer events in the picture's units, given to the next tick that runs.
                 for (auto e : controls.pointer_events) {
+                    if (!layout.empty() && e.touch) continue;
                     if (!shown.gpu) {
                         e.x = e.x * float(shown.picture_width) / float(std::max(shown.image.width, 1));
                         e.y = e.y * float(shown.picture_height) / float(std::max(shown.image.height, 1));
@@ -394,8 +426,13 @@ int run(const Options& options) {
                     pending_pointer.push_back(e);
                 }
                 input.motion = controls.motion;
+                input.analog_stick = controls.analog_stick;
+                input.tilt = tilt;
+                if (!layout.empty() && controls.mouse_is_touch) {
+                    input.pointer=false; input.mouse_button=false;
+                }
                 // The fingers touching now, in the same units (gestures such as a pinch).
-                input.fingers = controls.fingers;
+                input.fingers = !layout.empty() ? std::vector<platform::Finger>{} : controls.fingers;
                 for (auto& f : input.fingers) {
                     if (!shown.gpu) {
                         f.x = f.x * float(shown.picture_width) / float(std::max(shown.image.width, 1));
@@ -413,6 +450,7 @@ int run(const Options& options) {
                     input.mouse_dx = pending_dx;
                     input.mouse_dy = pending_dy;
                     pending_dx = pending_dy = 0;
+                    input.touch_controls = touch_deck.consume();
                     game->tick(input);
                     input.pointer_events.clear();
                     ++frames_run;

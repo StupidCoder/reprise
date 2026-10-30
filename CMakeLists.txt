@@ -474,6 +474,7 @@ target_compile_options(layton PRIVATE ${PROJECT_WARNINGS})
 # --- reprise: the launcher application -----------------------------------------
 set(REPRISE_SOURCES
     app/main.cpp
+    app/touch_controls.cpp
     app/catalog.cpp
     app/library.cpp
     games/bruce_lee_c64/game/chapter.cpp
@@ -630,4 +631,11 @@ if(BUILD_TESTING)
     target_link_libraries(layton_checks PRIVATE layton picarat_embed ui)
     target_compile_options(layton_checks PRIVATE ${PROJECT_WARNINGS})
     add_test(NAME layton_module COMMAND layton_checks)
+endif()
+
+if(BUILD_TESTING)
+    add_executable(touch_controls_checks tests/touch_controls.cpp)
+    target_include_directories(touch_controls_checks PRIVATE ${SOURCE_ROOT})
+    target_compile_options(touch_controls_checks PRIVATE ${PROJECT_WARNINGS})
+    add_test(NAME touch_and_tilt_controls COMMAND touch_controls_checks)
 endif()

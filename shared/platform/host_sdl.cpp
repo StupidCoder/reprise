@@ -2,6 +2,9 @@
 
 #include "platform/host.hpp"
 #include <SDL3/SDL.h>
+#ifdef __ANDROID__
+#include <jni.h>
+#endif
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -13,6 +16,9 @@
 namespace platform {
 struct Host::Implementation {
     SDL_Window* window{};
+    Orientation orientation{Orientation::flexible};
+    std::function<void(const GpuFrame&)> touch_overlay;
+    bool mouse_is_touch{};
     SDL_Renderer* renderer{};
     SDL_Texture* texture{};
     SDL_Texture* overlay_texture{};
@@ -32,6 +38,7 @@ struct Host::Implementation {
     // subsystem was started and none was found.
     SDL_Sensor* accelerometer{};
     bool sensors_started{}, no_accelerometer{};
+    std::optional<bool> sensor_available;
     std::filesystem::path capture;   // capture_next_frame's file, until the next present
     SDL_Texture* gpu_target{};       // present_game_gpu's target, at the shown size
     int gpu_width{}, gpu_height{};
@@ -336,7 +343,24 @@ Controls Host::poll() {
     auto& i = *impl_;
     Controls input;
     SDL_Event event;
+    const auto pixels = canvas_size();
     while (SDL_PollEvent(&event)) {
+        if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST || event.type == SDL_EVENT_WILL_ENTER_BACKGROUND ||
+            event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED || event.type == SDL_EVENT_DISPLAY_ORIENTATION ||
+            event.type == SDL_EVENT_WINDOW_SAFE_AREA_CHANGED) {
+            input.input_cancelled = true; i.fingers.clear(); i.press_in_game = false;
+        }
+        if(event.type==SDL_EVENT_FINGER_DOWN || event.type==SDL_EVENT_FINGER_MOTION ||
+           event.type==SDL_EVENT_FINGER_UP || event.type==SDL_EVENT_FINGER_CANCELED) {
+            const auto kind = event.type==SDL_EVENT_FINGER_DOWN ? TouchEvent::Kind::down :
+                event.type==SDL_EVENT_FINGER_MOTION ? TouchEvent::Kind::move :
+                event.type==SDL_EVENT_FINGER_UP ? TouchEvent::Kind::up : TouchEvent::Kind::cancel;
+            input.touch_events.push_back({kind,std::uint64_t(event.tfinger.fingerID),
+                event.tfinger.x*float(pixels[0]),event.tfinger.y*float(pixels[1])});
+        }
+        if(event.type==SDL_EVENT_MOUSE_MOTION) i.mouse_is_touch=event.motion.which==SDL_TOUCH_MOUSEID;
+        if(event.type==SDL_EVENT_MOUSE_BUTTON_DOWN || event.type==SDL_EVENT_MOUSE_BUTTON_UP)
+            i.mouse_is_touch=event.button.which==SDL_TOUCH_MOUSEID;
         if (event.type == SDL_EVENT_QUIT) {
             input.quit = true;
         }
@@ -484,6 +508,7 @@ Controls Host::poll() {
         auto button = [&](SDL_GamepadButton b) { return SDL_GetGamepadButton(i.gamepad, b); };
         const int x = SDL_GetGamepadAxis(i.gamepad, SDL_GAMEPAD_AXIS_LEFTX);
         const int y = SDL_GetGamepadAxis(i.gamepad, SDL_GAMEPAD_AXIS_LEFTY);
+        input.analog_stick = std::array<float,2>{std::clamp(float(x)/32767.f,-1.f,1.f),std::clamp(float(y)/32767.f,-1.f,1.f)};
         input.left |= button(SDL_GAMEPAD_BUTTON_DPAD_LEFT) || x < -12000;
         input.right |= button(SDL_GAMEPAD_BUTTON_DPAD_RIGHT) || x > 12000;
         input.up |= button(SDL_GAMEPAD_BUTTON_DPAD_UP) || y < -12000;
@@ -511,6 +536,14 @@ Controls Host::poll() {
         input.down2 |= button(SDL_GAMEPAD_BUTTON_DPAD_DOWN) || y > 12000;
         input.fire2 |= button(SDL_GAMEPAD_BUTTON_SOUTH);
     }
+    input.gamepad_connected = i.gamepad != nullptr || i.gamepad2 != nullptr;
+    input.mouse_is_touch = i.mouse_is_touch;
+    int touch_count=0;
+    auto* touch_ids=SDL_GetTouchDevices(&touch_count); SDL_free(touch_ids);
+    input.touch_available=touch_count>0;
+#ifdef __ANDROID__
+    input.touch_available=true;
+#endif
     // The mouse over the game frame, for games played with a mouse.
     float mx = 0, my = 0;
     const auto buttons = SDL_GetMouseState(&mx, &my);
@@ -836,6 +869,7 @@ void Host::Implementation::show_frame(SDL_Texture* frame, const SDL_FRect& targe
     SDL_RenderTexture(i.renderer, frame, nullptr, &target);
     if (effect) SDL_SetGPURenderState(i.renderer, nullptr);
     SDL_SetTextureColorMod(frame, 255, 255, 255);
+    if (!overlay && !dim && i.touch_overlay) i.touch_overlay({i.renderer,nullptr,cw,ch});
     if (note && note->width > 0 && note->height > 0) {
         if (i.note_texture && (i.note_texture->w != note->width || i.note_texture->h != note->height)) {
             SDL_DestroyTexture(i.note_texture);
@@ -873,6 +907,56 @@ void Host::Implementation::show_frame(SDL_Texture* frame, const SDL_FRect& targe
         i.overlay_box = box;
     }
     i.present_frame();
+}
+
+void Host::set_touch_overlay(std::function<void(const GpuFrame&)> draw) { impl_->touch_overlay=std::move(draw); }
+TouchArea Host::safe_area() const {
+    SDL_Rect safe{}; int w=1,h=1; SDL_GetWindowSize(impl_->window,&w,&h);
+    if (!SDL_GetWindowSafeArea(impl_->window,&safe)) safe={0,0,w,h};
+    const auto size=canvas_size(); const float sx=float(size[0])/float(std::max(w,1)),sy=float(size[1])/float(std::max(h,1));
+    return {float(safe.x)*sx,float(safe.y)*sy,float(safe.w)*sx,float(safe.h)*sy};
+}
+void Host::set_orientation(Orientation value) {
+    if (impl_->orientation==value) return;
+#ifdef __ANDROID__
+    auto* env=static_cast<JNIEnv*>(SDL_GetAndroidJNIEnv());
+    auto activity=static_cast<jobject>(SDL_GetAndroidActivity());
+    if (!env || !activity) return;
+    auto cls=env->GetObjectClass(activity);
+    auto method=env->GetMethodID(cls,"setGameOrientation","(I)V");
+    if (method) env->CallVoidMethod(activity,method,value==Orientation::landscape?1:value==Orientation::portrait?2:0);
+    const bool failed=env->ExceptionCheck();
+    if (failed) { env->ExceptionClear(); SDL_Log("Could not set game orientation"); }
+    env->DeleteLocalRef(cls); env->DeleteLocalRef(activity);
+    if (failed) return;
+#endif
+    impl_->orientation=value;
+}
+
+InputCapabilities Host::input_capabilities() {
+    auto& i=*impl_;
+    InputCapabilities out;
+#ifdef __ANDROID__
+    out.mobile=true;
+#endif
+    int count=0;
+    auto* devices=SDL_GetTouchDevices(&count); SDL_free(devices);
+    out.touchscreen=out.mobile || count>0;
+    out.gamepad=i.gamepad || i.gamepad2;
+    if (!i.sensor_available) {
+        if (!i.sensors_started) {
+            i.sensors_started=SDL_InitSubSystem(SDL_INIT_SENSOR);
+        }
+        bool found=false;
+        if (i.sensors_started) {
+            auto* sensors=SDL_GetSensors(&count);
+            for(int k=0;sensors && k<count;++k) found |= SDL_GetSensorTypeForID(sensors[k])==SDL_SENSOR_ACCEL;
+            SDL_free(sensors);
+        }
+        i.sensor_available=found;
+    }
+    out.accelerometer=*i.sensor_available;
+    return out;
 }
 
 void Host::set_motion_wanted(bool wanted) {

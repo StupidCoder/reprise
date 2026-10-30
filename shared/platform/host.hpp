@@ -1,5 +1,7 @@
 #pragma once
 #include "platform/image.hpp"
+#include "platform/touch.hpp"
+#include "platform/tilt.hpp"
 #include <array>
 #include <cstdint>
 #include <filesystem>
@@ -163,6 +165,9 @@ struct Controls {
     float mouse_dx{}, mouse_dy{};
     bool command_held{}, option_held{}, control_held{}; // (GameInput::command, option, control)
     bool shift_held{}; // either Shift key (GameInput::shift)
+    bool gamepad_connected{}, touch_available{}, input_cancelled{}, mouse_is_touch{};
+    std::optional<std::array<float, 2>> analog_stick;
+    std::vector<TouchEvent> touch_events;
 };
 
 class Host final : public GpuSurface {
@@ -174,6 +179,11 @@ public:
     ~Host() override;
 
     Controls poll();
+    // Android policy only; desktops keep their resizable windows.
+    void set_orientation(Orientation);
+    TouchArea safe_area() const;
+    InputCapabilities input_capabilities();
+    void set_touch_overlay(std::function<void(const GpuFrame&)> draw);
     double seconds() const;
 
     // A UI screen (ui_width x ui_height), letterboxed into the window.

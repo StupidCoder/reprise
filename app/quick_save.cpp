@@ -149,6 +149,7 @@ class SavedGame final : public GameModule {
     bool available_{};
     int width_{}, height_{};
     platform::GpuSurface* surface_{};
+    platform::InputCapabilities input_capabilities_{};
 
   public:
     SavedGame(const GameEntry &entry, fs::path content)
@@ -176,6 +177,13 @@ class SavedGame final : public GameModule {
     bool draws_pointer() const override { return game_->draws_pointer(); }
     bool captures_mouse() const override { return game_->captures_mouse(); }
     bool wants_motion() const override { return game_->wants_motion(); }
+    void set_input_capabilities(platform::InputCapabilities value) override {
+        input_capabilities_=value; game_->set_input_capabilities(value);
+    }
+    platform::Orientation orientation() const override { return game_->orientation(); }
+    std::vector<platform::TouchControl> touch_controls() const override { return game_->touch_controls(); }
+    std::optional<platform::TiltConfig> tilt_controls() const override { return game_->tilt_controls(); }
+    bool take_tilt_calibration_request() override { return game_->take_tilt_calibration_request(); }
     void set_canvas(int w, int h) override {
         width_ = w;
         height_ = h;
@@ -208,6 +216,7 @@ class SavedGame final : public GameModule {
             auto fresh = entry_.start(content_);
             fresh->set_canvas(width_, height_);
             fresh->attach_gpu(surface_);
+            fresh->set_input_capabilities(input_capabilities_);
             // The save's own game options; presentation options (the screen filter) keep the
             // player's current choice.
             const auto opts = fresh->options();

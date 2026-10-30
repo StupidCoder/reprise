@@ -92,6 +92,8 @@ private:
 
 class Module final : public app::GameModule {
 public:
+    platform::Orientation orientation() const override { return platform::Orientation::flexible; }
+public:
     Module(const Info& info, fs::path pack, fs::path progress)
         : info_(info), pack_(std::move(pack)), progress_(std::move(progress)),
           screen_(embed::screens(info.title)), languages_(embed::languages(info.title, pack_)) {}

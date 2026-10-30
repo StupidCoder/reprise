@@ -59,6 +59,9 @@ struct GameInput {
     std::vector<platform::Finger> fingers{};
     // The device's accelerometer (Controls::motion) for a game that asks for it (wants_motion).
     std::optional<std::array<float, 3>> motion{};
+    std::optional<std::array<float, 2>> analog_stick{}; // physical stick, [-1,1], y down
+    std::vector<platform::TouchValue> touch_controls{}; // named game-owned actions
+    std::optional<std::array<float, 2>> tilt{}; // calibrated, smoothed, [-1,1], y down
 };
 
 // A setting the player can change in the pause menu (a fix or an
@@ -116,6 +119,15 @@ public:
     // True for a game that reads the device's motion (a handheld's tilt sensor): while it runs
     // (not in menus) the host keeps the accelerometer open and GameInput::motion carries it.
     virtual bool wants_motion() const { return false; }
+    // Called before restoring options and on device changes; do not erase the saved preference.
+    virtual void set_input_capabilities(platform::InputCapabilities) {}
+    virtual platform::Orientation orientation() const { return platform::Orientation::landscape; }
+    // Empty: native touch/pointer interaction, with no virtual controls. An opted-in layout
+    // owns touch input during play; mouse input remains separate. Coordinates use safe-area fractions.
+    virtual std::vector<platform::TouchControl> touch_controls() const { return {}; }
+    virtual std::optional<platform::TiltConfig> tilt_controls() const { return std::nullopt; }
+    // One-shot calibration request, e.g. after selecting a game's Recalibrate option.
+    virtual bool take_tilt_calibration_request() { return false; }
     // Displayed width / height of one picture pixel.
     virtual double pixel_aspect() const = 0;
 
