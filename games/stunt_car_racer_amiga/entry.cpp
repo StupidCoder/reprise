@@ -1,6 +1,7 @@
 #include "stunt_car_racer_amiga/entry.hpp"
 #include "stunt_car_racer_amiga/data/assets.hpp"
 #include "stunt_car_racer_amiga/data/preview.hpp"
+#include "stunt_car_racer_amiga/game/module.hpp"
 #include "stunt_car_racer_amiga/import/disk_import.hpp"
 #include "stunt_car_racer_amiga/render/race_screen.hpp"
 #include "stunt_car_racer_amiga/render/race_view.hpp"
@@ -37,7 +38,8 @@ app::GameEntry entry() {
         .media = "the disk image (ADF)",
         .import = import::import_disk,
         .previews = previews,
-        .progress = "Import, the loading picture, the eight circuits as 3D models and the race screen at each start (cockpit, view, crane, opponent); nothing of the game can be played yet.",
+        .start = game::start,
+        .progress = "A practice race on Little Ramp with the game's own car physics: the crane, the drop and driving. Crashes, laps, damage and the opponent are not rebuilt yet.",
     };
 }
 

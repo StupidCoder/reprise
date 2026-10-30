@@ -465,6 +465,89 @@ computed in a captured frame (RAM $1BFB0/$1C0F0 slots $100–$11E); posed
 behind the opponent (harness/behind.py) on Little Ramp and Hump Back the
 car matches to a pixel or two (the corners' projection).
 
+## Car physics and the race loop (Observed, verified)
+
+Prior work: RetroReverse's write-up (Part V) and its Go version of the
+physics were used as a map (the user's earlier clean-room work); every
+routine here was read in this program and the port is checked frame by
+frame against the running original. The Go version's names for $1BCE4 and
+$1BCE8 are swapped: the suspension tilts the rear point against the front
+pair by $1BCE4 (pitch) and left against right by $1BCE8 (roll).
+
+**Race loop** ($5D47E–$5D608): controls ($5D8A2: steering ±15, fire,
+drive force from the per-car acceleration with a latch, reverse $FF10,
+boost doubling it while fire is held and boost is left, $608A4), physics
+($6185C), engine pitch ($5B56C), the frame routine ($64E4C: camera and
+placement, then drawing; in league races the opponent too), the
+drawbridge, dashboard updates, the clock and lap timer ($5DB34), the swap.
+**Time base**: the lap timer adds $13 (0.13 s, BCD) every frame ($5DF2E),
+so a frame is 0.13 s of race time; the original reaches about 7.7 frames
+a second on an A500 (measured: frame counter $1BBC9 against the 50 Hz
+vertical-blank counter $EA8A). The port steps at 0.13 s.
+
+**Physics frame** ($6185C): orientation matrix from yaw (and yaw against
+the piece's heading), pitch and roll (sine via a quarter-wave table at
+$1CA42 with interpolation); the three suspension points' places; the road
+under them; their heights on the tilted body; velocity into the body frame
+(transform recipe at $1EC46); speed and engine note; gravity ($13D) into
+the body frame; springs (compression = road − body − rest, limited to
+−$300..$1400; force = travel + Δtravel × $114/256, 0..$11FF; hard landing
+when a force jumps to $400 from below $200; damage while (force −
+tolerance<<8) ≥ $700, for the first `window` frames of an impact, severity
+1.5 × (excess − $600) >> 8); net lift, pitch and roll lift (3 × left −
+right, ±$1000); airborne nose-up nudge on tracks 4 and 7; road slope from
+the springs (half-angle table $1EECA) and the net lift along the body
+axes; the spawn servo (below); the other car's knock; a landing thud
+(sound 3, at most every fifth frame); then, while armed, drive limited by
+grip (2 × up-load, none in the air), sideways grip with sliding, track
+following ($61012: heading error against the piece, bias table $6125A,
+steering torque from the joystick scaled by speed, a turn towards the road
+when not steering; the disk-protection check there passes on the genuine
+disk), forces to the world, drag ($6000 firm while gripping, else
+speed-proportional above a $A00 dead zone), torques; then velocity and
+position (×238/256 at both stages, positions << 6/7/6, height limit $3E8)
+and angles with their limits ($61AD4).
+
+**Road contact** ($5C1D0): per point, its offset across the piece (the
+across gain from the shape's description) and along it (the along gain),
+crossing into the next or previous piece at the strip's ends; the four
+surrounding edge heights (profile + base, >> 5) interpolated bilinearly;
+past the road's edge ($180) the surface tapers for $30, then falls away
+($1000) and the point is marked off track. Slow and level, the sample is
+averaged with the last (a low-pass). A lateral fraction of 1 reads the
+byte at address $FF (0): the game means #$FF.
+
+**Placement** ($64E4C: $60190, $5FE04/$6001C, $5BE44, $60246, $5C138): the
+world is turned in quarter turns so the heading stays within 45° of +z;
+the camera's height (net lift and pitch added); the segment from the
+16 × 16 cell grid (or across the nearest cell edge); the car's place on
+the piece by its kind: straight (offset from the shape's centre line,
+progress = z in the cell), diagonal (rotated by $B5/256), arc (atan2/hypot
+around the curve's centre from the shape's figures, progress = the swept
+angle times the arc gain, the radius refined towards the true distance;
+past a curve's end onto a type-4 piece it places on that one); over the
+edge: $C0 from the centre line is the side, $100 a crash; progress in
+driving direction (reversed pieces count back).
+
+**Start** ($605B6, $5D726): the car's figures from a table of two cars at
+$1FE6C (acceleration, boost reload, damage tolerance; the super league's
+car is the second); the race's damage window is trailer byte 0 (byte 1 in
+the super league); back up to a piece the car may start on (not curves:
+table $1F0C2; not the track's listed segments); cell centre, pointing
+along the piece (diagonals 45° more); hanging high; one placement and
+physics frame; the crane's target height from the rear road height; the
+car set $A0/256 along its heading. Recovery clock from $F0: level the
+roll (towards ±$10), lower the car to its target height, then $8C frames
+of servo and the hand-over (DROP / START).
+
+**Verification** (`harness/physcap.py`, `tools/stunt_car_racer_physcheck`):
+captured frames of the original (crane, drop, idle, throttle, steering on
+Little Ramp): the physics frame from each captured state matches all 319
+frames in every field; the placement all 280; the race loop run on its own
+from the first frame (controls, physics, placement, clock) matches every
+frame until the car crashes (314 of 319; the crash handling in the main
+loop is not ported yet).
+
 ## Lesson candidates
 
 - Copylock, and how a cracked image still yields the genuine key.
@@ -516,6 +599,12 @@ car matches to a pixel or two (the corners' projection).
   interrupted and queues replies: drain after every stop.
 - `tools/screens.py`: prototype decoders for the cockpit, palettes, sheet
   and items.
+- `harness/physcap.py OUT FRAMES INPUTS` (with `PLACE=1` around the
+  placement): per frame the state window before and after; `work/phys_lr1.bin`
+  (319 frames) and `work/place_lr1.bin` (280); checked by
+  `build/stunt_car_racer_physcheck <content> <capture> <track> physics|place|drive`.
+- `stunt_car_racer_assets drive <content> <frames> <inputs> <prefix> [every]`:
+  runs the game module headless and saves race screens.
 - `tools/dis68k`, built from RetroReverse's general 68000 disassembler
   (`go build ./cmd/dis68k` in `RetroReverse/tools`).
 

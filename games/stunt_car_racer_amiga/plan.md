@@ -1,10 +1,10 @@
 # Stunt Car Racer — remaining work
 
 Status (2026-10-30): importer, the loading picture, the eight circuits
-(decoded from the track bank, shown as turnable 3D models) and the whole
-race screen (view, cockpit, dashboard, crane, messages, opponent car;
-verified against the original frame by frame) are connected; nothing is
-playable yet. Findings
+(decoded from the track bank, shown as turnable 3D models), the whole race
+screen, and a practice race on Little Ramp with the game's own car physics
+(checked frame by frame against the original) are connected; crashes, laps,
+damage and the opponent are not yet. Findings
 are in [game.md](game.md).
 
 Done:
@@ -53,7 +53,20 @@ Next:
       opponent's extra row when $63EDE ≥ $FF00; the 3-pixel '.' difference.
 - [ ] Font and front-end screens (menu, league tables, track select) from the
       program's data.
-- [ ] Car physics, opponent driving, damage, race rules and the league.
+- [x] Car physics (`race/physics.*`, `race/contact.*`), placement
+      (`race/placement.*`), the start and race loop (`race/race.*`), checked
+      frame by frame against the original; a practice race on Little Ramp
+      playable from the launcher (`game/module.*`).
+- [ ] Race, next: crash handling and the crane's recovery (main loop
+      $5D4E8–$5D608, $5B32E relaunch, $60CDE), the off-grid path; laps and
+      the lap timer ($5DB34, $5DCA6, $5DED0); damage to the roll bar
+      ($5DFB4, $66106) and wrecking; the wheels' suspension curve ($5E778);
+      smoke; the boost count ($60824); then the opponent: its placement
+      ($5A186), driving ($63996, $6076C, $636C0) and the knocks between the
+      cars ($1BB46); then the league and the menus.
+- [ ] Captures beyond the first straight: curves, jumps, crashes, boost, the
+      other circuits (the checker's map of the original's variables is in
+      `tools/stunt_car_racer_physcheck.cpp`).
 - [ ] Renderer enhancements: widescreen by widening the view (the angle
       projection extends naturally), smooth motion up to 120 Hz, higher
       resolution.
@@ -67,5 +80,7 @@ Next:
 
 ## Open bugs
 
-No playable implementation exists to test yet.
+- After going over the road's edge the car stays where it lands: crash
+  handling and the crane's recovery are not ported yet.
+- No lap counting, timer, damage display or opponent in the practice race.
 

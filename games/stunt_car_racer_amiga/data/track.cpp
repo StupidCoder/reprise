@@ -40,6 +40,8 @@ Shape decode_shape(const Bank& bank, std::uint16_t at) {
     const int points = bank.u8(info);
     if (points < 4 || points % 2) throw std::runtime_error("A track shape has an odd point count.");
     Shape shape;
+    for (auto b = std::uint16_t(at + 1); b < info; ++b) shape.header.push_back(bank.u8(b));
+    for (std::size_t k = 0; k < shape.description.size(); ++k) shape.description[k] = bank.u8(std::uint16_t(info + 1 + k));
     auto p = std::uint16_t(info + 7);
     for (int i = 0; i < points / 2; ++i, p = std::uint16_t(p + 8)) {
         shape.steps.push_back({PlanPoint{bank.sle16(p), bank.sle16(std::uint16_t(p + 2))},
@@ -161,6 +163,10 @@ Track decode_track(const Bank& bank, const Circuits& circuits, int index) {
 }
 
 } // namespace
+
+std::int16_t Shape::figure(int offset) const {
+    return std::int16_t(header.at(std::size_t(offset - 1)) | header.at(std::size_t(offset)) << 8);
+}
 
 int Profile::offset(int step, bool wide) const {
     if (step < 0) throw std::runtime_error("A height profile was read before its start.");

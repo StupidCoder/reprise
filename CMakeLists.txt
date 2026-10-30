@@ -361,12 +361,18 @@ target_compile_options(fa_18_interceptor_amiga PRIVATE ${PROJECT_WARNINGS})
 # --- stunt_car_racer_amiga: Stunt Car Racer (Amiga) ---------------------------
 add_library(stunt_car_racer_amiga
     games/stunt_car_racer_amiga/entry.cpp
+    games/stunt_car_racer_amiga/game/module.cpp
     games/stunt_car_racer_amiga/data/assets.cpp
     games/stunt_car_racer_amiga/data/cockpit.cpp
     games/stunt_car_racer_amiga/data/preview.cpp
     games/stunt_car_racer_amiga/data/scenery.cpp
     games/stunt_car_racer_amiga/data/track.cpp
     games/stunt_car_racer_amiga/import/disk_import.cpp
+    games/stunt_car_racer_amiga/race/contact.cpp
+    games/stunt_car_racer_amiga/race/physics.cpp
+    games/stunt_car_racer_amiga/race/placement.cpp
+    games/stunt_car_racer_amiga/race/race.cpp
+    games/stunt_car_racer_amiga/race/tables.cpp
     games/stunt_car_racer_amiga/render/race_screen.cpp
     games/stunt_car_racer_amiga/render/race_view.cpp)
 target_include_directories(stunt_car_racer_amiga PUBLIC ${SOURCE_ROOT})
@@ -544,6 +550,9 @@ target_compile_options(fa_18_interceptor_assets PRIVATE ${PROJECT_WARNINGS})
 add_executable(stunt_car_racer_assets tools/stunt_car_racer_assets.cpp)
 target_link_libraries(stunt_car_racer_assets PRIVATE stunt_car_racer_amiga)
 target_compile_options(stunt_car_racer_assets PRIVATE ${PROJECT_WARNINGS})
+add_executable(stunt_car_racer_physcheck tools/stunt_car_racer_physcheck.cpp)
+target_link_libraries(stunt_car_racer_physcheck PRIVATE stunt_car_racer_amiga)
+target_compile_options(stunt_car_racer_physcheck PRIVATE ${PROJECT_WARNINGS})
 add_executable(beach_volley_assets tools/beach_volley_assets.cpp)
 target_link_libraries(beach_volley_assets PRIVATE beach_volley_amiga)
 target_compile_options(beach_volley_assets PRIVATE ${PROJECT_WARNINGS})

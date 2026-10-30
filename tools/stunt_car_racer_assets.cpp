@@ -10,6 +10,11 @@
 //                               <yaw> <pitch> <roll> <out.png>
 //       the race view from a camera (plan units, height units, angles in
 //       65536ths of a turn), for comparison with the original's screen
+//   stunt_car_racer_assets drive <content> <frames> <inputs> <out_prefix> [every]
+//       runs the game module (the practice race) for <frames> frames; <inputs>
+//       is a comma list of hex joystick bytes per frame (bits 0 up, 1 down,
+//       2 left, 3 right, 4 fire), the last repeated; saves every <every>th
+//       picture as <out_prefix>NNNN.png
 //   stunt_car_racer_assets screen <content> <state.txt> <out.png>
 //       the whole race screen; state.txt holds "key value" lines: track,
 //       segment, x, z, eye, yaw, pitch, roll, steering, right_wheel_y,
@@ -24,6 +29,7 @@
 #include "platform/host.hpp"
 #include "stunt_car_racer_amiga/data/assets.hpp"
 #include "stunt_car_racer_amiga/data/preview.hpp"
+#include "stunt_car_racer_amiga/game/module.hpp"
 #include "stunt_car_racer_amiga/import/disk_import.hpp"
 #include "stunt_car_racer_amiga/render/race_screen.hpp"
 #include "stunt_car_racer_amiga/render/race_view.hpp"
@@ -82,6 +88,28 @@ int main(int argc, char** argv) {
             const auto scenery = stuntcar::data::load_scenery(assets.program);
             const auto view = stuntcar::render::draw_race_view(circuits, scenery, track, std::stoi(argv[4]), camera);
             platform::save_png(stuntcar::render::to_image(view, stuntcar::render::race_palette(assets.program)), argv[11]);
+            return 0;
+        }
+        if (command == "drive" && argc >= 6) {
+            auto game = stuntcar::game::start(argv[2]);
+            const int frames = std::stoi(argv[3]), every = argc > 6 ? std::stoi(argv[6]) : 10;
+            std::vector<int> inputs;
+            for (std::string list = argv[4]; !list.empty();) {
+                const auto comma = list.find(',');
+                inputs.push_back(std::stoi(list.substr(0, comma), nullptr, 16));
+                list = comma == std::string::npos ? "" : list.substr(comma + 1);
+            }
+            for (int k = 0; k < frames; ++k) {
+                const int in = inputs.empty() ? 0 : inputs[std::size_t(std::min<int>(k, int(inputs.size()) - 1))];
+                app::GameInput input;
+                input.up = in & 1, input.down = in & 2, input.left = in & 4, input.right = in & 8, input.fire = in & 16;
+                game->tick(input);
+                if (k % every == 0) {
+                    char name[16];
+                    std::snprintf(name, sizeof name, "%04d.png", k);
+                    platform::save_png(game->picture(), std::string(argv[5]) + name);
+                }
+            }
             return 0;
         }
         if (command == "screen" && argc == 5) {

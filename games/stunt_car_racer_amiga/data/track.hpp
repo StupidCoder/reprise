@@ -29,6 +29,22 @@ struct PlanPoint {
 // steps.
 struct Shape {
     std::vector<std::array<PlanPoint, 2>> steps;
+
+    // Figures the race uses to place a car on the piece (game.md, "Car
+    // physics: placement"). `header` holds the bytes before the description
+    // (from byte 1): byte 0 the placement kind (bit 7 arc, bit 6 diagonal,
+    // bits 0-1 the arc's scale), then little-endian figures read by kind.
+    // `description` holds the bytes after the point count.
+    std::vector<std::uint8_t> header;
+    std::array<std::uint8_t, 6> description{};
+
+    std::uint8_t placement() const { return header.at(0); }
+    std::int16_t figure(int offset) const; // little-endian word at header byte `offset` - 1
+    std::uint8_t figure_byte(int offset) const { return header.at(std::size_t(offset - 1)); }
+    bool mirrored() const { return description[0] & 1; } // the curve turns the other way
+    std::uint8_t across_gain() const { return description[1]; }
+    std::uint8_t along_gain() const { return description[2]; }
+    std::uint8_t steer_gain() const { return description[5]; }
 };
 
 // How one road edge rises along a segment, step by step. The same bytes
