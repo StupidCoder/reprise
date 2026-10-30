@@ -25,7 +25,8 @@ struct WorldObject {
     std::int8_t area{};          // +$5D: the trigger area that spawned it (-1: the list)
     Course course;               // +$2C .. +$38, +$3A, +$4A, +$7A
     std::uint8_t pilot{};        // +$64
-    std::uint8_t weapons{};      // +$63
+    std::uint8_t weapons{};      // +$63: high nibble the weapon it has ready ($20 Sidewinder, $30 AMRAAM)
+    std::uint8_t stores{0x44};   // +$5F: Sidewinders (high nibble) and AMRAAMs (low), $44 at the spawn ($11D58C)
     std::uint8_t damage{};       // +$3C: rounds taken (low nibble)
     bool active() const { return craft.state & 0x0040; }
 };

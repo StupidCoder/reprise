@@ -26,7 +26,7 @@ public:
     void clock();
     // $103D4C, after the flight: the message for this frame. Returns the
     // warning beep's bits for the sound update (sounds.hpp `warning`).
-    std::uint32_t update(const Aircraft& aircraft);
+    std::uint32_t update(const Aircraft& aircraft, std::uint8_t threats = 0);
 
     std::uint16_t code() const { return code_; }
     // The record on the line now, and its colour (palette index).

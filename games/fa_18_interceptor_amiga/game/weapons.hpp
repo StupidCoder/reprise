@@ -101,6 +101,14 @@ public:
                     const std::function<bool(Shot&)>& hits = {});
 
     const Stores& stores() const { return stores_; }
+    // The latest flare or chaff still out (`$13AB7C`, `$13AB7D`): the
+    // decoys of the enemies' missiles on the player (32-bit place).
+    std::optional<std::array<std::int32_t, 3>> decoy(Shot::Kind kind) const {
+        const auto& at = kind == Shot::Kind::flare ? flare_slot_ : chaff_slot_;
+        if (!at || !shots_[*at]) return std::nullopt;
+        const auto& s = *shots_[*at];
+        return std::array<std::int32_t, 3>{s.x, s.y, s.z};
+    }
     const std::array<std::optional<Shot>, 10>& shots() const { return shots_; }
     const std::array<std::optional<Missile>, 3>& missiles() const { return missiles_; }
 
@@ -115,8 +123,20 @@ public:
     // missile's frame (false: it is gone); a projectile leaving `player` on
     // frame `frame`; a projectile's frame.
     Missile launched(const Aircraft& player, Weapon weapon, int left) const;
+    // $1176D8, the launch from any aircraft (the enemies' too): its record
+    // copied, the station for `left` missiles left after this one.
+    static Missile launch(const amiga::LoadedImage& program, const Aircraft& shooter, Weapon weapon, int left);
+    // Where a missile not of the player's (state bit 3 clear) heads
+    // (`$1182F2`): its target record's place, or on the player a decoy's -
+    // the latest flare for a Sidewinder, chaff for an AMRAAM - whose
+    // nearness (within $4800 on each axis, 32-bit units) it marks in +2 bit
+    // 0 and whose loss in +$20 bit 5.
+    struct Homing {
+        Waypoint place;
+        std::optional<std::array<std::int32_t, 3>> decoy;
+    };
     static bool fly_missile(Missile& m, const FlightRules& rules, const FlightTables& tables, const Aircraft* locked,
-                            int locked_record, const Autopilot* autopilot);
+                            int locked_record, const Autopilot* autopilot, const Homing* homing = nullptr);
     // $11B6A2's ground test after a missile's move (from `from`) when it
     // touched no record: below height 0 it goes back along the move onto
     // the ground (`$11AB0E`), looks whether that is water (`$11F83A`: +4
@@ -141,6 +161,7 @@ private:
     std::int8_t burst_hold_ = 0;     // +$3B (a byte: it wraps)
     int flare_time_ = 0, chaff_time_ = 0; // $13AB3F, $13AB3E (missiles' decoys)
     std::array<std::optional<Shot>, 10> shots_{};
+    std::optional<std::size_t> flare_slot_, chaff_slot_; // `$13AB7C`, `$13AB7D`
     std::array<std::optional<Missile>, 3> missiles_{};
 };
 

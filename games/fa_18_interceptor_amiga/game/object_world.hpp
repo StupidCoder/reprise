@@ -3,6 +3,7 @@
 #include "fa_18_interceptor_amiga/game/collisions.hpp"
 #include "fa_18_interceptor_amiga/game/object_step.hpp"
 #include "fa_18_interceptor_amiga/game/trigger_areas.hpp"
+#include "fa_18_interceptor_amiga/game/weapons.hpp"
 #include "fa_18_interceptor_amiga/game/world_objects.hpp"
 #include <array>
 #include <cstdint>
@@ -93,6 +94,12 @@ public:
         long counter{};           // `$13ABCA`
         const data::World* world{};
         bool flying = true;       // `$13ABBC` bit 6: clear, nothing moves (`$11A5FC`)
+        bool ecm{};               // `$13ABA5` (key J): the enemies' launches twice as often
+        bool launches = true;     // (research: off where a recording lacks the missile records)
+        // The player's latest flare and chaff (`$13AB7C`, `$13AB7D`: their
+        // projectile slots), 32-bit places: the decoys of missiles on the
+        // player (Sidewinders the flare, AMRAAMs the chaff).
+        std::optional<std::array<std::int32_t, 3>> flare, chaff;
         // The bodies before the records in a touch (the player's first,
         // its missiles, the practice's lead).
         std::vector<Body> bodies;
@@ -143,6 +150,14 @@ public:
 
 private:
     bool outcome_wait(int frames);
+    // $1170A2 / $11767E: the missile record after an enemy aircraft (9,
+    // 11, 13 after 8, 10, 12), free, takes a missile from it.
+    void launch(WorldObject& missile, const Frame& frame);
+    // $117E4A and the record step for a missile record (class 0); its
+    // touch. Returns true when the radar's lock went.
+    bool step_missile(WorldObject& o, const Frame& frame);
+    // The missile records kept free after the enemy aircraft's.
+    void add_missile_slots();
 
     const FlightTables& tables_;
     const ObjectLists& lists_;

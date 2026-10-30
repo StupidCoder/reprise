@@ -21,6 +21,10 @@ struct CockpitReadings {
         bool wide{};
     };
     std::vector<Contact> contacts; // the radar's blips ($126230)
+    // The threat lamps ($125D26): the radar's threats (`$13AB5E`) and the
+    // stall lamp's blink (stalled, +$20 bit 2, on frames with bit 1).
+    std::uint8_t threats{};
+    bool stall_lamp{};
     int message{}, message_colour{1}; // the message line's record and colour
     // The head-up display ($127EB8, with $13AA91 set once the flight runs).
     bool hud = true;

@@ -666,7 +666,14 @@ void move(Aircraft& a, const FlightRules& rules, const FlightTables& t, FlightEv
         return;
     }
     a.handling &= ~4;
-    if (a.type & 0xF0) a.y = ground;
+    if (!(a.type & 0xF0)) {
+        // A missile (class 0) below -$200: only marked on the ground; its
+        // height and climb stay (em4c) - the ground test of its touch
+        // blows it up.
+        a.motion |= flag::on_ground;
+        return;
+    }
+    a.y = ground;
     // What the wheels touch, on contact and every few ticks rolling.
     if (!deck && rules.world && (!(a.motion & flag::on_ground) || (a.timer & 7) == 0)) {
         const double wx = a.x / 256.0, wz = a.z / 256.0;

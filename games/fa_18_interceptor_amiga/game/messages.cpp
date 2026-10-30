@@ -41,17 +41,23 @@ void Messages::clock() {
     }
 }
 
-std::uint32_t Messages::update(const Aircraft& a) {
+std::uint32_t Messages::update(const Aircraft& a, std::uint8_t threats) {
     std::uint32_t beep = 0;
     std::uint16_t code = code_;
     if (!posted_) {
-        // The warnings choose ($103D4C), the first that is on: (the
-        // missiles' alerts,) fuel exhausted, stall, fuel critical, (the
-        // cruise missile, an enemy near,) low fuel, (a friendly near).
-        if (a.fuel_warning & fuel::exhausted) code = 0xC004;      // FUEL EXHAUSTED, with blank
+        // The warnings choose ($103D4C), the first that is on: the
+        // missiles' alerts (the radar's threats, `$13AB5E` bits 4, 5),
+        // fuel exhausted, stall, fuel critical, the cruise missile (3), an
+        // enemy near (2), low fuel, a friendly near (1).
+        if (threats & 0x10) code = 0x8010;                        // a Sidewinder
+        else if (threats & 0x20) code = 0x8012;                   // an AMRAAM
+        else if (a.fuel_warning & fuel::exhausted) code = 0xC004; // FUEL EXHAUSTED, with blank
         else if (a.stall_warning) code = 0xC001;                  // STALL, with blank
         else if (a.fuel_warning & fuel::critical) code = 0x8002;  // LOW FUEL - CRITICAL / LOW FUEL -
+        else if (threats & 0x08) code = 0x8024;                   // the cruise missile
+        else if (threats & 0x04) code = 0x800E;                   // an enemy near
         else if (a.fuel_warning & fuel::low) code = 0x0C09;       // LOW FUEL
+        else if (threats & 0x02) code = 0x400D;                   // a friendly near
         else if (!kept_) code = 0;
     } else if (code_ == 0) {
         code = 0;

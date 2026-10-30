@@ -45,6 +45,8 @@ public:
     // locked record (+$4A; the same counter and estimate as the others').
     void measure_player(Aircraft& player, std::int16_t& distance, const Aircraft* locked) const;
 
+    const amiga::LoadedImage& program() const { return program_; }
+
 private:
     void aim_speed(WorldObject& o, const Records& records) const;        // $117A16
     void measure(WorldObject& o) const;                                  // $118468

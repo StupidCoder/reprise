@@ -184,7 +184,7 @@ public:
         } else {
             remember_keys(input);
         }
-        sounds_.warn(messages_.update(aircraft_));
+        sounds_.warn(messages_.update(aircraft_, radar_.threats()));
         sounds_.update(aircraft_);
     }
 
@@ -234,6 +234,8 @@ public:
             auto readings = read_cockpit(aircraft_);
             readings.zoom = zoom_ == 0x80 ? 1 : zoom_ == 0x40 ? 2 : 4; // ($1266C8)
             for (const auto& b : radar_.blips()) readings.contacts.push_back({b.x, b.y, b.colour, b.wide});
+            readings.threats = radar_.threats();
+            readings.stall_lamp = (aircraft_.handling & 0x04) && (ticks_ & 2);
             if (outside_) {
                 // The outside view ($13AA75): the scene down to row 167
                 // ($13AC74) with the aircraft in it, and its numbers below.
@@ -534,6 +536,9 @@ public:
         frame.counter = ticks_;
         frame.world = &world_;
         frame.bodies = player_bodies();
+        frame.ecm = ecm_;
+        frame.flare = weapons_.decoy(Shot::Kind::flare);
+        frame.chaff = weapons_.decoy(Shot::Kind::chaff);
         if (others_.step(frame)) {
             messages_.post(0x4016);
             radar_.unlock();
@@ -553,7 +558,8 @@ public:
         const auto frame = std::uint16_t(ticks_);
         radar_.after_scene(records, frame, outside_, tables_);
         if (!outside_) {
-            radar_.panel(records, frame, look, radar_range_, std::uint8_t(mission_mode()));
+            radar_.panel(records, frame, look, radar_range_, std::uint8_t(mission_mode()), viewed_);
+            sounds_.warn(radar_.take_warnings());
             radar_.end_panel(frame);
         }
     }
@@ -1703,7 +1709,8 @@ private:
     // (bit 1). A spin on the ground blows the aircraft up ($11AA80).
     void player_touches(const std::array<std::int32_t, 3>& before) {
         auto list = bodies();
-        if (list.size() > 1 && !(aircraft_.state & 0x0400)) {
+        // (`$11A364`: not while an outcome is awaited.)
+        if (list.size() > 1 && !(aircraft_.state & 0x0400) && !others_.waiting()) {
             bool near = false;
             TouchCount count;
             const bool touched = touch_bodies(list, 0, before, near, &count) == touch::object;

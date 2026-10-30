@@ -1,7 +1,6 @@
 #include "fa_18_interceptor_amiga/game/object_world.hpp"
 #include "fa_18_interceptor_amiga/game/attitude.hpp"
 #include <algorithm>
-#include <cstdlib>
 
 namespace interceptor::game {
 
@@ -18,6 +17,164 @@ void ObjectWorld::spawn(const ObjectChoice& choice) {
     outcome_wait_ = 0;
     smoke_ = {};
     trail_.reset();
+    add_missile_slots();
+}
+
+void ObjectWorld::add_missile_slots() {
+    for (const int n : {9, 11, 13}) {
+        if (record(n)) continue;
+        WorldObject free;
+        free.record = n;
+        free.craft.state = 0x0010;
+        objects_.push_back(free);
+    }
+    std::stable_sort(objects_.begin(), objects_.end(),
+                     [](const WorldObject& a, const WorldObject& b) { return a.record < b.record; });
+}
+
+namespace {
+
+Waypoint place_of(const Aircraft& a) {
+    return {std::int16_t(a.x >> 22), std::int16_t(a.z >> 22), std::int16_t((a.x & 0x3FFFFF) >> 8),
+            std::int16_t((a.z & 0x3FFFFF) >> 8), a.y >> 8};
+}
+Waypoint place_of(const std::array<std::int32_t, 3>& p) {
+    return {std::int16_t(p[0] >> 22), std::int16_t(p[2] >> 22), std::int16_t((p[0] & 0x3FFFFF) >> 8),
+            std::int16_t((p[2] & 0x3FFFFF) >> 8), p[1] >> 8};
+}
+
+} // namespace
+
+void ObjectWorld::launch(WorldObject& missile, const Frame& frame) {
+    auto* shooter = record(missile.record - 1);
+    if (!shooter) return;
+    const auto& s = shooter->craft;
+    // $1170A2: in control, not spinning, its target (a record) there and
+    // not spinning or marked (state bit 0), in its attack (+$64 bits 5-6)
+    // with state bit 0, and a missile ready (+$63: Sidewinder or AMRAAM).
+    // (`$13AAAC`, a launch asked for, is never set.)
+    if ((s.state & 0x8700) || (s.handling & 0x02) || !(s.state & 0x0040)) return;
+    if (shooter->course.target_record & 0x80) {
+        const int n = shooter->course.target_record & 0x7F;
+        const WorldObject* t = n == 0 ? nullptr : record(n);
+        const Aircraft* target = n == 0 ? frame.player : t ? &t->craft : nullptr;
+        if (!target || !(target->state & 0x0040) || (target->handling & 0x02) || (target->state & 0x0001)) return;
+    }
+    if ((shooter->pilot & 0x60) != 0x60 || !(s.state & 0x0001)) return;
+    const int weapon = shooter->weapons & 0xF0;
+    if (weapon != 0x20 && weapon != 0x30) return;
+    // $11767E (`$13AA79`, always set): every 8th frame, 6th from level 2,
+    // 4th from level 3 (by the frame counter's low bits), twice as often
+    // with the ECM on; then one from its stores ($1176B8).
+    int every = frame.level >= 3 ? 3 : frame.level >= 2 ? 5 : 7;
+    if (frame.ecm) every >>= 1;
+    if (frame.counter & every) return;
+    const bool amraam = weapon == 0x30;
+    int left = amraam ? shooter->stores & 15 : shooter->stores >> 4;
+    if (left == 0) return;
+    const auto stores = shooter->stores;
+    --left;
+    shooter->stores = std::uint8_t(amraam ? (stores & 0xF0) | left : (left << 4) | (stores & 15));
+    // $1176D8: the aircraft's record copied, with its target; no pilot, no
+    // place to head for yet.
+    const auto m = Weapons::launch(step_.program(), s, amraam ? Weapon::amraam : Weapon::sidewinder, left);
+    missile.craft = m.body;
+    missile.craft.timer = std::int16_t(m.life);
+    missile.shape_type = m.type;
+    missile.group = shooter->group;
+    missile.area = shooter->area;
+    missile.scale = shooter->scale;
+    missile.damage = shooter->damage;
+    missile.weapons = shooter->weapons;
+    missile.stores = stores;
+    missile.pilot = 0;
+    missile.course = shooter->course;
+    missile.course.target.cell_x = -1;
+}
+
+bool ObjectWorld::step_missile(WorldObject& o, const Frame& frame) {
+    auto& a = o.craft;
+    bool lock_lost = false;
+    const auto missile_of = [&] {
+        Missile m;
+        m.body = a;
+        m.type = a.type;
+        m.life = a.timer;
+        m.fading = a.state & 0x0400;
+        m.fresh = a.state & 0x0100;
+        m.stopped = (a.state & 0x0400) && !(a.state & 0x1000);
+        m.pilot = o.pilot;
+        m.course = o.course;
+        return m;
+    };
+    const auto keep = [&](const Missile& m) {
+        a = m.body;
+        a.timer = std::int16_t(m.life);
+        o.pilot = m.pilot;
+        o.course = m.course;
+        if (m.fading) a.state |= 0x0400;
+        if (!m.fresh) a.state &= ~0x0100;
+        if (m.stopped) a.state &= ~0x1000;
+    };
+    auto m = missile_of();
+    // $1182F2: its target record's place; on the player the latest decoy
+    // of its kind instead.
+    Weapons::Homing homing;
+    homing.place = o.course.target;
+    const int n = o.course.target_record & 0x7F;
+    const WorldObject* t = n == 0 ? nullptr : record(n);
+    if (n == 0 && frame.player) homing.place = place_of(*frame.player);
+    else if (t) homing.place = place_of(t->craft);
+    if (n == 0) {
+        const auto& decoy = m.type == 0 ? frame.flare : frame.chaff;
+        if (decoy) {
+            homing.place = place_of(*decoy);
+            homing.decoy = decoy;
+        }
+    }
+    const bool touches = !m.fresh && !m.fading;
+    const std::array<std::int32_t, 3> before{a.x, a.y, a.z};
+    FlightRules rules;
+    rules.flying = frame.flying;
+    if (!Weapons::fly_missile(m, rules, tables_, nullptr, -1, &autopilot_, &homing)) {
+        a.state &= ~0x0040; // (its time out)
+        return false;
+    }
+    keep(m);
+    if (!touches || (a.state & 0x0400)) return false; // ($11A7DA)
+    // $11A7EA: its touch; hitting a record it goes ($11AA70); below the
+    // ground it blows up, on land with smoke.
+    auto list = frame.bodies;
+    const std::size_t self = list.size() + std::size_t(&o - objects_.data());
+    for (auto& other : objects_) list.push_back({&other.craft, other.group, other.active()});
+    bool near = false;
+    if (touch_bodies(list, self, before, near) == touch::object) {
+        a.handling |= 0x02;
+        a.state &= ~0x0040;
+        return false;
+    }
+    std::array<std::int32_t, 3> smoke_at{};
+    bool smoke = false;
+    auto ground = missile_of();
+    if (Weapons::hit_ground(ground, before, frame.world, smoke_at, smoke)) {
+        keep(ground);
+        if (smoke) add_smoke(smoke_at, true);
+        if (frame.locked == o.record) lock_lost = true;
+        return lock_lost;
+    }
+    // $11AA80 for a missile: crashed it blows up; the near bit follows the
+    // touch, and losing it marks +$20 bit 5 ($11AAE8).
+    if (a.state & 0x0200) {
+        a.state = std::uint16_t((a.state | 0x0400) & ~0x0200);
+        a.timer = 15;
+        if (frame.locked == o.record) lock_lost = true;
+    } else if (near) {
+        a.motion |= 0x0002;
+    } else if (a.motion & 0x0002) {
+        a.motion &= ~0x0002;
+        a.handling |= 0x20;
+    }
+    return lock_lost;
 }
 
 void Trail::update(Aircraft& a) {
@@ -97,7 +254,13 @@ bool ObjectWorld::step(const Frame& frame) {
         world.list = list_start_;
         for (auto& o : objects_) {
             auto& a = o.craft;
-            if (!o.active() || (a.type & 0xF0) != 0x10) continue;
+            if (!o.active() && frame.launches && (o.record == 9 || o.record == 11 || o.record == 13)) launch(o, frame);
+            if (!o.active()) continue;
+            if ((a.type & 0xF0) == 0) {
+                if (step_missile(o, frame)) lock_lost = true;
+                continue;
+            }
+            if ((a.type & 0xF0) != 0x10) continue;
             step_.before_flight(o, records, world);
             // $11A380: one record a frame by the counter looks whether it
             // has left the area that spawned it.
@@ -391,6 +554,7 @@ void ObjectWorld::set(const Counters& c, std::vector<WorldObject> objects, std::
     areas_.set_inside(c.inside);
     list_start_ = c.list_start;
     objects_ = std::move(objects);
+    add_missile_slots();
 }
 
 } // namespace interceptor::game

@@ -1520,6 +1520,79 @@ first when the aircraft comes toward the camera, else newest first, the
 last one an eighth smaller. Checked: `trailcheck` on demo_trail (the
 demo's bogey hit by the player's missiles).
 
+### The enemies' missiles and the threat warnings (2026-10-30)
+
+**The missile records**: in the object step (`$116C4E` ...) each enemy
+aircraft of records 8, 10 and 12 has the record after it (9, 11, 13) for
+its missile (record 4's, 5, is the practice's; record 7 is never
+stepped). A free one is offered a launch before its own step:
+- `$1170A2`, the decision: the aircraft in control (state & $8700 clear),
+  not spinning, active; its target, when a record (+$38 bit 7), active,
+  not spinning and without state bit 0; its pilot byte in the attack
+  (+$64 & $60 = $60) and its state bit 0 set (it follows a record);
+  a missile ready (+$63 high nibble $20 Sidewinder or $30 AMRAAM, chosen
+  by `$118468` from the distance to its target: within $300 the gun -
+  never fired by the enemies - within $C00 a Sidewinder, within $1800 an
+  AMRAAM, else none). `$13AAAC` would force it; nothing sets it.
+- `$11767E`, the pace: `$13AA79` (1 in every recording, no writer found:
+  taken as set) and the frame counter's low bits clear - every 8th frame,
+  every 6th from level 2 (mask 5), every 4th from level 3; with the ECM on
+  (`$13ABA5`, key J) the mask is halved (more often).
+- `$1176B8`, the stores (+$5F: $44 at the spawn, `$11D58C`; Sidewinders
+  high nibble, AMRAAMs low): none left, no launch.
+- `$1176D8`, the launch: the player's own - the aircraft's record copied,
+  type 0 / 1, the station by the count left, life 150 / 200, +$26 $14,
+  state |= $11C2 - with the shooter's target (+$38) and no place yet
+  (+$2C -1), no pilot byte. The new record is stepped in the same frame.
+
+An enemy takes the player as its target when the player comes within a
+box (`$117F7E`: $180000 / $240000 / $300000 by the level; port
+`ObjectStep::follow`).
+
+**Their flight** (`$117E4A`): the player's missiles' step; a missile with
+state bit 3 (the player's, touchable) homes on the radar's lock, any
+other on `$1182F2`: state bit 0 set, the place of its target record
+(+$38 & $7F); on the player the latest flare (`$13AB7C`, Sidewinders) or
+chaff (`$13AB7D`, AMRAAMs) instead - a projectile slot in 64-byte units
+plus 1, set when it is fired (`$107438`), cleared when it ends
+(`$1077A0`) and at a new start (`$10F1BA`) - whose nearness (within
+$4800 on each axis) sets +2 bit 0 and whose loss +$20 bit 5. Their
+touches as the other records' (a hit takes the missile off, `$11AA70`;
+a missile reaching the ground blows up there, with smoke on land); the
+player hits them in its own touch (before the records' step): the
+player's damage ("TURBINE FAILURE" ...) and the missile crashed, blowing
+up at the frame's end. Nothing touches while an outcome is awaited
+(`$11A364` skips the record step, the player's too).
+
+**The threats** (`$126114` in the radar's panel pass, `$13AB5D`, copied
+to `$13AB5E` at the pass's end `$12631E`): for each contact within
+$10000 on both axes, not spinning, crashed or blowing up, not on the
+ground, not a ship or a pod: an enemy missile (class 0, not touchable)
+on the viewed record (`$13ABCC`) sets bit 4 (Sidewinder) or 5 (AMRAAM);
+a touchable aircraft bit 1, the cruise missile bit 3, any other aircraft
+bit 2. New bits ask for warning beeps (`$13AE44`: 1 for a missile, 2 for
+the cruise missile or an enemy - and `$13AB77` $18 - $800 for a friendly
+but in mission 5). The message picker (`$103D4C`) shows them: $8010 /
+$8012 (missiles) before the fuel and stall warnings, $8024 (cruise
+missile) and $800E (enemy) after them, $400D (friendly) last. The
+panel's lamps (`$125D26`, every frame with the panel): two two-pixel dots
+each in colour 3, lit by the threats - an enemy at (293, 156) colour 1, a
+friendly at (298, 156) colour 4, a Sidewinder at (298, 159) and an
+AMRAAM at (293, 159) colour 2 - and the stall (+$20 bit 2) at (303, 159)
+colour 1 on frames with bit 1.
+
+Checked: em4a (an enemy's AMRAAM in flight to Air Force One: 43 of 43
+frames), em4b (record 8 near the player takes it as its target, launches
+a Sidewinder at frame 321 - stores $44 → $34 - which hits the player at
+345: 419 of 419 frames, `missioncheck` with the missile records and the
+player's touch); the threats against the demo (`democheck`, bit 2).
+em4c (flares every 18 frames: of three Sidewinders the first two follow
+the flares and end in the ground, the third, after the last flare,
+hits the player: 599 of 599 frames). A missile diving below -$200 is
+marked on the ground by its flight step (+2 bit 7) with its height and
+climb kept; its ground test then blows it up (state bit 15, the spin
+bit, `$11A996` / `$11A9DE`).
+
 ### Qualification (menu item 5, 2026-10-29)
 
 Mode 9 (`$102252`): the carrier's catapult (free flight's object list,
@@ -2384,7 +2457,8 @@ Research files live in `.analysis/fa_18_interceptor_amiga/` (`harness/`,
   `objectcheck` (missions' records stepped from each recorded frame),
   `areacheck` (the trigger areas: area1-3 equal in every frame),
   `missioncheck` (a mission's world in lockstep: m4a-m8c, "The missions'
-  flow"),
+  flow"; with the missile records 9, 11, 13 recorded, the enemies'
+  launches and missiles, the decoys and the player's touch: em4a-em4c),
   `hudcheck` (the head-up display for given readings against a
   `screen.py` colour dump: `wp/gun.idx` F/A-18, `f16b.idx` F-16, no pixel
   differs), `fly` (headless module run from the title,
@@ -2393,7 +2467,8 @@ Research files live in `.analysis/fa_18_interceptor_amiga/` (`harness/`,
   the keypad's 0 4 6 8 2).
 - `harness/proc.py`: the running original's screen procedure, frame
   countdown and text queue (the front end's traces).
-- Captures in `work/ref/`: `sm1`-`sm5` (missiles into the ground: smoke,
+- Captures in `work/ref/`: `em4a`-`em4c` (mission 4: the enemies'
+  missiles, records 4-14 with `--objs`), `sm1`-`sm5` (missiles into the ground: smoke,
   pictures in `sm3`-`sm5/`), `demo_trail` (the demo with the trail's
   ring), `demo_start` (the demo from the menu's 1 with the bogey), `m4a`-`m8c` (missions 4-8), `fc*.jsonl`, `sd2`, `cr5`, `td1-3`, `wpm`, `wpg`, `wpa`, flash
   timing `flash_cr4.txt`, message bitplanes `msg7.idx`/`msg8.idx`,

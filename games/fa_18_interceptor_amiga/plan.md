@@ -21,7 +21,12 @@ VHS, sound. Checked against the original: `flightcheck`, `soundcheck`,
 Owner's design notes: widescreen and smooth motion stay (own renderer from
 game state, rules at 15 Hz); a planned option, off by default, always
 draws the nearest detail level (the renderer keeps the level choice apart
-from drawing, and must still respect the passes' model rule).
+from drawing, and must still respect the passes' model rule). Later
+(owner, 2026-10-30): analog joystick input as an option - the stick's
+deflection sets the inputs the original ramps (`ramp_inputs`: pitch and
+rudder ±20, roll ±60, looked up in the response tables) and a throttle
+axis the throttle target; the digital path stays the default (faithful
+play, the demo, the checks); the app's input has no analog axes yet.
 
 ## Remaining tasks towards a full game
 
@@ -38,15 +43,15 @@ from drawing, and must still respect the passes' model rule).
    latitude and longitude, the fuel bar, the compass strip, the gear
    symbol, the radar's scan and own mark, the panel's own colours. Left:
    the GEAR box's lighting while the gear-speed warning blinks, the
-   alert lights' colours (`$125D26`, from the alerts of task 7), the
    radar contacts and the weapons' marks (tasks 7-8). Done since: the
+   threat lamps (`$125D26`, 2026-10-30), the
    zoom (Ctrl with = / -, the original's `[` / `]`, `$13AD32` $80 / $40
    / $20 with its readout).
 4. **Warnings and messages** — partly done 2026-10-29: fuel low,
    critical and exhausted in the message line, the 7.8 G beep and the
-   blackout counter (engine at half volume). Left: the radar and missile
-   alerts and collision proximity (they need the other objects, task 7),
-   the blackout's picture
+   blackout counter (engine at half volume); the radar's threats, the
+   missile alerts and their beeps (2026-10-30). Left: collision
+   proximity, the blackout's picture
    (see game.md "Warnings").
 5. **Collisions** — done as far as the original has them: it has no
    collisions with scenery (game.md "Warnings"); ground and water
@@ -111,8 +116,10 @@ from drawing, and must still respect the passes' model rule).
     point, attack choice: game/object_step.*), the autopilot's mission
     roles and the attitude step's rules for others, checked with
     `objectcheck` (m3a, demo_objs); the radar (list, pass, contacts,
-    T lock, mission 3's confirmation, the player's distance). Left: the
-    threat lamps; weapons against objects (built: missiles homing and
+    T lock, mission 3's confirmation, the player's distance); the
+    enemies' missiles - launch, flight, decoys, hits on the player - and
+    the threat warnings and lamps (2026-10-30, game.md "The enemies'
+    missiles"). Left: weapons against objects (built: missiles homing and
     hitting, the explosion, fall and end, the lock dropped, the rounds'
     hit test with the drawer's detail levels, checked against three
     recordings; left: the drawer's list as such and the ships' hull test), the objects' touches and crashes, the trigger areas
@@ -162,6 +169,12 @@ from drawing, and must still respect the passes' model rule).
   smoke's), dots, lights, deck stripes ($80/$50) and shadows; the vertex
   builders' rounding; the facing tree's drawing order and distance bands
   in the renderer.
+- The enemies' missiles: `$13AA79` (always 1, no writer found) and
+  `$13AAAC` (never set) taken as constants; the threats' beeps and the
+  message order checked only for an enemy (`democheck`, bit 2) and a
+  Sidewinder on the player (em4b's recorded `$13AB5E`, not stepped by a
+  check); `$13AB77`'s reader not traced; AMRAAMs on the player, chaff
+  and the ECM's faster pace not recorded.
 - Explosions and smoke (game.md "Explosions, smoke and trails"): the
   explosion noise's delay is counted from the frame after the drawing
   (where `$104DD4` runs in the frame is not traced) and its distance is

@@ -352,6 +352,28 @@ void Cockpit::draw(IndexedImage& image, int left, const CockpitReadings& r) cons
         image.put(left + c.x, c.y, std::uint8_t(c.colour));
         if (c.wide) image.put(left + c.x - 1, c.y, std::uint8_t(c.colour));
     }
+    // The threat lamps ($125D26), each two dots two pixels wide and two
+    // rows high ($12424E: the pixel and the one left of it, at a word's
+    // first column the one right of it) in colour 3 or lit: an enemy near (colour 1), a friendly (4),
+    // a Sidewinder on us (2), an AMRAAM (2), the stall (1, blinking).
+    {
+        const auto dot = [&](int x, int y, int colour) {
+            const int from = (x & 15) == 0 ? x : x - 1;
+            for (int row = y; row <= y + 1; ++row) { // (two rows: the original's screen)
+                image.put(left + from, row, std::uint8_t(colour));
+                image.put(left + from + 1, row, std::uint8_t(colour));
+            }
+        };
+        const auto lamp = [&](int x, int y, bool lit, int colour) {
+            dot(x, y, lit ? colour : 3);
+            dot(x + 2, y, lit ? colour : 3);
+        };
+        lamp(0x125, 0x9C, r.threats & 0x04, 1);
+        lamp(0x12A, 0x9C, r.threats & 0x02, 4);
+        lamp(0x12A, 0x9F, r.threats & 0x10, 2);
+        lamp(0x125, 0x9F, r.threats & 0x20, 2);
+        lamp(0x12F, 0x9F, r.stall_lamp, 1);
+    }
     // The compass strip ($125B74): the chip data's "W N E S" strip
     // (`$132D9C`: 7 rows of 96 pixels, a letter every 12, 7.5 degrees a
     // pixel) seen through the window at 192-225, the red index at 208.

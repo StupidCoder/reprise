@@ -30,6 +30,8 @@ void Weapons::reset() {
     burst_hold_ = 0;
     flare_time_ = chaff_time_ = 0;
     shots_ = {};
+    flare_slot_.reset(); // ($10F1BA)
+    chaff_slot_.reset();
     missiles_ = {};
 }
 
@@ -108,17 +110,22 @@ void Weapons::move_missiles(const Aircraft& player, const FlightRules& rules, So
 }
 
 Missile Weapons::launched(const Aircraft& player, Weapon weapon, int left) const {
+    return launch(program_, player, weapon, left);
+}
+
+Missile Weapons::launch(const amiga::LoadedImage& program, const Aircraft& shooter, Weapon weapon, int left) {
     Missile m;
-    m.body = player;
+    m.body = shooter;
     auto& b = m.body;
     b.role = 0;
     // The station: the count left after this one, Sidewinders at 0-1 and
-    // AMRAAMs at 2-5 of the aircraft's table ($117956; the F-16's $117932).
+    // AMRAAMs at 2-5 of the aircraft's table ($117956; type $10's, the
+    // F-16, $117932).
     m.type = weapon == Weapon::amraam ? 1 : 0;
     const int station = weapon == Weapon::amraam ? left + 2 : left;
     b.type = std::uint8_t(m.type);
-    const std::uint32_t table = (player.type == 0x10 ? 0x117932 : 0x117956) + std::uint32_t(6 * station);
-    const auto offset = to_world(player.view, program_.s16(table), program_.s16(table + 2), program_.s16(table + 4));
+    const std::uint32_t table = (shooter.type == 0x10 ? 0x117932 : 0x117956) + std::uint32_t(6 * station);
+    const auto offset = to_world(shooter.view, program.s16(table), program.s16(table + 2), program.s16(table + 4));
     b.x += offset[0] >> 6;
     b.y += offset[1] >> 6;
     b.z += offset[2] >> 6;
@@ -138,7 +145,7 @@ Missile Weapons::launched(const Aircraft& player, Weapon weapon, int left) const
 }
 
 bool Weapons::fly_missile(Missile& m, const FlightRules& rules, const FlightTables& tables, const Aircraft* locked,
-                          int locked_record, const Autopilot* autopilot) {
+                          int locked_record, const Autopilot* autopilot, const Homing* homing) {
     // $117E4A: the missile's own step. Until its last 50 frames its speed
     // rises by $1E0 to $4200 and it heads for the radar's locked record
     // (`$117F06`; with none it glides toward height 0, a further $240 toward
@@ -153,7 +160,20 @@ bool Weapons::fly_missile(Missile& m, const FlightRules& rules, const FlightTabl
     if (!m.fading && m.life >= 50) {
         b.speed = i16(std::min(b.speed + 0x1E0, 0x4200));
         b.state &= ~0x0001;
-        if (locked && locked_record > 0) {
+        if (!(b.state & 0x0008)) {
+            // $1182F2: another's missile.
+            b.state |= 0x0001;
+            if (homing) {
+                m.course.target = homing->place;
+                if (homing->decoy) {
+                    const auto& d = *homing->decoy;
+                    if (std::abs(d[0] - b.x) <= 0x4800 && std::abs(d[1] - b.y) <= 0x4800 && std::abs(d[2] - b.z) <= 0x4800)
+                        b.motion |= 0x0001;
+                    else if (b.motion & 0x0001)
+                        b.handling |= 0x20;
+                }
+            }
+        } else if (locked && locked_record > 0) {
             m.course.target = {i16(locked->x >> 22), i16(locked->z >> 22), i16((locked->x & 0x3FFFFF) >> 8),
                                i16((locked->z & 0x3FFFFF) >> 8), locked->y >> 8};
             m.course.target_record = std::uint8_t(locked_record | 0x80);
@@ -222,7 +242,10 @@ bool Weapons::hit_ground(Missile& m, const std::array<std::int32_t, 3>& from, co
     const bool water = world && world->over_water(b.x / 256.0, b.z / 256.0);
     b.surface = std::uint8_t((b.surface & ~2) | (water ? 2 : 0));
     smoke = !water;
+    // $11A996 / $11A9DE: out of control (+0 bit 15), spinning (+$20 bit 1);
     // $11AA4A: 15 frames of explosion (`+$4C`), no more moves.
+    b.state |= 0x8000;
+    b.handling |= 0x02;
     m.fading = m.stopped = true;
     m.life = 15;
     return true;
@@ -233,7 +256,8 @@ void Weapons::move_shots(const Aircraft& player, bool outside, std::uint16_t fra
     burst_hold_ = std::int8_t(burst_hold_ - 1);
     bool spawned = false; // (one a frame)
     int busy = 0;
-    for (auto& slot : shots_) {
+    for (std::size_t k = 0; k < shots_.size(); ++k) {
+        auto& slot = shots_[k];
         if (slot) --slot->life;
         if ((firing_ || decoy_asked_) && !slot) {
             if (spawned || burst_left_ == 0 || stores_.rounds < 1) {
@@ -254,11 +278,16 @@ void Weapons::move_shots(const Aircraft& player, bool outside, std::uint16_t fra
                     decoy_asked_ = 0;
                 }
                 slot = fired(kind, player, frame);
+                // ($107438: the latest decoy of each kind, `$13AB7C` / `$13AB7D`.)
+                if (kind == Shot::Kind::flare) flare_slot_ = k;
+                else if (kind == Shot::Kind::chaff) chaff_slot_ = k;
             }
         }
         if (!slot) continue;
         if (slot->life < 1) {
             slot.reset();
+            if (flare_slot_ == k) flare_slot_.reset(); // ($1077A0)
+            if (chaff_slot_ == k) chaff_slot_.reset();
         } else if (!slot->hit && hits && hits(*slot)) {
             // ($1075A6: it sparks there for two frames.)
             slot->hit = true;

@@ -399,6 +399,8 @@ interceptor::game::WorldObject world_object_from(int record, const std::vector<s
     w.course.behaviour = o.u8(0x7A);
     w.pilot = o.u8(0x64);
     w.weapons = o.u8(0x63);
+    w.stores = o.u8(0x5F);
+    w.damage = o.u8(0x3C);
     return w;
 }
 
@@ -1287,12 +1289,14 @@ int demo_check(const std::filesystem::path& content, const std::filesystem::path
             const int want_lock = lock < 0 ? -1 : lock / 0x200;
             const auto want_confirm = g.s8(0x13AB5F - 0x13A9E0);
             const auto want_distance = Record{frames[k].object}.s16(0x4A);
-            if (radar.locked() == want_lock && radar.confirmation() == want_confirm && player_distance == want_distance) {
+            const auto want_threats = g.u8(0x13AB5E - 0x13A9E0);
+            if (radar.locked() == want_lock && radar.confirmation() == want_confirm && player_distance == want_distance &&
+                radar.threats() == want_threats) {
                 ++radar_matched;
             } else if (int(k - first) - radar_matched < 10) {
-                std::printf("frame %d radar: lock %d/%d confirm %d/%d distance %d/%d redraw %d/%d\n", frames[k].number,
-                            radar.locked(), want_lock, radar.confirmation(), want_confirm, player_distance, want_distance,
-                            radar.redraw(), g.s8(0x13AB27 - 0x13A9E0));
+                std::printf("frame %d radar: lock %d/%d confirm %d/%d distance %d/%d redraw %d/%d threats %d/%d\n",
+                            frames[k].number, radar.locked(), want_lock, radar.confirmation(), want_confirm, player_distance,
+                            want_distance, radar.redraw(), g.s8(0x13AB27 - 0x13A9E0), radar.threats(), want_threats);
             }
             const auto w = world_object_from(10, bogey[k], frames[k].globals);
             const auto& o = objects.front();
@@ -1708,6 +1712,7 @@ int mission_check(const std::filesystem::path& content, const std::filesystem::p
         std::map<int, std::vector<std::uint8_t>> recs;
         std::uint32_t list{};
         std::vector<std::uint8_t> moved; // (the player before a follow poke)
+        std::vector<std::uint8_t> shots; // (`--objs`: the projectile slots, for the decoys)
     };
     std::vector<Line> lines;
     std::ifstream in(capture);
@@ -1719,6 +1724,7 @@ int mission_check(const std::filesystem::path& content, const std::filesystem::p
         l.player = hex_field(text, "obj");
         l.list = list_start_of(text, Record{l.globals});
         if (text.find("\"moved\": \"") != std::string::npos) l.moved = hex_field(text, "moved");
+        if (text.find("\"shots\": \"") != std::string::npos) l.shots = hex_field(text, "shots");
         for (int r = 1; r < 16; ++r) {
             if (text.find("\"" + std::to_string(r) + "\": \"") != std::string::npos) l.recs[r] = hex_field(text, std::to_string(r));
         }
@@ -1787,6 +1793,36 @@ int mission_check(const std::filesystem::path& content, const std::filesystem::p
         f.counter = now.number;
         f.world = &world_map;
         f.bodies = {{&player, 0, true}};
+        f.ecm = g.u8(G(0x13ABA5)) != 0;
+        // The decoys (`$13AB7C` flare, `$13AB7D` chaff: a projectile slot,
+        // 64-byte units, plus 1) as the frame starts.
+        const auto decoy = [&](std::uint32_t at) -> std::optional<std::array<std::int32_t, 3>> {
+            const int n = g.u8(G(at));
+            if (n == 0 || now.shots.size() < std::size_t(n) * 64) return std::nullopt;
+            const Record s{std::vector<std::uint8_t>(now.shots.begin() + (n - 1) * 64, now.shots.begin() + n * 64)};
+            return std::array<std::int32_t, 3>{s.s16(0x30) * 0x400000 + s.s32(0), s.s32(4), s.s16(0x32) * 0x400000 + s.s32(8)};
+        };
+        f.flare = decoy(0x13AB7C);
+        f.chaff = decoy(0x13AB7D);
+        // (A recording without the missile records cannot tell a free one
+        // from one in flight: no launches then.)
+        f.launches = now.recs.count(9) && now.recs.count(11) && now.recs.count(13);
+        {
+            // The player's touch, in its step before the records' (the
+            // module's `player_touches`): what it hits crashes.
+            // (From where its step started: the logged place, after any
+            // follow poke.)
+            const auto from = aircraft_from(Frame{0, now.player, now.globals});
+            std::vector<game::Body> list{{&player, 0, true}};
+            for (auto& o : world.objects()) list.push_back({&o.craft, o.group, o.active()});
+            bool near = false;
+            // (Not while an outcome is awaited: `$11A364` skips the record
+            // step, the player's too; and only while the logged record is
+            // the player's, `$13ABCE` 0 - the camera's turn points it at
+            // record 4.)
+            if (!g.u8(G(0x13AA9E)) && g.u16(G(0x13ABCE)) == 0 && gn.u16(G(0x13ABCE)) == 0)
+                game::touch_bodies(list, 0, {from.x, from.y, from.z}, near);
+        }
         world.step(f);
         std::string diff;
         if (g.u8(G(0x13AA88)) == 0 && mode >= 3 && mode <= 8) {
@@ -1843,9 +1879,31 @@ int mission_check(const std::filesystem::path& content, const std::filesystem::p
                 diff += " rec " + std::to_string(n) + " active " + std::to_string(got->active()) + "/" + std::to_string(want.active());
                 continue;
             }
-            if (!want.active() || (want.craft.type & 0xF0) != 0x10) continue;
+            if (!want.active()) continue;
+            if ((want.craft.type & 0xF0) == 0) { // a missile record (an enemy's)
+                ++record_frames[n];
+                const auto& a = got->craft;
+                const auto& w = want.craft;
+                std::string d;
+                const auto mcheck = [&](const char* name, long got_v, long expected) {
+                    if (got_v != expected) d += std::string(" ") + name + " " + std::to_string(got_v) + "/" + std::to_string(expected);
+                };
+                mcheck("x", a.x, w.x); mcheck("y", a.y, w.y); mcheck("z", a.z, w.z);
+                mcheck("vx", a.vx, w.vx); mcheck("vy", a.vy, w.vy); mcheck("vz", a.vz, w.vz);
+                mcheck("speed", a.speed, w.speed); mcheck("life", a.timer, w.timer);
+                mcheck("pitch", a.attitude.pitch, w.attitude.pitch); mcheck("heading", a.attitude.heading, w.attitude.heading);
+                mcheck("state", a.state & ~0x6010, w.state & ~0x6010); mcheck("type", a.type, w.type);
+                mcheck("tx", got->course.target.cell_x, want.course.target.cell_x);
+                mcheck("tfx", got->course.target.fine_x, want.course.target.fine_x);
+                mcheck("ty", got->course.target.height, want.course.target.height);
+                mcheck("t38", got->course.target_record, want.course.target_record);
+                if (!d.empty()) diff += " missile " + std::to_string(n) + ":" + d;
+                continue;
+            }
+            if ((want.craft.type & 0xF0) != 0x10) continue;
             ++record_frames[n];
             auto d = record_diff(*got, want);
+            if (got->stores != want.stores) d += " s5f " + std::to_string(got->stores) + "/" + std::to_string(want.stores);
             // (State bit 4: the drawer's mark, cleared as its map scan lists
             // the record, `$110496`.)
             if ((got->craft.state & ~0x6010) != (want.craft.state & ~0x6010))
