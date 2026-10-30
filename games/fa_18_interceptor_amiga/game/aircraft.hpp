@@ -86,6 +86,7 @@ struct FlightRules {
     bool bank_turns{true};    // $13AA7F
     bool flying{true};        // $13ABBC bit 6: the flight runs
     std::int32_t ceiling{0x800000}; // $13A9EA
+    bool holding{};           // `$13AA9E`: an outcome awaited - no climb or sink ($106D30)
     // The ground under the wheels: water and runways ($11F83A). Without a
     // world the surface flags stay as they are.
     const data::World* world{};

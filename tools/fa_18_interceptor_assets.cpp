@@ -1493,13 +1493,21 @@ int mission_check(const std::filesystem::path& content, const std::filesystem::p
         c.list_start = 0;
         return c;
     };
-    int matched = 0, compared = 0, outcomes = 0;
+    int matched = 0, compared = 0, outcomes = 0, turns = 0;
     std::map<int, int> record_frames;
     for (std::size_t k = 0; k + 1 < lines.size(); ++k) {
         const auto& now = lines[k];
         const auto& next = lines[k + 1];
         const Record g{now.globals}, gn{next.globals};
-        if (next.number != now.number + 1 || !(g.u8(G(0x13ABBD)) & 0x40) || !(gn.u8(G(0x13ABBD)) & 0x40)) continue;
+        // (The frame counter stands in a frame that ends with an outcome
+        // awaited, `$1014A6`: such a frame keeps its number. Once the flight
+        // stops, its last line repeats.)
+        const int advance = gn.u8(G(0x13AA9E)) ? 0 : 1;
+        if (next.number != now.number + advance || !(g.u8(G(0x13ABBD)) & 0x40) || !(gn.u8(G(0x13ABBD)) & 0x40)) continue;
+        if (advance == 0 && now.globals == next.globals && now.player == next.player) continue;
+        // (After an outcome the texts begin: `$1031C8` stops the objects
+        // and the flight; the check ends there.)
+        if (g.u8(G(0x13AA88)) && !g.u8(G(0x13AA9E)) && gn.u8(G(0x13AA9E))) break;
         // Mission 6's rescue pod: the missile record `$13ABB2` points at
         // (record its own here).
         const int pod_record = g.u16(G(0x13ABB2)) / 0x200;
@@ -1539,11 +1547,28 @@ int mission_check(const std::filesystem::path& content, const std::filesystem::p
         world.step(f);
         std::string diff;
         if (g.u8(G(0x13AA88)) == 0 && mode >= 3 && mode <= 8) {
-            const int result = world.objective(mode, player, level, gn.s8(G(0x13AB5F)));
+            const auto outcome = world.objective(mode, player, level, gn.s8(G(0x13AB5F)));
+            const int result = outcome.result;
             const int got = result == 1 ? 0xFF : result == -2 ? 0xFE : result == -3 ? 0xFD : 0;
             const int want = gn.u8(G(0x13AA88));
             if (want) ++outcomes;
             if (got != want) diff += " aa88 " + std::to_string(got) + "/" + std::to_string(want);
+            // The camera's turn (`$13AAAE` bit 7 set, position 7, the
+            // outside view's distance `$13AB23`) and the view following
+            // record 4 (`$13ABCC`, the texts' extra frames `$13ABB0`).
+            // (The view is kept even when record 4 is gone; the turn is
+            // made only while it is in use.)
+            const bool in_use = next.recs.count(4) && (Record{next.recs.at(4)}.u8(1) & 0x40);
+            const bool turned = (gn.u8(G(0x13AAAE)) & 0x80) && !(g.u8(G(0x13AAAE)) & 0x80) && in_use &&
+                                gn.u8(G(0x13ABA2)) == 7;
+            if (outcome.turn != turned) diff += std::string(" turn ") + (outcome.turn ? "1/0" : "0/1");
+            if (outcome.turn && turned && (gn.u16(G(0x13ABB6)) & 2) && gn.s8(G(0x13AB23)) != outcome.turn_distance)
+                diff += " ab23 " + std::to_string(outcome.turn_distance) + "/" + std::to_string(gn.s8(G(0x13AB23)));
+            if (outcome.turn) ++turns;
+            const bool viewed = gn.s16(G(0x13ABCC)) == 4 && g.s16(G(0x13ABCC)) != 4;
+            if (outcome.view != viewed) diff += std::string(" view ") + (outcome.view ? "1/0" : "0/1");
+            if (outcome.view && viewed && gn.s16(G(0x13ABB0)) != outcome.extra)
+                diff += " abb0 " + std::to_string(outcome.extra) + "/" + std::to_string(gn.s16(G(0x13ABB0)));
         }
         const auto c = world.counters(), w = counters_of(gn);
         const auto check = [&](const char* name, long got, long expected) {
@@ -1590,7 +1615,7 @@ int mission_check(const std::filesystem::path& content, const std::filesystem::p
     }
     std::printf("records stepped:");
     for (const auto& [n, frames] : record_frames) std::printf(" %d (%d)", n, frames);
-    std::printf("\n%d outcome frames; %d of %d frames match\n", outcomes, matched, compared);
+    std::printf("\n%d outcome frames, %d camera turns; %d of %d frames match\n", outcomes, turns, matched, compared);
     return matched == compared ? 0 : 1;
 }
 

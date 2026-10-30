@@ -33,6 +33,7 @@ public:
     std::vector<WorldObject>& objects() { return objects_; }
     const std::vector<WorldObject>& objects() const { return objects_; }
     WorldObject* record(int number);
+    const WorldObject* record(int number) const;
     bool active(int number) const;
     const std::optional<WorldObject>& pod() const { return pod_; }
 
@@ -68,10 +69,20 @@ public:
     // $117C82: its fall and drift.
     void pod_step();
 
-    // $1185BE ... the objective of mission 3-8 in a frame (`$13AA88` 0):
-    // 1 achieved, -2 failed, -3 Air Force One destroyed by the player,
-    // 0 not yet. `confirmation` is the radar's `$13AB5F` (mission 3).
-    int objective(int mission, const Aircraft& player, int level, int confirmation);
+    // $1185BE ... the objective of mission 3-8 in a frame (`$13AA88` 0).
+    // Missions 4 and 7 turn the view to record 4 on the way: the frame
+    // before the outcome (`$13AA9E` at 1) the camera goes outside to it,
+    // and with the outcome the view follows it (`$10EC3C`), the texts
+    // coming `extra` frames later (`$13ABB0`).
+    struct Outcome {
+        int result{};          // 1 achieved, -2 failed, -3 Air Force One destroyed by the player, 0 not yet
+        bool turn{};           // the camera turns outside to record 4 ...
+        int turn_distance{};   // ... at this distance (`$13AB23`: -1 Air Force One, 3 the missile)
+        bool view{};           // the view follows record 4 from now on
+        int extra{};           // frames more before the texts
+    };
+    // `confirmation` is the radar's `$13AB5F` (mission 3).
+    Outcome objective(int mission, const Aircraft& player, int level, int confirmation);
 
     // An outcome being awaited (`$13AA9E`): the records stand.
     bool waiting() const { return outcome_wait_ != 0; }

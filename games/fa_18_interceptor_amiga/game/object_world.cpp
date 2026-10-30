@@ -25,6 +25,13 @@ WorldObject* ObjectWorld::record(int number) {
     return nullptr;
 }
 
+const WorldObject* ObjectWorld::record(int number) const {
+    for (const auto& o : objects_) {
+        if (o.record == number) return &o;
+    }
+    return nullptr;
+}
+
 bool ObjectWorld::active(int number) const {
     for (const auto& o : objects_) {
         if (o.record == number) return o.active();
@@ -229,21 +236,31 @@ bool ObjectWorld::outcome_wait(int frames) {
 
 // $118650 (3), $11867C (4), $1187BA (5), $118914 (6), $118998 (7),
 // $118B1C (8 and others).
-int ObjectWorld::objective(int mission, const Aircraft& player, int level, int confirmation) {
+ObjectWorld::Outcome ObjectWorld::objective(int mission, const Aircraft& player, int level, int confirmation) {
+    Outcome out;
     switch (mission) {
     case 3:
-        return confirmation < 0 ? 1 : 0;
+        out.result = confirmation < 0 ? 1 : 0;
+        return out;
     case 4: {
         // Air Force One (record 4): landed slowly with both bandits
         // (records 8, 10) gone - or destroyed.
         const auto* one = record(4);
-        if (!one || (one->craft.x >> 8) == 0) return 0; // (cell and fine x 0: not spawned yet)
+        if (!one || (one->craft.x >> 8) == 0) return out; // (cell and fine x 0: not spawned yet)
         if (one->active() && (!(one->craft.motion & flag::on_ground) || one->craft.speed > 0x320 || active(8) ||
                               active(10)))
-            return 0;
-        if (outcome_wait(5)) return 0; // (the camera's turn to it: not built)
-        if (one->active()) return 1;
-        return (one->craft.handling & 0x80) ? -3 : -2;
+            return out;
+        if (outcome_wait(5)) {
+            out.turn = outcome_wait_ == 1 && one->active();
+            out.turn_distance = -1;
+            return out;
+        }
+        if (one->active()) {
+            out = {1, false, 0, true, 4};
+        } else {
+            out.result = (one->craft.handling & 0x80) ? -3 : -2;
+        }
+        return out;
     }
     case 5: {
         // The stolen F-16s (records 4, 6, touchable while stolen): east of
@@ -258,7 +275,10 @@ int ObjectWorld::objective(int mission, const Aircraft& player, int level, int c
             if (!(a->craft.state & 0x0008)) {
                 check_done = false;
             } else {
-                if ((a->craft.x >> 22) >= 0x70) return -2;
+                if ((a->craft.x >> 22) >= 0x70) {
+                    out.result = -2;
+                    return out;
+                }
                 const std::int32_t box = level >= 3 ? 0x18000 : level >= 2 ? 0x24000 : 0x30000;
                 const bool beside = std::abs(player.x - a->craft.x) <= box && std::abs(player.y - a->craft.y) <= box &&
                                     std::abs(player.z - a->craft.z) <= box;
@@ -276,34 +296,43 @@ int ObjectWorld::objective(int mission, const Aircraft& player, int level, int c
                 check_done = false;
             }
         }
-        if (!check_done && escort_ >= 0) return 0;
-        if (aircraft_limit_ > destroyed_) return 0;
-        if (outcome_wait(2)) return 0;
-        return 1;
+        if (!check_done && escort_ >= 0) return out;
+        if (aircraft_limit_ > destroyed_) return out;
+        if (outcome_wait(2)) return out;
+        out.result = 1;
+        return out;
     }
     case 6: {
         // The rescue pod, landed and still: within $10000 of the downed
         // pilot (record 11) or too far.
-        if (!pod_ || !(pod_->craft.state & 0x8000) || pod_->craft.timer > 0) return 0;
+        if (!pod_ || !(pod_->craft.state & 0x8000) || pod_->craft.timer > 0) return out;
         const auto* pilot = record(11);
         const bool near = pilot && std::abs(pilot->craft.x - pod_->craft.x) <= 0x10000 &&
                           std::abs(pilot->craft.z - pod_->craft.z) <= 0x10000;
-        return near ? 1 : -2;
+        out.result = near ? 1 : -2;
+        return out;
     }
     case 7: {
         // The cruise missile (record 4): its path ended (autopilot let go)
         // or gone - shot down (spinning) or exploded.
         const auto* missile = record(4);
-        if (!missile || (missile->craft.x >> 8) == 0) return 0;
-        if (missile->active() && (missile->craft.state & 0x0080)) return 0;
-        if (outcome_wait(2)) return 0;
-        return (missile->craft.handling & 0x02) ? 1 : -2;
+        if (!missile || (missile->craft.x >> 8) == 0) return out;
+        if (missile->active() && (missile->craft.state & 0x0080)) return out;
+        if (outcome_wait(2)) {
+            out.turn = outcome_wait_ == 1 && missile->active();
+            out.turn_distance = 3;
+            return out;
+        }
+        if (missile->craft.handling & 0x02) out.result = 1;
+        else out = {-2, false, 0, true, 7};
+        return out;
     }
     default:
         // $118B1C: the list's aircraft all destroyed.
-        if (aircraft_limit_ > destroyed_) return 0;
-        if (outcome_wait(2)) return 0;
-        return 1;
+        if (aircraft_limit_ > destroyed_) return out;
+        if (outcome_wait(2)) return out;
+        out.result = 1;
+        return out;
     }
 }
 

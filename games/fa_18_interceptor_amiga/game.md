@@ -1651,12 +1651,47 @@ aircraft question for mission 3's runway start (`$102C36`, block 75) is
 not built (the port flies the F/A-18).
 
 **Outcome** (`$1185BE` per frame of a mission, by mode). Success sets
-`$13AA88` $FF, `$13AB1A` 3, and after 4 frames (`$13AB1C`) `$1031C8` /
-`$1031F4` types the success text (index 4) and block 85 ("RETURN TO
-BASE", mission 3) or 86 ("RETURN TO CARRIER") while the objects stand
-(`$13AA9E`); the flight then goes on (`$102EFE`, `$13AA88` 1). Several
-objectives first count `$13AA9E` down (5 or 2 frames), the objects
-standing meanwhile.
+`$13AA88` $FF, `$13AB1A` 3, `$13AB1C` 4 and `$13ABB0` (`$118B5E`: 4 for
+Air Force One's success, 7 for the cruise missile's failure, else 0 —
+mission 8's path leaves a stale register there, negative in the
+recordings); the flight goes on until `$13AB1C` runs out (`$101922`),
+then `$13ABB0` frames more (`$1031C8`), then `$13AA9E` stops the objects
+and `$1031F4` types the success text (index 4) and block 85 ("RETURN TO
+BASE", mission 3) or 86 ("RETURN TO CARRIER"): 5 frames flown after the
+outcome's frame, 9 and 12 with the camera's turn (all 13 recordings);
+the flight then goes on (`$102EFE`, `$13AA88` 1). Failures alike.
+Several objectives first count `$13AA9E` down (5 or 2 frames), the
+objects standing meanwhile. While `$13AA9E` is set, the frame counter
+`$13ABCA` stands (`$1014A6`: such a frame keeps its number), the
+flight step's climb is held (`$106D30`: the vertical move 0), and the
+outside camera stands (`$11D83C`).
+
+**The camera's turn** (missions 4 and 7): the frame `$13AA9E` reaches 1
+(`$1186E2`, `$1189E2`), once a flight (`$13AAAE` bit 7), the view's
+position goes to `$13AAAE` and its distance (`$13AA75`) to `$13AB24`;
+with record 4 still in use the camera takes position 7, the view from
+above ends, and from the cockpit the outside view is asked for
+(`$13ABB6` bit 1, switched on next frame by `$1041E8`) at `$13AB23` = −1
+(Air Force One) or 3 (the missile), `$13AC1A` its heading. With the
+outcome (Air Force One's success, the missile's failure) `$10EC3C`
+makes record 4 the viewed record (`$13ABCC` 4, `$13ABCE` $800): outside
+the distance becomes `$13AB23`; the chase (`$11D8F2`) follows it with
+the offset table by its type ($11 `$11D770`, $14 `$11D7AC`, else
+`$11D734`), and the outside view's numbers (`$126AB2`) are its own
+(heading, knots, feet). From the cockpit (the record gone the frame
+before) the view would take the record's eye — not built. After the
+texts (`$1030A2`) the view is the player's again: `$13AA75` from
+`$13AB24`, position from `$13AAAE`, look ahead. Checked: m4b, m7a,
+turn7 (`missioncheck` compares the turn, `$13AB23`, the view and
+`$13ABB0`); the camera's place in m7a's last frames is record 4's plus
+the F-16 table's position 7 at distance 3 turned by its heading, to the
+unit; the camera takes that place at once, but its angles (`$13AD84`,
+`$13AD86`) turn from their old values a quarter a frame (m7a: pitch
+1149 → 1062 → 997 … towards 817). The original's picture at the turn
+(`screen.py`) shows the missile's explosion as orange pieces; the port
+does not draw other records' explosions yet. The chase also flips a side view (positions 1-3, 5-7) to the other
+side when the viewed aircraft's heading jumped by 90-270 degrees since
+last frame (`$11D8AC`, against `$13AC1A`).
 
 - 3, visual confirmation (`$118650`): the radar's `$13AB5F` < 0.
 - 4, emergency defense (`$11867C`): once Air Force One (record 4, type
@@ -1664,7 +1699,7 @@ standing meanwhile.
   destroyed: −3 when it bore +$20 bit 7 (touched by something touchable:
   block 76 "YOU HAVE DESTROYED AIR FORCE ONE", the flight ends), else −2
   (block 37 or 36 by the frame counter's bit 0). Meanwhile the view turns
-  to it (`$13ABA2` 7, `$10EC3C`) — not built.
+  to it (below).
 - 5, stolen F-16s (`$1187BA`): records 4 and 6, touchable while stolen;
   the first in use: east of cell $70 → −2 (block 44, the flight ends);
   within a box round it (by the level $30000, $24000, $18000) the counter
@@ -1690,8 +1725,8 @@ standing meanwhile.
   record 4 (type $15) gone or its
   autopilot let go (the end of its path, state bit 7): shot down
   (spinning) → success, else −2 (block 57, then 92 or 58 by the frame
-  counter's bit 0; with 58 the flight ends). The view turns to it — not
-  built.
+  counter's bit 0; with 58 the flight ends). The view turns to it
+  (below).
 - 8 and others (`$118B1C`): `$13AB9B` reaches `$13AB9A`. The cruise
   missile area 3 spawns (mission 8 only) counts towards `$13AB99` but
   never as destroyed and is not spawned again, so at level 0 (limit 4,
@@ -1711,8 +1746,7 @@ REFLECTS THIS COMPLETED MISSION") and 83, `$1034A0`: config +6 the
 mission, +7 its stage, completed + 1 (+$38), the level and the mission's
 stage + 1 (at most 3), the record written. A failure that does not end
 the flight adds 86 and 83 and the flight goes on (`$13AA88` 2: no
-landing check). The camera turns are not built; the trigger areas are
-("The trigger areas").
+landing check). The trigger areas: "The trigger areas".
 
 **Checked against the original** (2026-10-30; `missioncheck`, below):
 each recording, made with `flightcap.py --recs` from `mstart.py`'s
@@ -1744,7 +1778,7 @@ $B000 after its move), the explosion's end and the touch step's no-hit
 path ("Objects touching"), the pod's landing, the player's crash ending
 the objectives. Not recorded: −3 (Air Force One destroyed by the
 player), the leave rules for records heading for a record or a path
-point, the camera's turns.
+point.
 
 ### The missions' objects (`$11CF06`, 2026-10-29)
 

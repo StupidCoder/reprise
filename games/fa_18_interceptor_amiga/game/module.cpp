@@ -188,6 +188,12 @@ public:
         sounds_.update(aircraft_);
     }
 
+    // The phases whose texts are typed over the flight's picture.
+    bool texts_shown() const {
+        return phase_ == Phase::ready || phase_ == Phase::briefing || phase_ == Phase::landed ||
+               phase_ == Phase::lead_lost || phase_ == Phase::mission_text;
+    }
+
     platform::Image picture() const override {
         const int width = screen_width + 2 * margin_;
         IndexedImage frame(width, screen_height);
@@ -249,7 +255,10 @@ public:
                 if (above_) grid(frame, view, width / 2 - 1, bottom);
                 // (No numbers while the camera comes down from the map: $126AB2
                 // needs `$13AAC9`.)
-                cockpit_.draw_outside(frame, margin_, readings, bottom + 1, phase_ != Phase::descent);
+                // ($126AB2: the numbers are the viewed record's.)
+                cockpit_.draw_outside(frame, margin_, viewed_ > 0 ? read_cockpit(viewed()) : readings, bottom + 1,
+                                      phase_ != Phase::descent);
+                if (texts_shown()) text_.draw(frame, margin_); // (typed over the outside view too)
                 return to_image(frame, image, *palette);
             }
             // $10E7B8: with a look direction the cockpit slides sideways by
@@ -290,9 +299,11 @@ public:
             }
             readings.message = messages_.shown();
             readings.message_colour = messages_.colour();
+            const bool texts = texts_shown();
             if (!cockpit) {
                 for (int y = view_rows + 1; y < frame.height; ++y)
                     for (int x = 0; x < frame.width; ++x) frame.put(x, y, 3);
+                if (texts) text_.draw(frame, margin_); // (typed over a look past the cockpit too)
                 return to_image(frame, image, *palette);
             }
             if (shift != 0) {
@@ -314,9 +325,7 @@ public:
             } else {
                 cockpit_.draw(frame, margin_, readings);
             }
-            if (phase_ == Phase::ready || phase_ == Phase::briefing || phase_ == Phase::landed ||
-                phase_ == Phase::lead_lost || phase_ == Phase::mission_text)
-                text_.draw(frame, margin_);
+            if (texts) text_.draw(frame, margin_);
             // The panel is a view port of its own with `pix/inst5`'s colour
             // map, whose colours 16-31 repeat 0-15 (the flight palette's
             // 16-31 are their darker copies).
@@ -403,6 +412,9 @@ public:
         choice.level = level_;
         if (mode_ == FlightMode::mission) choice.stage = pilot_.stage(mission_);
         others_.spawn(choice);
+        viewed_ = 0;
+        outside_request_ = turn_done_ = false;
+        text_delay_ = -1;
         for (const auto& o : others_.objects()) {
             if (o.craft.type == 0x20) carrier_.place(o.craft, tables_);
         }
@@ -699,6 +711,15 @@ private:
             mission_objective();
             return;
         }
+        if (text_delay_ >= 0) {
+            // ($13AB1C, $13ABB0, $1031C8: the flight goes on five frames,
+            // and the camera's frames when it turned, before the texts.)
+            if (--text_delay_ < 0) {
+                if (outcome_ > 0) mission_succeeded();
+                else mission_failed(outcome_);
+            }
+            return;
+        }
         if (mission_result_ == 1) {
             const bool on_place = place_ == carrier_place ? (aircraft_.surface & 0xC0) != 0 : (aircraft_.surface & 0x04) != 0;
             if (!airborne_ || !(aircraft_.motion & flag::on_ground) || !on_place || aircraft_.airspeed != 0) return;
@@ -716,9 +737,66 @@ private:
     // $118650 (3), $11867C (4), $1187BA (5), $118914 (6), $118998 (7),
     // $118B1C (8 and others).
     void mission_objective() {
-        const int result = others_.objective(mission_, aircraft_, level_, radar_.confirmation());
-        if (result > 0) mission_succeeded();
-        else if (result < 0) mission_failed(result);
+        const auto o = others_.objective(mission_, aircraft_, level_, radar_.confirmation());
+        if (o.turn) turn_camera(o.turn_distance);
+        if (o.result == 0) return;
+        if (o.view) view_record(4);
+        mission_result_ = o.result > 0 ? 1 : 2;
+        outcome_ = o.result;
+        text_delay_ = 4 + o.extra;
+    }
+
+    // $1186EE / $1189EE, the frame before the outcome of mission 4 or 7
+    // (once a flight, `$13AAAE` bit 7): the view's position and distance
+    // are kept (`$13AAAE`, `$13AB24`); the camera takes position 7, not
+    // from above; from the cockpit the outside view is asked for
+    // (`$13ABB6` bit 1) at `distance` (`$13AB23`), switched on next frame.
+    void turn_camera(int distance) {
+        if (turn_done_) return;
+        turn_done_ = true;
+        saved_outside_ = outside_;
+        saved_distance_ = distance_;
+        saved_position_ = position_;
+        position_ = 7;
+        above_ = false;
+        if (!outside_) {
+            outside_distance_ = distance;
+            outside_request_ = true;
+        }
+    }
+
+    // $10EC3C: the view follows another record (`$13ABCC`); outside, at
+    // the outside view's distance `$13AB23`. (From the cockpit the view
+    // would take that record's eye - only when it was gone the frame
+    // before, not built.)
+    void view_record(int record) {
+        if (!outside_ && !outside_request_) return;
+        viewed_ = record;
+        distance_ = outside_distance_;
+        sounds_.set_view(true, position_, distance_);
+        sounds_.event(EngineSound::update);
+    }
+
+    // $1030A2: after the outcome's texts the view is the player's again,
+    // as it was before the turn.
+    void restore_view() {
+        if (viewed_ == 0) return;
+        viewed_ = 0;
+        outside_ = saved_outside_;
+        distance_ = saved_distance_;
+        position_ = saved_position_;
+        look_ = 0;
+        chase_set_ = false;
+        sounds_.set_view(outside_, position_, distance_);
+    }
+
+    // The aircraft the view follows: the player's, or the record the
+    // camera turned to.
+    const Aircraft& viewed() const {
+        if (viewed_ > 0) {
+            if (const auto* o = others_.record(viewed_)) return o->craft;
+        }
+        return aircraft_;
     }
 
     void mission_succeeded() {
@@ -1139,6 +1217,7 @@ private:
                 if (text_.done()) countdown_ = 0x64 / 6;
             } else if (countdown_ < 0) {
                 text_.clear();
+                restore_view();
                 flying_ = true;
                 phase_ = Phase::flying;
             }
@@ -1359,8 +1438,22 @@ private:
         }
 
         ground_warnings(aircraft_, messages_, sounds_);
+        if (outside_request_) {
+            // $1041E8: the outside view the camera's turn asked for.
+            outside_request_ = false;
+            outside_ = true;
+            look_ = 0;
+            distance_ = outside_distance_;
+            // (The camera takes its place at once, but its angles turn
+            // from where they were, a quarter a frame: m7a's `$13AD84` /
+            // `$13AD86`.)
+            chase_set_ = false;
+            keep_aim_ = true;
+            sounds_.set_view(outside_, position_, distance_);
+        }
         FlightRules rules;
         rules.world = &world_;
+        rules.holding = others_.waiting();
         if (mode_ == FlightMode::practice) reposition_step();
         // $116BCE: every 16th frame the trigger areas (not in the demo,
         // `$13AA80`); then the others' "near" bit (+3 bit 0) is cleared
@@ -1451,7 +1544,9 @@ private:
         mission_tick();
 
         chase_camera();
-        ++ticks_;
+        // ($1014A6: the frame counter stands in a frame that ends with an
+        // outcome awaited.)
+        if (!others_.waiting()) ++ticks_;
     }
 
     // The bodies that touch: the player's aircraft (group 0) and the
@@ -1756,7 +1851,7 @@ private:
             look_ = 0;
             if (outside_) {
                 position_ = 4;
-                distance_ = -1;
+                distance_ = outside_distance_ = -1; // ($10E40A: `$13AB23` $FF)
             }
             chase_set_ = false;
             sounds_.set_view(outside_, position_, distance_);
@@ -1827,7 +1922,7 @@ private:
             look_ = 0; // ($1042AE)
             if (outside_) {
                 position_ = 4;
-                distance_ = -1;
+                distance_ = outside_distance_ = -1; // ($10E40A: `$13AB23` $FF)
             }
             chase_set_ = false;
         }
@@ -1881,13 +1976,17 @@ private:
     // camera goes half the way there each frame.
     std::array<double, 3> chase_target() const {
         const auto& m = assets_.program;
-        const std::uint32_t at = (aircraft_type_ == 0x11 ? 0x11D770 : 0x11D734) + std::uint32_t(6 * position_);
+        // ($11D8F2: the table by the viewed record's type: $11 the F/A-18,
+        // $14 Air Force One, else the F-16's.)
+        const auto& a = viewed();
+        const std::uint32_t table = a.type == 0x11 ? 0x11D770 : a.type == 0x14 ? 0x11D7AC : 0x11D734;
+        const std::uint32_t at = table + std::uint32_t(6 * position_);
         double off[3] = {double(m.s16(at)), double(m.s16(at + 2)), double(m.s16(at + 4))};
         const double scale = distance_ < 0 ? 1 : distance_ == 1 ? 1.5 : double(1 << (distance_ - 1));
         for (auto& o : off) o *= 4 * scale;
-        Matrix turn = aircraft_.view;
-        if (position_ != 0 && position_ != 4) turn = view_matrix(tables_, {0, aircraft_.attitude.heading, 0});
-        std::array<double, 3> p{aircraft_.x / 256.0, aircraft_.y / 256.0, aircraft_.z / 256.0};
+        Matrix turn = a.view;
+        if (position_ != 0 && position_ != 4) turn = view_matrix(tables_, {0, a.attitude.heading, 0});
+        std::array<double, 3> p{a.x / 256.0, a.y / 256.0, a.z / 256.0};
         for (int r = 0; r < 3; ++r)
             for (int k = 0; k < 3; ++k) p[std::size_t(r)] += turn[std::size_t(3 * r + k)] * off[k] / 16384.0;
         p[1] = std::max(p[1], 7.0);
@@ -1898,8 +1997,8 @@ private:
     // aircraft each frame, at most `rate` (80ths of a degree); a negative
     // rate (a new view position, or the first frame) turns them at once.
     void aim_camera(int rate) {
-        const double dx = aircraft_.x / 256.0 - chase_[0], dy = aircraft_.y / 256.0 - chase_[1],
-                     dz = aircraft_.z / 256.0 - chase_[2];
+        const auto& v = viewed();
+        const double dx = v.x / 256.0 - chase_[0], dy = v.y / 256.0 - chase_[1], dz = v.z / 256.0 - chase_[2];
         const auto angle = [](double r) {
             int a = int(std::lround(r * 180 / 3.14159265358979 * 80)) % 0x7080;
             return a < 0 ? a + 0x7080 : a;
@@ -1928,12 +2027,28 @@ private:
 
     void chase_camera() {
         if (!outside_) return;
+        // ($11D83C: the camera stands while an outcome is awaited.)
+        if (others_.waiting()) {
+            chase_was_ = chase_;
+            return;
+        }
+        // $11D8AC: the viewed aircraft's heading against last frame's
+        // (`$13AC1A`): turned by 90-270 degrees, a view from a side (1-3,
+        // 5-7) goes to the other side.
+        const int heading = viewed().attitude.heading;
+        if (chase_set_) {
+            const int d = std::abs(int(std::int16_t(last_heading_ - heading)));
+            if (d >= 0x1C20 && d <= 0x5460 && position_ > 0 && position_ < 8 && position_ != 4)
+                position_ = (position_ + 4) % 8;
+        }
+        last_heading_ = heading;
         chase_was_ = chase_;
         const auto target = chase_target();
         if (!chase_set_) {
             chase_ = chase_was_ = target;
             chase_set_ = true;
-            aim_camera(-1);
+            aim_camera(keep_aim_ ? 0x7D0 : -1);
+            keep_aim_ = false;
             return;
         }
         chase_ = target; // ($11D9AC: the camera takes its place at once)
@@ -2286,6 +2401,16 @@ private:
     // camera's position around the aircraft) and its chasing camera.
     bool outside_ = false;
     int distance_ = -1, position_ = 4;
+    int viewed_ = 0;               // `$13ABCC`: the record the view follows (0 the player's)
+    int outside_distance_ = -1;    // `$13AB23`: the distance an outside view asked for starts at
+    bool outside_request_ = false; // `$13ABB6` bit 1 from the camera's turn
+    bool keep_aim_ = false;        // its camera keeps its angles
+    bool turn_done_ = false;       // `$13AAAE` bit 7: the turn's view kept
+    bool saved_outside_ = false;   // `$13AB24`, `$13AAAE`: the view before the turn
+    int saved_distance_ = -1, saved_position_ = 4;
+    int last_heading_ = 0;         // `$13AC1A`
+    int text_delay_ = -1;          // frames flown after an outcome before its texts
+    int outcome_ = 0;              // that outcome (1, -2, -3)
     std::array<double, 3> chase_{}, chase_was_{};
     bool chase_set_ = false;
     std::array<bool, 7> pad_was_{};

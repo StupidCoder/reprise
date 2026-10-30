@@ -119,9 +119,12 @@ from drawing, and must still respect the passes' model rule).
     the briefings, every mission's objective and failures, mission 6's
     rescue pod, completion in the log, the player's crash ending a
     mission; missions 4-8 checked against 13 recordings (`missioncheck`,
-    game/object_world.*: every frame equal but the pokes'). Left: the
-    camera's turns to Air Force One and the cruise missile, the aircraft
-    question of mission 3's runway start, the radio noise; unrecorded:
+    game/object_world.*: every frame equal but the pokes'), the camera's
+    turns to Air Force One and the cruise missile (the viewed record, the
+    texts' delay; m4b, m7a, turn7). Left: the view from a gone record's
+    eye (cockpit case of `$10EC3C`), other records' explosions drawn
+    (the orange pieces, smoke `$11AB3E`), the aircraft question of mission 3's
+    runway start, the radio noise; unrecorded:
     −3 (Air Force One shot by the player), the leave rules for records
     heading for a record or a path point; flying a mission again with
     the same variant and offsets (`$13AE0C`, `$13AE08`).

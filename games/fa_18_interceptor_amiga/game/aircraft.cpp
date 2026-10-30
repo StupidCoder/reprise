@@ -642,7 +642,7 @@ void move(Aircraft& a, const FlightRules& rules, const FlightTables& t, FlightEv
     a.vx = -(i32(vx) << 2);
     a.vy = -(i32(vy) << 2);
     a.vz = -(i32(vz) << 2);
-    const i32 climb = i32(vy) << 2;
+    const i32 climb = rules.holding ? 0 : i32(vy) << 2;
 
     i32 ground;
     const bool deck = a.surface & 0xC0;
