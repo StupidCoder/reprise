@@ -31,9 +31,9 @@ WorldMap::WorldMap(std::uint32_t seed, std::vector<ParticleKind> kinds) : partic
     random_.seed(seed);
 }
 
-std::unique_ptr<WorldMap> WorldMap::load(const data::GameFiles& files, const data::LevelTable& table, Profile& profile,
-                                         int world, std::uint32_t seed, std::string& error) {
-    std::unique_ptr<WorldMap> made(new WorldMap(seed, loadParticleKinds(files)));
+std::optional<WorldMap> WorldMap::load(const data::GameFiles& files, const data::LevelTable& table, Profile& profile,
+                                       int world, std::uint32_t seed, std::string& error) {
+    std::optional<WorldMap> made(WorldMap(seed, loadParticleKinds(files)));
     WorldMap& m = *made;
     m.table_ = &table;
     m.profile_ = &profile;
@@ -41,7 +41,7 @@ std::unique_ptr<WorldMap> WorldMap::load(const data::GameFiles& files, const dat
     char name[64];
     std::snprintf(name, sizeof name, "world/world_%02d.mbn", world + 1);
     auto map = data::loadMapFile(files, std::string(name), error);
-    if (!map) return nullptr;
+    if (!map) return std::nullopt;
     m.map_ = std::move(*map);
     m.walls_.emplace(m.map_);
     m.paths_ = MapPaths::load(files, world, error);
@@ -49,7 +49,7 @@ std::unique_ptr<WorldMap> WorldMap::load(const data::GameFiles& files, const dat
     const SheetSize blurOut = pngSize(files, "sprites/player_blur1.png"), blurIn = pngSize(files, "sprites/player_blur2.png");
     m.teleport_.out.setSheet(blurOut.width, blurOut.height, 32.0f);
     m.teleport_.in.setSheet(blurIn.width, blurIn.height, 32.0f);
-    if (!m.paths_) return nullptr;
+    if (!m.paths_) return std::nullopt;
 
     // loadSceneGraph: how many grass patches, roads and pads, and houses each world has.
     static const int kCounts[6][3] = {{13, 13, 12}, {12, 14, 12}, {9, 15, 12}, {11, 12, 10}, {12, 14, 12}, {13, 13, 12}};
@@ -332,7 +332,7 @@ void WorldMap::walkTo(int node) {
 bool WorldMap::startWalk(Vec2 target) {
     if (!paths_->createPath(target, mouse_.position, path_, false)) return false;
     path_.resampledEnd = 0;
-    path_.resample(true, true, nullptr, 0.0f);  // (HYPOTHESIS: 1.1.1 map calls not checked yet)
+    path_.resample(true, true);
     path_.snapped = true;
     path_.drawing = false;
     drawing_ = false;
@@ -463,8 +463,8 @@ bool WorldMap::snapDrawnPath() {
         if (walls_->lineTouches(end, n.position, 0.0f, 0)) continue;
         focused_ = int(i);
         setFocus(int(i));
-        if (path_.size() < DrawnPath::kCapacity) path_.append(n.position);
-        path_.resample(true, true, nullptr, 0.0f);  // (HYPOTHESIS: 1.1.1 map calls not checked yet)
+        if (path_.size() < DrawnPath::kCapacity) path_.append(n.position).z = 0.0f;
+        path_.resample(true, true);
         return true;
     }
     return false;
@@ -477,14 +477,14 @@ void WorldMap::updateTouch() {
             drawing_ = false;
             path_.drawing = false;
             if (snapDrawnPath()) {
-                path_.smooth(true, true, &*walls_, 0.0f);
+                path_.smooth(true, true, &*walls_);
                 path_.snapped = true;
                 mouse_.snapGlowMs = 1250;
                 walkBounce_ = 0.0f;
                 sound(kSoundWalk);
             } else {
-                path_.resample(true, true, nullptr, 0.0f);  // (HYPOTHESIS: 1.1.1 map calls not checked yet)
-                path_.smooth(true, true, nullptr, 0.0f);
+                path_.resample(true, true);
+                path_.smooth(true, true, nullptr);
             }
         }
         return;
@@ -536,15 +536,15 @@ void WorldMap::updateTouch() {
     }
     if (!accept || !((from - to).lengthSquared() > minimum)) return;
     if (path_.size() >= DrawnPath::kCapacity) {
-        path_.resample(true, true, nullptr, 0.0f);  // (HYPOTHESIS: 1.1.1 map calls not checked yet)
+        path_.resample(true, true);
         path_.drawing = false;
         drawing_ = false;
         return;
     }
     if (path_.size() > 3) path_.fingerOffset *= 0.95f;
     path_.append(to);
-    path_.resample(false, true, nullptr, 0.0f);
-    path_.smooth(false, true, &*walls_, 0.0f);
+    path_.resample(false, true);
+    path_.smooth(false, true, &*walls_);
 }
 
 void WorldMap::spawnCloud(int i, bool atStart) {
@@ -780,8 +780,10 @@ void WorldMap::tick(int dtMs) {
     // Standing still, it settles exactly on the chosen pad.
     if (mouse_.idleMs > 100 && focused_ >= 0 && state_ != State::Arriving) mouse_.position = nodes_[std::size_t(focused_)].position;
     Vec2 edge;
+    LevelGeometry::SphereOptions options;
+    options.pushNormal = &edge;
     // (Walking in from off the map, the mouse crosses the map's edge freely: run w2_enter.)
-    if (arriveNode_ < 0 && (walls_->collideSphere(mouse_.position, mouse_.reachDistance, 0.0f, &edge) & contact::kTrigger)) {
+    if (arriveNode_ < 0 && walls_->collideSphere(mouse_.position, mouse_.reachDistance, options) == 11) {
         // A hidden trigger line (type 125) tagged with a secret level's uid: walking over it
         // finds the level (Object::receiveMessage @0x115f18: it is open and new).
         const int tag = int(edge.y);

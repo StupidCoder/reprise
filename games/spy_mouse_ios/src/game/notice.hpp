@@ -1,15 +1,11 @@
 // Notices the original shows over a level before play (GameBoot::bootLevel @0x1f5142): a
-// tutorial popup (ScenePopupTutorial, description in res/popup_tutorials/<name>.xml.brd, layout
-// guis/popup_tutorial.gui). While it is up only the popup and the ambience run; the level waits.
-// In 1.1.1 the popup is a bouncing card with a title, a picture and a scrolling text; 1.0.5's
-// posed mouse (and the random draws its eyes made) is gone: ScenePopupTutorial::load @0x225208
-// still reads <mouse pose flip> but uses neither.
+// tutorial popup (ScenePopupTutorial, layout in res/popup_tutorials/<name>.xml.brd) with a
+// posed mouse. While it is up only the popup and the ambience run; the level waits.
 // So far only the "carry more" notice is reconstructed (SceneGame::initGame @0x10639e raises the
 // profile's strength to the level's trail length and asks for new_cheese_slot0<strength-1>).
 #pragma once
 
 #include "game/random.hpp"
-#include "game/results.hpp"
 
 #include <array>
 #include <cstdint>
@@ -17,8 +13,7 @@
 
 namespace doc::game {
 
-// The mouse drawn in some layouts (GuiPosedMouse @0x224608.., 1.1.1: the main menu's and the
-// store reminder's; 1.0.5's tutorial popups had one too): a pose picture with eyes that
+// The mouse drawn in popups (GuiPosedMouse @0x224608..0x203fa4): a pose picture with eyes that
 // look around and blink at random times. Every change of look draws random numbers, so it is
 // part of the game's random sequence.
 class PosedMouse {
@@ -52,37 +47,30 @@ struct LevelNotice {
     std::string titleText, bodyText, image;  // text ids and picture
     std::string bodyExtraText;  // <body_text_extra>: a second text in place of the picture
     bool wifiHint = false;      // <wifi_hint>: the Bluetooth/Wi-Fi line is shown
-    // Quick saves (state_io.hpp).
-    template <class Io>
-    void io(Io& io) { io(layout, pose, flip, titleText, bodyText, image, bodyExtraText, wifiHint); }
 };
 
 class NoticePopup {
 public:
-    // Opens the popup: its layout is made, so its card starts bouncing in.
-    void open(const LevelNotice& notice);
+    // Opens the popup: the posed mouse is created (pose 1) and then given the layout's pose.
+    void open(const LevelNotice& notice, GameRandom& random);
     bool active() const { return active_; }
-    // The popup's button was released (ScenePopupTutorial::guiEvent @0x22582c): popScene at
-    // once, no fade.
-    void dismiss() { active_ = false; }
-    // The scene has no update of its own in 1.1.1: Scene::update runs its items (the card's
-    // bounce, the scroll frame's easing).
-    void update(int dtMs);
+    // The popup's button was pressed (ScenePopupTutorial::guiEvent): it fades out and closes.
+    void dismiss() { if (active_) closing_ = true; }
+    // ScenePopupTutorial::update @0x204c78 (1.0.5).
+    void update(int dtMs, GameRandom& random, const PosedMouse::EyeMapping& eyes);
 
     const LevelNotice& notice() const { return notice_; }
-    const BounceFrame& card() const { return card_; }  // the layout's GuiBounceFrameCM
+    const PosedMouse& mouse() const { return mouse_; }
+    float alpha() const { return alpha_; }
     // Updates since it opened (its scroll frame eases once per update: GuiScrollFrame::update).
     int updates() const { return updates_; }
 
 private:
     LevelNotice notice_;
-    BounceFrame card_;
     int updates_ = 0;
-    bool active_ = false;
-public:
-    // Quick saves (state_io.hpp).
-    template <class Io>
-    void io(Io& io) { io(notice_, card_, updates_, active_); }
+    PosedMouse mouse_;
+    bool active_ = false, closing_ = false;
+    float alpha_ = 1.0f;
 };
 
 }  // namespace doc::game

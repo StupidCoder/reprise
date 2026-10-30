@@ -48,26 +48,6 @@ std::vector<ParticleKindData> readParticleKinds(const GameFiles& files) {
     return kinds;
 }
 
-std::vector<DossierData> readDossiers(const GameFiles& files) {
-    std::vector<DossierData> dossiers;
-    const ExecutableImage& exe = files.executable();
-    auto names = exe.read(kDossierNames, std::size_t(kDossiers) * 4);
-    auto types = exe.read(kDossierTypes, std::size_t(kDossiers) * 4);
-    auto tips = exe.read(kDossierTips, std::size_t(kDossiers) * 20);
-    auto seen = exe.read(kDossierLastSeen, std::size_t(kDossiers) * 4);
-    if (!names || !types || !tips || !seen) return dossiers;
-    for (int i = 0; i < kDossiers; ++i) {
-        const std::size_t at = std::size_t(i) * 4;
-        DossierData d;
-        d.name = string(exe, word(*names, at));
-        d.title = int(word(*types, at));
-        for (std::size_t k = 0; k < 5; ++k) d.tips[k] = int(word(*tips, std::size_t(i) * 20 + k * 4));
-        d.lastSeen = int(word(*seen, at));
-        dossiers.push_back(std::move(d));
-    }
-    return dossiers;
-}
-
 std::vector<FluffKindData> readFluffKinds(const GameFiles& files) {
     std::vector<FluffKindData> kinds;
     const ExecutableImage& exe = files.executable();

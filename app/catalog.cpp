@@ -2,6 +2,7 @@
 #include <algorithm>
 #include "fa_18_interceptor_amiga/entry.hpp"
 #include "spindizzy_worlds_amiga/entry.hpp"
+#include "beach_volley_amiga/entry.hpp"
 #include "spy_mouse_ios/reprise/entry.hpp"
 #include "sonic/reprise/entry.hpp"
 #include "layton/reprise/entry.hpp"
@@ -32,12 +33,18 @@ std::vector<GameEntry> catalog() {
         wings::entry(),
         interceptor::entry(),
         spindizzy::entry(),
+        beach_volley::entry(),
     };
     // Platform-specific release dates, not franchise debuts or reissue dates.
     // This editorial material is sourced separately in docs/catalog-history.md.
     struct Editorial { const char* id; int year; const char* description;
         const char* heading; const char* history; const char* sources; };
     const Editorial notes[] = {
+        {"beach_volley_amiga", 1989,
+         "Sun, sand and a net between you and victory. Serve, block and smash your way through a beach-volleyball tournament. Read the rally, cover the court and turn a perfect set into the winning shot.",
+         "Ocean's French team takes to the beach",
+         "Ocean France developed Beach Volley for Ocean. The Amiga credits name Marc Djan as designer and Michel Janicki as programmer, with graphics by Michèle Bacqué, Philippe Dessoly and Pierre-Eric Loriaux, and music by Jean Baudlot.",
+         "Lemon Amiga: 1989 Amiga release and credits; original manual: rules."},
         {"fort_apocalypse_c64", 1983,
          "Take a helicopter deep into an underground fortress. Blast a path through its defenses, rescue prisoners and keep an eye on your fuel. Getting in is dangerous; getting everyone back out is the real mission.",
          "An Atari original, a C64 conversion",

@@ -38,19 +38,6 @@ bool Profile::fromText(const std::string& text) {
             ss >> strength;
             continue;
         }
-        if (first == "dossiers") {
-            for (std::size_t i = 0; i < dossiers.size(); ++i) {
-                int found = 0, fresh = 0;
-                ss >> found >> fresh;
-                dossiers[i] = found != 0;
-                newDossiers[i] = fresh != 0;
-            }
-            continue;
-        }
-        if (first == "cheese") {
-            for (int& n : cheese) ss >> n;
-            continue;
-        }
         if (first == "kiska") {
             int owned = 0, here = 0, later = 0;
             ss >> owned >> here >> later >> kiska.lastShown >> kiska.step >> kiska.shown;
@@ -93,12 +80,6 @@ std::string Profile::toText() const {
     out << "current " << currentLevel << '\n' << "strength " << strength << '\n';
     out << "kiska " << kiska.owned << ' ' << kiska.offeredHere << ' ' << kiska.offeredLater << ' ' << kiska.lastShown
         << ' ' << kiska.step << ' ' << kiska.shown << '\n';
-    out << "dossiers";
-    for (std::size_t i = 0; i < dossiers.size(); ++i) out << ' ' << dossiers[i] << ' ' << newDossiers[i];
-    out << '\n';
-    out << "cheese";
-    for (int n : cheese) out << ' ' << n;
-    out << '\n';
     for (const auto& [uid, r] : levels_)
         out << uid << ' ' << r.best << ' ' << r.goals[0] << ' ' << r.goals[1] << ' ' << r.goals[2] << ' ' << r.plays
             << ' ' << r.completed << ' ' << r.unlocked << ' ' << r.fresh << '\n';
@@ -115,8 +96,6 @@ void Profile::keepProgressOf(const Profile& other) {
         r.unlocked = r.unlocked || theirs.unlocked;
     }
     strength = std::max(strength, other.strength);
-    for (std::size_t k = 0; k < cheese.size(); ++k) cheese[k] = std::max(cheese[k], other.cheese[k]);
-    for (std::size_t i = 0; i < dossiers.size(); ++i) dossiers[i] = dossiers[i] || other.dossiers[i];
     if (other.kiska.shown > kiska.shown || other.kiska.lastShown > kiska.lastShown) kiska = other.kiska;
 }
 

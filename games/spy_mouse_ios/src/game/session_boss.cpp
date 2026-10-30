@@ -60,10 +60,10 @@ void Session::endCutscene() {
     // the droid 301, world 2 the Spitter 302; the level's own world stands in for the profile).
     if (name == "win") return;
     if (LevelObject* boss = firstObjectOfType(bossTypeOfWorld(level_.info().world))) {
-        if (Droid* droid = droidFor(boss->id)) droid->setState(0x1a);
+        if (Droid* droid = droidFor(boss->id)) droid->setState(0x16);
         if (Spitter* spitter = spitterFor(boss->id)) spitter->wake();
         if (Vacuum* vacuum = vacuumFor(boss->id)) vacuum->wake();
-        boss->state = ObjectState(0x1a);
+        boss->state = ObjectState(0x16);
     }
 }
 
@@ -284,8 +284,8 @@ void Session::sequenceWait() {
 void Session::sequenceHideFluffy() {
     if (LevelObject* o = firstObjectOfType(kFluffy))
         if (Cat* fluffy = catFor(o->id)) {
-            fluffy->setState(0x16);
-            o->state = ObjectState(0x16);
+            fluffy->setState(0x12);
+            o->state = ObjectState(0x12);
         }
     cutscene_.scriptState = 2;
 }
@@ -331,7 +331,7 @@ void Session::sequenceLaunchHenchman() {
         if (cutscene_.elapsedMs % 150 <= kTickMs) {
             const char* letter = travelMs < 751 ? "A" : travelMs < 1051 ? "R" : travelMs < 1201 ? "G"
                                : travelMs < 1351 ? "H" : "!";
-            particles_.add(kTextBubble, o->floor, henchman->position(), letter, nullptr, 0, Vec2{-1.0f, -1.0f}, true);
+            particles_.add(0x36, o->floor, henchman->position(), letter, nullptr, 0, Vec2{-1.0f, -1.0f}, true);
         }
     }
     o->position = henchman->position();
@@ -377,14 +377,12 @@ void Session::sequenceCloseExit() {
 // SnapshotHandler::rollback: the level as the checkpoint left it.
 // ScriptSequence::blowUpDroid @0x1d4604: world 1's boss droid explodes and throws out the key.
 void Session::sequenceBlowUpDroid() {
-    // (1.1.1 @0x1d47bc: the key starts 0.0001 above the boss, run lbf2_round.)
-    const Vec2 keyLift{0.0f, 9.99999975e-05f};
     if (LevelObject* o = firstObjectOfType(kSpitter); o && bossTypeOfWorld(level_.info().world) == kSpitter)
         if (Spitter* spitter = spitterFor(o->id)) blowUpSpitter(*spitter, *o);
     if (LevelObject* o = firstObjectOfType(kVacuum); o && bossTypeOfWorld(level_.info().world) == kVacuum)
         if (Vacuum* vacuum = vacuumFor(o->id)) {
             BossWorld world = bossWorld(o->floor);
-            const Vec2 at = vacuum->position() + keyLift;
+            const Vec2 at = vacuum->position();
             const int floor = o->floor;
             const int id = vacuum->objectId();
             vacuum->blowUp(world, [&] { throwKey(at, floor); });
@@ -396,7 +394,7 @@ void Session::sequenceBlowUpDroid() {
     if (LevelObject* o = firstObjectOfType(kDroid))
         if (Droid* droid = droidFor(o->id)) {
             BossWorld world = bossWorld(o->floor);
-            const Vec2 at = droid->position() + keyLift;
+            const Vec2 at = droid->position();
             const int floor = o->floor;
             droid->blowUp(world, [&] { throwKey(at, floor); });
             // (throwKey may have added an object: look the droid's up again.)
@@ -411,10 +409,10 @@ void Session::sequenceBlowUpDroid() {
 void Session::throwKey(Vec2 at, int floor) {
     int slot = 0;
     while (slot < int(objects_.size()) && objects_[std::size_t(slot)].active) ++slot;
-    // (throwKey @0x19d814, 1.1.1: made far off, its picture loaded (32 x 32, the touch circle of
-    // its frame), then put where it is thrown from; run lbf2_round.)
+    // (Its picture is loaded after its set-up: no touch circle, as for the trap's cheese.)
     LevelObject made = level_.spawnObject(slot, kKey, {-99999.0f, -99999.0f}, 0, floor);
     made.position = at;
+    made.radius = 0.0f;
     made.updating = true;
     made.flying = true;
     made.arcTimeMs = 0;
@@ -435,12 +433,10 @@ void Session::takeCheckpoint() {
     c->mousePosition = mouse_.position;
     c->mouseState = mouse_.state;
     c->mouseHeading = mouse_.heading;
-    c->mouseHoleTag = mouse_.holeTag;
     c->carried = carried_;
     c->scoreBoost = mouse_.scoreBoost;
     c->chilliMs = mouse_.chilliMs;
     c->chilliTotalMs = mouse_.chilliTotalMs;
-    c->viewLeft = int(viewLeft_);
     for (const LevelObject& o : objects_) {
         ObjectSnapshot r;
         r.active = o.active;
@@ -454,9 +450,7 @@ void Session::takeCheckpoint() {
             r.floor = o.floor;
             r.position = o.position;
             r.frame = o.anim.frame();
-            r.radius = int(o.radius);
             if (const Cat* cat = catFor(o.id)) {
-                r.trimmed = cat->trimmed();
                 r.step = cat->chaseStep();
                 r.heading = cat->heading();
                 r.routeIndex = cat->routeIndex();
@@ -504,14 +498,10 @@ void Session::restoreCheckpoint(const Checkpoint& c) {
     mouse_.position = c.mousePosition;
     mouse_.state = c.mouseState;
     mouse_.heading = c.mouseHeading;
-    // (The tag of the hole the mouse hides in comes back, so a touch near it lets the mouse
-    // out; the hole itself, Player +0x2e0, is not kept.)
-    mouse_.holeTag = c.mouseHoleTag;
     carried_ = c.carried;
     mouse_.scoreBoost = c.scoreBoost;
     mouse_.chilliMs = c.chilliMs;
     mouse_.chilliTotalMs = c.chilliTotalMs;
-    viewLeft_ = float(c.viewLeft);
     for (std::size_t i = 0; i < c.objects.size() && i < objects_.size(); ++i) {
         const ObjectSnapshot& r = c.objects[i];
         LevelObject& o = objects_[i];
@@ -525,34 +515,16 @@ void Session::restoreCheckpoint(const Checkpoint& c) {
         o.tag = r.tag;
         o.floor = r.floor;
         o.position = r.position;
-        o.radius = float(r.radius);
         o.anim.setFrame(r.frame);
         if (Cat* cat = catFor(o.id)) {
-            cat->restore(r);
-            // (reloadFromSnapshot @0x106e7c: after the rollback, a mouse back in a hole (SceneGame
-            // +0x13198 set) has the cats reset (resetCats: not the boss cat, kind 0x3a or a cat
-            // in state 0x11), Object::reInit without loadAssets: on its start, its radius made
-            // again by postInit, its walking picture on the snapshot's frame. Runs l24_win
-            // (reset, the safe hole's checkpoint) and l3h2_win (kept, a room door's). The check
-            // also needs LevelState +0x57 clear, not reconstructed: HYPOTHESIS, no boss checkpoint
-            // has the mouse in a hole.)
-            const bool reset = c.mouseState == 2 && cat->type() != 0x35 && cat->type() != 0x3a && r.state != 0x11;
-            if (reset) cat->reset();
-            o.position = cat->position();
-            o.state = ObjectState(cat->state());
-            o.radius = cat->radius();
-        }
-        // (Doors and buttons: their state and their picture's frame from the snapshot, the
-        // picture's own loop as loaded; run l44_win.)
-        if (Door* d = doorFor(o.id)) {
-            d->state = r.state;
-            d->anim.setFrame(r.frame);
-            d->pass = d->state == kDoorOpen ? 1 : 2;
-            if (d->type == 215 || d->type == 217) d->pass = 1;
-        }
-        if (Switch* sw = switchFor(o.id)) {
-            sw->state = r.state;
-            sw->anim.setFrame(r.frame);
+            if (level_.info().mode == "boss") {
+                cat->restore(r);
+            } else {
+                // (resetCats runs after the rollback: the cat stays on its start.)
+                o.position = cat->position();
+                o.state = ObjectState(cat->state());
+                o.anim.setFrame(0);
+            }
         }
         if (Droid* droid = droidFor(o.id)) droid->restore(r);
         if (Spitter* spitter = spitterFor(o.id)) spitter->restore(r);
@@ -571,29 +543,6 @@ void Session::restoreCheckpoint(const Checkpoint& c) {
             e->updating = r.updating;
             e->anim.setFrame(r.frame);
         }
-    }
-}
-
-std::vector<int> Session::particleOwners() const {
-    std::vector<int> owners(Particles::kSlots, -1);
-    for (int slot = 0; slot < Particles::kSlots; ++slot) {
-        const int* owner = particles_.owner(slot);
-        for (std::size_t i = 0; i < cats_.size() && owner; ++i)
-            if (cats_[i].particleHandle() == owner) owners[std::size_t(slot)] = int(2 * i);
-        for (std::size_t i = 0; i < droids_.size() && owner; ++i)
-            if (droids_[i].particleHandle() == owner) owners[std::size_t(slot)] = int(2 * i + 1);
-    }
-    return owners;
-}
-
-void Session::setParticleOwners(const std::vector<int>& owners) {
-    for (int slot = 0; slot < Particles::kSlots; ++slot) {
-        const int code = slot < int(owners.size()) ? owners[std::size_t(slot)] : -1;
-        const std::size_t i = std::size_t(code / 2);
-        int* owner = nullptr;
-        if (code >= 0 && code % 2 == 0 && i < cats_.size()) owner = cats_[i].particleHandle();
-        if (code >= 0 && code % 2 == 1 && i < droids_.size()) owner = droids_[i].particleHandle();
-        particles_.setOwner(slot, owner);
     }
 }
 

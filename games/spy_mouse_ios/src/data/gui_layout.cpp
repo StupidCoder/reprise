@@ -19,13 +19,6 @@ constexpr int kDots = 109;
 constexpr int kLabelSM = 114;             // GuiLabelSM (1.1.1): a label with two more fields
 constexpr int kScaleButton = 115;         // GuiScaleButton (1.1.1): a button with two scales
 constexpr int kNewsWidget = 118;          // GuiFMWidget (1.1.1, Firemint's news): item fields only
-constexpr int kSnapScroll = 110;          // GuiSnapScroll (1.1.1): item fields only
-constexpr int kOriginInfo = 113;          // GuiOriginInfo (1.1.1): item fields only
-constexpr int kHudElement = 116;          // GuiHudElement (1.1.1): item fields and a float
-constexpr int kScrollFrameSM = 117;       // GuiScrollFrameSM (1.1.1): a GuiScrollFrame
-constexpr int kProgressFrame = 119;       // GuiProgressFrame (1.1.1)
-constexpr int kFlipItem = 120;            // GuiFlipItem (1.1.1): item fields and two flags
-constexpr int kSpinningImage = 121;       // GuiSpinningImage::createItem (1.1.1): item fields only
 constexpr int kBillboard = 104;           // GuiBillboard (the map's title bar)
 
 class Reader {
@@ -152,16 +145,6 @@ bool readChildren(Reader& in, int version, GuiNode& parent, int depth, std::stri
         case kPopupGoalInfo:
         case kDots:
         case kNewsWidget:
-        case kSnapScroll:   // GuiSnapScroll::GuiSnapScroll @0x1855bc
-        case kOriginInfo:   // GuiOriginInfo @0x28409c
-        case kSpinningImage:  // @0x18568c
-            break;
-        case kHudElement:  // GuiHudElement @0x28e818
-            in.real();
-            break;
-        case kFlipItem:  // GuiFlipItem @0x29ad30
-            in.flag();
-            in.flag();
             break;
         case int(GuiKind::Label):
         case kLabelSM:
@@ -191,7 +174,6 @@ bool readChildren(Reader& in, int version, GuiNode& parent, int depth, std::stri
         case int(GuiKind::FadeFrame):
         case int(GuiKind::SlideFrame):
         case kResultsBounceFrame:
-        case kProgressFrame:
             // GuiProgressFrame::GuiProgressFrame @0x20e11c: how long its animation runs.
             if (version >= 14) node.duration = in.real();
             if (version >= 18) in.integer();
@@ -223,7 +205,6 @@ bool readChildren(Reader& in, int version, GuiNode& parent, int depth, std::stri
             break;
         }
         case int(GuiKind::ScrollFrame):  // GuiScrollFrame::GuiScrollFrame @0x1dcb88
-        case kScrollFrameSM:             // GuiScrollFrameSM @0x297574: the same fields
             node.scrollIndicator = in.text();
             if (version >= 25) {
                 in.flag();

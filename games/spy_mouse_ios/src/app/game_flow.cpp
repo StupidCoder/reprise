@@ -1,7 +1,5 @@
 #include "app/game_flow.hpp"
 
-#include "game/state_io.hpp"
-
 #include <algorithm>
 #include <cstring>
 #include <ctime>
@@ -9,6 +7,8 @@
 
 namespace doc::app {
 namespace {
+
+std::uint32_t clockSeed() { return std::uint32_t(std::time(nullptr)); }
 
 // A button released over (GuiButton answers on release): the popup's continue closes it; on
 // the results, continue leaves the level and retry plays it again; the medals show their goal;
@@ -25,8 +25,6 @@ void releaseButton(game::Session& session, const std::string& button) {
     }
     if (button == "PAUSE") session.pressPause();
     if (button == "BTN_CONTINUE") session.pressNoticeButton();
-    if (button == "BTN_BACK") session.pressDossierBack();
-    if (button == "BTN_OK") session.pressDossierNote();
     if (button == "GAME_RESULTS_CONTINUE") {
         if (session.worldComplete().active()) session.pressWorldContinue();
         else session.pressResultsButton(false);
@@ -40,15 +38,61 @@ bool touchesLevel(const game::Session& session, const std::string& button) {
     return !session.pause().active() && !session.kiska().active() && button != "PAUSE";
 }
 
-// Quick saves: a header, what the scene was built from, the flow's own state, then the
-// scene's and the sound's (game/state_io.hpp).
+// Quick-save encoding: little-endian integers and length-prefixed strings.
 constexpr char kMagic[8] = {'S', 'P', 'Y', 'F', 'L', 'O', 'W', '1'};
-constexpr std::uint32_t kStateVersion = 2;
+constexpr std::uint32_t kStateVersion = 1;
 
-template <class Io>
-void ioTouch(Io& io, GameFlow::Touch& t) {
-    io(t.kind, t.x, t.y);
-}
+struct Writer {
+    std::vector<std::uint8_t> bytes;
+    void u32(std::uint32_t v) {
+        for (int i = 0; i < 4; ++i) bytes.push_back(std::uint8_t(v >> (8 * i)));
+    }
+    void i64(std::int64_t v) {
+        for (int i = 0; i < 8; ++i) bytes.push_back(std::uint8_t(std::uint64_t(v) >> (8 * i)));
+    }
+    void f32(float v) {
+        std::uint32_t u;
+        std::memcpy(&u, &v, 4);
+        u32(u);
+    }
+    void str(const std::string& s) {
+        u32(std::uint32_t(s.size()));
+        bytes.insert(bytes.end(), s.begin(), s.end());
+    }
+};
+
+struct Reader {
+    std::span<const std::uint8_t> bytes;
+    std::size_t at = 0;
+    void need(std::size_t n) {
+        if (bytes.size() - at < n) throw std::runtime_error("The quick save is incomplete.");
+    }
+    std::uint32_t u32() {
+        need(4);
+        std::uint32_t v = 0;
+        for (int i = 0; i < 4; ++i) v |= std::uint32_t(bytes[at++]) << (8 * i);
+        return v;
+    }
+    std::int64_t i64() {
+        need(8);
+        std::uint64_t v = 0;
+        for (int i = 0; i < 8; ++i) v |= std::uint64_t(bytes[at++]) << (8 * i);
+        return std::int64_t(v);
+    }
+    float f32() {
+        const std::uint32_t u = u32();
+        float v;
+        std::memcpy(&v, &u, 4);
+        return v;
+    }
+    std::string str() {
+        const std::uint32_t n = u32();
+        need(n);
+        std::string s(reinterpret_cast<const char*>(bytes.data() + at), n);
+        at += n;
+        return s;
+    }
+};
 
 }  // namespace
 
@@ -71,14 +115,14 @@ bool GameFlow::begin(std::string& error) {
     if (profile_.currentLevel < 0) {
         // The very first time: straight into 1-1 (the tutorial).
         profile_.currentLevel = 1;
-        if (!startLevel(1, std::uint32_t(now()), now())) {
+        if (!startLevel(1, clockSeed(), std::int64_t(std::time(nullptr)))) {
             error = failure_;
             return false;
         }
         return true;
     }
     const data::LevelInfo* current = table_->byUid(profile_.currentLevel);
-    startMap(profile_.world >= 0 ? profile_.world : current ? current->world : 0, false, std::uint32_t(now()));
+    startMap(profile_.world >= 0 ? profile_.world : current ? current->world : 0, false, clockSeed());
     if (!map_) {
         error = failure_;
         return false;
@@ -86,10 +130,8 @@ bool GameFlow::begin(std::string& error) {
     return true;
 }
 
-std::int64_t GameFlow::now() const { return clock_ ? *clock_ : std::int64_t(std::time(nullptr)); }
-
 void GameFlow::saveProfile() {
-    if (!restoring_) profile_.save(profileFile_);
+    if (!replaying_) profile_.save(profileFile_);
 }
 
 void GameFlow::startMap(int world, bool arriving, std::uint32_t seed) {
@@ -97,9 +139,11 @@ void GameFlow::startMap(int world, bool arriving, std::uint32_t seed) {
     info_ = nullptr;
     if (sound_) sound_->stopAll();
     sound_ = std::make_unique<SoundOutput>(files_, audio_);
-    const bool silent = restoring_;
+    const bool silent = replaying_;
     sound_->setSilent(silent);
-    start_ = {Scene::Map, world, arriving, 0, seed, 0};
+    start_ = {Scene::Map, world, arriving, 0, seed, 0, profile_.toText()};
+    sceneTicks_ = 0;
+    log_.clear();
     ++sceneSerial_;
     std::string error;
     map_.reset();
@@ -108,7 +152,7 @@ void GameFlow::startMap(int world, bool arriving, std::uint32_t seed) {
         failure_ = "The world map could not be opened: " + error;
         return;
     }
-    map_ = std::move(map);
+    map_.emplace(std::move(*map));
     if (arriving) map_->arriveFromWorldCard();
     saveProfile();
 }
@@ -117,8 +161,10 @@ bool GameFlow::startLevel(int uid, std::uint32_t seed, std::int64_t clock) {
     map_.reset();
     if (sound_) sound_->stopAll();
     sound_ = std::make_unique<SoundOutput>(files_, audio_);
-    sound_->setSilent(restoring_);
-    start_ = {Scene::Level, 0, false, uid, seed, clock};
+    sound_->setSilent(replaying_);
+    start_ = {Scene::Level, 0, false, uid, seed, clock, profile_.toText()};
+    sceneTicks_ = 0;
+    log_.clear();
     ++sceneSerial_;
     info_ = table_->byUid(uid);
     std::string error;
@@ -132,8 +178,6 @@ bool GameFlow::startLevel(int uid, std::uint32_t seed, std::int64_t clock) {
     session_ = std::make_unique<game::Session>(std::move(*level), seed, game::Tuning{}, profile_.strength,
                                                profile_.record(uid).completed);
     session_->setRecord(profile_.record(uid));
-    session_->setCheeseBalance(profile_.cheeseBalance());
-    session_->setDossiersFound(profile_.dossiers);
     session_->setKiskaOffers(profile_.kiska, clock);
     profile_.strength = std::max(profile_.strength, info_->trailLength);
     recorded_ = false;
@@ -155,14 +199,14 @@ void GameFlow::showMapAfterLevel(bool nextWorld) {
     if (!nextWorld && won && info_ && info_->autostart >= 0) {
         const int next = info_->autostart;
         profile_.currentLevel = next;
-        if (!startLevel(next, std::uint32_t(now()), now())) return;
+        if (!startLevel(next, clockSeed(), std::int64_t(std::time(nullptr)))) return;
         levelWon_ = false;
         return;
     }
     const data::LevelInfo* current = table_->byUid(profile_.currentLevel);
     const int world = profile_.world >= 0 ? profile_.world : current ? current->world : 0;
     levelWon_ = false;
-    startMap(world, nextWorld, std::uint32_t(now()));
+    startMap(world, nextWorld, clockSeed());
 }
 
 void GameFlow::touch(const Touch& touch) { queued_.push_back(touch); }
@@ -214,8 +258,6 @@ void GameFlow::retryLevel() {
     else sound_->stopAll();
     session_ = session_->retry();
     session_->setRecord(profile_.record(info_->uid));
-    session_->setCheeseBalance(profile_.cheeseBalance());
-    session_->setDossiersFound(profile_.dossiers);
     recorded_ = false;
 }
 
@@ -228,10 +270,12 @@ void GameFlow::tick() {
     std::vector<Touch> touches;
     touches.swap(queued_);
     for (const Touch& t : touches) {
+        log_.push_back({sceneTicks_, t});
         if (map_) handleMapTouch(t);
         else if (session_) handleLevelTouch(t);
         if (left_) return;
     }
+    ++sceneTicks_;
     if (map_) tickMap();
     else if (session_) tickLevel();
 }
@@ -242,13 +286,13 @@ void GameFlow::tickMap() {
     if (const data::LevelInfo* level = map_->levelToStart()) {
         saveProfile();
         profile_.currentLevel = level->uid;
-        startLevel(level->uid, std::uint32_t(now()), now());
+        startLevel(level->uid, clockSeed(), std::int64_t(std::time(nullptr)));
         return;
     }
     if (map_->worldStep() != 0) {
         // update case 6: the profile's world steps and the map is built again.
         profile_.world = map_->world() + map_->worldStep();
-        startMap(profile_.world, false, std::uint32_t(now()));
+        startMap(profile_.world, false, clockSeed());
     }
 }
 
@@ -260,11 +304,6 @@ void GameFlow::tickLevel() {
     }
     session_->tick(game::kTickMs);
     playSounds(session_->takeSoundEvents(), session_->clockMs());
-    if (const int dossier = session_->takeFoundDossier(); dossier >= 0) {
-        // (1.1.1) Profile::foundDossier saves at once.
-        profile_.foundDossier(dossier);
-        saveProfile();
-    }
     if (!(session_->kiskaOffers() == profile_.kiska)) {
         // Kiska's offer has shown (or been counted): the profile keeps that at once.
         profile_.kiska = session_->kiskaOffers();
@@ -291,8 +330,7 @@ void GameFlow::tickLevel() {
     if (session_->worldComplete().active() && !recorded_) {
         // A world's boss fight won for the first time: recorded as the card appears, and the
         // card counts the world's goals after that (updateDynamicLabels).
-        profile_.complete(*table_, uid, session_->recordedScore(), session_->goalsWon(), session_->progress().foundSecret);
-        for (std::size_t k = 0; k < 5; ++k) profile_.cheese[k] += session_->progress().deliveredKinds[k];
+        profile_.complete(*table_, uid, session_->progress().total, session_->goalsWon(), session_->progress().foundSecret);
         profile_.currentLevel = uid;
         saveProfile();
         recorded_ = levelWon_ = true;
@@ -310,8 +348,7 @@ void GameFlow::tickLevel() {
     }
     if (session_->results().active() && !recorded_) {
         // Profile::completeLevel runs as the results are asked for.
-        profile_.complete(*table_, uid, session_->recordedScore(), session_->goalsWon(), session_->progress().foundSecret);
-        for (std::size_t k = 0; k < 5; ++k) profile_.cheese[k] += session_->progress().deliveredKinds[k];
+        profile_.complete(*table_, uid, session_->progress().total, session_->goalsWon(), session_->progress().foundSecret);
         profile_.currentLevel = uid;
         saveProfile();
         recorded_ = levelWon_ = true;
@@ -344,21 +381,31 @@ void GameFlow::draw(platform::Host& host) {
 }
 
 std::vector<std::uint8_t> GameFlow::saveState() const {
-    game::StateWriter w;
+    Writer w;
     w.bytes.insert(w.bytes.end(), kMagic, kMagic + 8);
-    std::uint32_t version = kStateVersion;
-    w(version);
-    SceneStart start = start_;
-    w(start.scene, start.world, start.arriving, start.levelUid, start.seed, start.clock);
-    std::string profile = profile_.toText();
-    bool firstWin = firstWin_, recorded = recorded_, levelWon = levelWon_;
-    w(profile, firstWin, recorded, levelWon);
-    w.count(queued_.size());
-    for (Touch t : queued_) ioTouch(w, t);
-    if (map_) w.save(*map_);
-    else if (session_) w.save(*session_);
-    w.save(*sound_);
-    return std::move(w.bytes);
+    w.u32(kStateVersion);
+    w.u32(std::uint32_t(start_.scene));
+    w.u32(std::uint32_t(start_.world));
+    w.u32(start_.arriving ? 1 : 0);
+    w.u32(std::uint32_t(start_.levelUid));
+    w.u32(start_.seed);
+    w.i64(start_.clock);
+    w.str(start_.profile);
+    w.u32(sceneTicks_);
+    w.u32(std::uint32_t(log_.size()));
+    for (const LoggedTouch& t : log_) {
+        w.u32(t.tick);
+        w.u32(t.touch.kind);
+        w.f32(t.touch.x);
+        w.f32(t.touch.y);
+    }
+    w.u32(std::uint32_t(queued_.size()));
+    for (const Touch& t : queued_) {
+        w.u32(t.kind);
+        w.f32(t.x);
+        w.f32(t.y);
+    }
+    return w.bytes;
 }
 
 bool GameFlow::restore(std::span<const std::uint8_t> state, std::string& error) {
@@ -366,17 +413,65 @@ bool GameFlow::restore(std::span<const std::uint8_t> state, std::string& error) 
         error = "The game's level table could not be read.";
         return false;
     }
-    const game::Profile before = profile_;
     try {
-        game::StateReader r{state};
-        if (state.size() < 8 || !std::equal(kMagic, kMagic + 8, state.begin()))
-            throw game::StateError("This is not a Spy Mouse save.");
+        Reader r{state};
+        r.need(8);
+        if (!std::equal(kMagic, kMagic + 8, state.begin())) throw std::runtime_error("This is not a Spy Mouse save.");
         r.at = 8;
-        std::uint32_t version = 0;
-        r(version);
-        if (version == 1) restoreFromTouches(r);
-        else if (version == kStateVersion) restoreState(r);
-        else throw game::StateError("This save needs a different version of the game.");
+        if (r.u32() != kStateVersion) throw std::runtime_error("This save needs a different version of the game.");
+        SceneStart start;
+        start.scene = Scene(r.u32());
+        start.world = int(r.u32());
+        start.arriving = r.u32() != 0;
+        start.levelUid = int(r.u32());
+        start.seed = r.u32();
+        start.clock = r.i64();
+        start.profile = r.str();
+        const std::uint32_t ticks = r.u32();
+        std::vector<LoggedTouch> log(r.u32());
+        for (LoggedTouch& t : log) {
+            t.tick = r.u32();
+            t.touch.kind = Touch::Kind(std::min<std::uint32_t>(r.u32(), Touch::Up));
+            t.touch.x = r.f32();
+            t.touch.y = r.f32();
+        }
+        std::vector<Touch> queued(r.u32());
+        for (Touch& t : queued) {
+            t.kind = Touch::Kind(std::min<std::uint32_t>(r.u32(), Touch::Up));
+            t.x = r.f32();
+            t.y = r.f32();
+        }
+        if (r.at != state.size()) throw std::runtime_error("The quick save is damaged.");
+        if (start.scene != Scene::Map && start.scene != Scene::Level) throw std::runtime_error("The quick save is damaged.");
+
+        // Run the scene again, silently and without writing the profile.
+        const game::Profile before = profile_;
+        if (!profile_.fromText(start.profile)) throw std::runtime_error("The saved progress could not be read.");
+        replaying_ = true;
+        failure_.clear();
+        left_ = false;
+        queued_.clear();
+        if (start.scene == Scene::Map) startMap(start.world, start.arriving, start.seed);
+        else startLevel(start.levelUid, start.seed, start.clock);
+        start_.profile = start.profile;  // (as saved, also when the file was older)
+        std::size_t next = 0;
+        for (std::uint32_t tick = 0; tick < ticks && failure_.empty() && !left_; ++tick) {
+            while (next < log.size() && log[next].tick == tick) queued_.push_back(log[next++].touch);
+            const std::uint64_t serial = sceneSerial_;
+            this->tick();
+            if (sceneSerial_ != serial) break;  // (cannot happen in a save made within the scene)
+        }
+        replaying_ = false;
+        if (!failure_.empty() || sceneTicks_ != ticks || next != log.size()) {
+            const std::string why = failure_;
+            profile_ = before;
+            failure_.clear();
+            map_.reset();
+            session_.reset();
+            start_ = {};
+            throw std::runtime_error(why.empty() ? "The saved moment could not be restored." : why);
+        }
+        queued_ = std::move(queued);
         // Progress made since the save stays: the profile keeps every unlock, best total and won
         // goal of the one on disk.
         game::Profile onDisk;
@@ -385,89 +480,10 @@ bool GameFlow::restore(std::span<const std::uint8_t> state, std::string& error) 
         sound_->resume();
         return true;
     } catch (const std::exception& e) {
-        restoring_ = false;
-        profile_ = before;
-        failure_.clear();
-        map_.reset();
-        session_.reset();
-        start_ = {};
+        replaying_ = false;
         error = e.what();
         return false;
     }
-}
-
-void GameFlow::restoreState(game::StateReader& r) {
-    SceneStart start;
-    r(start.scene, start.world, start.arriving, start.levelUid, start.seed, start.clock);
-    if (start.scene != Scene::Map && start.scene != Scene::Level) throw game::StateError("The quick save is damaged.");
-    std::string profile;
-    bool firstWin = false, recorded = false, levelWon = false;
-    r(profile, firstWin, recorded, levelWon);
-    std::vector<Touch> queued(r.count());
-    for (Touch& t : queued) ioTouch(r, t);
-    if (!profile_.fromText(profile)) throw game::StateError("The saved progress could not be read.");
-
-    // The scene as built at its start (silently, without writing the profile), then the
-    // saved state over it.
-    restoring_ = true;
-    failure_.clear();
-    left_ = false;
-    queued_.clear();
-    if (start.scene == Scene::Map) startMap(start.world, start.arriving, start.seed);
-    else startLevel(start.levelUid, start.seed, start.clock);
-    if (!failure_.empty()) throw game::StateError(failure_);
-    if (map_) r.load(*map_);
-    else r.load(*session_);
-    r.load(*sound_);
-    if (r.at != r.bytes.size()) throw game::StateError("The quick save is damaged.");
-    restoring_ = false;
-    firstWin_ = firstWin;
-    recorded_ = recorded;
-    levelWon_ = levelWon;
-    queued_ = std::move(queued);
-}
-
-// Version 1 (until 2026-10-29) kept the scene's start and the touches since, by tick: the
-// scene runs again silently to the saved tick.
-void GameFlow::restoreFromTouches(game::StateReader& r) {
-    std::uint32_t scene = 0, world = 0, arriving = 0, uid = 0, seed = 0, ticks = 0;
-    std::int64_t clock = 0;
-    std::string profile;
-    r(scene, world, arriving, uid, seed, clock, profile, ticks);
-    struct Logged {
-        std::uint32_t tick = 0, kind = 0;
-        float x = 0, y = 0;
-    };
-    std::vector<Logged> log(r.count());
-    for (Logged& t : log) r(t.tick, t.kind, t.x, t.y);
-    std::vector<Touch> queued(r.count());
-    for (Touch& t : queued) {
-        std::uint32_t kind = 0;
-        r(kind, t.x, t.y);
-        t.kind = Touch::Kind(std::min<std::uint32_t>(kind, Touch::Up));
-    }
-    if (r.at != r.bytes.size() || (scene != std::uint32_t(Scene::Map) && scene != std::uint32_t(Scene::Level)))
-        throw game::StateError("The quick save is damaged.");
-    if (!profile_.fromText(profile)) throw game::StateError("The saved progress could not be read.");
-    restoring_ = true;
-    failure_.clear();
-    left_ = false;
-    queued_.clear();
-    if (scene == std::uint32_t(Scene::Map)) startMap(int(world), arriving != 0, seed);
-    else startLevel(int(uid), seed, clock);
-    std::size_t next = 0;
-    std::uint32_t tick = 0;
-    for (; tick < ticks && failure_.empty() && !left_; ++tick) {
-        for (; next < log.size() && log[next].tick == tick; ++next)
-            queued_.push_back({Touch::Kind(std::min<std::uint32_t>(log[next].kind, Touch::Up)), log[next].x, log[next].y});
-        const std::uint64_t serial = sceneSerial_;
-        this->tick();
-        if (sceneSerial_ != serial) break;  // (cannot happen in a save made within the scene)
-    }
-    if (!failure_.empty() || tick != ticks || next != log.size())
-        throw game::StateError(failure_.empty() ? "The saved moment could not be restored." : failure_);
-    restoring_ = false;
-    queued_ = std::move(queued);
 }
 
 }  // namespace doc::app

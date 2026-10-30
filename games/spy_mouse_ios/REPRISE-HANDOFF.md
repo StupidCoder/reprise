@@ -23,12 +23,9 @@ untouched; all commits now belong to the Reprise repository.
   used by Reprise and by the standalone app alike. Touches are queued in order and handled at
   the next tick; `Session::prepareFrame` (the original's render-time state step) runs once after
   every tick, so drawing changes nothing and a picture can be taken at any time.
-- Quick saves keep the whole state of the current scene (`src/game/state_io.hpp`: each class
-  lists its changing fields once in `io()`), the flow's own state, the profile text and what
-  decides later sounds. Loading builds the scene from the game's files as at its start, reads
-  the saved state over it and resumes the music and loops, so it is immediate however long the
-  scene has run. Progress made since a save (unlocks, best totals, goals) is never lowered by
-  loading it. Saves from before this format (version 1: scene start plus touches) still load by running the scene again with those touches; saving again writes the new format.
+- Quick saves keep the current scene's start (scene, profile text, seed, clock) and the touches
+  since, by tick; loading runs the scene again silently and resumes the music and loops.
+  Progress made since a save (unlocks, best totals, goals) is never lowered by loading it.
 - Campaign progress: `<data>/progress/spy_mouse_ios/progress.txt`, outside the imported files
   and the saves. DoubleOCheese's `progress.txt` is copied once when Reprise has none; its 1.0.5
   import cannot be used (the port reads 1.1.1) and is reported, never changed.

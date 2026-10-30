@@ -4,7 +4,6 @@
 
 #include "data/game_files.hpp"
 
-#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -30,18 +29,6 @@ struct FluffKindData {
     bool autoplay = false;  // plays from the start, else only when triggered
 };
 std::vector<FluffKindData> readFluffKinds(const GameFiles& files);
-
-// (1.1.1) The dossiers (data/program_layout.hpp): the picture name ("ui/dossiers/
-// portrait_<name>.png", "screenshot_<name>.png"), the title's string id, five lines of
-// "known facts"/"extra intel" (-1: none) and where the subject is first seen (a level uid; -1
-// and -2 are places outside the levels).
-struct DossierData {
-    std::string name;
-    int title = -1;
-    std::array<int, 5> tips{};
-    int lastSeen = -1;
-};
-std::vector<DossierData> readDossiers(const GameFiles& files);
 
 // Eye pictures each popup mouse pose can show (g_vEyeMapping: 8 poses x 5 bytes).
 std::vector<std::uint8_t> readEyeMapping(const GameFiles& files);

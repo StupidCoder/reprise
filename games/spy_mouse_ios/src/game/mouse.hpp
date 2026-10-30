@@ -84,10 +84,10 @@ public:
     // tricks) registered in Player::loadAssets @0x1270ec's order.
     enum Sequence : int {
         kIdle, kScratch, kFlying, kLanding, kSurprised, kSniff, kCheckMap, kPushWall, kEatCheese,
-        kYoyo, kJuggle, kShurikenDeath, kFlameDeath, kFlameDeath2, kCutleryDeath, kSequenceCount
+        kYoyo, kJuggle, kShurikenDeath, kFlameDeath, kFlameDeath2, kSequenceCount
     };
     // Sequence files and the sequence names the slots above refer to.
-    static const char* const kSequenceFiles[14];
+    static const char* const kSequenceFiles[13];
     static const char* const kSequenceNames[kSequenceCount];
     // `bucket`: the worn cup is world 3's bucket (sprites/bucket01..08, 49 wide).
     void setUpSprite(const std::vector<data::AnimSequence>& sequences, bool bucket = false);
@@ -112,17 +112,6 @@ public:
 private:
     bool moving_ = false;
     float speed_ = 0.0f;
-public:
-    // Quick saves (state_io.hpp).
-    template <class Io>
-    void io(Io& io) { io(position, size, heading, reachDistance, pathIndex, state, acceleration, scoreBoost,
-                           chilliMs, chilliTotalMs, boostTimerMs, seenByBoss, viewScrolling, velocity,
-                           stateEntry, lastStepLength, distanceWalked, wasDrawing, releases, snapGlowMs, floor,
-                           cup, hole, holeTag, lastHole, lastHoleUntilMs, leftHole, leftHoleUntilMs,
-                           slideRemainingMs, slideDurationMs, slideDirection, growing, slideTarget,
-                           slidePosition, drawScale, footprintSide, lastFootprint, wetMs, wetKind, wetFactor,
-                           wetRed, wetGreen, wetBlue, footprintPending, footprintColour, sprite, sequenceIds,
-                           cupSprite, bucket, idleMs, idleStep, moving_, speed_); }
 };
 
 // Speed factor table for carried cheese (Player::updateTrail @0x1236c0): the weight of one

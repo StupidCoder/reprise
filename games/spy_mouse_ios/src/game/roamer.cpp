@@ -114,9 +114,10 @@ void Roamer::update(int dtMs, const LevelGeometry& walls, float viewLeft, GameRa
         position_ = next;  // butterflies fly over walls
         return;
     }
-    // Object::updatePositions @0x115430: pushed off the walls, it takes the pushed place.
-    walls.collideSphere(next, radius_, viewLeft, nullptr, kMovementIgnoredWalls);
-    position_ = next;
+    LevelGeometry::SphereOptions options;
+    options.viewLeft = viewLeft;
+    const int kind = walls.collideSphere(next, radius_, options);
+    if (kind <= 3 || kind == 7 || kind == 11 || kind == 13 || (kind >= 14 && kind <= 16)) position_ = next;
 }
 
 }  // namespace doc::game

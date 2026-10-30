@@ -69,15 +69,17 @@ void Mouse::tick(int dtMs, DrawnPath& path, float weight, const Tuning& tuning, 
     if (state == 3 || state == 7) speed = 0.0f;
     if (state == 6) speed = speed * 0.5f;
 
-    // Head for the next path point; points within reach are passed (and dropped). Passing the
-    // last one still turns the mouse towards it (Player::update @0x126108; 1.0.5 kept the old
-    // heading for that tick).
+    // Head for the next path point; points within reach are passed (and dropped).
     if (pathIndex >= 0 && pathIndex < path.size()) {
         float dx = path[pathIndex].x - position.x;
         float dy = path[pathIndex].y - position.y;
+        bool turn = true;
         while (dx * dx + dy * dy <= reachDistance) {
             ++pathIndex;
-            if (pathIndex >= path.size()) break;
+            if (pathIndex >= path.size()) {
+                turn = false;  // keeps the previous heading for this tick
+                break;
+            }
             if (infinitePath) {
                 path.trim(1);
                 --pathIndex;
@@ -85,7 +87,7 @@ void Mouse::tick(int dtMs, DrawnPath& path, float weight, const Tuning& tuning, 
             dx = path[pathIndex].x - position.x;
             dy = path[pathIndex].y - position.y;
         }
-        heading = std::atan2(dy, dx);
+        if (turn) heading = std::atan2(dy, dx);
     } else {
         speed = 0.0f;
     }
@@ -120,7 +122,7 @@ void Mouse::tick(int dtMs, DrawnPath& path, float weight, const Tuning& tuning, 
     }
 }
 
-const char* const Mouse::kSequenceFiles[14] = {
+const char* const Mouse::kSequenceFiles[13] = {
     "anim_sequences/idle.xml.brd",           "anim_sequences/idle_scratch.xml.brd",
     "anim_sequences/flying.xml.brd",         "anim_sequences/surprised.xml.brd",
     "anim_sequences/player_checkmap.xml.brd", "anim_sequences/player_sniff.xml.brd",
@@ -128,13 +130,11 @@ const char* const Mouse::kSequenceFiles[14] = {
     "anim_sequences/player_shurikendeath.xml.brd", "anim_sequences/player_flamedeath.xml.brd",
     "anim_sequences/player_flamedeath_2.xml.brd",  "anim_sequences/player_pushwall.xml.brd",
     "anim_sequences/player_eatcheese.xml.brd",
-    "anim_sequences/player_cutlerydeath.xml.brd",  // (new in 1.1.1)
 };
 
 const char* const Mouse::kSequenceNames[kSequenceCount] = {
     "idle1",     "scratch1",  "flying", "landing", "surprised1",     "sniff1",     "checkmap1",
     "pushwall1", "eatcheese1", "yoyo1", "juggle_loop", "shurikendeath1", "flamedeath", "flamedeath2",
-    "cutlerydeath1",
 };
 
 void Mouse::setUpSprite(const std::vector<data::AnimSequence>& sequences, bool useBucket) {

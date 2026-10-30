@@ -21,10 +21,6 @@ public:
 private:
     std::uint32_t state_ = 1;
     std::uint64_t draws_ = 0;
-public:
-    // Quick saves (state_io.hpp).
-    template <class Io>
-    void io(Io& io) { io(state_, draws_); }
 };
 
 // randWithinRange(float, float, int) @0x19c7d4: the same mapping for a value drawn earlier.

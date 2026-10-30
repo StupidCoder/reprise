@@ -12,7 +12,7 @@ constexpr float kTwoPi = 6.28318548f, kPi = 3.14159274f;
 // The Spitter's settings in the tuning table (Values, defaults in code; read back from the
 // running original, run lbf2_world2).
 struct SpitterValues {
-    int wakeMs = 750;            // +0x244 mech_taunt_time: after the intro, before it starts (1.0.5: 1350)
+    int wakeMs = 1350;           // +0x23c: after the intro, before it starts
     int windUpMs = 700;          // +0x278: from seeing the mouse to the throw
     int cooldownMs = 1000;       // +0x280: before it looks for the mouse again
     int throwSpeed = 84;         // +0x1f0: units a second
@@ -55,7 +55,7 @@ Spitter::Spitter(int objectId, int floor, Vec2 position, float radius, Vec2 size
 }
 
 void Spitter::update(int dtMs, BossWorld& world) {
-    if (state_ == 0x1c) {
+    if (state_ == 0x18) {
         // Broken (updateBrokenState @0x1abd38): a puff of smoke about it every 1.5 s; the
         // machine sounds stay off.
         wreck.update(dtMs);
@@ -69,13 +69,13 @@ void Spitter::update(int dtMs, BossWorld& world) {
         for (int s : kMechSounds) world.sounds.push_back(effect(SoundEvent::Stop, s));
         return;
     }
-    if (state_ == 0x1a) {
+    if (state_ == 0x16) {
         // Waking: active once its wait is over (it moves from the next tick on).
         cooldownMs_ -= dtMs;
-        if (cooldownMs_ <= 0) state_ = 0x1b;
+        if (cooldownMs_ <= 0) state_ = 0x17;
         return;
     }
-    if (state_ != 0x1b) return;
+    if (state_ != 0x17) return;
     updateAnimations(world);
     const float speed = updateSpitter(dtMs, world);
     // The end of ObjControllerBoss::update: the turn, then Object::updatePositions.
@@ -99,10 +99,12 @@ void Spitter::updateAnimations(const BossWorld& world) {
 
 // updateSpitter @0x1ab3a8.
 float Spitter::updateSpitter(int dtMs, BossWorld& world) {
-    // Pushed out of the walls first; touching the beam (wall type 0x8f) ends the fight.
-    static constexpr int kIgnored[] = {0x73};
-    if (world.walls.collideSphere(position_, radius_, world.viewLeft, nullptr, kIgnored) & contact::k8F) {
-        state_ = 0x1c;
+    // Pushed out of the walls first; touching the beam (kind 7) ends the fight.
+    LevelGeometry::SphereOptions options;
+    options.ignoreType = 0x73;
+    options.viewLeft = world.viewLeft;
+    if (world.walls.collideSphere(position_, radius_, options) == 7) {
+        state_ = 0x18;
         GameMessage m;
         m.type = 4;
         m.sender = objectId_;
@@ -146,13 +148,7 @@ float Spitter::updateSpitter(int dtMs, BossWorld& world) {
             throwsDue_ = 1;
         }
     }
-    // (1.1.1 updateSpitter @0x1ab4c4: it looks again every tick; out of sight, the wind-up, the
-    // throws due and the wait are dropped. Run lbf2_round.)
-    if (!canSeeMouse(world)) {
-        windUpMs_ = 0;
-        throwsDue_ = 0;
-        cooldownMs_ = 0;
-    } else if (throwsDue_ >= 1) {
+    if (throwsDue_ >= 1) {
         cooldownMs_ = kValues.cooldownMs;
         if (windUpMs_ > 0) {
             windUpMs_ -= dtMs;
@@ -167,7 +163,7 @@ float Spitter::updateSpitter(int dtMs, BossWorld& world) {
 
 // The throw: a fork, spoon or knife (rand() % 3), straight at the mouse from the dome's rim.
 void Spitter::throwAtMouse(BossWorld& world) {
-    static constexpr int kPictures[3] = {kPictureFork, kPictureSpoon, kPictureKnife};
+    static constexpr int kPictures[3] = {4, 5, 6};
     ProjectileSpec spec;
     spec.flight = 2;
     spec.hits = 5;  // the mouse and bosses
@@ -208,16 +204,16 @@ void Spitter::blowUp(BossWorld& world, const std::function<void()>& throwKey) {
     world.particles.add(kParticleExplosion, floor_, position_ + Vec2{0.0f, size_.y * 0.5f}, {}, nullptr, 0,
                         Vec2{-1.0f, -1.0f}, true);
     if (throwKey) throwKey();
-    state_ = 0x1c;
+    state_ = 0x18;
     throwing_ = 1000;
     world.sounds.push_back(effect(SoundEvent::Play, kSoundExplosion));
 }
 
 void Spitter::touchMouse(bool mouseProtected, BossWorld& world) {
-    if (mouseProtected || state_ == 0x1c) return;
+    if (mouseProtected || state_ == 0x18) return;
     for (int s : kMechSounds) world.sounds.push_back(effect(SoundEvent::Stop, s));
     if (world.killMouse) world.killMouse();
-    state_ = 0x19;
+    state_ = 0x15;
     cooldownMs_ = 5000;
     world.particles.add(kParticleCaught, floor_, position_, {}, nullptr, 0, Vec2{-1.0f, -1.0f}, true);
     world.sounds.push_back(effect(SoundEvent::Play, kSoundCaught));
@@ -229,13 +225,13 @@ void RailTarget::update(int dtMs, bool levelOnTop, const LevelGeometry& walls, f
     // (In a boss level, LevelState +0x14 = 2, it waits while a cutscene or popup is on top.)
     if (!levelOnTop) return;
     float speed = 0.0f;
-    if (state == 0x1f) {
+    if (state == 0x1b) {
         speed = walkRoute(walk, position, radius, kRailSpeed, aim, heading, nullptr);
-    } else if (state == 0x20 && stopMs < 60001) {
+    } else if (state == 0x1c && stopMs < 60001) {
         stopMs -= dtMs;
         if (stopMs < 1) {
             stopMs = 0;
-            state = 0x1f;
+            state = 0x1b;
             anim.setAnim(0, -1, SpriteAnim::Hold, 200);
         }
     }
@@ -248,11 +244,11 @@ void BeamEmitter::update(int dtMs, std::vector<SoundEvent>& sounds) {
     anim.update(dtMs);  // (Object::update's own, then the device's: its frames run twice as fast)
     clockMs += dtMs;
     anim.update(dtMs);
-    if (state == 0x27 && step == 0) {
+    if (state == 0x23 && step == 0) {
         timerMs -= dtMs;
         if (timerMs < 1) {
             timerMs = 0;
-            state = 0x26;
+            state = 0x22;
             anim.setAnim(0, -1, SpriteAnim::Hold, 200);
             sounds.push_back(effect(SoundEvent::Play, kSoundEmitterOff));
         }
@@ -261,7 +257,7 @@ void BeamEmitter::update(int dtMs, std::vector<SoundEvent>& sounds) {
         if (timerMs < 1) {
             timerMs = 0;
             updating = false;
-            state = 0x26;
+            state = 0x22;
             step = 0;
             anim.setAnim(0, -1, SpriteAnim::Hold, 200);
         }

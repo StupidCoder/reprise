@@ -21,9 +21,6 @@ struct LevelRecord {
     bool completed = false;        // +0xf6
     bool unlocked = false;         // +0xf7: shown on the map, playable
     bool fresh = false;            // +0xf4: unlocked since the map last showed it
-    // Quick saves (state_io.hpp).
-    template <class Io>
-    void io(Io& io) { io(best, goals, plays, completed, unlocked, fresh); }
 };
 
 // What the profile keeps about Kiska's offer (Profile +0xd4..+0xf0; see Session::offerKiska).
@@ -36,9 +33,6 @@ struct KiskaOffers {
     int shown = 0;             // +0xf0: how often it showed (at most twice)
 
     bool operator==(const KiskaOffers&) const = default;
-    // Quick saves (state_io.hpp).
-    template <class Io>
-    void io(Io& io) { io(owned, offeredHere, offeredLater, lastShown, step, shown); }
 };
 
 class Profile {
@@ -78,29 +72,6 @@ public:
     // SceneGame::initGame @0x10639e with Profile::incPlayerStrength).
     int strength = 1;
     KiskaOffers kiska;
-    // (1.1.1) The cheese tracker (Profile +0x1b0, CheeseTracker): counts by kind: 0..4 cheese
-    // brought home by size, 5 world bonuses, 6 pickups, 7 bought, 8 spent. The balance the
-    // results show (getCheeseBalance @0x221178) is kinds 0..5 and 7, less 8.
-    std::array<int, 9> cheese{};
-    // (1.1.1) The dossiers (Profile +0x20, 8 bytes each: found +4, new +5; the count +0x14).
-    std::array<bool, 21> dossiers{};
-    std::array<bool, 21> newDossiers{};   // found and not yet looked at in the backpack
-    int dossiersFound() const {
-        int n = 0;
-        for (bool d : dossiers) n += d ? 1 : 0;
-        return n;
-    }
-    // Profile::foundDossier @0x179d40.
-    void foundDossier(int id) {
-        if (id < 0 || id >= int(dossiers.size())) return;
-        dossiers[std::size_t(id)] = true;
-        newDossiers[std::size_t(id)] = true;
-    }
-    int cheeseBalance() const {
-        int n = 0;
-        for (int k = 0; k <= 5; ++k) n += cheese[std::size_t(k)];
-        return n + cheese[7] - cheese[8];
-    }
 
 private:
     std::map<int, LevelRecord> levels_;

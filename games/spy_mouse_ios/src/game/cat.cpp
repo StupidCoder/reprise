@@ -18,6 +18,7 @@ constexpr float kPi = 3.14159274f;
 // Defaults of the cat values in the tuning table (Values::init @0x143548; read from the running
 // original, reference run l11_60).
 constexpr float kCatSpeed = 0.5f;        // +0x58
+constexpr float kBossFrameWidth = 32.0f;  // the boss cat's picture (Object +0xfc)
 constexpr float kCatTurnRate = 1.0f;     // +0x60
 constexpr float kCatViewDistance = 400.0f;  // +0x6c
 constexpr float kCatViewAngle = 145.0f;     // +0x74, degrees
@@ -180,8 +181,6 @@ Cat::Cat(int objectId, int type, int floor, Vec2 position, float radius, CatRout
     awarenessMs_ = kTickMs * 2;
     chaseStep_ = 0;
     if (type == 0x38) throwMs_ = kNinjaThrowMs;  // (init: "ninja_throw_cooldown")
-    velocity_ = initialVelocity();
-    initialRadius_ = radius_;
     returnPath_.reserve(kReturnPathCapacity);
     // ObjControllerCat::loadAssets: walking frames 32 wide, idle ones 50 wide; walking, the
     // idle picture looking about, the stunned one once through.
@@ -205,43 +204,14 @@ float Cat::initialSpeed() const {
     if (type_ == 0x3b) return (kCatSpeed * kGhostBossSpeedMult) * kFluffySpeedMult;
     return kCatSpeed * chaseValuesFor(type_).speedFactor;
 }
-// (1.1.1) init @0x19fa16: the boss cat (0x35) starts facing 0 with a velocity of 0.05 both
-// ways (it stands until the chase starts; run lb1_explore).
-Vec2 Cat::initialVelocity() const { return type_ == 0x35 ? Vec2{0.0500000007f, 0.0500000007f} : Vec2{}; }
-// (1.1.1 init @0x19fa6a: Fluffy and his henchman start in the cutscene state 0x40; 1.0.5 had
-// 0x16.)
 int Cat::initialState() const {
-    if (ridesBalloon_) return 0x18;
-    return type_ == 0x3a || type_ == 0x3b ? 0x40 : 0;
-}
-
-// (1.1.1 init @0x19fa92) Fluffy faces a direction by the profile's world: left in worlds 1
-// and 3..5, up-left in world 2, down-left in world 6; postInit @0x19fbd0 shows his pose
-// picture (part 2, frame 5). (1.0.5 did this in the intro's ScriptSequence::showFluffy.)
-// The henchman (0x3b) has no walking pictures but in world 6 (loadAssets @0x1a01ec): he is
-// not drawn while he would walk.
-void Cat::initForWorld(int world) {
-    world_ = world;
-    if (type_ == 0x3b && world != 5) walk.setSheet(0, 0, 32.0f);
-    if (type_ == 0x3b && world == 3) radius_ = initialRadius_ = 15.0f;  // (loadAssets @0x1a0234: in his balloon, run lbf4_watch)
-    if (type_ != 0x3a) return;
-    posePart_ = 2;
-    pose.setAnim(5, 5, SpriteAnim::Loop, 125);
-    Vec2 d{};
-    switch (world) {
-    case 0: case 2: case 3: case 4: d = {-1.0f, 0.0f}; break;
-    case 1: d = {-1.0f, -1.0f}; break;
-    case 5: d = {-1.0f, 1.0f}; break;
-    default: break;
-    }
-    float a = std::fmod(d.angleDegrees() * 0.0174532924f, kTwoPi);
-    if (a < 0.0f) a = a + kTwoPi;
-    heading_ = targetHeading_ = a;
+    if (ridesBalloon_) return 0x14;
+    return type_ == 0x3a || type_ == 0x3b ? 0x12 : 0;
 }
 
 void Cat::rideBalloon(SheetSize boss) {
     ridesBalloon_ = true;
-    state_ = 0x18;
+    state_ = 0x14;
     balloonX_ = position_.x;
     balloon.setSheet(boss.width, boss.height, 48.0f);
     balloon.setAnim(0, 7, SpriteAnim::Loop, 400);
@@ -254,37 +224,13 @@ void Cat::restore(const ObjectSnapshot& o) {
     heading_ = o.heading;
     routeIndex_ = o.routeIndex;
     speed_ = o.speed;
-    // (The snapshot keeps the radius as a whole number, runs lb2_win, lbf_try2.)
-    radius_ = float(o.radius);
     walk.setFrame(o.frame);
-    // (Snapshot<Object>::rollback @0x10bc10: the route as loaded, trimmed by the points the cat
-    // had dropped, Path::trim.)
-    route_ = startRoute_;
-    trimmed_ = o.trimmed;
-    if (trimmed_ >= 1) {
-        const std::size_t n = std::min(route_.points.size(), std::size_t(trimmed_));
-        route_.points.erase(route_.points.begin(), route_.points.begin() + std::ptrdiff_t(n));
-    }
 }
 
 // SceneGame::startGame on a reload: the cat object is reused and its controller's init,
 // loadAssets and postInit run again over it (fields they do not set keep their values).
 void Cat::reload() {
-    // (1.1.1 run lb2_win: the aim, the calm timer, the way back and the velocity start over.)
-    targetHeading_ = 0.0f;
-    calmMs_ = 0;
-    stoppedForGood_ = false;  // (its object's running flag comes from the snapshot, run lb4_win)
-    steerOffset_ = 0.0f;      // (+0x110 and +0x1ec start over too, run l3h2_caught)
-    chaseTimerMs_ = 0;
-    returnPath_.clear();
-    returnIndex_ = 0;
-    routeDirection_ = 1;  // (a back-and-forth route starts forward again, run l3h2_win)
-    velocity_ = initialVelocity();
     speed_ = initialSpeed();
-    if (type_ == 0x35) {
-        heading_ = 0.0f;
-        velocity_ = initialVelocity();
-    }
     state_ = initialState();
     awarenessMs_ = kTickMs * 2;
     chaseStep_ = 0;
@@ -294,14 +240,12 @@ void Cat::reload() {
     walk.setAnim(0, 3, SpriteAnim::Loop, 200);
     startIdlePicture();
     common.setAnim(0, 3, SpriteAnim::Once, 200);
-    if (world_ >= 0) initForWorld(world_);  // (init and postInit by the world again)
 }
 
 void Cat::restart(bool reload) {
     if (reload) {
         // SceneGame::startGame runs the cat's init and loadAssets again first.
         speed_ = initialSpeed();
-        radius_ = initialRadius_;  // (postInit)
         route_ = startRoute_;  // (postInit links the route again: points dropped on the way are back)
         animatedMs = 0;
         facing_ = -1;
@@ -320,7 +264,7 @@ void Cat::restart(bool reload) {
     collisionStreak_ = 0;
     headBumps_ = sightings_ = 0;
     position_ = start_;
-    velocity_ = initialVelocity();
+    velocity_ = {};
     particle_ = -1;  // (the old particle is shrunk away; the new level's pool is fresh)
     walk.setAnim(0, 3, SpriteAnim::Loop, 200);
     startIdlePicture();
@@ -328,23 +272,6 @@ void Cat::restart(bool reload) {
     state_ = initialState();  // (Object::reInit runs the controller's init again)
     chaseStep_ = 0;
     awarenessMs_ = kTickMs * 2;
-}
-
-// Object::loadAssets for a cat: its pictures start over.
-void Cat::reloadPictures() {
-    walk.setAnim(0, 3, SpriteAnim::Loop, 200);
-    startIdlePicture();
-    common.setAnim(0, 3, SpriteAnim::Once, 200);
-}
-
-// SceneGame::resetCats @0xf80d0 (1.1.1): Object::reInit, init and postInit, but not
-// loadAssets: the cat starts over while its pictures run on as they were (run l3h2_win).
-void Cat::reset() {
-    const SpriteAnim keepWalk = walk, keepIdle = idle, keepCommon = common;
-    restart(true);
-    walk = keepWalk;
-    idle = keepIdle;
-    common = keepCommon;
 }
 
 void Cat::startIdlePicture() {
@@ -383,20 +310,20 @@ void Cat::setHenchmanSheets(SheetSize cry, SheetSize splash, float splashWidth) 
 }
 
 void Cat::dunkHenchman() {
-    state_ = 0x40;
+    state_ = 0x3c;
     common.setAnim(0, 0, SpriteAnim::Hold, 0);
     posePart_ = 0;
 }
 
 void Cat::splashHenchman() {
     pose.setAnim(0, 4, SpriteAnim::Once, 150);
-    state_ = 0x17;
+    state_ = 0x13;
     common.setAnim(1, common.frameCount() - 1, SpriteAnim::Loop, 125);
 }
 
 void Cat::launchHenchman(Vec2 at, int lastFrame) {
     position_ = at;
-    state_ = 0x40;
+    state_ = 0x3c;
     common.setAnim(0, lastFrame, SpriteAnim::Loop, 50);
     posePart_ = 0;
     henchmanLaunched_ = true;
@@ -409,15 +336,13 @@ void Cat::landHenchman() {
 }
 
 void Cat::shockHenchman(int frame) {
-    state_ = 0x17;
+    state_ = 0x13;
     common.setAnim(frame, frame, SpriteAnim::Hold, 200);
 }
 
 void Cat::prepareFrame() {
     const Picture shown = picture();
-    if (state_ == 9 || state_ == 0x11 || shown == Picture::Common || shown == Picture::None) return;
-    // (renderCat @0x1a42e8: a picture without frames is not drawn.)
-    if (shown == Picture::Walk && walk.frameCount() <= 0) return;
+    if (state_ == 7 || state_ == 0xf || shown == Picture::Common || shown == Picture::None) return;
     targetHeading_ = wrapPositive(targetHeading_);
     // The facings come from the picture's set: a single picture (the boss cat's and Fluffy's
     // sitting, Fluffy's pose, the henchman's balloon) has one, so it always faces 0.
@@ -432,20 +357,19 @@ void Cat::prepareFrame() {
 
 Cat::Picture Cat::picture() const {
     if (type_ == 0x3a || type_ == 0x3b) {
-        if (state_ == 0x40) return posePart_ == 2 ? Picture::Pose : posePart_ == 0 ? Picture::Common
+        if (state_ == 0x3c) return posePart_ == 2 ? Picture::Pose : posePart_ == 0 ? Picture::Common
                                  : posePart_ == 1 ? Picture::Idle : Picture::Walk;
-        if (state_ == 0x16) return Picture::None;
-        if (state_ == 0x17) return Picture::Common;
-        if (state_ == 0x18 && ridesBalloon_) return Picture::Balloon;
+        if (state_ == 0x12) return Picture::None;
+        if (state_ == 0x13) return Picture::Common;
+        if (state_ == 0x14 && ridesBalloon_) return Picture::Balloon;
         return Picture::Walk;
     }
     switch (state_) {
     case 0: return velocity_.x * velocity_.x + velocity_.y * velocity_.y == 0.0f ? Picture::Idle : Picture::Walk;
-    case 2: case 3: case 0xd: return Picture::Common;
-    case 5: case 6: return Picture::Walk;
-    case 7: return Picture::Idle;  // (1.1.1: stunned, the idle sprite's daze frames)
-    case 8: return lurePlayed_ ? (type_ == 0x32 || type_ == kBlackCat ? Picture::Idle : Picture::Common) : Picture::Walk;
-    case 9: case 10: case 11: case 0x11: return Picture::Idle;
+    case 2: case 3: case 0xb: return Picture::Common;
+    case 5: return chaseStep_ == 4 ? Picture::Idle : Picture::Walk;
+    case 6: return lurePlayed_ ? (type_ == 0x32 || type_ == kBlackCat ? Picture::Idle : Picture::Common) : Picture::Walk;
+    case 7: case 8: case 9: case 0xf: return Picture::Idle;
     default: return Picture::Walk;
     }
 }
@@ -482,7 +406,6 @@ float Cat::followRoute(float speed, CatWorld& world) {
             // Path::trim @0x11d780 (n = index + 1): the route so far is dropped, the cat goes on
             // from here; a looping route's last point becomes its new first.
             if (routeIndex_ >= count - 1) return;
-            trimmed_ = routeIndex_ + 1;  // (+0x208)
             route_.points.erase(route_.points.begin(), route_.points.begin() + routeIndex_ + 1);
             routeIndex_ = 0;
             cut = true;
@@ -637,23 +560,18 @@ bool Cat::canSeeGoal(const CatWorld& world) const {
 
 // ObjControllerCat::applySteering: two whiskers 23 ahead at ±35 degrees of the aim; one that
 // crosses a wall turns the aim away by 0.07 for a while (the turn decays by 0.9 per tick).
-// Not while taking aim, pouncing or dazed. A whisker counts walls of types 0, 0x6e and 0x90
-// (three SceneGame::doesLineTouch calls by type, 1.1.1 @0x1a1bfa).
-bool Cat::whiskerTouches(const CatWorld& world, Vec2 tip) const {
-    for (int type : {0, 0x6E, 0x90})
-        if (world.walls.lineTouchesType(position_, tip, type, world.viewLeft)) return true;
-    return false;
-}
-
+// Not while taking aim, pouncing or dazed. (The original hands the speed's bits to
+// doesLineTouch as its mode, never 0 here: trigger-only edges do not count.)
 void Cat::steer(const CatWorld& world, float speed) {
-    if (speed > 0.00100000005f && type_ != 0x37 && state_ != 6 && state_ != 0x13) {
+    if (speed > 0.00100000005f && type_ != 0x37 && !(chaseStep_ >= 2 && chaseStep_ < 5)) {
         const Vec2 left = rotated({23.0f, 0.0f}, targetHeading_ * 57.2957764f + -35.0f) + position_;
-        if (whiskerTouches(world, left)) {
+        // (SceneGame::doesLineTouch with mode 0 @0x1a1bfc: every kind of wall counts.)
+        if (world.walls.lineTouches(position_, left, world.viewLeft, 0)) {
             steerOffset_ = steerOffset_ + 0.0700000003f;
             steerUntilMs_ = world.gameTimeMs + 100;
         }
         const Vec2 right = rotated({23.0f, 0.0f}, targetHeading_ * 57.2957764f + 35.0f) + position_;
-        if (whiskerTouches(world, right)) {
+        if (world.walls.lineTouches(position_, right, world.viewLeft, 0)) {
             steerOffset_ = steerOffset_ + -0.0700000003f;
             steerUntilMs_ = world.gameTimeMs + 100;
         }
@@ -708,7 +626,7 @@ bool Cat::canSeeMouse(const CatWorld& world, bool wide, float halfAngle) {
     seenMouse_ = false;
     targetId_ = -1;
     if (type_ == 0x36) return false;
-    if (state_ >= 0 && state_ < 24 && ((1u << state_) & 0xc01202u) != 0) return false;  // (@0x113874)
+    if (state_ >= 0 && state_ < 20 && ((1u << state_) & 0xc0482u) != 0) return false;
     if (calmMs_ >= 1) return false;
     const float onScreen = position_.x - world.viewLeft;
     if (!(onScreen >= 0.0f) || !(onScreen < kScreenWidth)) return false;
@@ -750,7 +668,7 @@ LevelObject* Cat::target(CatWorld& world) const {
 // the checks for good), gets the swirl over its head (particle 0xd) and sound 0x21.
 bool Cat::canSeePlaything(CatWorld& world) {
     if (type_ == 0x35 || type_ == 0x36) return false;
-    if (state_ == 8 || state_ == 12) return false;
+    if (state_ == 6 || state_ == 10) return false;
     const float range = kCatViewDistance * kCatViewDistance;
     for (LevelObject* o : world.playthings) {
         if (!o->active || o->id == objectId_ || o->floor != floor_ || o->inTrail) continue;
@@ -761,7 +679,7 @@ bool Cat::canSeePlaything(CatWorld& world) {
         if (a > kPi) a = a + -kTwoPi;
         if (a < -kPi) a = a + kTwoPi;
         if (!(std::fabs(a) < kCatViewAngle * 0.0139626339f)) continue;
-        if (world.walls.lineTouchesType(position_, o->position, 0, world.viewLeft)) continue;  // solid walls only
+        if (world.walls.lineTouches(position_, o->position, world.viewLeft, -1)) continue;
         targetId_ = o->id;
         awarenessMs_ = o->timerMs;
         if (particle_ == -1) attachParticle(world, kParticleHypnotised);
@@ -805,11 +723,11 @@ float Cat::play(int dtMs, CatWorld& world) {
         // twine more than a whisker away pulls the cat halfway to it (the ball follows; the
         // common picture's frames 14-17, the purr and sound 0x20). Its picture runs once more.
         if (!isCheese(t->type)) {
-            t->state = ObjectState(0x22);
+            t->state = ObjectState(0x1E);
             t->snappable = false;
         }
         if (isCheese(t->type) || t->type == kCatnip) {
-            state_ = 0xf;
+            state_ = 0xd;
             walk.setAnim(10, 13, SpriteAnim::Loop, 200);
             if (t->type == kCatnip) {
                 world.sounds.push_back({SoundEvent::Play, kSoundCatnip});
@@ -854,7 +772,7 @@ float Cat::dazewalk(CatWorld& world) {
     if ((seenAt_ - position_).lengthSquared() > radius_ * radius_) {
         followReturnPath(false);
     } else {
-        state_ = 9;
+        state_ = 7;
         if (t) seenAt_ = t->position;
         if (type_ == kBlackCat) {
             setMeanCatIdleSequence("idle_tv_0", seenAt_);
@@ -879,7 +797,7 @@ void Cat::hypnotised(CatWorld& world) {
 namespace {
 
 // The view test of getValidTrailTarget and canSeeTrail: within half the view angle (145 x
-// 0.0087266 radians) either side of the heading and no solid (type 0) wall in between.
+// 0.0087266 radians) either side of the heading and in clear sight.
 bool lureInView(float heading, Vec2 from, Vec2 to, const CatWorld& world) {
     Vec2 toward = to - from;
     toward.normalise(1.0f);
@@ -887,7 +805,7 @@ bool lureInView(float heading, Vec2 from, Vec2 to, const CatWorld& world) {
     if (off > kPi) off = off + -kTwoPi;
     if (off < -kPi) off = off + kTwoPi;
     if (!(std::fabs(off) < kCatViewAngle * 0.00872664619f)) return false;
-    return !world.walls.lineTouchesType(from, to, 0, world.viewLeft);
+    return !world.walls.lineTouches(from, to, world.viewLeft, 1);
 }
 
 bool isLure(int type) { return type == kTwine || type == kCatnip; }
@@ -919,7 +837,7 @@ int Cat::validTrailTarget(const CatWorld& world) const {
 bool Cat::canSeeTrail(const CatWorld& world) {
     seenTrail_ = false;
     targetId_ = -1;
-    if (type_ == kBlindCat || type_ == kBossCat || state_ == 1 || state_ == 9 || state_ == 12 || calmMs_ >= 1)
+    if (type_ == kBlindCat || type_ == kBossCat || state_ == 1 || state_ == 7 || state_ == 10 || calmMs_ >= 1)
         return false;
     const CatTarget& m = world.mouse;
     if (!m.active || m.floor != floor_ || m.hurtMs >= 1 || m.state != 0 || world.trail.empty()) return false;
@@ -967,7 +885,7 @@ void Cat::takeFromTrail(CatWorld& world) {
     for (const LevelObject* o : world.trail)
         if (isCheese(o->type)) cheeseLeft = true;
     if (!cheeseLeft) world.closeBankHoles = true;
-    state_ = 8;
+    state_ = 6;
     chaseStep_ = 0;
     awarenessMs_ = 2500;
     if (item->type == kCatnip) {
@@ -1016,123 +934,79 @@ void Cat::moveParticle(CatWorld& world) const {
     if (particle_ < 0) return;
     Particle* p = world.particles.at(particle_);
     if (!p) return;
-    // (1.1.1 @0x1a04d6) Over the cat while it chases, aims, is stunned, confused (1, 9, 10),
-    // goes for a TV (8) or is surprised (0x13, 0x14); otherwise shrunk away. (A crumb's
-    // points text, kind 0x34, is let go.)
-    if (p->type == kTextPoints) return;
-    const LevelObject* t = state_ == 8 ? target(world) : nullptr;
-    const bool dazed = (state_ | 8) == 9 || (state_ == 8 && t && t->type == kTv);
-    if ((state_ < 0x14 && ((1u << state_) & 0x804e0u) != 0) || state_ == 0x14 || dazed) {
+    if (state_ == 5 || state_ == 8 || state_ == 1 || state_ == 7) {
         Vec2 at = position_;
-        if (p->type == 0x23) at = {at.x + 22.0f, at.y + 6.0f};
-        at.y = at.y + ((state_ | 8) != 9 ? 20.0f : 30.0f);
-        if (p->type == kTextStun) at.y = at.y + 10.0f;
+        if (p->type == 0x26) at = {at.x + 22.0f, at.y + 6.0f};
+        at.y = at.y + ((state_ == 1 || state_ == 7) ? 30.0f : 20.0f);
         p->position = rotated(at - position_, 0.0f) + position_;  // the scene is not rotated
     } else {
         p->scale = 0.0f;
     }
 }
 
-// The mouse in sight again after a pounce or a daze (pounce @0x1a359c, stun @0x1a30f0): seen
-// close it takes aim at once (state 6), seen further off it chases (state 5 from its first
-// step), unseen (after a look the other way) it walks its patrol again.
-void Cat::lookAfterPounce(CatWorld& world) {
-    canSeeMouse(world, true, -1.0f);
-    if (!seenMouse_) {
-        heading_ = heading_ + kPi;
-        targetHeading_ = heading_;
-    }
-    canSeeMouse(world, true, -1.0f);
-    walk.setAnim(0, 3, SpriteAnim::Loop, 200);
-    if (!seenMouse_) {
-        state_ = 0;
-        chaseStep_ = 0;
-    } else {
-        const float close = chaseValuesFor(type_).closeDistance;
-        if ((seenAt_ - position_).lengthSquared() < close * close) {
-            takeAim(world);
-            return;
-        }
-        state_ = 5;
-        chaseStep_ = 0;
-    }
-    seenAt_ = position_;
-}
-
-// Taking aim (state 6, step 0; chase @0x1a3b4c and the others): the walk's frame 4 held half a
-// second, facing the mouse, a heart over its head and the aim sound.
-void Cat::takeAim(CatWorld& world) {
-    state_ = 6;
-    chaseStep_ = 0;
-    chaseTimerMs_ = 0;
-    walk.playOneShot(4, 4, 500);
-    heading_ = targetHeading_ = (world.mouse.position - position_).angleDegrees() * 0.0174532924f;
-    attachParticle(world, kParticleHeart);
-    world.sounds.push_back({SoundEvent::Play, kSoundCatAim});
-}
-
-// ObjControllerCat::chase @0x1a3850 (1.1.1): one tick of a chase (state 5); returns the speed.
-// The steps (+0x1dc): 0 noticed: stops for a moment with a "?" (and may give up after
-// 20-36 s, +0x1ec); 1 runs to where it saw the mouse (ahead of it if it moves), along its
-// way-back trail; close to the mouse it takes aim (state 6); at the spot with nothing there,
-// 2 sits a while. Seeing the mouse again from 2 starts over at step 0.
+// ObjControllerCat::chase: one tick of a chase; returns the speed. The steps (+0x1d4):
+// 0 noticed: stops for a moment with a "?" (and may give up after 20-36 s, +0x1e4);
+// 1 runs to where it saw the mouse (ahead of it if it moves), along its way-back trail;
+//   close enough, it takes aim: 2 for 0.7 s (heart), then 3 pounces in a straight line,
+//   fast at first and slowing; into a wall 4 sits dazed for 2.5 s; at the spot with nothing
+//   there 7 sits a while. Seeing the mouse again from 7 starts over at step 0.
 float Cat::chase(int dtMs, CatWorld& world) {
     float result = speed_;
-    const bool direct = !kInterceptMouse;
+    const bool direct = !kInterceptMouse || chaseStep_ == 2 || chaseStep_ == 3;
+    const float close = chaseValuesFor(type_).closeDistance;
     if (chaseStep_ == 1) {
         walk.setFrameMs(125);
         if (canSeePlaything(world)) {
             // A playing TV beats the mouse: off to it, checking again next tick.
-            state_ = 8;
-            chaseStep_ = 0;
+            state_ = 6;
             awarenessMs_ = 0;
             return result;
         }
-        const float close = chaseValuesFor(type_).closeDistance;
-        if ((seenMouse_ || seenTrail_) && (seenAt_ - position_).lengthSquared() < close * close && type_ != 0x3b) {
-            // Close: it takes aim (heading as it was aiming, not at the mouse: @0x1a3b74).
-            state_ = 6;
-            chaseStep_ = 0;
-            walk.playOneShot(4, 4, 500);
-            heading_ = targetHeading_;
-            chaseTimerMs_ = 0;
-            attachParticle(world, kParticleHeart);
-            world.sounds.push_back({SoundEvent::Play, kSoundCatAim});
-            return 0.0f;
+        bool aiming = false;
+        if (seenMouse_ || seenTrail_) {
+            const float d = (seenAt_ - position_).lengthSquared();
+            if (d < close * close && type_ != 0x3b) {
+                chaseStep_ = 2;
+                walk.playOneShot(4, 4, 500);
+                heading_ = targetHeading_;
+                chaseTimerMs_ = 0;
+                attachParticle(world, kParticleHeart);
+                world.sounds.push_back({SoundEvent::Play, kSoundCatAim});
+                result = 0.0f;
+                aiming = true;
+            }
         }
-        if (type_ == 0x38 && !seenTrail_) {
-            // The ninja cat (@0x1a3a92), not after the trail: in the open (nothing within 1.2
-            // of its radius; 1.0.5: 1.75) it stops to throw a burst of shurikens (state 0x10,
-            // frames 14..15).
+        // The ninja cat (@0x1a3a92), not after the trail: in the open (nothing within 1.75 of its
+        // radius) it stops to throw a burst of shurikens (state 0xe, frames 14..15).
+        if (!aiming && type_ == 0x38 && !seenTrail_) {
             Vec2 at = position_;
-            static constexpr int kIgnored[] = {0x73};
-            if (world.walls.collideSphere(at, radius_ * 1.20000005f, world.viewLeft, nullptr, kIgnored) == 0) {
-                state_ = 0x10;
-                chaseStep_ = 0;
+            LevelGeometry::SphereOptions options;
+            options.plainWallsOnly = true;
+            options.ignoreType = 0x73;
+            options.viewLeft = world.viewLeft;
+            if (world.walls.collideSphere(at, radius_ * 1.75f, options) == 0) {
+                state_ = 0xe;
                 awarenessMs_ = kNinjaBurstMs;
                 throwMs_ = kNinjaThrowMs;
                 burstLeft_ = kNinjaBurst;
                 walk.setAnim(14, 15, SpriteAnim::Loop, 333);
                 return result;
             }
-        } else if (!seenMouse_ && type_ == 0x37) {
-            // The blind cat that lost the mouse goes back from where it stands.
-            seenAt_ = position_;
-            setReturnPos(seenAt_, world);
         }
     } else if (chaseStep_ == 0) {
         chaseStep_ = 1;
         if (type_ != 0x3b) walk.playOneShot(4, 4, 500);
         calmMs_ = -20000 - int(world.random.next() & 0x3fff);
         lookMs_ = int(chaseValuesFor(type_).lookMs);
-        attachParticle(world, type_ == 0x37 ? 0x23 : kParticleQuestion);
+        attachParticle(world, kParticleQuestion);
     }
 
     calmMs_ += dtMs;
     if (calmMs_ > 0) calmMs_ = 5000;
-    if (!canSeeTrail(world)) canSeeMouse(world, false, -1.0f);
+    if (chaseStep_ != 2 && chaseStep_ != 3)
+        if (!canSeeTrail(world)) canSeeMouse(world, false, -1.0f);
     if (seenMouse_ || seenTrail_) {
-        if (chaseStep_ == 2) {
+        if (chaseStep_ == 7) {
             walk.setAnim(0, 3, SpriteAnim::Loop, 200);
             chaseStep_ = 0;
         }
@@ -1150,30 +1024,112 @@ float Cat::chase(int dtMs, CatWorld& world) {
         awarenessMs_ = int(chaseValuesFor(type_).checkMs);
         setReturnPos(seenAt_, world);
     }
-    if (chaseStep_ == 2) return 0.0f;
-    const float d = (seenAt_ - position_).lengthSquared();
-    if (d <= radius_ * radius_) {
-        // At the spot, nothing there: it sits a while (half to all of g_pVal +0x68).
-        if (chaseStep_ == 1) {
-            if (type_ == 0x3b) walk.setAnim(0, 0, SpriteAnim::Loop, 200);
-            else walk.setAnim(5, 8, SpriteAnim::Loop, 200);
-            attachParticle(world, kParticleLost);
-            world.sounds.push_back({type_ == 0x37 ? SoundEvent::PlayOnce : SoundEvent::Play, kSoundCatLost});
-            const int half = kSitMs >> 1;
-            awarenessMs_ = int(world.random.next() % unsigned(half)) + half;
-            chaseStep_ = 2;
-        }
+
+    // After aiming, pouncing or a daze: the next check, no running; the step timer runs.
+    auto holdStill = [&] {
+        awarenessMs_ = int(chaseValuesFor(type_).checkMs);
         result = 0.0f;
-    } else {
-        if (followReturnPath(false)) {
-            awarenessMs_ = int(chaseValuesFor(type_).checkMs);
-            result = chaseValuesFor(type_).runSpeed;
-        } else {
-            heading_ = targetHeading_ + kPi;
-            targetHeading_ = heading_;
-            seenAt_ = position_;
+        chaseTimerMs_ += dtMs;
+    };
+    // Nothing found where it looked: it turns round and walks back.
+    auto turnRound = [&](bool lookAgain) {
+        if (lookAgain) {
+            canSeeTrail(world);
+            canSeeMouse(world, true, -1.0f);
         }
-        result = chaseValuesFor(type_).speedFactor * result;
+        if (!seenMouse_ && !seenTrail_) {
+            heading_ = heading_ + kPi;
+            targetHeading_ = heading_;
+        } else {
+            setReturnPos(seenAt_, world);
+        }
+    };
+
+    switch (chaseStep_) {
+    case 7:
+        return 0.0f;
+    case 4:
+        // Dazed: the idle picture's frames hold longer at first.
+        idle.setFrameMs(idle.frame() == 0 ? 900 : idle.frame() > 6 ? 166 : 150);
+        if (chaseTimerMs_ > chaseValuesFor(type_).stunnedMs) {
+            walk.setAnim(0, 3, SpriteAnim::Loop, 200);
+            chaseStep_ = 0;
+            seenAt_ = position_;
+            canSeeMouse(world, true, -1.0f);
+            if (!seenMouse_) {
+                heading_ = heading_ + kPi;
+                targetHeading_ = heading_;
+            } else {
+                setReturnPos(seenAt_, world);
+            }
+        }
+        holdStill();
+        break;
+    case 2:
+        if (chaseTimerMs_ == 0) {
+            followReturnPath(false);
+            heading_ = targetHeading_;
+        } else if (chaseTimerMs_ > chaseValuesFor(type_).aimMs) {
+            chaseTimerMs_ = chaseValuesFor(type_).pounceMs;
+            chaseStep_ = 3;
+            world.sounds.push_back({SoundEvent::Play, kSoundCatCharge});
+        }
+        holdStill();
+        break;
+    default: {
+        const float d = (seenAt_ - position_).lengthSquared();
+        if (d <= radius_ * radius_) {
+            // At the spot.
+            if (chaseStep_ == 1 || chaseStep_ == 3) {
+                if (type_ == 0x3b) walk.setAnim(0, 0, SpriteAnim::Loop, 200);
+                else walk.setAnim(5, 8, SpriteAnim::Loop, 200);
+                attachParticle(world, kParticleLost);
+                world.sounds.push_back({type_ == 0x37 ? SoundEvent::PlayOnce : SoundEvent::Play, kSoundCatLost});
+                const int half = kSitMs >> 1;
+                awarenessMs_ = int(world.random.next() % unsigned(half)) + half;
+                chaseStep_ = 7;
+            }
+            result = 0.0f;
+        } else if (chaseStep_ == 3) {
+            // The pounce: straight on, slowing as its timer runs down.
+            heading_ = targetHeading_;
+            chaseTimerMs_ -= dtMs;
+            if (collided_ && chaseTimerMs_ > kWallBonkMs && float(chaseTimerMs_) < float(chaseValuesFor(type_).pounceMs) * 0.5f) {
+                velocity_.normalise(1.0f);
+                if (pushNormal_.dot(velocity_) > 0.5f) {
+                    // Head first into the wall.
+                    chaseTimerMs_ = 0;
+                    chaseStep_ = 4;
+                    world.sounds.push_back({SoundEvent::Play, kSoundCatHitWall});
+                    idle.setAnim(7, 14, SpriteAnim::Loop, 166);
+                    idle.playOneShot(0, 2, 150);
+                    attachParticle(world, kParticleStars);
+                    ++headBumps_;
+                }
+            } else if (chaseTimerMs_ <= 0) {
+                chaseStep_ = 0;
+                seenAt_ = position_;
+                walk.setAnim(0, 3, SpriteAnim::Loop, 200);
+                turnRound(true);
+            }
+            setReturnPos(position_, world);
+            returnIndex_ = int(returnPath_.size()) - 1;
+            awarenessMs_ = int(chaseValuesFor(type_).checkMs);
+            result = (float(chaseTimerMs_) / float(chaseValuesFor(type_).pounceMs / 3)) * (chaseValuesFor(type_).runSpeed * chaseValuesFor(type_).pounceFactor);
+            result = chaseValuesFor(type_).speedFactor * result;
+        } else {
+            if (followReturnPath(false)) {
+                awarenessMs_ = int(chaseValuesFor(type_).checkMs);
+                result = chaseValuesFor(type_).runSpeed;
+            } else {
+                heading_ = targetHeading_ + kPi;
+                targetHeading_ = heading_;
+                seenAt_ = position_;
+            }
+            result = chaseValuesFor(type_).speedFactor * result;
+        }
+        break;
+    }
     }
     if (lookMs_ >= 1) {
         // The "?" moment: standing, facing where it is going.
@@ -1182,89 +1138,6 @@ float Cat::chase(int dtMs, CatWorld& world) {
         heading_ = targetHeading_;
     }
     return result;
-}
-
-// ObjControllerCat::pounce @0x1a3304 (1.1.1, state 6): 0 aims for 0.7 s, then 1 pounces in a
-// straight line, fast at first and slowing; head first into a wall it is stunned (state 7);
-// at the end of the pounce it looks for the mouse again.
-float Cat::pounce(int dtMs, CatWorld& world) {
-    const ChaseValues values = chaseValuesFor(type_);
-    float result = speed_;
-    if (chaseStep_ == 1) {
-        heading_ = targetHeading_;
-        chaseTimerMs_ -= dtMs;
-        bool glanced = false;
-        if (collided_ && chaseTimerMs_ > kWallBonkMs && float(chaseTimerMs_) < float(values.pounceMs) * 0.5f) {
-            velocity_.normalise(1.0f);
-            if (pushNormal_.dot(velocity_) > 0.5f) {
-                // Head first into the wall: stunned (state 7) for its time, the stars first.
-                state_ = 7;
-                chaseStep_ = 0;
-                awarenessMs_ = values.stunnedMs;
-                world.sounds.push_back({SoundEvent::Play, kSoundCatHitWall});
-                idle.setAnim(7, 14, SpriteAnim::Loop, 166);
-                idle.playOneShot(0, 2, 150);
-                attachParticle(world, kParticleStars);
-                ++headBumps_;
-                return 0.0f;
-            }
-            glanced = true;  // (along the wall: the pounce goes on, @0x1a3714)
-        }
-        if (!glanced && chaseTimerMs_ < 1) lookAfterPounce(world);
-        setReturnPos(seenAt_, world);
-        returnIndex_ = int(returnPath_.size()) - 1;
-        awarenessMs_ = int(values.checkMs);
-        result = (float(chaseTimerMs_) / float(values.pounceMs / 3)) * (values.runSpeed * values.pounceFactor);
-    } else if (chaseStep_ == 0) {
-        if (chaseTimerMs_ == 0) {
-            followReturnPath(false);
-            heading_ = targetHeading_;
-        } else if (chaseTimerMs_ > values.aimMs) {
-            chaseTimerMs_ = values.pounceMs;
-            chaseStep_ = 1;
-            world.sounds.push_back({SoundEvent::Play, kSoundCatCharge});
-        }
-        awarenessMs_ = int(values.checkMs);
-        result = 0.0f;
-        chaseTimerMs_ += dtMs;
-    } else {
-        if (followReturnPath(false)) {
-            awarenessMs_ = int(values.checkMs);
-            result = values.runSpeed;
-        } else {
-            heading_ = targetHeading_ + kPi;
-            targetHeading_ = heading_;
-            seenAt_ = position_;
-        }
-    }
-    result = values.speedFactor * result;
-    if (lookMs_ >= 1) {
-        lookMs_ -= dtMs;
-        heading_ = targetHeading_;
-        result = 0.0f;
-    }
-    return result;
-}
-
-// ObjControllerCat::stun @0x1a2fb4 (1.1.1, state 7): sitting dazed (the idle picture's frames
-// held longer at first) until its time is up; the time waits for the stars to go
-// (awarenessCheck). Then a playing TV, else the mouse as after a pounce.
-float Cat::stun(int dtMs, CatWorld& world) {
-    (void)dtMs;
-    idle.setFrameMs(idle.frame() == 0 ? 900 : idle.frame() < 7 ? 150 : 166);
-    if (awarenessMs_ > 0) return 0.0f;
-    if (canSeePlaything(world)) {
-        if (LevelObject* t = target(world)) seenAt_ = t->position;
-        setReturnPos(seenAt_, world);
-        state_ = 8;
-        chaseStep_ = 0;
-        awarenessMs_ = 0;
-        return 0.0f;
-    }
-    lookAfterPounce(world);
-    setReturnPos(seenAt_, world);
-    returnIndex_ = int(returnPath_.size()) - 1;
-    return 0.0f;
 }
 
 // ObjControllerCat::throwProj @0x1a2620: while shurikens are left in the burst its check timer
@@ -1284,7 +1157,7 @@ float Cat::throwProj(int dtMs, CatWorld& world) {
         spec.flight = 2;
         spec.playerTrigger = 2;
         spec.hits = 9;
-        spec.picture = kPictureShuriken;
+        spec.picture = 0;
         spec.layer = 2;
         spec.floor = floor_;
         const int index = world.projectiles->create(spec);
@@ -1295,53 +1168,28 @@ float Cat::throwProj(int dtMs, CatWorld& world) {
             world.projectiles->fire(index, position_, toward * float(kNinjaThrowSpeed), kPi, 0.0f, world.sounds);
         }
     }
-    // (1.1.1 @0x1a2786: the wait before the next throw is the awareness timer just set, the
-    // burst cooldown, 600 ms; 1.0.5 waited "ninja_throw_cooldown", 250. Run l41_seen.)
-    throwMs_ = awarenessMs_;
+    throwMs_ = kNinjaThrowMs;
     --burstLeft_;
     return 0.0f;
 }
 
 // ObjControllerCat::awarenessCheck: timers; when the awareness timer runs out, the next
 // check is set by rand() and the cat looks for the mouse: seen, it chases (state 5).
-// Each kind's cry on seeing the mouse or a lure (ObjControllerCat::awarenessCheck @0x1a5b5c,
-// stopped first and played again); the blind cat and Fluffy have none (0x3b cries 0x9a in
-// world 6 only).
-int Cat::cry() const {
-    switch (type_) {
-    case 0x32: return kSoundBrownCatAgro;
-    case 0x33: return 0x17;
-    case kBlackCat: return 0x13;
-    case 0x37: return 0x14;
-    case 0x38: return 0x16;
-    case 0x39: return 0x15;
-    case 0x11d: return 0x18;
-    default: return -1;
-    }
-}
-
 void Cat::awareness(int dtMs, CatWorld& world) {
-    if (awarenessMs_ <= 60000) {
-        // (1.1.1 @0x1a54ec) A stunned cat's time waits while its stars (particle 9) show.
-        const Particle* p = state_ == 7 ? world.particles.at(particle_) : nullptr;
-        if (!(p && p->type == 9)) awarenessMs_ -= dtMs;
-    }
-    // (1.1.1 @0x1a5500) A stunned cat (7) and one in state 0x11 notice nothing.
-    if (state_ == 7 || state_ == 0x11) return;
+    if (awarenessMs_ <= 60000) awarenessMs_ -= dtMs;
     if (timer1e0_ >= 1) timer1e0_ -= dtMs;
     if (calmMs_ >= 1) calmMs_ -= dtMs;
     collisionStreak_ = collided_ ? collisionStreak_ + 1 : collisionStreak_ >> 1;
     // Against walls for 16 ticks without sight of where it is going: it stops and looks about.
-    if (collisionStreak_ > 15 && state_ != 11 && !canSeeGoal(world)) {
-        state_ = 11;
+    if (collisionStreak_ > 15 && state_ != 9 && !canSeeGoal(world)) {
+        state_ = 9;
         if (type_ == kBlackCat) setMeanCatIdleSequence("idle_0", position_ + rotated({1.0f, 0.0f}, heading_ * 57.2957764f));
         else idle.playOneShot(type_ != 0x37 ? 1 : 0, type_ == 0x37 ? 2 : 3, 150);
         awarenessMs_ = 1000;
     }
-    // (1.1.1) Nothing more while stunned or in states 0x13/0x14, or until the timer runs out.
-    if ((state_ < 0x15 && ((1u << state_) & 0x180080u) != 0) || awarenessMs_ > -1) return;
+    if (awarenessMs_ > -1) return;
     awarenessMs_ = int(world.random.next() & 0x7f) + kTickMs;
-    if (state_ == 0xf || state_ == 8) {
+    if (state_ == 0xd || state_ == 6) {
         // Done with its plaything (@0x1a5716): a TV makes it walk dazed (state 1, sound 0x21);
         // a teacup it had is gone (a balloon stays), both let go (0x1e); twine (or cheese) lies
         // on the floor again as a snap target (0x1d). Catnip is left to itself.
@@ -1353,27 +1201,23 @@ void Cat::awareness(int dtMs, CatWorld& world) {
             world.sounds.push_back({SoundEvent::Play, kSoundCatHypnotised});
         } else if (t && (t->type == kTeacup || t->type == kBalloon)) {
             if (t->type != kBalloon) t->active = false;
-            t->state = ObjectState(0x22);
+            t->state = ObjectState(0x1E);
         } else if (t && t->type != kCatnip && t->type != 0x5d) {
-            t->state = ObjectState(0x21);
+            t->state = ObjectState(0x1D);
             t->snappable = true;
         }
     } else if (state_ == 5 && chaseStep_ > 0) {
         chaseStep_ = 0;  // (and a profile statistic)
     }
-    // Calm again (1.1.1 @0x1a5742): back to its patrol; one getting up from a pause faces
-    // where it is heading at once.
-    if ((state_ > 24 || ((1u << state_) & 0x1de1c81u) == 0) && calmMs_ < 1) {
-        if (state_ == 3) heading_ = targetHeading_;
+    if ((state_ > 20 || ((1u << state_) & 0x1d8701u) == 0) && calmMs_ < 1) {
         state_ = 0;
         walk.setAnim(0, 3, SpriteAnim::Loop, 200);
     }
-    const bool sawBefore = seenMouse_;  // (+0x1d8 before this check's sight test)
     if (canSeePlaything(world)) {
         // A TV playing in sight: off to it (state 6), the walk's frame 4 held for half a second.
         if (LevelObject* t = target(world)) seenAt_ = t->position;
         setReturnPos(seenAt_, world);
-        state_ = 8;
+        state_ = 6;
         walk.playOneShot(4, 4, 500);
         return;
     }
@@ -1385,14 +1229,7 @@ void Cat::awareness(int dtMs, CatWorld& world) {
         const LevelObject* t = target(world);
         const int itemType = t ? t->type : -1;
         if (!isLure(itemType) && !(type_ == 0x33 && isCheese(itemType)) && type_ != 0x3a) seenTrail_ = false;
-        if (seenTrail_) {
-            state_ = 5;
-            // (1.1.1 @0x1a5902) It cries as on seeing the mouse.
-            if (const int c = cry(); c >= 0) {
-                world.sounds.push_back({SoundEvent::Stop, c});
-                world.sounds.push_back({SoundEvent::Play, c});
-            }
-        }
+        if (seenTrail_) state_ = 5;
         return;
     }
     canSeeMouse(world, false, -1.0f);
@@ -1413,28 +1250,30 @@ void Cat::awareness(int dtMs, CatWorld& world) {
         }
         return;
     }
-    if (state_ == 0x12) return;
+    if (state_ == 0x10) return;
     if (type_ == 0x35) {
         // ObjControllerCat::awarenessCheck @0x1a5a0e: the boss cat that sees the mouse has won
         // (state 0x10); the level takes the loss (Session::catEffects).
         world.bossSawMouse = true;
-        state_ = 0x12;
+        state_ = 0x10;
         world.sounds.push_back({SoundEvent::Play, 0x4d});
         world.sounds.push_back({SoundEvent::Play, 0x28});
         world.sounds.push_back({SoundEvent::Play, 0x7b});
     } else {
-        // awarenessCheck @0x1a5b30 (1.1.1): after the mouse, the chase from its first step; a
-        // fresh sighting (not seen the tick before) cries, and the black cat's makes the mouse
-        // jump (Player::spottedByMeanCatOMG).
         state_ = 5;
-        chaseStep_ = 0;
-        if (!sawBefore) {
-            if (const int c = cry(); c >= 0) {
-                world.sounds.push_back({SoundEvent::Stop, c});
-                world.sounds.push_back({SoundEvent::Play, c});
-                if (type_ == kBlackCat) world.meanCatSpotted = true;
-            }
+        // awarenessCheck @0x1a5b5c: each kind's cry (once); the black cat's also makes the
+        // mouse jump (Player::spottedByMeanCatOMG); the blind cat and Fluffy have none.
+        int cry = -1;
+        switch (type_) {
+        case 0x32: cry = kSoundBrownCatAgro; break;
+        case 0x33: cry = 0x17; break;
+        case kBlackCat: cry = 0x13; world.meanCatSpotted = true; break;
+        case 0x37: cry = 0x14; break;
+        case 0x38: cry = 0x16; break;
+        case 0x39: cry = 0x15; break;
+        default: break;  // (0x3b cries 0x9a in world 6 only)
         }
+        if (cry >= 0) world.sounds.push_back({SoundEvent::PlayOnce, cry});
     }
     world.spottedMouse = true;
     ++sightings_;
@@ -1451,33 +1290,18 @@ float Cat::behave(int dtMs, CatWorld& world) {
     if (!onScreen) stopPurring(world);
     float speed = 0.0f;
     switch (state_) {
-    case 0x10:
+    case 0xe:
         speed = throwProj(dtMs, world);
         break;
-    case 0x17:
+    case 0x13:
         // A shocked henchman (@0x1a4d2c): the awareness timer held at 500, no touch circle.
         awarenessMs_ = 500;
         radius_ = 0.0f;
         break;
     case 0:
-        // Patrol (ObjControllerCat::patrol @0x1a4074): back along the way it came first, then the
-        // route.
+        // Patrol: back along the way it came first, then the route.
         speed = speed_;
-        if (type_ == kBossCat && routeIndex_ == int(route_.points.size()) - 1) {
-            // (1.1.1 @0x1a408a) The boss cat heading for the last point of its route runs at 2.5
-            // times its speed; within its radius of it, it stops for good: its object no longer
-            // updates and the view's scroll is cleared (and then set once more from its last
-            // step, ObjControllerCat::update @0x1a14a4: the view runs on to the level's end).
-            // (1.0.5 walked it on sideways out of the view.)
-            if ((route_.points.back().position - position_).length() < radius_) {
-                stoppedForGood_ = true;
-                world.scrollSpeed = 0.0f;
-                speed = 0.0f;
-            } else {
-                speed = speed_ * 2.5f;
-            }
-        }
-        if (!followReturnPath(true)) speed = followRoute(speed, world);
+        if (!followReturnPath(true)) speed = followRoute(speed_, world);
         break;
     case 2: case 3: case 4:
         followRoute(0.0f, world);
@@ -1506,7 +1330,7 @@ float Cat::behave(int dtMs, CatWorld& world) {
             }
         }
         break;
-    case 11:
+    case 9:
         if (awarenessMs_ < 500) {
             awarenessMs_ = 0;
             collisionStreak_ = 0;
@@ -1523,12 +1347,6 @@ float Cat::behave(int dtMs, CatWorld& world) {
             state_ = 0;
         }
         break;
-    case 6:
-        speed = pounce(dtMs, world);
-        break;
-    case 7:
-        speed = stun(dtMs, world);
-        break;
     case 5:
         speed = chase(dtMs, world);
         if (type_ == kBlackCat && speed > 0.0f) {
@@ -1538,17 +1356,17 @@ float Cat::behave(int dtMs, CatWorld& world) {
             speed = (1.0f - f) * chaseValuesFor(type_).runSpeed + f * speed;
         }
         break;
-    case 8:
+    case 6:
         speed = play(dtMs, world);
         break;
     case 1:
         speed = dazewalk(world);
         break;
-    case 9:
+    case 7:
         hypnotised(world);
         speed = 0.0f;
         break;
-    case 0x12: case 0x15: case 0x18:
+    case 0x10: case 0x11: case 0x14:
         // (No behaviour: it goes on at its own speed, runBehaviour @0x1a5146.)
         speed = speed_;
         break;
@@ -1560,16 +1378,17 @@ float Cat::behave(int dtMs, CatWorld& world) {
 }
 
 // ObjControllerCat::touchPlayer: a cat catches the mouse it touches unless it is busy with
-// something else (canKillPlayer @0x19c734: not in states 1, 2, 4, 7, 9, 12, 13, 15, 17, 19, 22, 23),
+// something else (canKillPlayer @0x19c734: not in states 1, 2, 4, 7, 10, 11, 13, 15, 18, 19),
 // confused, or dazed after a pounce.
 bool Cat::touchMouse(const CatTarget& mouse, CatWorld& world, Vec2& meetingPoint) {
     if (mouse.hurtMs >= 1) return false;
-    if (state_ >= 0 && state_ < 24 && ((1u << state_) & 0xcab296u) != 0) return false;  // (@0x19c734)
-    if (state_ == 1 || state_ == 9) return false;
+    if (state_ >= 0 && state_ < 20 && ((1u << state_) & 0xcac96u) != 0) return false;
+    if (state_ == 1 || state_ == 7) return false;
+    if (state_ == 5 && chaseStep_ == 4) return false;
     // (@0x1a0e56: a chasing cat leaves a mouse with twine or catnip in its trail alone; one
     // on its way to or at a plaything catches only when that is of kind 3 or 0x5d.)
     if (state_ == 5 && mouse.carriesLure) return false;
-    if (state_ == 8) {
+    if (state_ == 6) {
         const LevelObject* t = target(world);
         if (!t || (t->type != 3 && t->type != 0x5d)) return false;
     }
@@ -1600,9 +1419,6 @@ void Cat::turnAndMove(int dtMs, float speed, CatWorld& world) {
     const float limit = std::fabs(d);
     step = std::min(limit, std::max(-limit, step));
     heading_ = wrapPositive(h + step);
-    // (1.1.1 @0x1a14a4) The boss cat of an infinite level sets the view's scroll from the
-    // velocity of its last step, before this one (the first tick scrolls by init's 0.05).
-    if (type_ == kBossCat && world.infinite) scrollWithView(world);
 
     const float move = (float(dtMs) * speed) * 0.0500000007f;
     velocity_ = {libCos(heading_) * move, libSin(heading_) * move};
@@ -1610,29 +1426,36 @@ void Cat::turnAndMove(int dtMs, float speed, CatWorld& world) {
     pushNormal_ = {};
     // (Object::updatePositions @0x115518: in states 0x20 and 0x3c, a cutscene, walls do not
     // hold the cat.)
-    if (state_ != 0x24 && state_ != 0x40) {
-        const unsigned touched =
-            world.walls.collideSphere(next, radius_, world.viewLeft, &pushNormal_, kMovementIgnoredWalls);
-        collided_ = (touched & (contact::kSolid | contact::kBouncy)) != 0;
-        if (state_ == 6 && (touched & contact::k91)) {
-            // (1.1.1's state 6 stops at a 0x91 wall: the cat stays, the push gets its step.)
-            collided_ = true;
-            pushNormal_ = velocity_;
-            next = position_;
-        }
+    if (state_ != 0x20 && state_ != 0x3c) {
+        LevelGeometry::SphereOptions options;
+        options.pushNormal = &pushNormal_;
+        options.ignoreType = 0x73;
+        options.viewLeft = world.viewLeft;
+        const int kind = world.walls.collideSphere(next, radius_, options);
+        collided_ = kind != 7 && kind >= 3 && kind <= 10 && kind != 8;
     }
     position_ = next;
+    if (type_ == kBossCat && world.infinite) scrollWithView(dtMs, world);
 }
 
-// ObjControllerCat::update @0x1a147c (the boss cat of an infinite level): route points the
-// view has passed are dropped; the view scrolls by the cat's step.
-void Cat::scrollWithView(CatWorld& world) {
+// Object::updatePositions @0x115604 (the boss cat of an infinite level): route points the view
+// has passed are dropped; the view scrolls by the cat's step; from its last route point the cat
+// walks on out of the view, and then it and the view stop (state 0x11).
+void Cat::scrollWithView(int dtMs, CatWorld& world) {
     if (route_.points.size() >= 2 && route_.points[1].position.x < world.viewLeft) {
         route_.points.erase(route_.points.begin());
         --routeIndex_;
-        trimmed_ = (trimmed_ == -1 ? 0 : trimmed_) + 1;  // (+0x208)
     }
-    if (state_ != 0x15) world.scrollSpeed = velocity_.x;
+    if (state_ != 0x11) world.scrollSpeed = velocity_.x;
+    if (routeIndex_ != int(route_.points.size()) - 1) return;
+    if (position_.x > 0.0f && position_.x < world.viewLeft + kBossFrameWidth * 0.5f + 480.0f) {
+        // (at its own walking speed, Object +0x24, whatever its behaviour asks)
+        position_.x = position_.x + (speed_ * float(dtMs)) * 0.0500000007f;
+    } else {
+        state_ = 0x11;
+        // (the object stops updating, Object +5: Session::updateObject)
+        world.scrollSpeed = 0.0f;
+    }
 }
 
 void Cat::stopPurring(CatWorld& world) {
@@ -1645,7 +1468,7 @@ void Cat::stopPurring(CatWorld& world) {
 void Cat::showInCutscene(float aim) {
     pose.setAnim(5, 5, SpriteAnim::Loop, 125);
     posePart_ = 2;
-    state_ = 0x40;
+    state_ = 0x3c;
     float a = std::fmod(aim, kTwoPi);
     if (a < 0.0f) a = a + kTwoPi;
     heading_ = a;
@@ -1654,7 +1477,7 @@ void Cat::showInCutscene(float aim) {
 
 // ScriptSequence::walkPath @0x1d418a, first call for an actor that is not the mouse.
 void Cat::startScriptedWalk() {
-    state_ = 0x40;
+    state_ = 0x3c;
     walk.setAnim(0, 3, SpriteAnim::Loop, 200);
     posePart_ = -1;
 }
@@ -1687,8 +1510,8 @@ void Cat::update(int dtMs, CatWorld& world) {
     // updateAnimations @0x1a0998: the picture getActiveSprite picks; dazed, the end of the
     // crash one-shot sounds (the sprite's one-shot flag changing).
     {
-        const LevelObject* t = state_ == 8 ? target(world) : nullptr;
-        lurePlayed_ = t && t->state == ObjectState(0x22);
+        const LevelObject* t = state_ == 6 ? target(world) : nullptr;
+        lurePlayed_ = t && t->state == ObjectState(0x1E);
     }
     const Picture shown = picture();
     if (shown != Picture::None) {
@@ -1697,11 +1520,11 @@ void Cat::update(int dtMs, CatWorld& world) {
         const bool oneShotBefore = sprite.playingOneShot();
         sprite.update(dtMs);
         animatedMs += dtMs;
-        if (state_ == 7 && sprite.playingOneShot() != oneShotBefore)
+        if (chaseStep_ == 4 && sprite.playingOneShot() != oneShotBefore)
             world.sounds.push_back({SoundEvent::Play, kSoundCatDazed});
     }
     // In a cutscene (state 0x3c) Object::update @0x118ea6 runs only the animations.
-    if (state_ == 0x40) return;
+    if (state_ == 0x3c) return;
     if (state_ == 0) stopPurring(world);  // (update: the looping sound ends on patrol)
     if (type_ == kBlackCat) {
         // updateSpecific @0x1a5168: running after the mouse (chase step 1, no "?" stop) its
@@ -1716,8 +1539,8 @@ void Cat::update(int dtMs, CatWorld& world) {
     awareness(dtMs, world);
     const float speed = behave(dtMs, world);
     {
-        const LevelObject* t = state_ == 8 ? target(world) : nullptr;
-        lurePlayed_ = t && t->state == ObjectState(0x22);
+        const LevelObject* t = state_ == 6 ? target(world) : nullptr;
+        lurePlayed_ = t && t->state == ObjectState(0x1E);
     }
     moveParticle(world);
     if (ridesBalloon_) {
@@ -1726,11 +1549,11 @@ void Cat::update(int dtMs, CatWorld& world) {
         // time. (His walk at his own speed, after this, still moves him on by a step: the
         // sway's middle is a step to the right of where he was placed, run lbf4_clock.)
         balloon.update(dtMs);
-        if (state_ == 0x18) position_.x = balloonX_ + std::sin(float(world.gameTimeMs) * 0.00100000005f) * 5.0f;
+        if (state_ == 0x14) position_.x = balloonX_ + std::sin(float(world.gameTimeMs) * 0.00100000005f) * 5.0f;
     }
     walk.pause(state_ == 0 && std::fabs(speed) < 0.00100000005f);
-    if (state_ == 0x16 || state_ == 0x17) return;
-    if (state_ == 0x12) {
+    if (state_ == 0x12 || state_ == 0x13) return;
+    if (state_ == 0x10) {
         // Having seen the mouse (the boss cat, @0x1a0754): it faces the mouse and stands still
         // from the next tick on (its speed goes to 0, its walk pauses).
         const Vec2 d = world.mouse.position - position_;

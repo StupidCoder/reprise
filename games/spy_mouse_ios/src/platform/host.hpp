@@ -106,9 +106,6 @@ public:
     void drawTriangles(const Texture* texture, const std::vector<Vertex>& vertices, const std::vector<int>& indices,
                        DrawStyle::Blend blend = DrawStyle::Alpha);
     void fillRect(float x, float y, float w, float h, std::uint32_t rgba);
-    // Drawing outside this box of play-area points is dropped until clearClip (glScissor).
-    void setClip(float x, float y, float w, float h);
-    void clearClip();
     void drawText(float x, float y, const std::string& text, std::uint32_t rgba);
     void endFrame();
     // Everything drawn after this is scaled about the play area's top-left corner and then

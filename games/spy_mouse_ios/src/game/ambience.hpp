@@ -19,9 +19,6 @@ struct AmbienceScheme {
         float minDelay = 0, maxDelay = 0;  // seconds
         std::vector<std::string> sounds;   // paths under res/
         std::vector<int> lengthsMs;        // each sound's length (from its WAV header)
-        // Quick saves (state_io.hpp).
-        template <class Io>
-        void io(Io& io) { io(minDelay, maxDelay, sounds, lengthsMs); }
     };
     std::vector<std::string> loops;
     std::vector<Group> groups;
@@ -30,9 +27,6 @@ struct AmbienceScheme {
     static AmbienceScheme load(const data::GameFiles& files, int mapNumber, int floor);
     // A scheme by its folder under sound/sound/amb/ ("world1" for the first world's map).
     static AmbienceScheme loadNamed(const data::GameFiles& files, const std::string& name);
-    // Quick saves (state_io.hpp).
-    template <class Io>
-    void io(Io& io) { io(loops, groups); }
 };
 
 class Ambience {
@@ -55,17 +49,10 @@ private:
     struct Playing {
         std::string file;
         int leftMs = 0;
-        // Quick saves (state_io.hpp).
-        template <class Io>
-        void io(Io& io) { io(file, leftMs); }
     };
     std::vector<Playing> playing_;
     std::vector<int> timersMs_;
     bool stopped_ = false;
-public:
-    // Quick saves (state_io.hpp).
-    template <class Io>
-    void io(Io& io) { io(scheme_, playing_, timersMs_, stopped_); }
 };
 
 }  // namespace doc::game

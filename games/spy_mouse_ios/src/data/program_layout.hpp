@@ -32,13 +32,6 @@ constexpr std::uint32_t kGoalStarImages = 0x5F1C30;  // g_sStarImgs, {normal, go
 constexpr int kGoalKinds = 30;
 constexpr std::uint32_t kSoundFiles = 0x5F1620;      // SoundListFileArray
 constexpr int kSounds = 186;
-// (1.1.1) The 21 dossiers (ASHelpers.cpp: getDossierString @0x2212cc, getDossierType
-// @0x22128c, getDossierTip @0x221240, getDossierLastSeen @0x22130c).
-constexpr std::uint32_t kDossierNames = 0x5F6100;     // char* per dossier ("ghost", ...)
-constexpr std::uint32_t kDossierTypes = 0x526C80;     // string id of the title
-constexpr std::uint32_t kDossierTips = 0x526AD0;      // five string ids each (-1: none)
-constexpr std::uint32_t kDossierLastSeen = 0x526CE0;  // level uid of the first sighting
-constexpr int kDossiers = 21;
 constexpr std::uint32_t kScoreNotes = 0x525210;      // NEW_SND_MAPPING (SceneGame::playScoreSound)
 
 }  // namespace doc::data::layout

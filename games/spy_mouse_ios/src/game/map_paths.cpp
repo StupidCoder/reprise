@@ -261,7 +261,8 @@ bool MapPaths::createPath(Vec2 target, Vec2 from, DrawnPath& path, bool evenLock
     path.clear();
     for (Vec2 p : points) {
         if (path.size() >= DrawnPath::kCapacity) break;
-        path.append(p);
+        PathPoint& point = path.append(p);
+        point.z = 0.0f;
     }
     return true;
 }

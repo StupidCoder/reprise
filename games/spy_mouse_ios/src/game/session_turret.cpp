@@ -16,8 +16,8 @@ constexpr int kSoundDunkStart = 0xa3;      // dunkHenchman2: the balloon lets go
 constexpr int kSoundSplash = 0x0d;
 constexpr int kParticleSpark = 0x2c;       // a turned shuriken's sparks
 constexpr int kParticlePuff = 0x11;        // the balloon bursting
-constexpr int kReflectorLeft = 0x3d, kReflectorRight = 0x3e;  // (1.1.1; 1.0.5 0x39, 0x3a)
-constexpr int kLightWhole = 0x2d, kLightBroken = 0x2e;  // (1.1.1; 1.0.5 0x29, 0x2a)
+constexpr int kReflectorLeft = 0x39, kReflectorRight = 0x3a;
+constexpr int kLightWhole = 0x29, kLightBroken = 0x2a;
 constexpr float kDunkDepth = -20.0f;       // the henchman sinks 20
 constexpr float kDunkMs = 100.0f;
 
@@ -32,7 +32,7 @@ Launcher* Session::launcherFor(int objectId) {
 void Session::setUpTurretRoom() {
     // ProjectileManager::load: the launcher's shuriken, picture 3 (the whole picture one frame).
     const SheetSize shuriken = level_.bossSheet("sprites/boss4_shuriken.png");
-    projectiles_.setPictureSheet(kPictureBossShuriken, shuriken.width, shuriken.height);
+    projectiles_.setPictureSheet(3, shuriken.width, shuriken.height);
     for (const LevelObject& o : objects_) {
         // (Launchers of other tags, turrets that aim at the mouse, are not reconstructed.)
         if (o.type == kLauncher && o.tag == 0x66) launchers_.emplace_back(o.id, o.position, o.radius, 0.0f);
@@ -57,14 +57,14 @@ void Session::updateTurretRoomObject(LevelObject& o, int dtMs) {
         Launcher::Shot shot;
         bool burstOver = false;
         if (launcher->update(dtMs, shot, burstOver)) {
-            // ObjControllerSpawner::update @0x1bb092: a shuriken (picture 2) flying straight,
+            // ObjControllerSpawner::update @0x1bb092: a shuriken (picture 3) flying straight,
             // hurting the mouse, cats and balloons; drawn below the henchman unless the launcher
             // is at its top stop with the second reflector turning left.
             ProjectileSpec spec;
             spec.flight = 1;
             spec.playerTrigger = 0;
             spec.hits = 1 | 0xa;
-            spec.picture = kPictureBossShuriken;
+            spec.picture = 3;
             spec.layer = 2;
             spec.floor = o.floor;
             if (shot.stop == 3)
@@ -82,7 +82,7 @@ void Session::updateTurretRoomObject(LevelObject& o, int dtMs) {
     if (o.type == kReflector) {
         // Object::update @0x11a450: a shuriken caught this tick (and not the tick before) is
         // turned by a right angle: one flying across goes up or down, one flying up or down goes
-        // across (to the reflector's left, 0x3d, or right, 0x3e); it starts again from the
+        // across (to the reflector's left, 0x39, or right, 0x3a); it starts again from the
         // reflector's middle, with six sparks across its new way.
         for (ReflectorCatch& c : reflectorCatches_) {
             if (c.objectId != o.id) continue;
@@ -153,9 +153,9 @@ bool Session::turretTouchProjectile(LevelObject& o, int projectile) {
         return true;
     }
     if (o.type == kFluffy2) {
-        if (Cat* henchman = catFor(o.id); henchman && henchman->state() == 0x18) {
-            henchman->setState(0x17);
-            o.state = ObjectState(0x17);
+        if (Cat* henchman = catFor(o.id); henchman && henchman->state() == 0x14) {
+            henchman->setState(0x13);
+            o.state = ObjectState(0x13);
             fireEvent("boss_win");
         }
         return true;

@@ -60,7 +60,8 @@ add_library(amiga
     shared/amiga/paula_voices.cpp
     shared/amiga/paula_channels.cpp
     shared/amiga/topaz.cpp
-    shared/amiga/intuition_imagery.cpp)
+    shared/amiga/intuition_imagery.cpp
+    shared/amiga/backward_cruncher.cpp)
 target_include_directories(amiga PUBLIC ${SOURCE_ROOT})
 target_compile_options(amiga PRIVATE ${PROJECT_WARNINGS})
 
@@ -356,6 +357,19 @@ target_include_directories(fa_18_interceptor_amiga PUBLIC ${SOURCE_ROOT})
 target_link_libraries(fa_18_interceptor_amiga PUBLIC amiga platform ui)
 target_compile_options(fa_18_interceptor_amiga PRIVATE ${PROJECT_WARNINGS})
 
+# --- beach_volley_amiga: Beach Volley (Amiga) ----------------------------------
+add_library(beach_volley_amiga
+    games/beach_volley_amiga/entry.cpp
+    games/beach_volley_amiga/data/assets.cpp
+    games/beach_volley_amiga/data/preview.cpp
+    games/beach_volley_amiga/front/intro.cpp
+    games/beach_volley_amiga/game/module.cpp
+    games/beach_volley_amiga/import/disk_import.cpp
+    games/beach_volley_amiga/sound/soundtracker.cpp)
+target_include_directories(beach_volley_amiga PUBLIC ${SOURCE_ROOT})
+target_link_libraries(beach_volley_amiga PUBLIC amiga platform ui)
+target_compile_options(beach_volley_amiga PRIVATE ${PROJECT_WARNINGS})
+
 # --- spindizzy_worlds_amiga: Spindizzy Worlds (Amiga) -------------------------
 add_library(spindizzy_worlds_amiga
     games/spindizzy_worlds_amiga/entry.cpp
@@ -439,7 +453,7 @@ if(ANDROID)
 else()
     add_executable(reprise ${REPRISE_SOURCES})
 endif()
-target_link_libraries(reprise PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga spindizzy_worlds_amiga spy_mouse_ios sonic layton ui)
+target_link_libraries(reprise PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga spindizzy_worlds_amiga beach_volley_amiga spy_mouse_ios sonic layton ui)
 target_compile_options(reprise PRIVATE ${PROJECT_WARNINGS})
 
 # --- tools ---------------------------------------------------------------------
@@ -503,6 +517,9 @@ target_compile_options(tower_of_babel_assets PRIVATE ${PROJECT_WARNINGS})
 add_executable(fa_18_interceptor_assets tools/fa_18_interceptor_assets.cpp)
 target_link_libraries(fa_18_interceptor_assets PRIVATE fa_18_interceptor_amiga)
 target_compile_options(fa_18_interceptor_assets PRIVATE ${PROJECT_WARNINGS})
+add_executable(beach_volley_assets tools/beach_volley_assets.cpp)
+target_link_libraries(beach_volley_assets PRIVATE beach_volley_amiga)
+target_compile_options(beach_volley_assets PRIVATE ${PROJECT_WARNINGS})
 add_executable(spindizzy_worlds_assets tools/spindizzy_worlds_assets.cpp)
 target_link_libraries(spindizzy_worlds_assets PRIVATE spindizzy_worlds_amiga)
 target_compile_options(spindizzy_worlds_assets PRIVATE ${PROJECT_WARNINGS})
@@ -529,7 +546,7 @@ if(BUILD_TESTING)
     games/bruce_lee_c64/game/room_chapter.cpp
     games/bruce_lee_c64/game/background_article.cpp
     app/launcher.cpp app/quick_save.cpp app/pause_menu.cpp)
-    target_link_libraries(shell_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga spindizzy_worlds_amiga spy_mouse_ios sonic layton ui)
+    target_link_libraries(shell_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga spindizzy_worlds_amiga beach_volley_amiga spy_mouse_ios sonic layton ui)
     target_compile_options(shell_checks PRIVATE ${PROJECT_WARNINGS})
     add_dependencies(shell_checks reprise_resources)
     add_test(NAME shell_navigation COMMAND shell_checks)
@@ -549,7 +566,7 @@ target_compile_options(marble_madness_replay PRIVATE ${PROJECT_WARNINGS})
 
 if(BUILD_TESTING)
     add_executable(persistence_checks tests/persistence.cpp app/catalog.cpp app/quick_save.cpp app/saved_options.cpp)
-    target_link_libraries(persistence_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga spindizzy_worlds_amiga spy_mouse_ios sonic layton ui)
+    target_link_libraries(persistence_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga spindizzy_worlds_amiga beach_volley_amiga spy_mouse_ios sonic layton ui)
     target_compile_options(persistence_checks PRIVATE ${PROJECT_WARNINGS})
     add_test(NAME persistent_saves COMMAND persistence_checks)
     # Spy Mouse through the module interface; skipped unless SPY_MOUSE_CONTENT and

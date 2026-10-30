@@ -30,8 +30,8 @@ inline bool isTimedSwitch(int type) { return type == 67 || type == 80 || type ==
 // 300 red, else yellow).
 const char* tagColour(int tag);
 
-constexpr int kSwitchUp = 0x2d, kSwitchDown = 0x2e;
-constexpr int kDoorClosed = 0x29, kDoorOpen = 0x2a;
+constexpr int kSwitchUp = 0x29, kSwitchDown = 0x2a;
+constexpr int kDoorClosed = 0x25, kDoorOpen = 0x26;
 
 struct Switch {
     int objectId = -1;
@@ -49,10 +49,6 @@ struct Switch {
     SpriteAnim timer;        // +0x2fc: timer.png, 18 wide
     // The first frame of its pair (up: +0, down: +1).
     int baseFrame() const;
-    // Quick saves (state_io.hpp).
-    template <class Io>
-    void io(Io& io) { io(objectId, type, tag, state, durationMs, timerMs, warned, touched, updating, snappable,
-                           movementSound, anim, timer); }
 };
 
 struct Door {
@@ -64,9 +60,6 @@ struct Door {
     Vec2 home;               // +0x1c8: where it rests while rattling
     int pass = 2;            // +0x1c0: drawn in the normal pass while closed, low while open
     SpriteAnim anim;         // +0x38: bars_<kind>_<colour>.png, 32 wide, frames 0 closed .. 2 open
-    // Quick saves (state_io.hpp).
-    template <class Io>
-    void io(Io& io) { io(objectId, type, tag, state, rotation, home, pass, anim); }
 };
 
 }  // namespace doc::game

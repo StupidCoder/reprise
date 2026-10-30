@@ -89,30 +89,12 @@ int closestOnSegment(Vec2 a, Vec2 b, Vec2 p, Vec2& closest) {
     return result;
 }
 
-// Untagged walls count only where they overlap the view's x range; tagged ones always do
-// (the range test in every MapCollision query, 1.1.1).
-bool LevelGeometry::inRange(const Wall& wall, float viewLeft) const {
-    return wall.tag != 0 || !outsideView(wall, viewLeft, viewLeft + kScreenWidth);
-}
-
 bool LevelGeometry::lineTouches(Vec2 a, Vec2 b, float viewLeft, int mode) const {
+    const float right = viewLeft + kScreenWidth;
     for (const Wall& wall : walls_) {
         if (!wall.enabled) continue;
         if (mode != 0 && ignoredBySightTest(wall.type, mode)) continue;
-        if (!inRange(wall, viewLeft)) continue;
-        Vec2 at;
-        if (segmentCrossing(a, b, wall.a, wall.b, at)) {
-            return true;
-        }
-    }
-    return false;
-}
-
-bool LevelGeometry::lineTouchesType(Vec2 a, Vec2 b, int type, float viewLeft) const {
-    if (type == -1) return lineTouches(a, b, viewLeft, -1);
-    for (const Wall& wall : walls_) {
-        if (!wall.enabled || wall.type != type) continue;
-        if (!inRange(wall, viewLeft)) continue;
+        if (outsideView(wall, viewLeft, right)) continue;
         Vec2 at;
         if (segmentCrossing(a, b, wall.a, wall.b, at)) return true;
     }
@@ -120,18 +102,26 @@ bool LevelGeometry::lineTouchesType(Vec2 a, Vec2 b, int type, float viewLeft) co
 }
 
 bool LevelGeometry::clipLine(Vec2 from, Vec2& to, float viewLeft) const {
-    if (from.x == to.x && from.y == to.y) return false;
-    // The two crossed solid walls nearest to `from` (the second is found but not used).
+    // The end point is first pushed off solid walls. The original passes the view position
+    // where the ignored edge type belongs and 0 as the view position (kept as found).
+    SphereOptions push;
+    push.plainWallsOnly = true;
+    push.ignoreType = int(viewLeft);
+    push.viewLeft = 0.0f;
+    collideSphere(to, 10.0f, push);
+
+    // The two crossed walls nearest to `from`.
+    const float right = viewLeft + kScreenWidth;
     int nearest = -1, second = -1;
     float nearestDistance = 99999.9f, secondDistance = 99999.9f;
     for (std::size_t i = 0; i < walls_.size(); ++i) {
         const Wall& wall = walls_[i];
         if (!wall.enabled) continue;
         if (!(wall.type < 0x6A || wall.type == 0x6D || wall.type == 0x79)) continue;
-        if (!inRange(wall, viewLeft)) continue;
+        if (outsideView(wall, viewLeft, right)) continue;
         Vec2 at;
         if (!segmentCrossing(from, to, wall.a, wall.b, at)) continue;
-        const float distance = (at - from).length();
+        const float distance = (from - at).length();
         if (distance < nearestDistance) {
             secondDistance = nearestDistance;
             second = nearest;
@@ -142,15 +132,35 @@ bool LevelGeometry::clipLine(Vec2 from, Vec2& to, float viewLeft) const {
             second = int(i);
         }
     }
-    (void)second;
+
+    if (second >= 0) {
+        // Two walls meeting at a corner: step 13 units away from both, along the bisector.
+        const Wall& w1 = walls_[nearest];
+        const Wall& w2 = walls_[second];
+        Vec2 corner, end1, end2;
+        bool shared = true;
+        if (w1.vertexA == w2.vertexA) corner = w1.a, end1 = w1.b, end2 = w2.b;
+        else if (w1.vertexA == w2.vertexB) corner = w1.a, end1 = w1.b, end2 = w2.a;
+        else if (w1.vertexB == w2.vertexA) corner = w1.b, end1 = w1.a, end2 = w2.b;
+        else if (w1.vertexB == w2.vertexB) corner = w1.b, end1 = w1.a, end2 = w2.a;
+        else shared = false;
+        if (shared) {
+            Vec2 d1 = corner - end1;
+            Vec2 d2 = corner - end2;
+            d1.normalise(1.0f);
+            d2.normalise(1.0f);
+            to = corner + (d1 + d2) * 13.0f;
+            return true;
+        }
+    }
     if (nearest < 0) return false;
-    // Onto the wall, two units back toward `from`, then off the plain walls.
-    const Wall& wall = walls_[std::size_t(nearest)];
+    // One wall: move onto it, one unit back toward `from`, then off the walls again.
+    const Wall& wall = walls_[nearest];
+    closestOnSegment(wall.a, wall.b, to, to);
     Vec2 back = from - to;
     back.normalise(1.0f);
-    closestOnSegment(wall.a, wall.b, to, to);
-    to += back * 2.0f;
-    collideSphereSpecific(to, 12.0f, 0, nullptr, viewLeft);
+    to += back;
+    collideSphere(to, 10.0f, push);
     return true;
 }
 
@@ -174,108 +184,111 @@ int circleSegmentContact(Vec2 centre, float radius, Vec2 a, Vec2 b, Vec2& closes
     return result;
 }
 
-namespace {
+// MapCollision::collideSphereLine: one wall against the sphere. Returns the contact kind (0 if
+// none); `final` is set for edges that end the whole test (kinds 11 and 12).
+int LevelGeometry::collideWall(std::size_t i, Vec2& centre, float radius, const SphereOptions& options, bool& final) const {
+    const Wall& wall = walls_[i];
+    final = false;
+    Vec2 closest;
+    if (circleSegmentContact(centre, radius, wall.a, wall.b, closest) == 0) return 0;
 
-// The contact bit of a wall type (MapCollision::collideSphere's switch @0x13f5b4).
-unsigned contactOf(int type) {
-    if (type == 0x7A) return contact::k7A;
-    if ((type >= 0x7D && type <= 0x81) || type == 0x6C || type == 0x87) return contact::kTrigger;
-    switch (type) {
-    case 0x71: return contact::kConveyor;
-    case 0x72: return contact::k72;
-    case 0x73: return contact::k73;
-    case 0x7C: return contact::k7C;
-    case 0x6E: return contact::k6E;
-    case 0x90: return contact::k90;
-    case 0x8C: return contact::k8C;
-    case 0x6F: return contact::k6F;
-    case 0x70: return contact::k70;
-    case 0x7B: return contact::k7B;
-    case 0x8D: return contact::kPaint;
-    case 0x78: return contact::k78;
-    case 0x8F: return contact::k8F;
-    case 0x91: return contact::k91;
-    case 0x6D: return contact::kBouncy;
-    case 0x00: case 0x79: return contact::kSolid;
-    default: return 0;
+    int kind = 0;
+    if (!options.plainWallsOnly) {
+        const int t = wall.type;
+        auto edgeId = [&] { return Vec2{float(i), float(wall.tag)}; };
+        if (t == 0x7A) {
+            final = true;  // stops at the first such edge
+            return 12;
+        }
+        if ((t >= 0x7D && t <= 0x81) || t == 0x6C || t == 0x87) {
+            if (options.pushNormal) *options.pushNormal = edgeId();
+            final = true;  // stops at the first such edge
+            return 11;
+        }
+        switch (t) {
+        case 0x71: {
+            kind = 10;
+            if (options.pushNormal) {
+                Vec2 n = wall.b - wall.a;
+                n.normalise(1.0f);
+                *options.pushNormal = n;
+            }
+            break;
+        }
+        case 0x72: kind = 9; if (options.pushNormal) *options.pushNormal = edgeId(); break;
+        case 0x7C: kind = 14; if (options.pushNormal) *options.pushNormal = edgeId(); break;
+        case 0x73: kind = 8; break;
+        case 0x6E: kind = 5; break;
+        case 0x90: kind = 17; break;
+        case 0x8C: kind = 15; break;
+        case 0x6F: kind = 1; break;
+        case 0x70: kind = 2; break;
+        case 0x7B: kind = 13; break;
+        case 0x8D:
+            kind = 16;
+            if (options.pushNormal) *options.pushNormal = {float(wall.tag), float(wall.tag)};
+            break;
+        case 0x78: kind = 6; break;
+        case 0x8F: kind = 7; break;
+        default: kind = 0; break;
+        }
     }
+    // Edge types that always act as walls for this test.
+    if (wall.type == 0) {
+        if (kind <= 3) kind = 3;
+    } else if (wall.type == 0x6D) {
+        if (kind <= 9) kind = 4;
+    } else if (wall.type == 0x79) {
+        if (kind < 4) kind = 3;
+    }
+    if (kind == 3 || kind == 4 || kind == 6) {
+        // Push the centre out along the closest-point direction by the overlap.
+        Vec2 push = closest - centre;
+        float distance = push.normalise(1.0f);
+        if (options.pushNormal) *options.pushNormal += push;
+        push *= distance - radius;
+        centre += push;
+    }
+    return kind;
 }
 
-}  // namespace
-
-unsigned LevelGeometry::collideSphere(Vec2& centre, float radius, float viewLeft, Vec2* normal,
-                                      std::span<const int> ignoredTypes) const {
-    unsigned touched = 0;
+int LevelGeometry::collideSphere(Vec2& centre, float radius, const SphereOptions& options) const {
+    const float left = options.viewLeft;
+    const float right = options.viewLeft + kScreenWidth;
+    int best = 0;
     for (std::size_t i = 0; i < walls_.size(); ++i) {
         const Wall& wall = walls_[i];
         if (!wall.enabled) continue;
-        if (std::find(ignoredTypes.begin(), ignoredTypes.end(), wall.type) != ignoredTypes.end()) continue;
-        if (!inRange(wall, viewLeft)) continue;
-        Vec2 closest;
-        if (circleSegmentContact(centre, radius, wall.a, wall.b, closest) == 0) continue;
-        const unsigned bit = contactOf(wall.type);
-        if (normal) {
-            if (bit == contact::kTrigger || bit == contact::k72 || bit == contact::k7C) {
-                *normal = {float(i), float(wall.tag)};
-            } else if (bit == contact::kConveyor) {
-                Vec2 along = wall.b - wall.a;
-                along.normalise(1.0f);
-                *normal = along;
-            } else if (bit == contact::kPaint) {
-                *normal = {float(wall.tag), float(wall.tag)};
-            }
-        }
-        if (bit == contact::kSolid || bit == contact::kBouncy) {
-            // Out along the closest-point direction by the overlap.
-            Vec2 push = closest - centre;
-            const float distance = push.normalise(1.0f);
-            if (normal) *normal += push;
-            push *= distance - radius;
-            centre += push;
-        }
-        touched |= bit;
+        if (options.ignoreType >= 1 && wall.type == options.ignoreType) continue;
+        if (wall.a.x < left && wall.b.x < left) continue;
+        if (wall.a.x > right && wall.b.x > right) continue;
+        bool final = false;
+        const int kind = collideWall(i, centre, radius, options, final);
+        if (final) return kind;
+        if (kind != 0) best = best == 0 ? kind : std::min(best, kind);
     }
-    return touched;
+    return best;
 }
 
-unsigned LevelGeometry::collideSphereLine(std::size_t i, Vec2 centre, float radius, float viewLeft) const {
-    if (i >= walls_.size()) return 0;
-    const Wall& wall = walls_[i];
-    if (!inRange(wall, viewLeft)) return 0;
-    Vec2 closest;
-    if (circleSegmentContact(centre, radius, wall.a, wall.b, closest) == 0) return 0;
-    // (The same bits as collideSphere's, but 0x91 counts for nothing here.)
-    return wall.type == 0x91 ? 0 : contactOf(wall.type);
-}
-
-unsigned LevelGeometry::collideSphereSpecific(Vec2& centre, float radius, int type, Vec2* normal, float viewLeft) const {
-    unsigned result = 0;
+int LevelGeometry::collideSphereOfType(Vec2& centre, float radius, int type, Vec2& found, float viewLeft) const {
+    LevelGeometry::SphereOptions options;
+    options.pushNormal = &found;
+    options.viewLeft = viewLeft;
+    int best = 0;
     for (std::size_t i = 0; i < walls_.size(); ++i) {
         const Wall& wall = walls_[i];
-        if (!wall.enabled || (type != -1 && wall.type != type)) continue;
-        const unsigned bits = collideSphereLine(i, centre, radius, viewLeft);
-        if (bits != 0) result = bits;
-        if (bits & contact::kTrigger) {
-            if (normal) *normal = {float(i), float(wall.tag)};
-            return result;
-        }
-        if (bits & contact::kSolid) {
-            Vec2 closest;
-            circleSegmentContact(centre, radius, wall.a, wall.b, closest);
-            Vec2 push = closest - centre;
-            const float distance = push.normalise(1.0f);
-            if (normal) {
-                // The wall's perpendicular.
-                const Vec2 d = wall.a - wall.b;
-                Vec2 across{d.y, -d.x};
-                across.normalise(1.0f);
-                *normal = across;
-            }
-            push *= distance - radius;
-            centre += push;
+        if (!wall.enabled || wall.type != type) continue;
+        if (wall.a.x < viewLeft && wall.b.x < viewLeft) continue;
+        if (wall.a.x > viewLeft + kScreenWidth && wall.b.x > viewLeft + kScreenWidth) continue;
+        bool final = false;
+        const int kind = collideWall(i, centre, radius, options, final);
+        if (kind > 0) best = kind;
+        if (kind == 11) {
+            found.x = float(i);
+            return best;
         }
     }
-    return result;
+    return best;
 }
 
 }  // namespace doc::game

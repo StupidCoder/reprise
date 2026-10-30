@@ -104,7 +104,7 @@ std::optional<Level> Level::load(const data::GameFiles& files, const data::Level
         if (o.frameWidth > 0) o.frames = int(float(sheetSize.width) / float(o.frameWidth) + 0.5f);
         o.anim.setSheet(sheetSize.width, sheetSize.height, float(o.frameWidth));
         // Object::loadAssets @0x117cbe: a reflector turning right shows its second frame.
-        if (type == kReflector && o.state == ObjectState(0x3e)) o.anim.setFrame(1);
+        if (type == kReflector && o.state == ObjectState(0x3A)) o.anim.setFrame(1);
         if (isCheeseMachineEntity(e.type)) {
             // Object::init @0x11aa30: the cheeses it holds are made at once (SceneGame::addEntity,
             // so they follow it in the object list): type 10, 6 right of and 7.75 below its

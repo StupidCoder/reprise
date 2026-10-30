@@ -12,7 +12,6 @@
 // X Y) are fed in one 17 ms tick per frame from FIRST-FRAME on, and the given frames are saved.
 #include "game/float_mode.hpp"
 #include "app/game_flow.hpp"
-#include "game/state_io.hpp"
 #include "app/launcher.hpp"
 #include "app/sound_output.hpp"
 #include "data/level_table.hpp"
@@ -23,7 +22,6 @@
 #include "render/level_view.hpp"
 #include "render/map_view.hpp"
 
-#include <chrono>
 #include <cstdio>
 #include <memory>
 #include <cstdlib>
@@ -88,8 +86,6 @@ void releaseButton(game::Session& session, const std::string& button) {
     }
     if (button == "PAUSE") session.pressPause();
     if (button == "BTN_CONTINUE") session.pressNoticeButton();
-    if (button == "BTN_BACK") session.pressDossierBack();
-    if (button == "BTN_OK") session.pressDossierNote();
     if (button == "GAME_RESULTS_CONTINUE") {
         if (session.worldComplete().active()) session.pressWorldContinue();
         else session.pressResultsButton(false);
@@ -309,7 +305,7 @@ int mapReplay(const data::GameFiles& files, int argc, char** argv) {
     auto table = data::LevelTable::load(files, error);
     game::Profile profile;
     if (progress) profile.load(progress);
-    auto map = table ? game::WorldMap::load(files, *table, profile, world, 1, error) : nullptr;
+    auto map = table ? game::WorldMap::load(files, *table, profile, world, 1, error) : std::nullopt;
     if (map && arrive) map->arriveFromWorldCard();
     auto host = platform::Host::createOffscreen(error);
     render::MapView view;
@@ -327,70 +323,27 @@ int mapReplay(const data::GameFiles& files, int argc, char** argv) {
             touches.push_back(t);
     }
     const int last = shots.empty() ? first : shots.rbegin()->first;
-    // DOC_QUICKSAVE=K: every K frames the map is quick-saved and loaded into a new one built from
-    // its files (game/state_io.hpp), which plays on; an uninterrupted twin plays the same touches,
-    // and the two states must stay the same byte for byte.
-    const int quickSaveEvery = std::getenv("DOC_QUICKSAVE") ? std::atoi(std::getenv("DOC_QUICKSAVE")) : 0;
-    std::unique_ptr<game::WorldMap> twin;
-    if (quickSaveEvery > 0) {
-        twin = game::WorldMap::load(files, *table, profile, world, 1, error);
-        if (twin && arrive) twin->arriveFromWorldCard();
-    }
-    auto feed = [&](game::WorldMap& m, const Touch& t) {
-        const game::Vec2 p{t.x, t.y};
-        const std::string button = view.buttonAt(m, p);
-        if (t.kind == "down" && button.empty()) m.touchDown(p);
-        if (t.kind == "move") m.touchMove(p);
-        if (t.kind == "up") {
-            if (button == "PLAY") m.pressPlay();
-            m.touchUp(p);
-        }
-    };
-    // update case 6: the map of the next or previous world is built (as the app does).
-    auto stepWorld = [&](std::unique_ptr<game::WorldMap>& m) {
-        if (m->worldStep() == 0) return;
-        const int next = m->world() + m->worldStep();
-        m = game::WorldMap::load(files, *table, profile, next, 1, error);
-    };
-    auto saved = [](const game::WorldMap& m) {
-        game::StateWriter w;
-        w.save(m);
-        return std::move(w.bytes);
-    };
-    int quickSaves = 0;
     for (int frame = first; frame <= last; ++frame) {
         for (const Touch& t : touches) {
             if (t.frame != frame - 1) continue;
-            feed(*map, t);
-            if (twin) feed(*twin, t);
+            const game::Vec2 p{t.x, t.y};
+            const std::string button = view.buttonAt(*map, p);
+            if (t.kind == "down" && button.empty()) map->touchDown(p);
+            if (t.kind == "move") map->touchMove(p);
+            if (t.kind == "up") {
+                if (button == "PLAY") map->pressPlay();
+                map->touchUp(p);
+            }
         }
         map->tick(game::kTickMs);
-        const bool stepped = map->worldStep() != 0;
-        stepWorld(map);
-        if (stepped && (!map || !view.load(*host, files, *map, error))) {
-            std::fprintf(stderr, "%s\n", error.c_str());
-            return 1;
-        }
-        if (twin) {
-            twin->tick(game::kTickMs);
-            stepWorld(twin);
-            if ((frame - first) % quickSaveEvery == 0) {
-                const std::vector<std::uint8_t> bytes = saved(*map);
-                auto loaded = game::WorldMap::load(files, *table, profile, map->world(), 1, error);
-                game::StateReader r{bytes};
-                try {
-                    if (!loaded) throw game::StateError(error);
-                    r.load(*loaded);
-                    if (r.at != bytes.size()) throw game::StateError("bytes left over");
-                } catch (const std::exception& e) {
-                    std::printf("quick save: loading at frame %d failed: %s\n", frame, e.what());
-                    return 1;
-                }
-                map = std::move(loaded);
-                ++quickSaves;
-            }
-            if (!twin || saved(*map) != saved(*twin)) {
-                std::printf("quick save: first difference at frame %d (after %d loads)\n", frame, quickSaves);
+        if (map->worldStep() != 0) {
+            // update case 6: the map of the next or previous world is built (as the app does).
+            const int next = map->world() + map->worldStep();
+            auto fresh = game::WorldMap::load(files, *table, profile, next, 1, error);
+            map.reset();
+            if (fresh) map.emplace(std::move(*fresh));
+            if (!map || !view.load(*host, files, *map, error)) {
+                std::fprintf(stderr, "%s\n", error.c_str());
                 return 1;
             }
         }
@@ -431,8 +384,6 @@ LevelExit playLevel(platform::Host& host, const data::GameFiles& files, const da
     auto session = std::make_unique<game::Session>(game::Level(levelData), std::uint32_t(std::time(nullptr)),
                                                    game::Tuning{}, profile.strength, profile.record(uid).completed);
     session->setRecord(profile.record(uid));
-    session->setCheeseBalance(profile.cheeseBalance());
-    session->setDossiersFound(profile.dossiers);
     session->setKiskaOffers(profile.kiska, std::int64_t(std::time(nullptr)));
     profile.strength = std::max(profile.strength, info.trailLength);
     bool recorded = false;  // this run's completion is in the profile
@@ -484,8 +435,6 @@ LevelExit playLevel(platform::Host& host, const data::GameFiles& files, const da
             else sound.stopAll();
             session = session->retry();
             session->setRecord(profile.record(uid));
-            session->setCheeseBalance(profile.cheeseBalance());
-            session->setDossiersFound(profile.dossiers);
             recorded = false;
         }
         std::uint64_t now = host.milliseconds();
@@ -494,10 +443,6 @@ LevelExit playLevel(platform::Host& host, const data::GameFiles& files, const da
             if (session->retryRequested() || session->exitRequested()) break;
         }
         sound.play(sound.filter(session->takeSoundEvents(), session->clockMs()));
-        if (const int dossier = session->takeFoundDossier(); dossier >= 0) {
-            profile.foundDossier(dossier);
-            profile.save(profileFile);
-        }
         if (!(session->kiskaOffers() == profile.kiska)) {
             // Kiska's offer has shown (or been counted): the profile keeps that at once.
             profile.kiska = session->kiskaOffers();
@@ -519,16 +464,13 @@ LevelExit playLevel(platform::Host& host, const data::GameFiles& files, const da
             else sound.stopAll();
             session = session->retry();
             session->setRecord(profile.record(uid));
-            session->setCheeseBalance(profile.cheeseBalance());
-            session->setDossiersFound(profile.dossiers);
             recorded = false;
             sound.play(sound.filter(session->takeSoundEvents(), session->clockMs()));
         }
         if (session->worldComplete().active() && !recorded) {
             // A world's boss fight won for the first time: recorded as the card appears, and the
             // card counts the world's goals after that (updateDynamicLabels).
-            profile.complete(table, uid, session->recordedScore(), session->goalsWon(), session->progress().foundSecret);
-            for (std::size_t k = 0; k < 5; ++k) profile.cheese[k] += session->progress().deliveredKinds[k];
+            profile.complete(table, uid, session->progress().total, session->goalsWon(), session->progress().foundSecret);
             profile.currentLevel = uid;
             profile.save(profileFile);
             recorded = true;
@@ -547,8 +489,7 @@ LevelExit playLevel(platform::Host& host, const data::GameFiles& files, const da
         }
         if (session->results().active() && !recorded) {
             // Profile::completeLevel runs as the results are asked for.
-            profile.complete(table, uid, session->recordedScore(), session->goalsWon(), session->progress().foundSecret);
-            for (std::size_t k = 0; k < 5; ++k) profile.cheese[k] += session->progress().deliveredKinds[k];
+            profile.complete(table, uid, session->progress().total, session->goalsWon(), session->progress().foundSecret);
             profile.currentLevel = uid;
             profile.save(profileFile);
             recorded = true;
@@ -637,82 +578,6 @@ int runLauncher(const std::filesystem::path& importFirst) {
     }
 }
 
-// Headless check of quick saves through the whole game flow (map, levels, results, sound):
-// `--flow-check PROFILE SCRIPT FIRST TICKS` plays from a copy of the progress file PROFILE, with
-// a harness script's touches (frame FIRST is the flow's first tick), for TICKS ticks. Every
-// DOC_QUICKSAVE=K ticks (default 1) the flow is saved and restored into a new one that plays
-// on, while an uninterrupted twin plays the same touches; their saved states must stay equal.
-int flowCheck(const data::GameFiles& files, const char* profile, const char* script, int first, int ticks) {
-    const int every = std::getenv("DOC_QUICKSAVE") ? std::max(1, std::atoi(std::getenv("DOC_QUICKSAVE"))) : 1;
-    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "doc-flow-check";
-    std::filesystem::create_directories(dir);
-    const std::filesystem::path mainFile = dir / "main.txt", twinFile = dir / "twin.txt";
-    for (const auto& f : {mainFile, twinFile}) {
-        std::filesystem::remove(f);
-        if (*profile) std::filesystem::copy_file(profile, f);
-    }
-    platform::Audio audio;
-    audio.openPull();
-    constexpr std::int64_t kClock = 1700000000;  // (both flows seed their scenes alike)
-    auto make = [&](const std::filesystem::path& file) {
-        auto flow = std::make_unique<app::GameFlow>(files, file, audio);
-        flow->setClock(kClock);
-        return flow;
-    };
-    auto flow = make(mainFile), twin = make(twinFile);
-    std::string error;
-    if (!flow->begin(error) || !twin->begin(error)) {
-        std::fprintf(stderr, "%s\n", error.c_str());
-        return 1;
-    }
-    struct Touch { int frame; std::string kind; float x, y; };
-    std::vector<Touch> touches;
-    std::ifstream in(script);
-    for (std::string line; std::getline(in, line);) {
-        std::istringstream ss(line);
-        Touch t{};
-        if ((ss >> t.frame >> t.kind) && (t.kind == "down" || t.kind == "move" || t.kind == "up") && (ss >> t.x >> t.y))
-            touches.push_back(t);
-    }
-    int loads = 0;
-    std::size_t largest = 0;
-    double slowestMs = 0;
-    for (int tick = 0; tick < ticks; ++tick) {
-        for (const Touch& t : touches) {
-            if (t.frame != first + tick - 1) continue;
-            const auto kind = t.kind == "down" ? app::GameFlow::Touch::Down
-                              : t.kind == "move" ? app::GameFlow::Touch::Move : app::GameFlow::Touch::Up;
-            flow->touch({kind, t.x, t.y});
-            twin->touch({kind, t.x, t.y});
-        }
-        flow->tick();
-        twin->tick();
-        if (tick % every == 0) {
-            const std::vector<std::uint8_t> bytes = flow->saveState();
-            const auto started = std::chrono::steady_clock::now();
-            auto loaded = make(mainFile);
-            if (!loaded->restore(bytes, error)) {
-                std::printf("flow check: loading at tick %d failed: %s\n", tick, error.c_str());
-                return 1;
-            }
-            largest = std::max(largest, bytes.size());
-            const std::chrono::duration<double, std::milli> took = std::chrono::steady_clock::now() - started;
-            slowestMs = std::max(slowestMs, took.count());
-            flow = std::move(loaded);
-            ++loads;
-        }
-        if (flow->saveState() != twin->saveState()) {
-            std::printf("flow check: first difference at tick %d (after %d loads)\n", tick, loads);
-            return 1;
-        }
-        if (flow->left() || !flow->failure().empty()) break;
-    }
-    std::printf("flow check: %d ticks, %d loads, states equal (largest save %zu bytes, slowest load %.1f ms); %s %s\n",
-                ticks, loads, largest, slowestMs, flow->session() ? "in level" : "on the map",
-                flow->session() ? flow->session()->level().info().number.c_str() : "");
-    return 0;
-}
-
 // Command-line import into the per-user data folder.
 int importOnly(const std::filesystem::path& ipa) {
     std::string error;
@@ -772,8 +637,6 @@ int main(int argc, char** argv) {
         if (!std::strcmp(argv[i], "--res")) files->setOverrideDir(argv[i + 1]);
     for (int i = 2; i < argc; ++i)
         if (!std::strcmp(argv[i], "--map")) return mapReplay(*files, argc, argv);
-    if (argc > 6 && !std::strcmp(argv[2], "--flow-check"))
-        return flowCheck(*files, argv[3], argv[4], std::atoi(argv[5]), std::atoi(argv[6]));
     for (int i = 3; i < argc; ++i)
         if (!std::strcmp(argv[i], "--replay")) {
             auto table = data::LevelTable::load(*files, error);

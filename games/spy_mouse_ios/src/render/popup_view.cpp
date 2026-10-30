@@ -1,6 +1,7 @@
 // The tutorial popup over a level (ScenePopupTutorial, layout guis/popup_tutorial.gui) drawn
-// from its layout file (GuiItem::render @0x1d85ec: the item's picture stretched over its box,
-// then its children). The texts and pictures the layout
+// from its layout file: ScenePopupTutorial::render @0x225858 dims the level with black at half
+// the popup's alpha, then draws the layout's items (GuiItem::render @0x1d85ec: the item's
+// picture stretched over its box, then its children). The texts and pictures the layout
 // leaves open come from the popup's description (ScenePopupTutorial::load @0x225208).
 #include "render/level_view.hpp"
 
@@ -23,53 +24,69 @@ struct Box {
 // What ScenePopupTutorial::load fills in, and how the GUI items draw themselves.
 struct LevelView::PopupContent {
     const game::NoticePopup* notice = nullptr;
-    Affine xf;  // the bounce of the card the item sits in
+    float alpha = 1.0f;
 };
 
-void LevelView::drawGuiNode(const data::GuiNode& node, float parentX, float parentY, const PopupContent& outer) {
-    const game::LevelNotice& notice = outer.notice->notice();
-    // The Wi-Fi line shows only when the description asks for it (ScenePopupTutorial::load:
-    // item LBL_BLUETOOTH_WIFI_HINT hidden unless the fifth element is there).
-    if (node.name == "LBL_BLUETOOTH_WIFI_HINT" && !notice.wifiHint) return;
+void LevelView::drawGuiNode(const data::GuiNode& node, float parentX, float parentY, const PopupContent& content) {
+    const game::LevelNotice& notice = content.notice->notice();
+    // Items the popup hides (ScenePopupTutorial::load): the picture when an extra text is
+    // shown, the extra text otherwise, the wifi line unless asked for.
+    const bool extra = !notice.bodyExtraText.empty();
+    if ((node.name == "TUTORIAL_IMG" && extra) || (node.name == "LBL_BODY_EXTRA" && !extra) ||
+        (node.name == "LBL_BLUETOOTH_WIFI_HINT" && !notice.wifiHint))
+        return;
     Box box{node.position.x, node.position.y, node.size.x, node.size.y};
     if (node.relative) {
         box.x += parentX;
         box.y += parentY;
     }
-    PopupContent content = outer;
-    Affine& xf = content.xf;
-    if (node.kind == 101) {
-        // GuiBounceFrameCM (App::loadUserItem kind 101): the card and all it holds scale about
-        // its centre while it bounces in (getScales @0x1dd920).
-        const game::BounceFrame& card = content.notice->card();
-        if (!card.visible()) return;
-        float sx = 1.0f, sy = 1.0f;
-        card.scales(sx, sy);
-        const float cx = box.x + box.w * 0.5f, cy = box.top() + box.h * 0.5f;
-        xf = outer.xf.after(Affine{sx, cx * (1.0f - sx), sy, cy * (1.0f - sy)});
-    }
-    auto drawPicture = [&](const std::string& path, const Box& b) {
+    const float alpha = node.colour.a * content.alpha;
+    auto drawPicture = [&](const std::string& path, const Box& b, bool flip) {
         const platform::Texture* t = texture(path);
         if (!t) return;
         platform::DrawStyle style;
         style.r = node.colour.r;
         style.g = node.colour.g;
         style.b = node.colour.b;
-        style.a = node.colour.a;
-        host_->draw(*t, 0, 0, float(t->width()), float(t->height()), xf.x(b.x), xf.y(b.top()), b.w * xf.ax,
-                    b.h * xf.ay, style);
+        style.a = alpha;
+        style.flipX = flip;
+        host_->draw(*t, 0, 0, float(t->width()), float(t->height()), b.x, b.top(), b.w, b.h, style);
     };
-    if (node.kind == int(data::GuiKind::Rect)) {
-        // GuiRect::render @0x20e2a4: a plain box in the item's colour (here the level's dimming).
-        const auto byte = [](float v) { return std::uint32_t(std::lround(std::clamp(v, 0.0f, 1.0f) * 255.0f)); };
-        host_->fillRect(xf.x(box.x), xf.y(box.top()), box.w * xf.ax, box.h * xf.ay,
-                        (byte(node.colour.r) << 24) | (byte(node.colour.g) << 16) | (byte(node.colour.b) << 8) |
-                            byte(node.colour.a));
+    auto drawChildren = [&](float x, float y) {
+        for (const data::GuiNode& child : node.children) drawGuiNode(child, x, y, content);
+    };
+
+    if (node.name == "POSED_MOUSE") {
+        // GuiPosedMouse (setPose @0x224608, render @0x224708): the pose picture at its own
+        // size (world0<pose>/mm_mouse.png, squeek_mode for pose 0), then the eyes at the
+        // pose's fraction of the picture (g_vMouseEyeOffset), shut while blinking.
+        drawChildren(box.x, box.y);
+        const game::PosedMouse& mouse = content.notice->mouse();
+        const int pose = mouse.pose();
+        const std::string dir = pose == 0 ? std::string("ui/mouse_pose/squeek_mode/")
+                                          : "ui/mouse_pose/world0" + std::to_string(pose) + "/";
+        const platform::Texture* body = texture(dir + "mm_mouse.png");
+        if (!body) return;
+        Box b{box.x, box.y, float(body->width()), float(body->height())};
+        drawPicture(dir + "mm_mouse.png", b, mouse.flipped());
+        // Eye pictures per pose: open, left, (none), right, shut; poses 4, 5 and 7 have no
+        // open eyes (GuiPosedMouse::loadEyeTextures @0x2244b4).
+        static const char* const kEyes[5] = {"open", "left", nullptr, "right", "closed"};
+        const int slot = mouse.eyesShut() ? 4 : std::clamp(mouse.eyes(), 0, 3);
+        if (!kEyes[slot] || (slot == 0 && ((0xb0 >> pose) & 1))) return;
+        const std::string eyesPath = dir + "mm_mouse_" + kEyes[slot] + ".png";
+        const platform::Texture* eyes = texture(eyesPath);
+        if (!eyes || pose < 0 || pose >= int(eyeOffsets_.size())) return;
+        float fx = eyeOffsets_[std::size_t(pose)].x, fy = eyeOffsets_[std::size_t(pose)].y;
+        Box e{b.x + fx * b.w, b.y + fy * b.h, float(eyes->width()), float(eyes->height())};
+        if (mouse.flipped()) e.x = b.x + (1.0f - fx) * b.w - e.w;
+        drawPicture(eyesPath, e, mouse.flipped());
+        return;
     }
 
     std::string image = node.image;
-    if (node.name == "TUTORIAL_IMG" && !notice.image.empty()) image = notice.image;  // GuiItem::setImage
-    if (!image.empty()) drawPicture(image, box);
+    if (node.name == "TUTORIAL_IMG" && !notice.image.empty()) image = notice.image;
+    if (!image.empty()) drawPicture(image, box, false);
 
     if (node.label) {
         const data::GuiLabelFields& l = *node.label;
@@ -77,13 +94,14 @@ void LevelView::drawGuiNode(const data::GuiNode& node, float parentX, float pare
         if (strings_) {
             if (node.name == "LBL_TITLE") text = strings_->text(notice.titleText);
             else if (node.name == "LBL_BODY") text = strings_->text(notice.bodyText);
+            else if (node.name == "LBL_BODY_EXTRA") text = strings_->text(notice.bodyExtraText);
             else if (strings_->id(l.key) >= 0) text = strings_->text(l.key);
             else text = l.text;
         }
         float scale = l.scale;
         // updateScaleTextToLabel @0x19d634: shrunk to the label's width.
         if (node.name == "LBL_TITLE" || node.name == "LBL_BLUETOOTH_WIFI_HINT") scale = fitScale(node, text);
-        drawGuiLabel(node, box.x, box.y, box.w, box.h, text, scale, 1.0f, xf);
+        drawGuiLabel(node, box.x, box.y, box.w, box.h, text, scale, content.alpha, {});
     }
 
     if (node.kind == int(data::GuiKind::ScrollFrame)) {
@@ -121,8 +139,9 @@ void LevelView::drawGuiNode(const data::GuiNode& node, float parentX, float pare
         for (const data::GuiNode& child : children) drawGuiNode(child, box.x + dx, box.y + dy, content);
         return;
     }
-    for (const data::GuiNode& child : node.children) drawGuiNode(child, box.x, box.y, content);
+    drawChildren(box.x, box.y);
 }
+
 // updateScaleTextToLabel @0x19d634: the label's own scale, or less so that the text fits its
 // width.
 float LevelView::fitScale(const data::GuiNode& node, const std::string& text) {
@@ -165,10 +184,11 @@ void LevelView::drawGuiLabel(const data::GuiNode& node, float x, float y, float 
 void LevelView::drawNotice(const game::Session& session) {
     const game::NoticePopup& notice = session.notice();
     if (!notice.active() || !popupLayout_) return;
-    // ScenePopupTutorial::render @0x225858: the layout (its first item dims the level), then the
-    // iris.
+    const float alpha = std::clamp(notice.alpha(), 0.0f, 1.0f);
+    host_->fillRect(0, 0, 480.0f, kScreenH, std::uint32_t(std::lround(alpha * 0.5f * 255.0f)));
     PopupContent content;
     content.notice = &notice;
+    content.alpha = alpha;
     for (const data::GuiNode& node : popupLayout_->root.children) drawGuiNode(node, 0.0f, 0.0f, content);
 }
 

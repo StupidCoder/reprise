@@ -267,15 +267,6 @@ void Host::fillRect(float x, float y, float w, float h, std::uint32_t rgba) {
     SDL_RenderFillRect(renderer_, &r);
 }
 
-void Host::setClip(float x, float y, float w, float h) {
-    const SDL_FRect r = placeRect(x, y, w, h);
-    const SDL_Rect clip{int(std::floor(r.x)), int(std::floor(r.y)), int(std::ceil(r.x + r.w) - std::floor(r.x)),
-                        int(std::ceil(r.y + r.h) - std::floor(r.y))};
-    SDL_SetRenderClipRect(renderer_, &clip);
-}
-
-void Host::clearClip() { SDL_SetRenderClipRect(renderer_, nullptr); }
-
 void Host::drawText(float x, float y, const std::string& text, std::uint32_t rgba) {
     SDL_SetRenderDrawColor(renderer_, Uint8(rgba >> 24), Uint8(rgba >> 16), Uint8(rgba >> 8), Uint8(rgba));
     SDL_RenderDebugText(renderer_, x, y, text.c_str());

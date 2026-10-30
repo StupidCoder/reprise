@@ -5,32 +5,18 @@
 #include "data/map_file.hpp"
 #include "game/geometry.hpp"
 
-#include <span>
 #include <vector>
 
 namespace doc::game {
 
-// What a sphere test touched (MapCollision::collideSphere @0x13f3e4, 1.1.1): one bit per kind
-// of wall, all walls touched taken together. Solid walls (type 0 and 0x79) and bouncy ones
-// (0x6d) also push the sphere out.
-namespace contact {
-constexpr unsigned k6F = 0x1, k70 = 0x2;
-constexpr unsigned kSolid = 0x4;       // types 0 and 0x79
-constexpr unsigned kBouncy = 0x8;      // type 0x6d
-constexpr unsigned k6E = 0x10, k78 = 0x20, k8F = 0x40;
-constexpr unsigned k73 = 0x80;
-constexpr unsigned k72 = 0x100;        // the normal gets (wall index, tag)
-constexpr unsigned kConveyor = 0x200;  // type 0x71: the normal gets the wall's direction
-constexpr unsigned kTrigger = 0x400;   // types 0x6c, 0x7d..0x81, 0x87: (wall index, tag)
-constexpr unsigned k7A = 0x800, k7B = 0x1000;
-constexpr unsigned k7C = 0x2000;       // (wall index, tag)
-constexpr unsigned k8C = 0x4000;
-constexpr unsigned kPaint = 0x8000;    // type 0x8d: the normal gets (tag, tag)
-constexpr unsigned k90 = 0x10000, k91 = 0x20000;
-}  // namespace contact
-
-// The walls a moving object ignores (Object::updatePositions's list C.738 @0x5252c0).
-inline constexpr int kMovementIgnoredWalls[] = {0x7B, 0x73, 0x8D};
+// Result of a sphere test, ordered by priority: smaller non-zero values win when several
+// walls are touched. Values follow the original (MapCollision::collideSphere @0x13f3e4).
+enum class Contact : int {
+    None = 0,
+    Wall = 3,  // ordinary solid wall: the sphere is pushed out
+    // Other values (1..17) belong to special edges (water, holes, doors, ...) and are kept as
+    // plain numbers until their meaning is recovered.
+};
 
 struct Wall {
     Vec2 a, b;
@@ -38,9 +24,6 @@ struct Wall {
     int type = 0;  // 0 = solid wall
     int tag = 0;
     bool enabled = true;
-    // Quick saves (state_io.hpp).
-    template <class Io>
-    void io(Io& io) { io(a, b, vertexA, vertexB, type, tag, enabled); }
 };
 
 class LevelGeometry {
@@ -59,40 +42,38 @@ public:
     // The first wall carrying `tag`, or null (Map::getLineFromTag @0x13c324).
     Wall* firstWithTag(int tag);
 
-    // MapCollision::collideSphere @0x13f3e4: the sphere against every enabled wall except those
-    // of the `ignoredTypes`; walls without a tag only when they overlap the view's x range
-    // [viewLeft, viewLeft + 480] (tagged walls always count). Solid and bouncy walls push the
-    // centre out (`normal` collects the push directions). Returns the contact bits.
-    unsigned collideSphere(Vec2& centre, float radius, float viewLeft, Vec2* normal = nullptr,
-                           std::span<const int> ignoredTypes = {}) const;
-    // MapCollision::collideSphereLine @0x13effc: one wall, without pushing.
-    unsigned collideSphereLine(std::size_t i, Vec2 centre, float radius, float viewLeft) const;
-    // MapCollision::collideSphereSpecific @0x13f220: walls of one type (-1: all) one by one; a
-    // trigger edge ends the test with (wall index, tag) in `normal`; solid walls push the
-    // centre out (`normal`: the wall's perpendicular). Returns the bits of the last wall touched.
-    unsigned collideSphereSpecific(Vec2& centre, float radius, int type, Vec2* normal, float viewLeft) const;
+    struct SphereOptions {
+        Vec2* pushNormal = nullptr;   // receives the sum of push directions
+        bool plainWallsOnly = false;  // true skips the special-edge classification
+        int ignoreType = -1;          // walls of this type (>= 1) are ignored
+        float viewLeft = 0.0f;        // only walls overlapping [viewLeft, viewLeft + 480] in x
+    };
 
-    // Whether segment ab crosses an enabled wall (MapCollision::doesLineTouch @0x13f7e4; untagged
-    // walls only within the view's x range). With `mode` != 0, special edges that only trigger
-    // things (water, holes, doors' triggers, ...) are not counted; 0x91 only in mode 2.
+    // Pushes `centre` out of every wall it overlaps with radius `radius`; returns the
+    // highest-priority contact kind (0 if none). Exact port of the original's rules.
+    int collideSphere(Vec2& centre, float radius, const SphereOptions& options) const;
+
+    // MapCollision::collideSphereSpecific @0x13f220: the sphere against the enabled walls of
+    // one type only. For trigger edges (kind 11) `found` receives (wall index, wall tag) and
+    // the test stops there; returns the contact kind (0 if none). Only the trigger edges'
+    // case is used (by the boss droid).
+    int collideSphereOfType(Vec2& centre, float radius, int type, Vec2& found, float viewLeft) const;
+
+    // Whether segment ab crosses an enabled wall overlapping the view in x
+    // (MapCollision::doesLineTouch @0x13f7e4). With `mode` != 0, special edges that only
+    // trigger things (water, holes, doors' triggers, ...) are not counted.
     bool lineTouches(Vec2 a, Vec2 b, float viewLeft, int mode) const;
-    // MapCollision::doesLineTouchSpecific @0x13f9a4: only walls of one type (-1: lineTouches
-    // with mode -1).
-    bool lineTouchesType(Vec2 a, Vec2 b, int type, float viewLeft) const;
 
-    // Keeps a drawn segment out of solid walls (MapCollision::clipLine @0x13fb44): if from->to
-    // crosses solid walls, `to` moves onto the nearest one, 2 units back toward `from`, and is
-    // pushed off plain walls (radius 12). Returns whether the segment was clipped.
+    // Keeps a drawn segment out of solid walls (MapCollision::clipLine @0x13fb44): `to` is
+    // pushed off walls first; if from->to still crosses solid walls, `to` is moved back in
+    // front of the nearest one (or out of the corner two of them form). Returns whether the
+    // segment was clipped.
     bool clipLine(Vec2 from, Vec2& to, float viewLeft) const;
 
 private:
-    bool inRange(const Wall& wall, float viewLeft) const;
+    int collideWall(std::size_t i, Vec2& centre, float radius, const SphereOptions& options, bool& final) const;
 
     std::vector<Wall> walls_;
-public:
-    // Quick saves (state_io.hpp).
-    template <class Io>
-    void io(Io& io) { io(walls_); }
 };
 
 // Closest point of segment ab to `centre`; returns 0 if farther than `radius`, 1 if the

@@ -57,9 +57,6 @@ struct Vec2 {
     }
     // Vec2D::get2DAngle @0xf2bb4: direction in degrees.
     float angleDegrees() const { return float(std::atan2(double(y), double(x))) * 57.2957764f; }
-    // Quick saves (state_io.hpp).
-    template <class Io>
-    void io(Io& io) { io(x, y); }
 };
 
 // Map space is y-up with the origin at the bottom-left of the 480x320 play area.

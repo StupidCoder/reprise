@@ -71,11 +71,11 @@ void Session::setUpSpitterRoom() {
                 e.partner = other.objectId;
                 break;
             }
-    projectiles_.setPictureSheet(kPictureFork, level_.bossSheet("sprites/boss2/boss2_fork.png").width,
+    projectiles_.setPictureSheet(4, level_.bossSheet("sprites/boss2/boss2_fork.png").width,
                                  level_.bossSheet("sprites/boss2/boss2_fork.png").height);
-    projectiles_.setPictureSheet(kPictureSpoon, level_.bossSheet("sprites/boss2/boss2_spoon.png").width,
+    projectiles_.setPictureSheet(5, level_.bossSheet("sprites/boss2/boss2_spoon.png").width,
                                  level_.bossSheet("sprites/boss2/boss2_spoon.png").height);
-    projectiles_.setPictureSheet(kPictureKnife, level_.bossSheet("sprites/boss2/boss2_knife.png").width,
+    projectiles_.setPictureSheet(6, level_.bossSheet("sprites/boss2/boss2_knife.png").width,
                                  level_.bossSheet("sprites/boss2/boss2_knife.png").height);
 }
 
@@ -161,10 +161,10 @@ void Session::receiveMessage(LevelObject& o, const GameMessage& message) {
         if (!from) return;
         if (from->type == kSpitter) {
             const Spitter* s = spitterFor(from->id);
-            if (!s || s->state() != 0x1c) return;
+            if (!s || s->state() != 0x18) return;
             t->updating = false;
             t->anim.setAnim(0, -1, SpriteAnim::Hold, 200);
-        } else if (from->type == kRailTarget && t->state == 0x20) {
+        } else if (from->type == kRailTarget && t->state == 0x1c) {
             if (RailTarget* other = railTargetFor(from->id)) {
                 other->stopMs = 60001;
                 other->updating = false;
@@ -184,15 +184,15 @@ void Session::receiveMessage(LevelObject& o, const GameMessage& message) {
         o.anim = t->anim;
     } else if (BeamEmitter* e = emitterFor(o.id)) {
         if (message.type != 4) return;
-        if (e->state == 0x26) {
+        if (e->state == 0x22) {
             // Lit for the stop's time; with the partner lit as well the beam is on: the wall
             // line switches on, the Spitter hears of it and every throw in the air vanishes.
             sound(kSoundEmitterOn);
-            e->state = 0x27;
+            e->state = 0x23;
             e->timerMs = kStopTimeMs;
             e->anim.setAnim(0, e->anim.frameCount() - 1, SpriteAnim::Loop, 200);
             BeamEmitter* partner = emitterFor(e->partner);
-            if (partner && partner->state == 0x27) {
+            if (partner && partner->state == 0x23) {
                 partner->step = 1;
                 e->step = 1;
                 sound(kSoundBeam, SoundEvent::PlayOnce, true);
@@ -266,13 +266,16 @@ void Session::collideProjectiles() {
             if ((o.radius + p.size) - distance > 0.0f) touchProjectile(o, i);
         }
         // The walls, tested with a copy of its position: bouncy walls (0x6d) first.
-        if (p.picture == kPictureBossShuriken) continue;
+        if (p.picture == 3) continue;
         Vec2 copy = at;
         Vec2 normal{};
         const LevelGeometry& walls = wallsOf(shownFloor_);
-        unsigned touched = walls.collideSphereSpecific(copy, p.size, 0x6d, &normal, viewLeft_);
-        if (touched == 0) touched = walls.collideSphereSpecific(copy, p.size, 0, &normal, viewLeft_);
-        if (touched & (contact::kSolid | contact::kBouncy)) {
+        int kind = walls.collideSphereOfType(copy, p.size, 0x6d, normal, viewLeft_);
+        if (kind == 0) {
+            LevelGeometry::SphereOptions options{&normal, false, 0x73, viewLeft_};
+            kind = walls.collideSphere(copy, p.size, options);
+        }
+        if (kind == 3 || kind == 4) {
             // (Bouncing, for bouncy walls and kinds 3 and 4, is not reconstructed; the fight
             // has neither.)
             projectiles_.trigger(i, random_, soundEvents_);
@@ -287,29 +290,29 @@ void Session::touchProjectile(LevelObject& o, int projectile) {
         // Object::touchProjectile @0x112f54: a balloon in the trail is let go (Player::drop), and
         // it pops (0x1e, running); the throw flies on.
         if (o.inTrail) dropFromTrail(o.id);
-        o.state = ObjectState(0x22);
+        o.state = ObjectState(0x1E);
         o.updating = true;
         return;
     }
     if (o.inTrail) {
-        // @0x11351a: something carried struck by a shuriken (picture 0) or a dart (7) slows the
+        // @0x11351a: something carried struck by a shuriken (picture 0) or a dart (8) slows the
         // mouse ("shuriken_slowdown" / "poison_slowdown", 0.45 of its speed, recovering); a
         // cheese struck counts for the "shuriken_cheese" goal.
-        if (thrown.picture == kPictureShuriken || thrown.picture == kPictureDart) {
+        if (thrown.picture == 0 || thrown.picture == 8) {
             mouse_.acceleration = mouse_.acceleration * 0.449999988f;
             if (isCheese(o.type)) ++uses_.shurikenCheese;
         }
         return;
     }
     RailTarget* t = railTargetFor(o.id);
-    if (!t || t->state != 0x1f) return;
+    if (!t || t->state != 0x1b) return;
     // A moving sphere struck: it tells its device (cutlery) or its route's tag (anything else),
     // stops for the stop's time showing its last frame, and the throw stays in it as long.
     projectiles_.trigger(projectile, random_, soundEvents_);
     const Projectile& p = projectiles_.slots()[std::size_t(projectile)];
     GameMessage m;
     m.sender = o.id;
-    if (isCutlery(p.picture)) {
+    if (p.picture >= 4 && p.picture <= 6) {
         m.type = 4;
         m.tag = t->messageTag;
     } else {
@@ -317,7 +320,7 @@ void Session::touchProjectile(LevelObject& o, int projectile) {
         m.tag = o.tag;
     }
     sendMessage(m, true);
-    t->state = 0x20;
+    t->state = 0x1c;
     t->stopMs = kStopTimeMs;
     t->anim.setAnim(t->anim.frameCount() - 1, -1, SpriteAnim::Hold, 200);
     o.state = ObjectState(t->state);
@@ -337,23 +340,18 @@ void Session::touchProjectile(LevelObject& o, int projectile) {
 }
 
 void Session::projectileHitsMouse(int projectile) {
-    // Player::touchProjectile @0x1244a4 (1.1.1): only a walking or swimming mouse is hit. Cutlery
-    // (pictures 3..5) and shurikens (0 and 2) are gone at once and the mouse falls to them:
-    // state 0xB (Player::setState: it stops and is killed; the level-over wait becomes 1300 ms,
-    // the normal modes set their own 1000 after, the boss modes keep it, run lb4_win) with its
-    // cutlery or shuriken death picture; a worn teacup stops a shuriken. (The cheats'
+    // Only a walking or swimming mouse is hit. A shuriken (pictures 0 and 3) is gone at once and
+    // the mouse falls to it: state 10 (Player::setState: it stops and is killed) with its
+    // shuriken death picture; cutlery kills it with the cloud over it. (The cheats'
     // invincibility and the other pictures' effects are not reconstructed.)
     if (mouse_.state != 0 && mouse_.state != 4) return;
     const int picture = projectiles_.slots()[std::size_t(projectile)].picture;
-    if (isShuriken(picture) && mouse_.cup >= 0) return;
-    if (isShuriken(picture) || isCutlery(picture)) {
+    if (picture == 0 || picture == 3) {
         projectiles_.destroy(projectile);
         mouse_.velocity = {};
         killMouse(mouse_.position);
-        mouse_.state = 0xB;  // (1.0.5: 10)
-        progress_.resultsDelayMs = 1300;
-        const int sequence = isCutlery(picture) ? Mouse::kCutleryDeath : Mouse::kShurikenDeath;
-        mouse_.sprite.playSequence(mouse_.sequenceIds[sequence], 0, 0);
+        mouse_.state = 10;
+        mouse_.sprite.playSequence(mouse_.sequenceIds[Mouse::kShurikenDeath], 0, 0);
         return;
     }
     killMouse(mouse_.position);
@@ -375,7 +373,7 @@ void Session::updateProjectiles(int dtMs) {
 
 void Session::blowUpSpitter(Spitter& spitter, LevelObject& o) {
     BossWorld world = bossWorld(o.floor);
-    const Vec2 at = spitter.position() + Vec2{0.0f, 9.99999975e-05f};  // (1.1.1 @0x1d47bc)
+    const Vec2 at = spitter.position();
     const int floor = o.floor;
     const int id = spitter.objectId();
     spitter.blowUp(world, [&] { throwKey(at, floor); });

@@ -74,9 +74,6 @@ constexpr int kSpeedCheese = 14;
 // The second speed item (speedy.png, 2-S): stronger and shorter (chilli2_speed_mult,
 // chilli2_duration).
 constexpr int kSpeedy = 209;
-// (1.1.1) A dossier (ObjControllerPickups): its tag is the dossier's number; gone once found
-// (Profile::hasDossier).
-constexpr int kDossier = 431;
 inline bool isSpeedItem(int type) { return type == kSpeedCheese || type == kSpeedy; }
 // The boss cat of the chase (sprites/bosscat) and the chase's exit door.
 constexpr int kBossCat = 0x35, kExitDoor = 359;
@@ -112,7 +109,7 @@ constexpr int kTeacup = 17;
 constexpr int kCheeseMachine = 0x3d;
 inline bool isCheeseMachineEntity(int type) { return type == 94 || type == 95 || type == kCheeseMachine; }
 inline int cheeseMachineLoad(int type) { return type == 94 ? 2 : type == 95 ? 1 : 3; }
-constexpr int kMachineIdle = 0x2c, kMachineDispensing = 0x2b, kHeldInMachine = 0x35;
+constexpr int kMachineIdle = 0x28, kMachineDispensing = 0x27, kHeldInMachine = 0x31;
 // A balloon (ObjControllerPickups): carried first in the trail, not counted against its length.
 constexpr int kBalloon = 18;
 // A worn teacup's flashing (ObjControllerPickups::update @0x1b7b64, Player::render @0x122622):
@@ -130,7 +127,7 @@ inline int teacupFlashPhase(int leftMs, int wholeMs) {
     const int at = leftMs % period;
     return at > period >> 1 ? 1 : at < period >> 1 ? -1 : 0;
 }
-constexpr int kTvOff = 0x26, kTvOn = 0x27;
+constexpr int kTvOff = 0x22, kTvOn = 0x23;
 
 // The key the boss droid throws out when it blows up, and the marker it flies to.
 constexpr int kKey = 330, kKeyMarker = 333;
@@ -160,9 +157,9 @@ inline bool isPortedCat(int type) {
 
 enum class ObjectState : int {
     Idle = 0,
-    Hidden = 0x23,      // went into a hole (Object::hide @0x112e20)
-    HoleClosed = 0x29,  // a home hole that still waits for cheese
-    HoleOpen = 0x2a,
+    Hidden = 0x1F,      // went into a hole (Object::hide @0x112e20)
+    HoleClosed = 0x25,  // a home hole that still waits for cheese
+    HoleOpen = 0x26,
 };
 
 // The fields the original's level snapshot keeps for each active object
@@ -178,12 +175,6 @@ struct ObjectSnapshot {
     int routeIndex = 0;  // +0x16c
     float speed = 0.0f;  // +0x24
     int frame = 0;       // the main picture's frame (+0x9c)
-    int radius = 0;      // +0x104, kept as a whole number (Snapshot<Object> @0x10b69e)
-    int trimmed = -1;    // +0x208: route points dropped so far (the rollback trims again)
-    // Quick saves (state_io.hpp).
-    template <class Io>
-    void io(Io& io) { io(active, updating, inTrail, snappable, introPulse, state, step, tag, floor, position,
-                           heading, routeIndex, speed, frame, radius, trimmed); }
 };
 
 struct LevelObject {
@@ -249,15 +240,6 @@ struct LevelObject {
 
     // Twine: rolls (its frame steps every 128 ms) while +0x208 runs, on its clock +0x1dc.
     int rollMs = 0, rollClockMs = 0;
-    // Quick saves (state_io.hpp).
-    template <class Io>
-    void io(Io& io) { io(id, type, tag, floor, state, active, updating, snappable, passable, snapsToCentre,
-                           exit, inTrail, anchor, restPosition, position, size, radiusFactor, radius, pulseMs,
-                           introPulse, pulseDelayMs, timerMs, snapCooldownMs, idleSparkleMs, sparkle, rotation,
-                           arcStart, arcTarget, arcTimeMs, flying, playMs, seats, watchers, pictureDegrees,
-                           triggerTimerMs, triggerDelayMs, triggerSpreadMs, triggerExtraMs, text, sprite,
-                           frameWidth, frames, anim, machineCount, machineReleases, heldBy, rollMs,
-                           rollClockMs); }
 };
 
 // Score of one cheese by type (Profile::getCheeseScoreFromType): 50, 25, 20, 15, 10.

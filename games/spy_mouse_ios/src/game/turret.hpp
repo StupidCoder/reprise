@@ -19,7 +19,7 @@ namespace doc::game {
 class Launcher {
 public:
     // States (Object +0x1c).
-    static constexpr int kReload = 0x2f, kFiring = 0x30, kOff = 0x38, kMoving = 0x39, kResting = 0x3a;
+    static constexpr int kReload = 0x2b, kFiring = 0x2c, kOff = 0x34, kMoving = 0x35, kResting = 0x36;
 
     // ObjControllerSpawner::init @0x1ba22c for the boss's launcher: off until the intro's script
     // switches it on, its clock at 3 s, at the first stop.
@@ -41,9 +41,6 @@ public:
     struct Shot {
         Vec2 at, velocity;
         int stop = 0;  // the stop it was fired from
-        // Quick saves (state_io.hpp).
-        template <class Io>
-        void io(Io& io) { io(at, velocity, stop); }
     };
     // The update: true when a shuriken is due (`shot` filled); `burstOver` is set when the burst
     // has ended with it (the launcher then moves on to its next stop, sound 0xa1).
@@ -59,11 +56,6 @@ private:
     int intervalMs_ = 0;     // +0x1f8: until the next shot of the burst
     int shotsLeft_ = 0;      // +0x1fc
     int stop_ = 0;           // +0x208: the rail stop it is going to
-public:
-    // Quick saves (state_io.hpp).
-    template <class Io>
-    void io(Io& io) { io(objectId_, position_, radius_, heading_, state_, clockMs_, intervalMs_, shotsLeft_,
-                           stop_); }
 };
 
 // A reflector's catch (Object +0x228..+0x23c): the projectiles that touched it this tick and
@@ -72,9 +64,6 @@ struct ReflectorCatch {
     int objectId = -1;
     std::array<int, 3> now{-1, -1, -1};
     std::array<int, 3> before{-1, -1, -1};
-    // Quick saves (state_io.hpp).
-    template <class Io>
-    void io(Io& io) { io(objectId, now, before); }
 };
 
 }  // namespace doc::game

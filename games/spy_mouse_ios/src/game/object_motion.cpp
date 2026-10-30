@@ -85,9 +85,10 @@ void stepAlongHeading(Vec2& position, Vec2& velocity, float heading, float speed
     const float move = (float(dtMs) * speed) * 0.0500000007f;
     velocity = {libCos(heading) * move, libSin(heading) * move};
     Vec2 next = position + velocity;
-    // Object::updatePositions @0x115430 (1.1.1): pushed off the walls, it takes the pushed place.
-    walls.collideSphere(next, radius, viewLeft, nullptr, kMovementIgnoredWalls);
-    position = next;
+    LevelGeometry::SphereOptions options;
+    options.viewLeft = viewLeft;
+    const int kind = walls.collideSphere(next, radius, options);
+    if (kind <= 3 || kind == 7 || kind == 11 || kind == 13 || (kind >= 14 && kind <= 16)) position = next;
 }
 
 // travelArc @0x19d9e4: `timeMs` runs on by the tick; the flight takes `msPerUnit` per unit of
