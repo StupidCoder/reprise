@@ -1007,6 +1007,23 @@ int trail_check(const std::filesystem::path& content, const std::filesystem::pat
 // the trail's record with its trail) and the smoke slots,
 // in the flight palette, low-res pixels doubled as harness/screen.py shows
 // the original.
+// Research: the analog stick's ramp - the stick held at `deflection` back
+// for 30 ticks, then eased to a quarter: the pitch input each tick.
+int stick_check() {
+    using namespace interceptor;
+    game::Aircraft a;
+    a.player = true;
+    for (int tick = 0; tick < 40; ++tick) {
+        game::FlightControls c;
+        c.stick = std::array<float, 2>{0.0f, tick < 30 ? 0.5f : 0.25f};
+        game::read_controls(a, c);
+        game::ramp_inputs(a);
+        std::printf("%d", a.pitch_input);
+        std::printf(tick + 1 < 40 ? " " : "\n");
+    }
+    return 0;
+}
+
 int effect_shot(const std::filesystem::path& content, const std::filesystem::path& capture, int index,
                 const std::filesystem::path& out) {
     using namespace interceptor;
@@ -2012,9 +2029,47 @@ int fly_script(const std::filesystem::path& content, const std::string& prefix, 
         last = std::max(last, tick);
     }
     std::string held;
+    // Touch controls (`?stick=X,Y` held until the next touch step, `?throttle=Y`
+    // a slider move, `?gear` a tap) and taps on the picture (`?tap=X,Y`).
+    std::optional<std::array<float, 2>> stick;
     for (int tick = 0; tick <= last; ++tick) {
-        if (steps.count(tick)) held = steps[tick] == "." ? "" : steps[tick];
         app::GameInput input;
+        if (steps.count(tick) && steps[tick].rfind("?", 0) == 0) {
+            const auto t = steps[tick];
+            if (t.rfind("?stick=", 0) == 0) {
+                const auto comma = t.find(',');
+                stick = std::array<float, 2>{std::stof(t.substr(7, comma - 7)), std::stof(t.substr(comma + 1))};
+            } else if (t.rfind("?throttle=", 0) == 0) {
+                platform::TouchValue v;
+                v.id = "throttle";
+                v.y = std::stof(t.substr(10));
+                v.changed = true;
+                input.touch_controls.push_back(v);
+            } else if (t.rfind("?tap=", 0) == 0) {
+                const auto comma = t.find(',');
+                platform::PointerEvent e;
+                e.kind = platform::PointerEvent::Kind::down;
+                e.x = std::stof(t.substr(5, comma - 5));
+                e.y = std::stof(t.substr(comma + 1));
+                e.touch = true;
+                input.pointer_events.push_back(e);
+            } else if (t == "?gear") {
+                platform::TouchValue v;
+                v.id = "gear";
+                v.pressed = v.held = true;
+                input.touch_controls.push_back(v);
+            }
+        } else if (steps.count(tick)) {
+            held = steps[tick] == "." ? "" : steps[tick];
+        }
+        if (stick) {
+            platform::TouchValue v;
+            v.id = "stick";
+            v.x = (*stick)[0];
+            v.y = (*stick)[1];
+            v.held = true;
+            input.touch_controls.push_back(v);
+        }
         const auto has = [&](char c) { return held.find(c) != std::string::npos; };
         input.up = has('u'); input.down = has('d'); input.left = has('l'); input.right = has('r');
         input.c64_keys[53] = has('+'); input.c64_keys[43] = has('-');
@@ -2173,6 +2228,7 @@ int main(int argc, char** argv) {
         if (command == "trailcheck" && argc == 5) {
             return trail_check(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]), std::stoi(argv[4]));
         }
+        if (command == "stickcheck") return stick_check();
         if (command == "effectshot" && argc == 6) {
             return effect_shot(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]), std::stoi(argv[4]),
                                platform::utf8_path(argv[5]));

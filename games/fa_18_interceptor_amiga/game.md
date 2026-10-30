@@ -238,6 +238,30 @@ Keys: keyboard.device read requests; $108DA6 returns the raw code (with a
 pending-key slot used by the game itself, $108D8A). Joystick read
 directly from JOY1DAT ($10906C), fire from gameport.device events.
 
+**Touch controls (port, 2026-10-30).** An enhancement, not in the
+original: with the "Controls / Scheme" option on Touch stick (or
+Automatic on a phone or tablet without a gamepad) free flight and the
+missions show a stick bottom left, a throttle slider on the right and a
+GEAR button (`touch_controls()`; none in the demo, the maneuvers or the
+front end). The stick feeds the same control bits as the joystick
+(`read_controls`); its deflection scales the limits the input ramps head
+for (`ramp_inputs`: pitch and rudder 20, roll 60, a deflection d gives
+`round(d * limit)`, at least 1), and an input past a smaller limit comes
+back by the ramp's own steps. The keys and the recorded control bytes
+use deflection 1, so every check is unchanged. The slider sets the
+throttle target in the F-keys' tenths (0 idle, 10 full power then the
+afterburner, as F10); GEAR is the G key. Fire and the weapon keys have
+no touch buttons yet.
+
+**Taps on the front end (port, 2026-10-30).** A tap on a menu or mission
+line chooses it (the line's text: a leading digit, F1-F6, ESC or SHIFT
+ESC; `TextScreen::line_at` finds the line under the tap from the text
+blocks' rows); on the start map a tap on a marker picks that runway or
+the carrier; the aircraft question takes a tap on its line; other
+screens (title, credits, briefing, "READY FOR TAKEOFF") take any tap as
+a key; the call-sign entry takes a tap as Return (the name typed so far,
+possibly empty).
+
 ### Display
 
 Low-res 320×200, 5 bitplanes, graphics.library View/ViewPort with its
@@ -2464,7 +2488,10 @@ Research files live in `.analysis/fa_18_interceptor_amiga/` (`harness/`,
   differs), `fly` (headless module run from the title,
   pictures and `!wav`; keys: digits, `*` Return, `~` Tab (Esc), `^`
   Ctrl+Tab (Shift-Esc), `_` space, capitals the letter keys, `@ [ ] { }`
-  the keypad's 0 4 6 8 2).
+  the keypad's 0 4 6 8 2; touch: `?stick=X,Y` held until the next stick
+  step, `?throttle=Y`, `?gear`, `?tap=X,Y` in picture pixels - quote
+  them in zsh), `stickcheck` (the pitch input's ramp for a half
+  deflection).
 - `harness/proc.py`: the running original's screen procedure, frame
   countdown and text queue (the front end's traces).
 - Captures in `work/ref/`: `em4a`-`em4c` (mission 4: the enemies'

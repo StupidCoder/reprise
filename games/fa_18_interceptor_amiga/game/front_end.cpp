@@ -393,6 +393,54 @@ const data::Palette& FrontEnd::palette() const {
     return assets_.palettes.at(std::size_t(palette_));
 }
 
+std::array<int, 2> FrontEnd::marker(int p, int margin) const {
+    // (Place 4 is the carrier, record 14: its own position, $11FC44.)
+    const auto at = p == 3 ? carrier_ : place_position(assets_.program, p);
+    const std::int32_t dx = (at[0] - 0x10800000) >> 14, dy = -0x3000000 >> 14, dz = (at[1] - 0x10C00000) >> 14;
+    const int xc = (0xA8 * dx) >> 8, yc = (0xFC * dz) >> 8, zc = (-0x80 * dy) >> 8;
+    const int sx = 159 - 0xA0 * xc / zc + margin, sy = 90 - 0x5A * yc / zc;
+    return {(sx & ~3) + 8, sy};
+}
+
+FrontKeys FrontEnd::tap(int x, int y, int margin) const {
+    FrontKeys k;
+    const auto from_line = [&] {
+        const auto text = text_.line_at(x, y, margin);
+        if (!text) return;
+        const auto at = text->find_first_not_of(' ');
+        if (at == std::string::npos) return;
+        const std::string s = text->substr(at);
+        if (s.rfind("SHIFT ESC", 0) == 0) k.shift_escape = true;
+        else if (s.rfind("ESC", 0) == 0) k.escape = true;
+        else if (s.size() > 1 && s[0] >= '1' && s[0] <= '9' && (s[1] == ' ' || s[1] == '.')) k.digit = s[0] - '0';
+        else if (s.size() > 3 && s[0] == 'F' && s[1] >= '1' && s[1] <= '6' && s[2] == ' ') k.mission = 2 + (s[1] - '0');
+        else return;
+        k.any = true;
+    };
+    switch (screen_) {
+    case Screen::map:
+        if (asking_aircraft_) {
+            from_line();
+        } else {
+            // A finger's reach round each place's number.
+            for (int p = 0; p < 4; ++p) {
+                const auto [left, top] = marker(p, margin);
+                if (std::abs(x - (left + 4)) <= 16 && std::abs(y - (top + 3)) <= 14) k.digit = p + 1;
+            }
+            k.any = k.digit > 0;
+        }
+        break;
+    case Screen::menu: from_line(); break;
+    case Screen::map_wait: break;
+    case Screen::call_sign:
+        k.enter = true;
+        k.any = true;
+        break;
+    default: k.any = true; break;
+    }
+    return k;
+}
+
 void FrontEnd::draw(IndexedImage& image, int margin) const {
     if (screen_ == Screen::title || screen_ == Screen::title_fade) {
         for (const auto& p : assets_.pictures) {
@@ -418,14 +466,9 @@ void FrontEnd::draw(IndexedImage& image, int margin) const {
         const auto& font = assets_.small_font;
         for (int p = 0; p < 4; ++p) {
             if (asking_aircraft_ && p != place_) continue;
-            // (Place 4 is the carrier, record 14: its own position, $11FC44.)
-            const auto at = p == 3 ? carrier_ : place_position(assets_.program, p);
-            const std::int32_t dx = (at[0] - 0x10800000) >> 14, dy = -0x3000000 >> 14, dz = (at[1] - 0x10C00000) >> 14;
-            const int xc = (0xA8 * dx) >> 8, yc = (0xFC * dz) >> 8, zc = (-0x80 * dy) >> 8;
-            const int sx = 159 - 0xA0 * xc / zc + margin, sy = 90 - 0x5A * yc / zc;
             const auto* glyph = font.glyph(char('1' + p));
             if (!glyph) continue;
-            const int left = (sx & ~3) + 8;
+            const auto [left, sy] = marker(p, margin);
             for (int r = 0; r < font.rows && r < int(glyph->size()); ++r)
                 for (int b = 0; b < 8; ++b)
                     if ((*glyph)[std::size_t(r)] & (0x80 >> b)) image.put(left + b, sy + r, marker_colour);

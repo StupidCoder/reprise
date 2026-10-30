@@ -22,6 +22,11 @@ struct FlightControls {
     // A recorded control byte instead of the above (the demo, `$10DFEE`):
     // taken as it is, the throttle settings left alone.
     std::optional<std::uint8_t> recorded;
+    // An analog stick (an enhancement: touch or a gamepad), x right, y back
+    // (nose up), each in [-1, 1]: the direction gives the stick bits above,
+    // the deflection how far the inputs ramp - the original's full ±20
+    // pitch and ±60 roll at the stop.
+    std::optional<std::array<float, 2>> stick;
 };
 
 // Flag words of the original's object record (named where known).
@@ -73,6 +78,9 @@ struct Aircraft {
     std::uint8_t type{0x11};
     std::uint8_t role{};             // byte +5: the autopilot's role (autopilot.hpp)
     std::uint8_t trail{};            // byte +$3D: its smoke trail's length (ObjectWorld's Trail)
+    // (An analog stick's deflections for the next ramp: 1 the original's
+    // full travel; not of the original's record.)
+    float analog_pitch = 1.0f, analog_roll = 1.0f;
     bool player = true;              // the player's record ($13ACA4 0): the player's responses
     std::int16_t timer{};            // word +$4C
     bool stall_warning{};            // the stall warning is on ($13AE40 bit 7)
@@ -109,6 +117,10 @@ struct FlightEvents {
 
 FlightEvents fly(Aircraft& aircraft, const FlightControls& controls, const FlightRules& rules,
                  const FlightTables& tables);
+// Its first steps ($10DFD2): the control byte from the controls, then the
+// stick and rudder inputs ramped by it.
+void read_controls(Aircraft& aircraft, const FlightControls& controls);
+void ramp_inputs(Aircraft& aircraft);
 
 // One tick of an object that flies without controls (a missile): the
 // velocity and height step ($106B0E) and the position, as `fly` does them.

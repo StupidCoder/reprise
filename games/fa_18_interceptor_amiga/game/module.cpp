@@ -122,6 +122,17 @@ public:
             k.escape = pressed(key::tab);
             k.shift_escape = input.ctrl_keys[key::tab] && !ctrl_tab_was_;
             k.shift_2 = input.ctrl_keys[key::digits[2]] && !ctrl_two_was_;
+            // A tap (or a click) on the picture: the key it stands for there.
+            for (const auto& e : input.pointer_events) {
+                if (e.kind != platform::PointerEvent::Kind::down) continue;
+                const auto t = front_.tap(int(e.x), int(e.y), margin_);
+                k.any = k.any || t.any;
+                k.enter = k.enter || t.enter;
+                k.escape = k.escape || t.escape;
+                k.shift_escape = k.shift_escape || t.shift_escape;
+                if (t.digit > 0) k.digit = t.digit;
+                if (t.mission > 0) k.mission = t.mission;
+            }
             k.any = k.any || k.shift_escape;
             remember_keys(input);
             if (const auto start = front_.tick(k)) begin(*start);
@@ -166,6 +177,7 @@ public:
             if (phase_ == Phase::briefing) {
                 // ($101D06: any key ends the briefing; `$13AA93`.)
                 bool any = input.fire && !fire_was_;
+                for (const auto& e : input.pointer_events) any = any || e.kind == platform::PointerEvent::Kind::down;
                 for (int i = 0; i < 64; ++i) any = any || pressed(i);
                 if (any) briefing_key_ = true;
             }
@@ -675,7 +687,30 @@ public:
                  "The game plays the same."},
                 app::screen_filter_option(vhs_),
                 {"Sound", {"Off", "On"}, sound_ ? 1 : 0, "The original's engine, wind, gear, tyre, crash "
-                 "and warning sounds."}};
+                 "and warning sounds."},
+                {"Scheme", {"Automatic", "Keyboard / gamepad", "Touch stick"}, controls_,
+                 "Touch stick: a stick at the bottom left flies the aircraft (the further it is pushed, "
+                 "the further the original's stick input goes), a slider on the right sets the throttle "
+                 "in the original's tenths, and a button lowers or raises the gear. Automatic uses it on "
+                 "a touch screen without a gamepad.",
+                 "Controls", true}};
+    }
+    // The flight's touch controls ($10DFD2's stick, F1 - F10, key G), while
+    // the player flies.
+    void set_input_capabilities(platform::InputCapabilities caps) override { input_caps_ = caps; }
+    bool touch_scheme() const {
+        return controls_ == 2 || (controls_ == 0 && input_caps_.touchscreen && input_caps_.mobile && !input_caps_.gamepad);
+    }
+    std::vector<platform::TouchControl> touch_controls() const override {
+        using Kind = platform::TouchControl::Kind;
+        if (!touch_scheme() || in_front_ || !flying_ || mode_ == FlightMode::demo || mode_ == FlightMode::maneuvers) return {};
+        const float throttle = std::clamp(aircraft_.throttle / 120.0f, 0.0f, 1.0f);
+        std::vector<platform::TouchControl> layout;
+        layout.push_back({"stick", "", Kind::stick, .02f, .48f, .30f, .48f});
+        layout.push_back({"throttle", "THROTTLE", Kind::slider, .89f, .30f, .09f, .62f, throttle});
+        layout.back().displayed_value = throttle;
+        layout.push_back({"gear", "GEAR", Kind::button, .75f, .76f, .12f, .16f});
+        return layout;
     }
     void set_option(std::size_t index, int value) override {
         if (index == 0) {
@@ -685,6 +720,7 @@ public:
         if (index == 1) smooth_ = value != 0;
         if (index == 2) vhs_ = std::clamp(value, 0, ui::vhs_levels - 1);
         if (index == 3) sound_ = value != 0;
+        if (index == 4) controls_ = std::clamp(value, 0, 2);
     }
     void set_canvas(int width, int height) override {
         canvas_width_ = width;
@@ -1509,6 +1545,18 @@ private:
             c.rudder_right = input.c64_keys[key::period];
             c.throttle_up = input.c64_keys[key::equals];
             c.throttle_down = input.c64_keys[key::minus];
+            // The touch controls: the stick's deflection, the throttle slider
+            // in the original's tenths (F1 - F10; 0: down to idle), the gear.
+            for (const auto& v : input.touch_controls) {
+                if (v.id == "stick" && (v.x != 0 || v.y != 0)) {
+                    c.stick = std::array<float, 2>{v.x, v.y};
+                } else if (v.id == "throttle" && v.changed) {
+                    const int tenths = int(std::lround(v.y * 10));
+                    aircraft_.throttle_target = std::int8_t(tenths == 0 ? -1 : tenths == 10 ? 121 : tenths * 12);
+                } else if (v.id == "gear" && v.pressed) {
+                    game_key(replay_key::gear);
+                }
+            }
             // F1 - F10 of the original set the throttle in tenths (F10: full
             // power, then the afterburner); here the digit keys 1 - 0.
             for (int d = 0; d < 10; ++d) {
@@ -2574,6 +2622,8 @@ private:
     long ticks_ = 0;
     bool smooth_ = true, widescreen_ = false, sound_ = true;
     int vhs_ = 0;
+    int controls_ = 0; // the controls' scheme (0 automatic, 1 keyboard / gamepad, 2 touch stick)
+    platform::InputCapabilities input_caps_{};
     int margin_ = 0, canvas_width_ = 0, canvas_height_ = 0;
     double frame_fraction_ = 1;
 };

@@ -124,4 +124,20 @@ void TextRunner::draw(IndexedImage& image, int left) const {
     }
 }
 
+std::optional<std::string> TextRunner::line_at(int x, int y, int left) const {
+    for (const auto& r : blocks_) {
+        const auto& block = r.block;
+        const int last = std::min(r.line, int(block.lines.size()) - 1);
+        for (int l = 0; l <= last; ++l) {
+            const int top = block.row + l * spacing_;
+            const auto& text = block.lines[std::size_t(l)].text;
+            const int from = left + block.column * 8;
+            const int to = from + (text.empty() || text.size() > assets_.text_columns.size()
+                                       ? 320 : assets_.text_columns[text.size() - 1] + 8);
+            if (y >= top - 2 && y < top + std::max(spacing_, 10) - 2 && x >= from - 8 && x < to + 8) return text;
+        }
+    }
+    return std::nullopt;
+}
+
 } // namespace interceptor::game

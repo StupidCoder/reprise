@@ -2,6 +2,7 @@
 #include "fa_18_interceptor_amiga/data/assets.hpp"
 #include "fa_18_interceptor_amiga/game/scene.hpp"
 #include <deque>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -46,6 +47,10 @@ public:
     const std::string& input() const { return text_; }
 
     void draw(IndexedImage& image, int left) const;
+    // The text of the line shown at (x, y) of the picture drawn at `left`
+    // (a tap on a menu line), its band from just above the characters to the
+    // next line.
+    std::optional<std::string> line_at(int x, int y, int left) const;
 
 private:
     struct Running {

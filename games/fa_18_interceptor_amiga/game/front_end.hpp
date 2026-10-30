@@ -68,6 +68,12 @@ public:
 
     // One frame; the start of free flight when the player has chosen it.
     std::optional<FlightStart> tick(const FrontKeys& keys);
+    // A tap or click at (x, y) of the picture drawn at `margin` (an
+    // enhancement for touch screens) as the key it stands for: on a menu
+    // line the key the line names ("2 ...", "F3 -", "ESC"), on the start
+    // map a place's number, elsewhere any key (Return in the call-sign
+    // field).
+    FrontKeys tap(int x, int y, int margin) const;
     // 50 frames a second on the text screens, 15 on the map.
     bool fast() const { return screen_ != Screen::map && screen_ != Screen::map_wait; }
 
@@ -96,6 +102,9 @@ private:
     void show_chosen(int item, int line);
     void missions_list();
     bool mission_open(int mission) const;
+    // Where place p's number is drawn on the start map (its left column and
+    // top row).
+    std::array<int, 2> marker(int p, int margin) const;
     void flight_log();
     void choose(const FrontKeys& keys);
     data::TextBlock block(int number) const;

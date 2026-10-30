@@ -20,10 +20,13 @@ bool gear_down(const Aircraft& a) { return (a.gear & 0x70) == 0; }
 
 // ---------------------------------------------------------------- input
 
+} // namespace
+
 // The control byte and the throttle target ($10DFD2, first half).
 void read_controls(Aircraft& a, const FlightControls& c) {
     if (c.recorded) {
         a.controls = *c.recorded;
+        a.analog_pitch = a.analog_roll = 1.0f;
         return;
     }
     std::uint8_t bits = a.controls & 3;
@@ -34,8 +37,12 @@ void read_controls(Aircraft& a, const FlightControls& c) {
         bits = throttle_less;
         a.throttle_target = 0;
     }
-    a.controls = std::uint8_t((c.nose_down ? control_up : 0) | (c.nose_up ? control_down : 0) |
-                              (c.left ? control_left : 0) | (c.right ? control_right : 0) |
+    const bool nose_down = c.nose_down || (c.stick && (*c.stick)[1] < 0), nose_up = c.nose_up || (c.stick && (*c.stick)[1] > 0);
+    const bool left = c.left || (c.stick && (*c.stick)[0] < 0), right = c.right || (c.stick && (*c.stick)[0] > 0);
+    a.analog_pitch = c.stick ? std::abs((*c.stick)[1]) : 1.0f;
+    a.analog_roll = c.stick ? std::abs((*c.stick)[0]) : 1.0f;
+    a.controls = std::uint8_t((nose_down ? control_up : 0) | (nose_up ? control_down : 0) |
+                              (left ? control_left : 0) | (right ? control_right : 0) |
                               (c.rudder_left ? control_rudder_left : 0) |
                               (c.rudder_right ? control_rudder_right : 0) | bits);
     if (a.throttle_target == 0) return;
@@ -60,14 +67,19 @@ void read_controls(Aircraft& a, const FlightControls& c) {
 void ramp_inputs(Aircraft& a) {
     const auto ramp = [](std::int8_t now, bool held, bool positive, int step, int limit) -> std::int8_t {
         if (!held) return 0;
-        if (positive) return std::int8_t(std::min(now < 0 ? step : now + step, limit));
-        return std::int8_t(std::max(now > 0 ? -step : now - step, -limit));
+        // (With an analog stick's smaller limit an input already past it
+        // comes back by the same steps.)
+        if (positive) return std::int8_t(now > limit ? std::max(now - step, limit) : std::min(now < 0 ? step : now + step, limit));
+        return std::int8_t(now < -limit ? std::min(now + step, -limit) : std::max(now > 0 ? -step : now - step, -limit));
     };
+    const auto scaled = [](float deflection, int full) { return std::clamp(int(deflection * full + 0.5f), 1, full); };
     const std::uint8_t c = a.controls;
-    a.pitch_input = ramp(a.pitch_input, c & 0x30, (c & 0x30) == control_up, 1, 20);
+    a.pitch_input = ramp(a.pitch_input, c & 0x30, (c & 0x30) == control_up, 1, scaled(a.analog_pitch, 20));
     a.rudder_input = ramp(a.rudder_input, c & 0xC0, (c & 0xC0) == control_rudder_right, 1, 20);
-    a.roll_input = ramp(a.roll_input, c & 0x0C, (c & 0x0C) == control_right, 3, 60);
+    a.roll_input = ramp(a.roll_input, c & 0x0C, (c & 0x0C) == control_right, 3, scaled(a.analog_roll, 60));
 }
+
+namespace {
 
 // ---------------------------------------------------------------- speed
 
