@@ -54,6 +54,10 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
+        with:
+          # The legacy SDK "tools" package is no longer published.
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
       - name: Install build tools and pinned Android SDK
         run: |
           sudo apt-get update

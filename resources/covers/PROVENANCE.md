@@ -62,3 +62,9 @@ rings, grassy geometric ramps and a futuristic industrial skyline. Cobalt,
 cyan, emerald, gold and ivory; no lettering or copied publisher art.
 Interpretive library artwork, not evidence of a particular reconstructed level.
 Source: exec-a45dd45e-b932-4d37-9282-0c6670ea6bb8.png.
+
+## Beach Volley and Stunt Car Racer — 2026-10-29
+
+Original built-in image-generation screenprints: beach_volley_amiga.png and
+stunt_car_racer_amiga.png. Interpretive editorial art, not publisher artwork
+or verified game scenes. Full prompts: design/planned-covers/beach-and-stunt.md.
