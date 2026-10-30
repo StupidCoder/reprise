@@ -523,8 +523,9 @@ public:
     }
 
     // The object step for the lists' records (ObjectWorld::step).
-    void objects_tick() {
+    void objects_tick(bool flying = true) {
         ObjectWorld::Frame frame;
+        frame.flying = flying;
         frame.player = &aircraft_;
         frame.player_distance = player_distance_;
         frame.locked = radar_.locked();
@@ -588,6 +589,23 @@ public:
             text_.queue(block);
             return;
         }
+    }
+
+    // $102D58: five frames on, the texts before the launch ($102DB8). This
+    // frame and the five-and-one it waits are whole frames with the flight
+    // not started (`$13ABBC` bit 6 clear), after `$13AA9E` was cleared
+    // ($101BDA): seven frames the frame counter counts (demo_start).
+    void to_ready() {
+        countdown_ = 5;
+        phase_ = Phase::to_ready;
+        pre_flight_frame();
+    }
+    // Such a frame: the others' object step runs - their timers, pilots and
+    // turns, and a spawned record's first step ($11A5AC, +0 bit 8) - but
+    // nothing moves (`$11A5FC`).
+    void pre_flight_frame() {
+        objects_tick(false);
+        ++ticks_;
     }
 
     // The other records (not the carrier, which is drawn by itself).
@@ -1244,8 +1262,7 @@ private:
                     break;
                 }
                 if (mode_ == FlightMode::qualification) text_.queue(launch_text);
-                countdown_ = 5;
-                phase_ = Phase::to_ready;
+                to_ready();
             }
             break;
         case Phase::briefing:
@@ -1295,8 +1312,7 @@ private:
                 sounds_.set_active(true); // ($101D18)
                 text_.clear();
                 text_.queue(launch_text);
-                countdown_ = 5;
-                phase_ = Phase::to_ready;
+                to_ready();
             }
             break;
         case Phase::lead_lost:
@@ -1363,11 +1379,11 @@ private:
                 // text follows five frames on ($102D58).
                 outside_ = false;
                 chase_set_ = false;
-                countdown_ = 5;
-                phase_ = Phase::to_ready;
+                to_ready();
             }
             break;
         case Phase::to_ready:
+            pre_flight_frame();
             if (countdown_ < 0) phase_ = Phase::ready;
             break;
         case Phase::ready:

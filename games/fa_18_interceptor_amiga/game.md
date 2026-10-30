@@ -1221,6 +1221,24 @@ copies before `$11A04C`), seven frames, blocks 88 ("YOUR VECTOR XXX FOR
 BOGEY", the vector filled in) and 90 ("READY TO LAUNCH") typed, then the
 flight with the recording from its first byte.
 
+The seven frames (2026-10-30, recording demo_start: the bogey from the
+menu's 1): `$13AA9E`, set at the demo's start (`$10215E`), is cleared at
+`$101BDA`; then `$102D58` sets a five-frame countdown and `$102DB8` waits
+it out before queuing the texts - seven whole frames the frame counter
+counts (1-7, then it stands while the texts are typed and starts from 0
+with the flight, `$102EC0`). The flight flag (`$13ABBC` bit 6) is clear,
+so the others' object step runs its start (`$11797E`: distance, pursuit
+point, pilot, timer) but the record step goes from `$11A440` to
+`$11A572`: no autopilot (`$120B6E`), controls (`$10DFD2`) or speed step
+(`$105ED4`), only the attitude step (`$121BE0`) and the first-step mark
+cleared (+0 bit 8, `$11A5AC`), nothing moved. So the bogey moves in the
+flight's first frame. The port skipped these frames, so its bogey lost a
+move and a turn and the demo's shot came 65 frames late, the explosion
+seen looking down; now the module runs them in `to_ready` (every start
+through `$102D58`). Checked: the module's demo against demo, demo_objs,
+demo_trail and demo_start - player and bogey equal in every frame;
+`democheck` on demo_start (from the launch) 228 of 228.
+
 The recording (`$10DFEE`, the player's input step): each frame one
 control byte from `textply` (the record's +$65: stick, rudder, throttle
 bits; the F-key throttle settings are not used) and one record of two
@@ -2377,6 +2395,6 @@ Research files live in `.analysis/fa_18_interceptor_amiga/` (`harness/`,
   countdown and text queue (the front end's traces).
 - Captures in `work/ref/`: `sm1`-`sm5` (missiles into the ground: smoke,
   pictures in `sm3`-`sm5/`), `demo_trail` (the demo with the trail's
-  ring), `m4a`-`m8c` (missions 4-8), `fc*.jsonl`, `sd2`, `cr5`, `td1-3`, `wpm`, `wpg`, `wpa`, flash
+  ring), `demo_start` (the demo from the menu's 1 with the bogey), `m4a`-`m8c` (missions 4-8), `fc*.jsonl`, `sd2`, `cr5`, `td1-3`, `wpm`, `wpg`, `wpa`, flash
   timing `flash_cr4.txt`, message bitplanes `msg7.idx`/`msg8.idx`,
   reference screenshots.

@@ -92,6 +92,7 @@ public:
         std::int8_t level{};      // `$13AB97`
         long counter{};           // `$13ABCA`
         const data::World* world{};
+        bool flying = true;       // `$13ABBC` bit 6: clear, nothing moves (`$11A5FC`)
         // The bodies before the records in a touch (the player's first,
         // its missiles, the practice's lead).
         std::vector<Body> bodies;

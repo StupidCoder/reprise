@@ -192,12 +192,6 @@ from drawing, and must still respect the passes' model rule).
   heading) draws all cells.
 - No objects other than the carrier in free flight (as the original's
   free flight; others come with the modes, tasks 10-11).
-- The module's demo is out of step with the original's: it shoots the
-  bogey down at frame 702 while looking down (look 13), the original at
-  frame 637 looking ahead (demo_trail2), so the port's demo shows the
-  explosion from below. `democheck` starts from the recording's frame 28
-  and does not see it; where the 65 frames come from (the replay's start,
-  the texts before the launch) is not traced.
 - A missile taken off when it hits still shows where it hit for some
   frames in the original (demo_trail2, frames 556-564: the drawer's cell
   lists are not rebuilt at once - hypothesis); the port draws only active

@@ -1269,7 +1269,10 @@ int demo_check(const std::filesystem::path& content, const std::filesystem::path
             // The radar after the scene and in the panel, by the views the
             // recording shows (outside `$13AA75`, the look `$13AC76`; a
             // change draws the panel anew).
-            const Record g{frames[k].globals}, gp{frames[k - 1].globals};
+            // (A recording from the flight's first frame: the one before
+            // it is the last frame before the launch.)
+            const Record g{frames[k].globals},
+                gp{k > 0 ? frames[k - 1].globals : globals_start.empty() ? frames[k].globals : globals_start};
             const bool outside = g.u8(0x13AA75 - 0x13A9E0) != 0;
             const int look = g.s16(0x13AC76 - 0x13A9E0);
             if (outside != (gp.u8(0x13AA75 - 0x13A9E0) != 0) || look != gp.s16(0x13AC76 - 0x13A9E0)) radar.redraw_panel();

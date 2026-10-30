@@ -123,15 +123,16 @@ bool ObjectWorld::step(const Frame& frame) {
             PilotWorld pilot_world;
             pilot_world.mode = world.mode;
             pilot_world.level = world.level;
-            autopilot_.fly(a, o.pilot, pilot_world, &o.course);
+            if (frame.flying) autopilot_.fly(a, o.pilot, pilot_world, &o.course); // ($11A440)
             FlightControls c;
             c.recorded = a.controls;
             const auto roll_before = a.attitude.roll;
             FlightRules rules;
             rules.world = frame.world;
+            rules.flying = frame.flying;
             const std::array<std::int32_t, 3> before{a.x, a.y, a.z};
             if (a.state & 0x1000) fly(a, c, rules, tables_);
-            Autopilot::level_out(a, o.pilot, roll_before);
+            if (frame.flying) Autopilot::level_out(a, o.pilot, roll_before);
             if (a.state & 0x0400) continue; // (no touches while it blows up)
             // $11A7EA: its touch after the move; hitting something it goes
             // ($11AA70) - the cruise missile blows up instead ($11A9F6).

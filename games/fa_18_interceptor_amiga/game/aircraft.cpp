@@ -730,6 +730,15 @@ void move_gear(Aircraft& a) {
 } // namespace
 
 FlightEvents fly(Aircraft& a, const FlightControls& controls, const FlightRules& rules, const FlightTables& t) {
+    if (!a.player && !rules.flying) {
+        // $11A440 → $11A572: before the flight starts another record only
+        // turns ($121BE0, unless out of control) and loses its first-step
+        // mark (+0 bit 8); no controls, speed step or move.
+        if (!(a.state & 0x8000)) turn(a, rules, t);
+        a.state &= ~0x0100;
+        a.vx = a.vy = a.vz = 0;
+        return {};
+    }
     // $1183E2 (the frame's player checks, before the flight): faster than
     // $1200 with the gear down warns once.
     bool gear_speed_warning = false;
