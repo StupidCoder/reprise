@@ -3,6 +3,7 @@
 #include "fa_18_interceptor_amiga/entry.hpp"
 #include "spindizzy_worlds_amiga/entry.hpp"
 #include "beach_volley_amiga/entry.hpp"
+#include "stunt_car_racer_amiga/entry.hpp"
 #include "spy_mouse_ios/reprise/entry.hpp"
 #include "sonic/reprise/entry.hpp"
 #include "layton/reprise/entry.hpp"
@@ -34,6 +35,7 @@ std::vector<GameEntry> catalog() {
         interceptor::entry(),
         spindizzy::entry(),
         beach_volley::entry(),
+        stuntcar::entry(),
     };
     // Platform-specific release dates, not franchise debuts or reissue dates.
     // This editorial material is sourced separately in docs/catalog-history.md.
@@ -45,6 +47,11 @@ std::vector<GameEntry> catalog() {
          "Ocean's French team takes to the beach",
          "Ocean France developed Beach Volley for Ocean. The Amiga credits name Marc Djan as designer and Michel Janicki as programmer, with graphics by Michèle Bacqué, Philippe Dessoly and Pierre-Eric Loriaux, and music by Jean Baudlot.",
          "Lemon Amiga: 1989 Amiga release and credits; original manual: rules."},
+        {"stunt_car_racer_amiga", 1989,
+         "Strap into a racing buggy on a track suspended high above the ground. Charge up ramps, leap across gaps and keep your wheels on the narrow course. Speed wins races, but a reckless landing can send your championship hopes over the edge.",
+         "A racing circuit becomes a rollercoaster",
+         "Geoff Crammond designed and programmed Stunt Car Racer, published by MicroStyle in 1989, with graphics by John Cumming. Its elevated circuits turned corners and jumps into a balancing act. The Amiga version also supported racing another player over a serial link.",
+         "Lemon Amiga: release, credits and serial-link support; OpenRetro: overview."},
         {"fort_apocalypse_c64", 1983,
          "Take a helicopter deep into an underground fortress. Blast a path through its defenses, rescue prisoners and keep an eye on your fuel. Getting in is dangerous; getting everyone back out is the real mission.",
          "An Atari original, a C64 conversion",
