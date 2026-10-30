@@ -7,6 +7,7 @@
 #include "stunt_car_racer_amiga/render/race_screen.hpp"
 #include "stunt_car_racer_amiga/render/race_view.hpp"
 #include <algorithm>
+#include <optional>
 
 namespace stuntcar::game {
 namespace {
@@ -22,7 +23,9 @@ class Module final : public app::GameModule {
     explicit Module(const std::filesystem::path& content)
         : assets_(data::load_assets(content)), circuits_(data::load_circuits(assets_.program)),
           scenery_(data::load_scenery(assets_.program)), art_(data::load_cockpit_art(assets_.program)),
-          palette_(render::race_palette(assets_.program)), race_(assets_.program, circuits_, 0) {}
+          palette_(render::race_palette(assets_.program)) {
+        start_race();
+    }
 
     // The game counts 0.13 s of race time a frame (its lap timer adds $13
     // hundredths each frame, $5DF2E); the original draws about 7.7 frames a
@@ -37,8 +40,15 @@ class Module final : public app::GameModule {
         controls.left = input.left;
         controls.right = input.right;
         controls.fire = input.fire;
-        race_.step(controls);
-        const auto& car = race_.player();
+        // After PRESS FIRE, a new press starts the practice again.
+        if (race_->state().phase == race::Phase::over) {
+            if (input.fire && !fire_held_) start_race();
+            fire_held_ = input.fire;
+            return;
+        }
+        fire_held_ = input.fire;
+        race_->step(controls);
+        const auto& car = race_->player();
         if (car.recovery) {
             chains_ = chains_down, pull_ = chain_first_pull;
         } else if (chains_ != chains_gone) {
@@ -48,7 +58,8 @@ class Module final : public app::GameModule {
     }
 
     platform::Image picture() const override {
-        const auto& car = race_.player();
+        const auto& car = race_->player();
+        const auto& state = race_->state();
         render::Camera camera;
         camera.x = car.x / 4096.0;
         camera.z = car.z / 4096.0;
@@ -56,10 +67,29 @@ class Module final : public app::GameModule {
         camera.yaw = std::uint16_t(car.yaw);
         camera.pitch = car.view_pitch;
         camera.roll = car.view_roll;
-        const auto view = render::draw_race_view(circuits_, scenery_, race_.track(), car.segment, camera);
+        const auto view = render::draw_race_view(circuits_, scenery_, race_->track(), car.segment, camera);
         render::Cockpit cockpit;
         if (chains_ != chains_gone) cockpit.chain_bottom = chains_;
-        if (car.launch_flag) cockpit.message = data::decode_message(assets_.program, car.launch_message, car.launch_message_length);
+        // As the race ends only PRESS FIRE shows, flashing white with the
+        // countdown ($5E508).
+        const auto countdown = state.finish_countdown;
+        const bool quiet = countdown && (std::int8_t(countdown) < 0 || countdown < 3) && car.launch_message != 0x3C;
+        if (car.launch_flag && !quiet)
+            cockpit.message = data::decode_message(assets_.program, car.launch_message, car.launch_message_length);
+        cockpit.message_white = state.flashing;
+        cockpit.lap = state.cars[0].laps;
+        const auto shown = [](const race::Time& t, bool hundredths) {
+            return render::Cockpit::Time{race::decimal(t.minutes), race::decimal(t.seconds), race::decimal(t.hundredths), hundredths};
+        };
+        if (state.cars[0].laps) cockpit.lap_time = state.lap_time_hold ? shown(state.last_lap, true) : shown(state.cars[0].lap_time, false);
+        if (state.best_shown) cockpit.lower_time = shown(state.best_lap, true);
+        cockpit.flag_lamp = state.flag_lamp;
+        cockpit.right_lamp = state.right_lamp;
+        cockpit.intact_marks = state.intact_marks;
+        cockpit.cracking = state.cracking;
+        for (const auto& p : state.crack.pixels) cockpit.crack.push_back({p.x, p.y, p.colour});
+        for (const auto& s : state.smoke.sparks) cockpit.sparks.push_back({s.x, s.y});
+        for (const auto& p : state.smoke.puffs) cockpit.smoke.push_back({p.x, p.y, p.size});
         int bar = car.body_velocity[2] - speed_bar_floor;
         bar = bar < 0 ? 0 : int((std::uint32_t(bar) * speed_bar_gain) >> 23);
         cockpit.speed_bar = std::min(bar, 127);
@@ -79,7 +109,14 @@ class Module final : public app::GameModule {
     data::Scenery scenery_;
     data::CockpitArt art_;
     render::Palette palette_;
-    race::Race race_;
+    void start_race() {
+        race_.emplace(assets_.program, circuits_, 0);
+        chains_ = chains_down, pull_ = chain_first_pull;
+        race_->step({}); // the crane lowers the car
+    }
+
+    std::optional<race::Race> race_;
+    bool fire_held_ = false;
     int chains_ = chains_down, pull_ = chain_first_pull;
     int vhs_ = 0;
 };

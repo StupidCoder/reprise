@@ -2,9 +2,10 @@
 
 Status (2026-10-30): importer, the loading picture, the eight circuits
 (decoded from the track bank, shown as turnable 3D models), the whole race
-screen, and a practice race on Little Ramp with the game's own car physics
-(checked frame by frame against the original) are connected; crashes, laps,
-damage and the opponent are not yet. Findings
+screen, and a whole practice race on Little Ramp with the game's own car
+physics, crashes and the crane, laps and lap times, damage, dust and smoke
+(checked frame by frame against the original) are connected; the opponent
+and the league are not yet. Findings
 are in [game.md](game.md).
 
 Done:
@@ -35,8 +36,8 @@ Next:
 
 - [ ] Map the front end's state machine and the main race loop in Ghidra
       (the 6502-style code decompiles poorly; read assembly where needed).
-- [ ] Interpret the rest of a track definition: the third header byte, the
-      four trailer bytes, the (segment, value) pairs and the segment list,
+- [ ] Interpret the rest of a track definition: the (segment, value) pairs
+      and the segment list,
       and the per-segment table built at $1C952 (opponent speeds?); the
       shape description bytes ($1BB7B, $1BBD9, $1BBD4).
 - [ ] The drawbridge animation ($5A794) in the race view.
@@ -45,10 +46,8 @@ Next:
       (check on the tall tracks); facing backwards ($1BC32) once the car
       can turn round; verify Divisions 1–3 circuits (needs league progress
       or a pose on a loaded track).
-- [ ] Race screen, remaining: smoke puffs' placement (table at $60F5A, items
-      $1D–$24 via $6A0BE); when the timer lines and the message box show
-      (callers of $5E326 and of item $33); the cracking roll-bar mark's
-      timing; the right lamp's meaning ($1BBB2); the wheel curve from the
+- [ ] Race screen, remaining: when the message box (item $33) shows; the
+      wheel curve from the
       suspension ($5E778, sine table $1CA42) once physics exists; the
       opponent's extra row when $63EDE ≥ $FF00; the 3-pixel '.' difference.
 - [ ] Font and front-end screens (menu, league tables, track select) from the
@@ -57,15 +56,26 @@ Next:
       (`race/placement.*`), the start and race loop (`race/race.*`), checked
       frame by frame against the original; a practice race on Little Ramp
       playable from the launcher (`game/module.*`).
-- [ ] Race, next: crash handling and the crane's recovery (main loop
-      $5D4E8–$5D608, $5B32E relaunch, $60CDE), the off-grid path; laps and
-      the lap timer ($5DB34, $5DCA6, $5DED0); damage to the roll bar
-      ($5DFB4, $66106) and wrecking; the wheels' suspension curve ($5E778);
-      smoke; the boost count ($60824); then the opponent: its placement
-      ($5A186), driving ($63996, $6076C, $636C0) and the knocks between the
-      cars ($1BB46); then the league and the menus.
-- [ ] Captures beyond the first straight: curves, jumps, crashes, boost, the
-      other circuits (the checker's map of the original's variables is in
+- [x] Race loop as a whole (`race/race.*`, `race/smoke.*`,
+      `race/random.hpp`): spawn/settling/driving frames, going over the edge
+      and the crane's relaunch, the clock, laps (halfway segment, crossing
+      fraction), best lap and lamps, the finish and end countdown, LAPS
+      OVER / PRESS FIRE, roll-bar holes, the roof crack and wrecking, the
+      boost count, dust and smoke, the game's random generator; checked
+      against `work/race_lr1.bin` (467 of 467 frames exact). PRESS FIRE
+      restarts the practice in the port.
+- [ ] Check laps, the best lap, the finish and wrecking against the
+      original: a whole-race capture (`physcheck autodrive` finds inputs
+      that finish Little Ramp in the port; `harness/racesample.py` needs
+      fixing: the original hung after ~160 fed frames).
+- [ ] Race, next: the opponent: its placement ($5A186), driving ($63996,
+      $6076C, $636C0), its lap times and the distance display ($5E12A),
+      and the knocks between the cars ($1BB46); then the league and the
+      menus. Also: the wheels' suspension curve ($5E778, wheel rest row
+      $1BBDD), pause ($5D9DC), Esc to the menu, the hall-of-fame lap records
+      ($5F16C), sounds (engine $5B56C, knocks, scrape, crane).
+- [ ] Captures of the other circuits (jumps, drawbridge, wrecking), of
+      boosting and of the league (the checker's map of the original's variables is in
       `tools/stunt_car_racer_physcheck.cpp`).
 - [ ] Renderer enhancements: widescreen by widening the view (the angle
       projection extends naturally), smooth motion up to 120 Hz, higher
@@ -80,7 +90,9 @@ Next:
 
 ## Open bugs
 
-- After going over the road's edge the car stays where it lands: crash
-  handling and the crane's recovery are not ported yet.
-- No lap counting, timer, damage display or opponent in the practice race.
-
+- No opponent in the race yet; the distance box stays blank.
+- The front wheels stay at their rest rows (the suspension curve $5E778 is
+  not ported), so a wrecked car's sagging wheels do not show.
+- No sounds.
+- The crack's paint test reads the cockpit picture; anything else the
+  original has drawn on the roof rows is not considered (nothing observed).

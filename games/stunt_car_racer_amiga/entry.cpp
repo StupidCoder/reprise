@@ -39,7 +39,7 @@ app::GameEntry entry() {
         .import = import::import_disk,
         .previews = previews,
         .start = game::start,
-        .progress = "A practice race on Little Ramp with the game's own car physics: the crane, the drop and driving. Crashes, laps, damage and the opponent are not rebuilt yet.",
+        .progress = "A whole practice race on Little Ramp with the game's own car physics: the crane, laps and lap times, going over the edge and the crane's rescue, damage and wrecking, dust and smoke. The opponent and the league are not rebuilt yet.",
     };
 }
 

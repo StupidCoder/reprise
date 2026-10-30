@@ -76,10 +76,10 @@ Track decode_track(const Bank& bank, const Circuits& circuits, int index) {
     track.name = track_name(bank.program, index);
     const int count = next();
     // Three header bytes: the car's start segment, the start line's segment
-    // (the race view compares segments with it) and one not yet understood.
+    // (the race view compares segments with it) and the halfway segment.
     track.car_start_segment = next();
     track.start_line_segment = next();
-    track.header_third = next();
+    track.halfway_segment = next();
     const int low = next();
     track.start_height = next() << 8 | low;
 

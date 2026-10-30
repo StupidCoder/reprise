@@ -1,5 +1,6 @@
 #pragma once
 #include "stunt_car_racer_amiga/race/car.hpp"
+#include "stunt_car_racer_amiga/race/random.hpp"
 #include "stunt_car_racer_amiga/race/tables.hpp"
 
 // One frame of a car's physics (game.md, "Car physics"), in the game's order:
@@ -17,6 +18,6 @@ void read_controls(Car&, const Controls&);
 // paces recovery and boost advances.
 void end_frame(Car&);
 
-void step_physics(Car&, const Tables&, TrackContact&);
+void step_physics(Car&, const Tables&, TrackContact&, Random&);
 
 } // namespace stuntcar::race

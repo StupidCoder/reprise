@@ -235,7 +235,7 @@ void tyre_loads(Car& c, const Tables& t) {
 
 // Spawn and crash recovery: level the body's roll, lower the car to its ride
 // height, then hand over to normal driving.
-void recover(Car& c) {
+void recover(Car& c, Random& random) {
     if (!c.recovery) return;
     const auto level = [&](std::uint8_t amount) {
         std::uint8_t target = 0x10, step = amount;
@@ -269,7 +269,9 @@ void recover(Car& c) {
     } else if (clock == 0xE4) {
         lower(4);
         if (!level(0xFF)) return;
-        c.recovery = 0x8C;
+        // Down: a while before the car may go (a random wait in league races).
+        const auto wait = std::uint8_t(0xA0 + (random.next() & 0x1F));
+        c.recovery = c.league ? wait : 0x8C;
         c.launch_flag = true;
         c.launch_message_length = 4;
         c.launch_message = c.launched ? 0x3C : 0x2C;
@@ -453,7 +455,15 @@ void read_controls(Car& c, const Controls& in) {
     if (!c.fire_up && !c.stalled && (c.accelerator_latched || in.accelerate || in.brake) && c.boost_left) {
         if (std::int8_t(c.tick) >= 0) {
             --c.boost_timer;
-            if (std::int8_t(c.boost_timer) < 0) c.boost_timer = c.boost_reload;
+            if (std::int8_t(c.boost_timer) < 0) {
+                // One boost spent: BCD + $99, kept within the race's allowance.
+                c.boost_timer = c.boost_reload;
+                int low = (c.boost_left & 0xF) + 9, high = (c.boost_left >> 4) + 9;
+                if (low > 9) low -= 10, ++high;
+                if (high > 9) high -= 10;
+                const auto left = std::uint8_t(high << 4 | low);
+                c.boost_left = left < c.boost_allowance ? left : c.boost_allowance;
+            }
         }
         c.boosting = true;
         c.drive = std::int16_t(c.drive << 1);
@@ -469,7 +479,7 @@ void end_frame(Car& c) {
     c.tick = sum > 0xFF ? 0 : 0xFF;
 }
 
-void step_physics(Car& c, const Tables& t, TrackContact& track) {
+void step_physics(Car& c, const Tables& t, TrackContact& track, Random& random) {
     build_matrix(c, t);
     place_points(c);
     track.sample_surface(c);
@@ -479,7 +489,7 @@ void step_physics(Car& c, const Tables& t, TrackContact& track) {
     gravity_to_body(c);
     suspension(c);
     tyre_loads(c, t);
-    recover(c);
+    recover(c, random);
     c.previous_forward_load = c.loads[2];
     knock(c);
     // A hard landing thuds (sound 3), at most every fifth frame, louder with

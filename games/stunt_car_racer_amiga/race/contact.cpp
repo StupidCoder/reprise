@@ -128,9 +128,10 @@ void TrackContact::sample_surface(Car& car) {
             // which holds 0 (the game means #$FF).
             if (t >= 0x100) t = 0;
         }
-        if (s.piece.reversed) t ^= 0xFF;
+        // The sample uses the fraction as it is (the corner heights are taken
+        // in reverse on reversed pieces); the rear wheel's copy is flipped.
         s.lateral = std::uint8_t(t);
-        if (k == 2) car.rear_along = std::uint8_t(t);
+        if (k == 2) car.rear_along = std::uint8_t(s.piece.reversed ? t ^ 0xFF : t);
         // Along: the point's offset forwards plus the car's progress.
         s.longitudinal = std::int16_t(times(car.contact_offsets[std::size_t(k + 3)] >> 3, gain(s.piece.shape->along_gain())) +
                                       car.along);

@@ -72,6 +72,7 @@ struct Car {
     std::uint8_t boost_reload{}, boost_timer{};
     bool boosting{};
     std::uint8_t boost_left{};         // BCD
+    std::uint8_t boost_allowance{};    // BCD: what the race started with
     bool stalled{};
 
     // What the camera, dashboard and sound read.
@@ -125,6 +126,7 @@ struct Car {
     std::int16_t heading{};            // the piece's heading at the car
     std::uint8_t step_index{};         // the car's cross-section in the piece
     std::uint8_t track_number{};       // selects the airborne self-righting
+    bool league{};                     // a league race (the practice is not)
 
     // Road contact and track following (game.md, "Car physics").
     std::uint8_t off_track{};          // bits shifted in per point past the edge

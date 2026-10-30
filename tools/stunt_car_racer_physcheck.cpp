@@ -8,6 +8,12 @@
 //       drive: start from the first frame and run the race loop on its own
 //              (controls from the capture, physics, placement, clock),
 //              comparing every frame with the original's
+//   stunt_car_racer_physcheck <content> <race.bin> <track> race [first] [count]
+//   stunt_car_racer_physcheck <content> <samples.bin> <track> samples <inputs>
+//       a sampled whole race (harness/racesample.py) with its input list
+//       a capture of the whole race loop (harness/racecap.py, from the
+//       race's first frame): race::Race runs on its own with the captured
+//       controls and every frame start is compared, car and race state
 //
 // The game-variable addresses below are research knowledge (game.md, "Car
 // physics"); the game code itself never sees them.
@@ -17,8 +23,10 @@
 #include "stunt_car_racer_amiga/race/contact.hpp"
 #include "stunt_car_racer_amiga/race/physics.hpp"
 #include "stunt_car_racer_amiga/race/placement.hpp"
+#include "stunt_car_racer_amiga/race/race.hpp"
 #include "platform/files.hpp"
 #include <cstdio>
+#include <cstdlib>
 #include <functional>
 #include <string>
 #include <vector>
@@ -31,13 +39,20 @@ struct Window {
 const Window windows[] = {{0x1B800, 0x1400}, {0x5C6B8, 0x10}, {0x61AD4, 0x8}, {0x6125A, 0x8}, {0x620B6, 0x2},
                           {0x63CE2, 0x2},    {0x63EDE, 0x4},  {0x64AEC, 0x4}, {0x57C3C, 0x2}};
 
+const Window race_windows[] = {{0x1B800, 0x1400}, {0x5C6B8, 0x10}, {0x61AD4, 0x8}, {0x6125A, 0x8}, {0x620B6, 0x2},
+                               {0x63CE2, 0x2},    {0x63EDE, 0x4},  {0x64AEC, 0x4}, {0x57C3C, 0x2}, {0x5E65A, 0x2},
+                               {0x625A2, 0x6},    {0x662AA, 0x2}};
+
 struct Ram {
     const std::uint8_t* bytes;
+    bool race = false;
     std::uint8_t u8(std::uint32_t a) const {
         std::size_t at = 0;
-        for (const auto& w : windows) {
-            if (a >= w.address && a < w.address + w.length) return bytes[at + a - w.address];
-            at += w.length;
+        const Window* first = race ? std::begin(race_windows) : std::begin(windows);
+        const Window* last = race ? std::end(race_windows) : std::end(windows);
+        for (const auto* w = first; w != last; ++w) {
+            if (a >= w->address && a < w->address + w->length) return bytes[at + a - w->address];
+            at += w->length;
         }
         throw std::runtime_error("address outside the capture: " + std::to_string(a));
     }
@@ -133,6 +148,7 @@ std::vector<Field> fields() {
     flag("boosting", 0x1BB62, &Car::boosting, 0x80);
     byte("accelerate_low", 0x1BAFA, &Car::accelerate_low); byte("accelerate_high", 0x1BAFB, &Car::accelerate_high);
     byte("boost_reload", 0x1BAFE, &Car::boost_reload); byte("boost_timer", 0x1BB3D, &Car::boost_timer); byte("boost_left", 0x1CA20, &Car::boost_left);
+    byte("boost_allowance", 0x1BB95, &Car::boost_allowance);
     flag("stalled", 0x1BCA2, &Car::stalled, 0xFF); word("engine_note", 0x1BC62, &Car::engine_note);
     word("view_pitch", 0x1BC42, &Car::view_pitch); flag("pitch_at_limit", 0x1BBAB, &Car::pitch_at_limit, 0x80);
     byte("tick_phase", 0x1BBCF, &Car::tick_phase); byte("frame_count", 0x1BBC9, &Car::frame_count);
@@ -166,6 +182,84 @@ std::vector<Field> fields() {
     return f;
 }
 
+// The race loop's own state (game.md, "The race").
+using stuntcar::race::RaceState;
+struct StateField {
+    std::string name;
+    std::function<long(const RaceState&, const Car&)> value;
+    std::function<long(const Ram&)> ram;
+    std::function<void(RaceState&, Car&, long)> load;
+};
+
+std::vector<StateField> state_fields() {
+    std::vector<StateField> f;
+    using stuntcar::race::Time;
+    const auto time = [&](std::string n, int slot, auto get) {
+        const auto o = std::uint32_t(slot);
+        const auto part = [&](std::string p, std::uint32_t base, std::uint8_t Time::*member) {
+            f.push_back({n + "." + p, [=](const RaceState& s, const Car&) { return long(get(const_cast<RaceState&>(s)).*member); },
+                         [=](const Ram& r) { return long(r.u8(base + o)); },
+                         [=](RaceState& s, Car&, long v) { get(s).*member = std::uint8_t(v); }});
+        };
+        part("minutes", 0x1C908, &Time::minutes);
+        part("seconds", 0x1C920, &Time::seconds);
+        part("hundredths", 0x1C938, &Time::hundredths);
+    };
+    for (int car = 0; car < 2; ++car) {
+        const auto o = std::uint32_t(car);
+        const auto c = std::size_t(car);
+        const auto n = "car" + std::to_string(car);
+        f.push_back({n + ".segment", [=](const RaceState& s, const Car&) { return long(s.cars[c].segment); }, [=](const Ram& r) { return long(r.u8(0x1BB1C + o)); },
+                     [=](RaceState& s, Car&, long v) { s.cars[c].segment = int(v); }});
+        f.push_back({n + ".on_lap", [=](const RaceState& s, const Car&) { return long(s.cars[c].on_lap); }, [=](const Ram& r) { return long(r.u8(0x1BB1E + o) >> 7); },
+                     [=](RaceState& s, Car&, long v) { s.cars[c].on_lap = v; }});
+        f.push_back({n + ".laps", [=](const RaceState& s, const Car&) { return long(s.cars[c].laps); }, [=](const Ram& r) { return long(r.u8(0x1BB20 + o)); },
+                     [=](RaceState& s, Car&, long v) { s.cars[c].laps = std::uint8_t(v); }});
+        time(n + ".lap_time", car, [=](RaceState& s) -> Time& { return s.cars[c].lap_time; });
+    }
+    time("best_lap", 2, [](RaceState& s) -> Time& { return s.best_lap; });
+    const auto byte = [&](std::string n, std::uint32_t a, auto member) {
+        f.push_back({n, [=](const RaceState& s, const Car&) { return long(s.*member); }, [=](const Ram& r) { return long(r.u8(a)); },
+                     [=](RaceState& s, Car&, long v) { s.*member = decltype(s.*member)(v); }});
+    };
+    const auto flag = [&](std::string n, std::uint32_t a, auto member) {
+        f.push_back({n, [=](const RaceState& s, const Car&) { return long(s.*member); }, [=](const Ram& r) { return long(r.u8(a) >> 7); },
+                     [=](RaceState& s, Car&, long v) { s.*member = v != 0; }});
+    };
+    byte("laps_to_finish", 0x1BB99, &RaceState::laps_to_finish);
+    byte("lap_time_hold", 0x1BBCC, &RaceState::lap_time_hold);
+    byte("finished", 0x1BBAF, &RaceState::finished);
+    byte("finish_countdown", 0x1BB6C, &RaceState::finish_countdown);
+    flag("race_over", 0x1BB6F, &RaceState::race_over);
+    flag("odd_frame", 0x1BBC8, &RaceState::odd_frame);
+    byte("crash_wait", 0x1BB41, &RaceState::crash_wait);
+    f.push_back({"last_segment", [](const RaceState& s, const Car&) { return long(s.last_segment); }, [](const Ram& r) { return long(r.u8(0x1BB9B)); },
+                 [](RaceState& s, Car&, long v) { s.last_segment = int(v); }});
+    byte("frame_clock", 0x1BBAC, &RaceState::frame_clock);
+    byte("intact_marks", 0x1C9CF, &RaceState::intact_marks);
+    byte("hole_timer", 0x1BB73, &RaceState::hole_timer);
+    byte("wheel_base", 0x1BBDD, &RaceState::wheel_base);
+    const auto crack = [&](std::string n, std::uint32_t a, std::uint8_t stuntcar::race::Crack::*member) {
+        f.push_back({"crack." + n, [=](const RaceState& s, const Car&) { return long(s.crack.*member); }, [=](const Ram& r) { return long(r.u8(a)); },
+                     [=](RaceState& s, Car&, long v) { s.crack.*member = std::uint8_t(v); }});
+    };
+    crack("length", 0x1BB55, &stuntcar::race::Crack::length);
+    crack("target", 0x1BBB6, &stuntcar::race::Crack::target);
+    crack("row", 0x662AA, &stuntcar::race::Crack::row);
+    crack("colour", 0x662AB, &stuntcar::race::Crack::colour);
+    for (int i = 0; i < 5; ++i) {
+        const auto b = std::size_t(i);
+        f.push_back({"random" + std::to_string(i), [=](const RaceState& s, const Car&) { return long(s.random.bytes[b]); },
+                     [=](const Ram& r) { return long(r.u8(0x625A2 + std::uint32_t(i))); },
+                     [=](RaceState& s, Car&, long v) { s.random.bytes[b] = std::uint8_t(v); }});
+    }
+    f.push_back({"message", [](const RaceState&, const Car& c) { return long(c.launch_message); }, [](const Ram& r) { return long(r.u8(0x5E65B)); },
+                 [](RaceState&, Car& c, long v) { c.launch_message = std::uint8_t(v); }});
+    f.push_back({"message_groups", [](const RaceState&, const Car& c) { return long(c.launch_message_length); }, [](const Ram& r) { return long(r.u8(0x5E65A)); },
+                 [](RaceState&, Car& c, long v) { c.launch_message_length = std::uint8_t(v); }});
+    return f;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -179,7 +273,166 @@ int main(int argc, char** argv) {
         const auto tables = stuntcar::race::load_tables(assets.program);
         const auto& track = circuits.tracks.at(std::size_t(std::stoi(argv[3])));
         stuntcar::race::TrackContact contact(circuits, track);
+        if (std::string(argv[2]) == "autodrive") {
+            // Finds controls that drive whole laps in the port, for replaying
+            // on the original (harness/racecap.py INPUTS): full throttle,
+            // steering towards the piece's heading and the road's middle.
+            // Prints the inputs, the laps and how often the car went over.
+            const int track = std::stoi(argv[3]);
+            const int frames = argc > 4 ? std::stoi(argv[4]) : 600;
+            const int gain = argc > 5 ? std::stoi(argv[5]) : 8;
+            const int dead = argc > 6 ? std::stoi(argv[6]) : 0x400;
+            const bool flip = argc > 7 && std::stoi(argv[7]);
+            const int across_sign = argc > 8 ? std::stoi(argv[8]) : 1;
+            const int top = argc > 9 ? std::stoi(argv[9], nullptr, 0) : 0x2000;
+            stuntcar::race::Race race(assets.program, circuits, track);
+            std::vector<std::uint8_t> inputs;
+            int crashes = 0;
+            bool was_crashed = false;
+            int previous = 0;
+            for (int k = 0; k < frames; ++k) {
+                const auto& c = race.player();
+                std::uint8_t in = 0;
+                if (race.state().phase == stuntcar::race::Phase::drive) {
+                    if (c.recovery) {
+                        in = (k / 4) % 2 ? 0x10 : 0; // tap fire to drop
+                    } else {
+                        // Keep to the middle: the offset and how fast it changes.
+                        const int rate = c.across_centre - previous;
+                        int error = across_sign * (c.across_centre * gain + rate * 16);
+                        const bool drifting = std::abs(c.across_centre) > 0x60 || std::abs(rate) > 0x18;
+                        in = drifting ? 2 : (c.speed > top ? 0 : 1);
+                        if (error > dead) in |= flip ? 4 : 8;
+                        else if (error < -dead) in |= flip ? 8 : 4;
+                    }
+                }
+                if (std::getenv("TRACE") && k % 10 == 0)
+                    std::fprintf(stderr, "%d ph %d rec %02x seg %d yaw %04x head %04x across %d crash %02x in %02x\n", k, int(race.state().phase), c.recovery,
+                                 c.segment, std::uint16_t(c.yaw), std::uint16_t(c.heading), c.across_centre, c.crash_state, in);
+                // (racecap.py counts inputs in driving frames only)
+                if (race.state().phase == stuntcar::race::Phase::drive) inputs.push_back(in);
+                previous = c.across_centre;
+                race.step({bool(in & 1), bool(in & 2), bool(in & 4), bool(in & 8), bool(in & 16)});
+                const bool crashed = std::int8_t(race.player().crash_state) < 0;
+                if (crashed && !was_crashed) ++crashes;
+                was_crashed = crashed;
+            }
+            std::string list;
+            for (std::size_t k = 0; k < inputs.size();) {
+                std::size_t n = 1;
+                while (k + n < inputs.size() && inputs[k + n] == inputs[k]) ++n;
+                char buf[16];
+                std::snprintf(buf, sizeof buf, "%s%02x*%zu", list.empty() ? "" : ",", inputs[k], n);
+                list += buf;
+                k += n;
+            }
+            std::printf("laps %d crashes %d best %x:%02x.%02x\n%s\n", race.state().cars[0].laps, crashes, race.state().best_lap.minutes,
+                        race.state().best_lap.seconds, race.state().best_lap.hundredths, list.c_str());
+            return 0;
+        }
         const auto capture = platform::read_file(argv[2]);
+        if (argc > 5 && std::string(argv[4]) == "samples") {
+            // A sampled capture (harness/racesample.py): the port runs the
+            // whole race with the same inputs from the first sample's state
+            // and is compared wherever the original was stopped.
+            std::size_t window = 0;
+            for (const auto& w : race_windows) window += w.length;
+            const std::size_t record = 2 + window + 2, samples = capture.size() / record;
+            std::vector<std::uint8_t> inputs;
+            for (std::string list = argv[5]; !list.empty();) {
+                const auto comma = list.find(',');
+                const auto item = list.substr(0, comma);
+                const auto star = item.find('*');
+                const int repeat = star == std::string::npos ? 1 : std::stoi(item.substr(star + 1));
+                for (int r = 0; r < repeat; ++r) inputs.push_back(std::uint8_t(std::stoi(item.substr(0, star), nullptr, 16)));
+                list = comma == std::string::npos ? "" : list.substr(comma + 1);
+            }
+            stuntcar::race::Race race(assets.program, circuits, std::stoi(argv[3]));
+            const auto cars = fields();
+            const auto states = state_fields();
+            {
+                const Ram start{capture.data() + 2, true};
+                for (const auto& f : cars) f.load(race.player_for_tools(), start);
+                for (const auto& f : states) f.load(race.state_for_tools(), race.player_for_tools(), f.ram(start));
+                race.state_for_tools().phase = stuntcar::race::Phase(capture[0]);
+                race.state_for_tools().spawn_segment = race.track().car_start_segment;
+            }
+            std::size_t driven = 0;
+            int exact = 0, shown = 0;
+            for (std::size_t k = 1; k < samples; ++k) {
+                const auto* at = capture.data() + k * record;
+                const std::size_t count = std::size_t(at[2 + window] << 8 | at[3 + window]);
+                const auto kind = stuntcar::race::Phase(at[0]);
+                // Run to the same frame start: as many driving frames, in the
+                // same kind of frame.
+                for (int guard = 0; guard < 100000 && !(driven == count && race.state().phase == kind); ++guard) {
+                    if (race.state().phase == stuntcar::race::Phase::over) break;
+                    const bool drive = race.state().phase == stuntcar::race::Phase::drive;
+                    const auto in = drive ? inputs[std::min(driven, inputs.size() - 1)] : std::uint8_t(0);
+                    race.step({bool(in & 1), bool(in & 2), bool(in & 4), bool(in & 8), bool(in & 16)});
+                    if (drive) ++driven;
+                }
+                const Ram expected{at + 2, true};
+                std::string bad;
+                int wrong = 0;
+                const auto note = [&](const std::string& name, long mine, long theirs) {
+                    if (mine == theirs) return;
+                    if (wrong < 10) bad += " " + name + "=" + std::to_string(mine) + "/" + std::to_string(theirs);
+                    ++wrong;
+                };
+                note("phase", long(race.state().phase), long(kind));
+                note("driving_frames", long(driven), long(count));
+                for (const auto& f : cars) note(f.name, f.value(race.player()), f.ram(expected));
+                for (const auto& f : states) note(f.name, f.value(race.state(), race.player()), f.ram(expected));
+                if (!wrong) ++exact;
+                else if (shown++ < 20) std::printf("sample %zu (frame %zu, kind %d): %d differ:%s\n", k, count, int(kind), wrong, bad.c_str());
+            }
+            std::printf("%d of %zu samples exact\n", exact, samples - 1);
+            return 0;
+        }
+        if (argc > 4 && std::string(argv[4]) == "race") {
+            std::size_t window = 0;
+            for (const auto& w : race_windows) window += w.length;
+            const std::size_t record = 2 + window, frames = capture.size() / record;
+            const int first = argc > 5 ? std::stoi(argv[5]) : 0;
+            const int count = argc > 6 ? std::min(first + std::stoi(argv[6]), int(frames)) : int(frames);
+            stuntcar::race::Race race(assets.program, circuits, std::stoi(argv[3]));
+            const auto cars = fields();
+            const auto states = state_fields();
+            {
+                // Start from the captured frame: the car, the race state and
+                // the phase the frame is in.
+                const auto* at = capture.data() + std::size_t(first) * record;
+                const Ram start{at + 2, true};
+                for (const auto& f : cars) f.load(race.player_for_tools(), start);
+                for (const auto& f : states) f.load(race.state_for_tools(), race.player_for_tools(), f.ram(start));
+                race.state_for_tools().phase = stuntcar::race::Phase(at[0]);
+                race.state_for_tools().spawn_segment = race.state_for_tools().last_segment;
+                if (first == 0) race.state_for_tools().spawn_segment = race.track().car_start_segment;
+            }
+            int exact = 0, shown = 0;
+            for (int k = first; k + 1 < count; ++k) {
+                const auto* at = capture.data() + std::size_t(k) * record;
+                const auto in = at[1];
+                race.step({bool(in & 1), bool(in & 2), bool(in & 4), bool(in & 8), bool(in & 16)});
+                const auto* next = at + record;
+                const Ram expected{next + 2, true};
+                std::string bad;
+                int wrong = 0;
+                const auto note = [&](const std::string& name, long mine, long theirs) {
+                    if (mine == theirs) return;
+                    if (wrong < (std::getenv("ALL") ? 400 : 10)) bad += " " + name + "=" + std::to_string(mine) + "/" + std::to_string(theirs);
+                    ++wrong;
+                };
+                note("phase", long(race.state().phase), long(next[0]));
+                for (const auto& f : cars) note(f.name, f.value(race.player()), f.ram(expected));
+                for (const auto& f : states) note(f.name, f.value(race.state(), race.player()), f.ram(expected));
+                if (!wrong) ++exact;
+                else if (shown++ < 30) std::printf("frame %d (kind %d, input %02x): %d differ:%s\n", k + 1, next[0], in, wrong, bad.c_str());
+            }
+            std::printf("%d of %d frames exact\n", exact, count - 1 - first);
+            return 0;
+        }
         std::size_t window = 0;
         for (const auto& w : windows) window += w.length;
         const std::size_t record = 1 + 2 * window, frames = capture.size() / record;
@@ -190,6 +443,7 @@ int main(int argc, char** argv) {
         const auto list = fields();
         int exact = 0, shown = 0;
         Car driven;
+        stuntcar::race::Random random;
         for (int k = first; k < first + count && k < int(frames); ++k) {
             const Ram before{capture.data() + std::size_t(k) * record + 1};
             const Ram after{capture.data() + std::size_t(k) * record + 1 + window};
@@ -200,7 +454,7 @@ int main(int argc, char** argv) {
                     continue;
                 }
                 // Finish the previous frame, then this frame's controls.
-                stuntcar::race::step_physics(driven, tables, contact);
+                stuntcar::race::step_physics(driven, tables, contact, random);
                 stuntcar::race::place(driven, tables, contact);
                 stuntcar::race::end_frame(driven);
                 const auto in = capture[std::size_t(k) * record];
@@ -209,7 +463,7 @@ int main(int argc, char** argv) {
             } else {
                 for (const auto& f : list) f.load(car, before);
                 if (placing) stuntcar::race::place(car, tables, contact);
-                else stuntcar::race::step_physics(car, tables, contact);
+                else stuntcar::race::step_physics(car, tables, contact, random);
             }
             const Ram& expected = driving ? before : after;
             std::string bad;

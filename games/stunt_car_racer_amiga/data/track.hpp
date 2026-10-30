@@ -76,9 +76,9 @@ struct Track {
     std::vector<Segment> segments;
     int car_start_segment{};  // where the car is lowered onto the track
     int start_line_segment{}; // the start/finish line is its last cross-section
+    int halfway_segment{};    // a lap only counts after passing it
     // Stored with the track and used by the game, not yet interpreted
     // (game.md lists what is known of each).
-    std::uint8_t header_third{};
     std::array<std::uint8_t, 4> trailer{};
     std::vector<std::pair<std::uint8_t, std::uint8_t>> segment_marks;
     std::vector<std::uint8_t> segment_list;

@@ -69,7 +69,7 @@ int main(int argc, char** argv) {
                                    std::filesystem::path(argv[3]) / ("race_screen_" + std::to_string(t) + ".png"));
                 text << "track " << t << " " << track.name << " start_height " << track.start_height
                      << " car_start " << track.car_start_segment << " start_line " << track.start_line_segment
-                     << " header_third " << int(track.header_third) << "\n";
+                     << " halfway " << track.halfway_segment << "\n";
                 // cell, heading, reversed, shape, profiles, wide, kerb phase, edge bases
                 for (const auto& s : track.segments) {
                     text << "  " << s.cell_x << " " << s.cell_z << " " << s.heading << " " << s.reversed << " "
@@ -96,7 +96,10 @@ int main(int argc, char** argv) {
             std::vector<int> inputs;
             for (std::string list = argv[4]; !list.empty();) {
                 const auto comma = list.find(',');
-                inputs.push_back(std::stoi(list.substr(0, comma), nullptr, 16));
+                const auto item = list.substr(0, comma);
+                const auto star = item.find('*');
+                const int repeat = star == std::string::npos ? 1 : std::stoi(item.substr(star + 1));
+                for (int r = 0; r < repeat; ++r) inputs.push_back(std::stoi(item.substr(0, star), nullptr, 16));
                 list = comma == std::string::npos ? "" : list.substr(comma + 1);
             }
             for (int k = 0; k < frames; ++k) {

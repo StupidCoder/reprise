@@ -214,9 +214,10 @@ view").
   $5D3C6; observed: the car came down in that segment's cell on Little Ramp
   and Hump Back), the start/finish line's segment (the race view compares
   segments with $1CA1C; the line is drawn across that segment's last
-  cross-section, observed on Little Ramp), and a third byte not yet
-  interpreted. The first two are equal on every track; the second + 1 is
-  stored at $1CA32.
+  cross-section, observed on Little Ramp), and the halfway segment a lap
+  must pass before the line counts again ($5DCC8, verified on Little
+  Ramp). The first two are equal on every track; the second + 1 is stored
+  at $1CA32 (where a lap counts).
 - 2 bytes: start height (little-endian) for both road edges.
 - Per segment: a code byte. Low nibble $F: repeat the previous code
   (high nibble) times, each in the next cell along its heading (a reversed
@@ -230,7 +231,9 @@ view").
 - Heights: each edge carries on from where the previous segment left it:
   base = height − profile(0), next height = base + profile(steps). A kerb
   colour phase flips after every segment with an odd number of steps.
-- After the segments: 4 bytes ($1CA2A–$1CA2D), a count of pairs
+- After the segments: 4 bytes ($1CA2A–$1CA2D: the damage window for the
+  standard and the super league's car, then their boosts; Little Ramp 6,
+  5, 34, 47), a count of pairs
   (segment, value → $1C8A8/$1C8C8) and a count of single segment numbers
   (→ $1C8E8), then the routine at $63A8E and a pass that fills $1C952 per
   segment. Not yet interpreted.
@@ -543,10 +546,124 @@ of servo and the hand-over (DROP / START).
 **Verification** (`harness/physcap.py`, `tools/stunt_car_racer_physcheck`):
 captured frames of the original (crane, drop, idle, throttle, steering on
 Little Ramp): the physics frame from each captured state matches all 319
-frames in every field; the placement all 280; the race loop run on its own
-from the first frame (controls, physics, placement, clock) matches every
-frame until the car crashes (314 of 319; the crash handling in the main
-loop is not ported yet).
+frames in every field; the placement all 280. The whole race loop is
+checked by `harness/racecap.py` (below).
+
+## The race: crashes, the crane, laps, damage (Observed, verified)
+
+**Frames of the race loop**: a *spawn* frame ($5D402: the spawn $605B6,
+the wheels, the smoke cleared, the frame routine, the clock, the frame
+down-counter $1BBAC, the buffer swap), a *settling* frame (physics, frame
+routine, clock, swap; then the drive forces are armed, a short delay
+loop $5BA42, the palette fade $64470 and the engine sound), then
+*driving* frames ($5D47E: joystick, physics, engine sound, frame routine,
+drawbridge, speed bar, damage $5DFB4, clock $5DB34, distance $5E12A, the
+end-of-race test, swap, pause $5D9DC, crash test). One clock tick and one
+physics step per frame throughout (checked on the original: frame counter
+$1BBC9 against breakpoints on $6185C and $5DB34).
+
+**Over the edge** ($60246, main loop $5D5AC–$5D608): $100 from the centre
+line sets the crash state $1BB9C = $80, the side ($1BBE1, the spawn's
+direction), a wait of $10 frames ($1BB41) and clears the smoke. While the
+car is crashed, on the ground and not held by the crane, each frame after
+the swap: a car lying low (height byte $1BCD0 below 2) takes the narrow
+angle limits ($1BB75 = $1BB9C), and the wait counts down; one frame after
+it reaches 0 (and with no race-end countdown running) the loop jumps to
+the spawn frame with the segment where the car was last on the road
+($1BB9B, kept by the frame routine while the car is on the grid). The
+spawn keeps everything outside $1BCCC–$1BD5E (springs' road contact and
+damage, flags, clocks); a car that has been launched before ($1BBC4) is
+put just above the road (rear surface << 9 + $180000) with the recovery
+clock at $E6: the crane levels it, lowers it and then waits for fire
+(PRESS FIRE) instead of DROP / START. In league races the wait after
+lowering is $A0 + a random 0–$1F frames instead of $8C. Off the grid
+($64E8E) the crash state is $C0 and placement stops.
+
+**Clock and laps** ($5DB34; read from the code, the clock verified, line
+crossings and the finish so far only seen in the port): the frame counter, the slow clock ($EE
+added per frame, $1BBCD = 0 on carries), the lap-time hold ($1BBCC), the
+player's lap time (+$13 hundredths, BCD; seconds wrap at 60, minutes stop
+at 9; slots: player 0, opponent 1, best 2 at $1C908 minutes, $1C920
+seconds, $1C938 hundredths; all start at 9 minutes), the lap check
+($5DCC8), the finish ($5DE1C) and the end countdown ($5DBD6, twice per
+frame while the car lies below the road). A car's lap counts when it
+reaches the segment after the start line ($1CA32 = start line + 1) with
+its halfway flag clear ($1BB1E + car; set at the line, cleared at the
+track header's third byte, the halfway segment $1CA1D). The first crossing
+starts lap 1 and resets the time. Later crossings add the part of a frame
+the car needed to reach the line (($FF − progress low byte) × $D >> 8
+hundredths, when on the piece's first step, $6181E), hold the finished
+time on the dashboard with hundredths for $1B frames, then show the best
+lap (lower line, $5DCA6; the lamp right of the wheel lit when the best
+is the player's); an opponent's best lap shows at once. The race is over
+after four crossings ($1BB99 = 4, three laps): the end countdown $1BB6C =
+$2C slow-clock frames starts (only while the car is down, held, or the
+countdown is ≥ 6), the chequered-flag lamp lights when the player is
+ahead (laps, then segments past the line, $607D0) and the message is
+RACE WON / RACE LOST in league races, LAPS OVER in practice. When the
+countdown runs out ($1BB6F), on the frame drawn into the second buffer
+with no lap time on hold and the car down or held: PRESS FIRE and the
+loop ends. Messages flash white with bit 2 of the countdown; while it is
+1–2 or done only PRESS FIRE shows ($5E508).
+
+**Damage** ($5DFB4, $66106, $5E848): a frame with spring damage sets the
+crack's target to the springs' average damage ((front left + front
+right) / 2 + rear) / 2, $1BBB6) and grows the crack ($1BB55) towards it
+a pixel at a time along the roof (screen column $28 + length, rows 2–5
+($662AA, starting at 4), wandering up or down at random on every second
+pixel: two dark pixels and a highlight above in colour $B, $C where it
+rose). Where the cockpit picture's roof has no paint the crack is not
+drawn and the target grows instead, all three springs' damage with it;
+a crack of $F0, or a target that wraps, wrecks the car: rest length byte
+$1BCA2 = 2 (the car sags, no drive), the wheels' rest row $1BBDD = $92,
+the end countdown $3C, message WRECK(ED). An impact of $1400 or more
+($1BC3A) knocks a hole in the roll bar's marks ($1C9CF, 10 at the start
+of a practice), shown as a crack for one frame, and no other hole for
+$45 frames ($1BB73). Otherwise the knock only sounds (volume from the
+impact). The practice restores the marks afterwards ($5D70A).
+
+**Boost**: the track trailer's bytes 2 and 3 are the boosts allowed
+(standard and super league car), BCD at $1CA20 with the allowance at
+$1BB95. While boosting, each wrap of the boost timer ($1BB3D, reloaded
+from the car table) spends one ($60824: + $99 BCD, capped).
+
+**Random numbers** ($62574): five bytes $625A2–$625A6, each draw shifts
+them along and appends (word $625A4 >> 4) xor (word $625A2 >> 1). The
+race set-up stores $3B at $625A5. Draws in a practice: once per driving
+frame by the joystick routine ($60BAE) and once by the engine sound
+($5B56C, also after the settling frame), the recovery's lowering
+($5B3B0), the dust and smoke, the crack. (The opponent draws too.) The
+port keeps this generator: it is plain software and the crack, smoke
+and league waits follow from it.
+
+**Dust and smoke** ($60CF8, $60C92, $60E88): 32 particles (x $1C380, y
+$1C3C0, vx $1C400, vy $1C440, view pixels). While the car scrapes the
+road's edge ($1BBDA) or is wrecked, moving and not crashed: each particle
+is drawn (colour 3 at (x, y), (x + 1, y), (x, y − 1), white at (x + 1,
+y − 1)) and moved (vy + 2); fallen ones (y ≥ $80) are thrown up again
+from x $40–$BF, y $77–$7E, vy = −(strength / 4 + random 0–7) − 1, vx =
+(x − $80) / 8, strength = speed byte capped at $32. Crashed and not yet
+held: 16 puffs instead (items $1D + size, size from a table by particle +
+frame down-counter, drawn at x − offset + $20, y + $10, clipped to the
+view), from anywhere across the view, rising faster (strength capped at
+$10, / 2). Off the ground everything is cleared ($60CDE: y = $D4).
+
+**Verification** (`harness/racecap.py`, `stunt_car_racer_physcheck ...
+race`): records at every frame start (spawn, settling, driving) with the
+state window, the random generator, the crack and the message, driving
+with given inputs. `work/race_lr1.bin` (470 frames: drop, idle, throttle,
+off the edge of the first curve, the wait, the crane, PRESS FIRE, fire,
+on round the reversed banked curve): the race run on its own from the
+first driving frame matches all 467 frames in every field (car and race
+state). The capture loses the first driving frame (its breakpoint stop
+races the interrupt after the long delay loop); the checker starts after
+it. Found on the way: on reversed pieces the road sampler uses the
+lateral fraction as it is and only the rear wheel's copy ($1BBA1) is
+flipped; the boost spend. Not yet captured: a finished lap, the finish,
+wrecking. `harness/racesample.py` (an input feeder in free RAM and stops
+only every few seconds, for whole races; checked by `physcheck ...
+samples`) does not work yet: the original hung in the ROM after about
+160 frames, and the start breakpoint was not always reported.
 
 ## Lesson candidates
 
@@ -604,7 +721,14 @@ loop is not ported yet).
   (319 frames) and `work/place_lr1.bin` (280); checked by
   `build/stunt_car_racer_physcheck <content> <capture> <track> physics|place|drive`.
 - `stunt_car_racer_assets drive <content> <frames> <inputs> <prefix> [every]`:
-  runs the game module headless and saves race screens.
+  runs the game module headless and saves race screens (inputs as hex
+  bytes, `xx*count` repeats).
+- `harness/racecap.py OUT FRAMES INPUTS` (from the track picture): the whole
+  race loop, a record at every frame start; `work/race_lr1.bin`;
+  checked by `build/stunt_car_racer_physcheck <content> <capture> <track>
+  race [first] [count]`. `stunt_car_racer_physcheck <content> autodrive
+  <track> <frames> [gain dead flip sign top]` lets a simple controller drive
+  the port and prints inputs that replay on the original (driving frames
+  only).
 - `tools/dis68k`, built from RetroReverse's general 68000 disassembler
   (`go build ./cmd/dis68k` in `RetroReverse/tools`).
-
