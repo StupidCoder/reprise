@@ -99,6 +99,9 @@ public:
             if (const int dx = game_.flagId(kDxFlag); dx >= 0 && game_.language == 0) {
                 game_.setFlag(dx, true);
             }
+            // (A ruins place hands over to its floor: see RuinsLoop.)
+            const int place = game_.variable(kPlaceVariable);
+            story_.resumeRuins = place >= 110 && place <= 200;
             story_.push(PlaceLoopId, {Value::ofInt(0), Value::ofInt(-1)});
             return;
         }
@@ -1160,7 +1163,33 @@ void Story::frame(const Input& input) {
 }
 
 void Story::checkpoint() {
-    const Loop* t = top();
+    // A place ready for the player, or a ruins floor that has just
+    // started (Continue goes to the floor's place: the place loop hands
+    // over to the ruins loop, and the floor starts again from its record).
+    Loop* t = top();
+    const RuinsInspector* ruins = t && t->id == 6400 ? ruinsInspector(*t) : nullptr;
+    if (ruins) {
+        // A ruins floor: after each new retry point on it (106, or the
+        // arrival on a floor: where a capture sends Layton back, in the
+        // game's record) once the floor is the player's again (no event,
+        // no guide). Continue starts the floor there, as a retry does.
+        const auto& r = game.ruins;
+        const std::array<int, 3> point{r.retryFloor, r.retryLayton.row, r.retryLayton.column};
+        const bool ready = !checkpointFile.empty() && t->begun && !game.objectTouchLocked && requests_.empty() &&
+                           !ruins->eventRunning() && !ruins->guide().running &&
+                           (r.retryFloor + 10) * 10 == game.variable(kPlaceVariable) && point != checkpointRetry_;
+        readyFrames_ = ready ? readyFrames_ + 1 : 0;
+        if (readyFrames_ >= 2) {
+            const bool written = writeCheckpoint(checkpointFile, saveRecord(game));
+            if (debugLog) {
+                debugLog(std::string(written ? "checkpoint" : "checkpoint not written") + " at place " +
+                         std::to_string(game.variable(kPlaceVariable)));
+            }
+            checkpointRetry_ = point;
+            readyFrames_ = 0;
+        }
+        return;
+    }
     const bool ready = !checkpointFile.empty() && t && t->id == PlaceLoopId && t->begun &&
                        !game.objectTouchLocked && requests_.empty() && t->resumeSerial != checkpointSerial_;
     readyFrames_ = ready ? readyFrames_ + 1 : 0;

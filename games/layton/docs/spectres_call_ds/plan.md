@@ -27,18 +27,27 @@ the game's GSS1 scripts on the reconstructed machine. Conveniences in place.
 2. **Escape and packing puzzles**: the session's state-2 verdict flags
    ("square packing", "6×6 magic square", "queen placement", "escape
    puzzle") are not reconstructed.
-3. **Characters' faces in events**: pose sequences show no faces yet.
+3. **Characters in events** (fixed 2026-10-30): 5931 (020d2230) now also
+   makes each named character that is not there yet (020d2104: the 2121
+   record's pack `chr/c%03d.ca`, an object of kind 13 at priority 9, alpha
+   0 until the event fades the cast in). Before, events showed only the
+   name tag and window, without the characters. Not compared with ROM
+   captures yet.
 4. **Puzzle index inside the story** (2130: 3408, 3410, 3430, 3440..3442,
    6140, 6230) and the bag's other pages: not checked against the ROM.
-5. **Memo**: `lt4_memo` undo and redo through the mode-8 recorder; paint
-   modes 2, 3, 5 and 9 (they throw).
+5. **Memo** (checked 2026-10-30, not reachable): the bag's memo
+   (lt4_prog_memo, MenuSmallMemo) uses paint mode 4 only and has no undo
+   or redo; modes 2, 3, 5, 8 and 9 appear only in the debug scripts
+   lt4_test_memo and lt4_test_multiplay, which nothing starts. The port
+   still throws there.
 6. **Saves**: the card error loops (8000.., never entered natively), the
    boot's slot check, AutoSave's callers (name entry, puzzle index, Wi-Fi,
    challenges), and the cartridge's save layout (the port keeps its own files).
 7. **Message details**: talk messages (6101, flag 6 from `<K>`), message tags
    other than C, T, W and L, the typing sound's timer.
-8. **Hints, coins and totals**: "Verdiente Pikarat" on the verdict shows 0;
-   coin and Wi-Fi counts (3456).
+8. **Hints, coins and totals**: coin and Wi-Fi counts (3456). (The
+   verdict's "Verdiente Pikarat" ending at 0 is the original's count:
+   RunPicarat moves the earned picarats into the total one per frame.)
 9. **Places parented to places** (8002's fourth operand naming a place); the
    places' own update.
 10. **Unidentified roles**: 3905 returns 0 (the ROM had 1); 6133's message
@@ -101,10 +110,26 @@ described in [../reprise.md](../reprise.md).
 Connected: import (BLFD NDS, streamed), Start (the title) with the game's own
 continue from its three slots (`<data>/progress/spectres_call_ds/`), the VHS
 filter per screen, touch-area help where the game reports areas, takeover of
-Picarat's pack and `blfd-saves`. **No Reprise quick save / launcher Continue
-yet**: this engine has no app checkpoint (a save record written when a place
-is ready and a continue path into that place); it is not in the persistent
-save allowlist. No imported-data previews yet.
+Picarat's pack and `blfd-saves`. No imported-data previews yet.
+
+**Quick save / Continue (2026-10-30)**: the app's checkpoint, as in the other
+games (`Game::checkpointFile` / `continueFrom`, src/story/a4_game.*;
+`writeCheckpoint` / `readCheckpoint` in src/system/a4_saves.*: "PCR4CKP1", the
+slot in use, then the slot record). It is written once each time a room
+entered with value 0 comes to the top and PlaceMain hands it to the player
+(2200 0: the loop no longer busy, nothing requested, two frames); rooms
+entered with another value start an event as they open (1 leave, 2 / 4
+Place_ToEvent, 3 2011), which a continue into value 0 would skip. Continue:
+the game loop restores the record (as 2801: `restore`, the slot, the slot
+table, `advance`) and asks for the room {0} instead of the title - the
+title's Continue (ToContinue: LoadData, 2010 0) without the recap event
+(3502). Found on the way: 3900 returned a copy of the place that only 3910
+set, so a loaded game (also the title's own Continue) opened room 0 with
+black screens; 020c0848 reads the variable 現在のプレイス, and so does the
+port now. Checked: `picarat_a4_story_run` with `A4_CHECKPOINT` /
+`A4_CONTINUE` (the runner's continue lands in the same room and step and plays
+on), Reprise's quick save test (continue, save, fresh load, damaged and
+foreign saves). Not compared with the console (a host convenience).
 
 Not offered in Reprise (Picarat shell features, by decision): music player,
 movie theatre, puzzle mode, minigame free play, the hub's "Continue story".

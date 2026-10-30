@@ -63,6 +63,19 @@ public:
         if (values_[0].toInt() != 0) {
             return;
         }
+        if (game_.continueFrom) {
+            // The app's checkpoint: as the title's Continue after LoadData
+            // (2801 restores the game, the story catches up with it; then a
+            // room with value 0, 2010 0) - without the recap event.
+            const Checkpoint c = std::move(*game_.continueFrom);
+            game_.continueFrom.reset();
+            restore(game_.data, c.record);
+            game_.data.currentSlot = c.slot;
+            showSlots(game_.data, game_.saves);
+            advance(game_.assets, game_.data);
+            game_.request(PlaceLoopId, {0, -1, -1, -1, -1, -1});
+            return;
+        }
         const int title = values_[2].toInt();
         game_.request(TitleLoopId, {title, -1, -1, -1, -1, -1});
         if (title < 0 && !game_.startAtTitle) {
@@ -823,6 +836,7 @@ void Game::carryOut() {
             t->onTop = true;
             t->begun = false;
             ++t->resumes;
+            ++turn_;
             t->resume();
         }
     }
@@ -851,6 +865,24 @@ void Game::frame(bool touching, int x, int y, std::uint16_t keys) {
     // drawing, 020cc330 sets a room up once its files are in (020cf080).
     scene.updateFilm();
     scene.updateRoom();
+    checkpoint();
+}
+
+void Game::checkpoint() {
+    // A room is ready when PlaceMain has faded it in and handed it to the
+    // player (2200 0: the loop no longer busy) with nothing requested, two
+    // frames in a row. Only a room entered with value 0: the others start
+    // an event as they open (1, leave; 2 and 4, Place_ToEvent; 3, 2011),
+    // which a continue into value 0 would skip.
+    const Loop* t = top();
+    const bool ready = !checkpointFile.empty() && t && t->id == PlaceLoopId && t->begun && !t->busy() &&
+                       !pending() && t->values()[0].toInt() == 0;
+    readyFrames_ = ready ? readyFrames_ + 1 : 0;
+    if (readyFrames_ < 2 || checkpointTurn_ == turn_) {
+        return;
+    }
+    checkpointTurn_ = turn_;
+    writeCheckpoint(checkpointFile, {saveRecord(assets, data), data.currentSlot});
 }
 
 } // namespace picarat::adventure4

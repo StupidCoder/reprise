@@ -25,6 +25,9 @@ missing loops below is needed to finish the story.
    MINI_PARROT_EVENT (ov24), the puzzle index MENU_NAZOBEE / MENU_NAZORINE,
    the dictionary MENU_JITEN (ov18), the secrets SCRT_* and the Wi-Fi menus
    WIFI_*. The research runner can skip them; the app must not need to.
+   In the app, opening one now stops the game ("loop … is not
+   reconstructed yet", a3_story.cpp `Story::create`): the first thing to
+   close for a story with no open issues (2026-10-30).
 2. **Puzzle index mode**: the hints' free state (bg_hN4) and the "prize" page.
 3. **Wi-Fi puzzles** (169–222): decide how to offer them. 19 have no German
    text; six expect kana that the European code table cannot produce.

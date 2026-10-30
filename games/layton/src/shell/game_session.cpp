@@ -759,16 +759,24 @@ void runAdventure4(const SharedPtr& shared, adventure4::Game& game, picarat::Adv
 } // namespace
 
 std::unique_ptr<GameSession> GameSession::adventure4Story(std::filesystem::path pack,
-                                                          std::filesystem::path saves) {
+                                                          std::filesystem::path saves,
+                                                          std::filesystem::path checkpoint, bool resume) {
     std::unique_ptr<GameSession> session(new GameSession());
     session->shared_ = std::make_shared<Shared>();
-    session->worker_ = spawn(session->shared_, [shared = session->shared_, pack, saves] {
+    session->worker_ = spawn(session->shared_, [shared = session->shared_, pack, saves, checkpoint, resume] {
         try {
             adventure4::Assets assets(pack);
             AudioOutput audio(picarat::SoundLayout::adventure4(pack));
             picarat::Adventure4Sound sound(*audio.sequenced(), adventure4::soundSets(assets));
             adventure4::Game game(assets, &sound, true, saves);
             game.startAtTitle = true; // the app's boot: no logos
+            game.checkpointFile = checkpoint;
+            if (resume) {
+                game.continueFrom = adventure4::readCheckpoint(checkpoint);
+                if (!game.continueFrom) {
+                    throw std::runtime_error("The checkpoint cannot be read.");
+                }
+            }
             runAdventure4(shared, game, sound, audio, [] { return false; });
         } catch (const Stop&) {
         } catch (const std::exception& error) {

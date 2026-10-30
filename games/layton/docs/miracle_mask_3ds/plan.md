@@ -86,9 +86,29 @@ What remains for a complete re-implementation of the fifth adventure
      now ported with 131..148 and 2210, 0x130870: a block started on the
      top loop's first thread). After the port the full run reports no
      missing service and still reaches the staff roll.
-   - Script blocks called by hash but absent after item pick-ups: open.
-10. **Investigation cursor**: the capped step (`0x2D0FE0`) is not modelled.
-    Some coins cannot be picked (the pilot skips them).
+   - Script blocks called by hash but absent after item pick-ups
+     (checked 2026-10-30, not a fault): Place_ToItem / Place_ToCoin call
+     a block named after the object (`21 r6`), a per-object hook most
+     place scripts leave out; the call answers 0, as the ROM's does.
+10. **Investigation cursor and hint coins** (looked into 2026-10-30).
+    `0x2D0FE0` is only a 2-vector scale (no capped step); the cursor's
+    drag x speed was right. Fixed: a pick ray that starts inside a touch
+    shape no longer hits it (0x2bf2d8 sphere, 0x150810 box: the entry lies
+    behind the start), so a big shape around the camera (the close views
+    sit inside the stadium's sphere at 4020) no longer hides the coins in
+    it. The research pilot was the other cause: it did not open close
+    views (Place_RunMove to the place itself), overshot (the view swings
+    against the cursor, ControlCamera) and gave up early; `A5_COINS=1`
+    now sweeps every place's coins and items, close views first, with a
+    raster fallback (`A5_RASTERLOG`); the runner's `A5_COINLOG` lists the
+    coins made and taken (the pilot's own "tap" lines undercount: its
+    camera-swing drags pick coins too). Last sweep: 211 coin objects made,
+    199 taken, 212 collected by the game's count; every coin left there was
+    taken in an earlier sweep except p6080_coin3 (植木), still open: it has
+    not been collected in any run yet (pilot or game).
+    Coins can hide behind a place's event shape at some story steps (the
+    stadium at 4020, step 515) and be picked at others; the place swing is
+    a 30-unit orbit of the eye (SwingCamera), so pitch changes ~1°.
 11. **Ruins guide mode** (ported 2026-10-29; game.md "The ruins' guide").
     Played through with the research pilot (`A5_GUIDE=1`, from a
     checkpoint before the ruins): floor 1's route offered at its start
@@ -191,8 +211,21 @@ place 1010 (Celebration Boulevard) and at place 3050 (Zirkus Glitzerstern,
 15 solved, objective and goal marker shown) works, and the auto-player plays
 on from there (new places, a puzzle, step 320 → 324); through Reprise:
 continue, quick save with picture, fresh load, damaged and foreign saves.
-Not compared with the console (a host convenience). Ruins floors (loop 6400)
-write no checkpoint: Continue returns to the last place before them.
+Not compared with the console (a host convenience).
+
+**Ruins floors (2026-10-30)**: the ruins keep a retry point of their own
+(106 when Layton enters a marked room, and a floor's arrival when its room is
+marked and not seen: the floor, Layton's cell and turn, Randall's, in the
+game's ruins record), where a capture sends Layton back. Each new retry point
+on the current floor writes the checkpoint once the floor is the player's
+again (no event, no guide running). Continue goes to the floor's place; the
+place loop hands over to the ruins loop, which then starts the floor as a
+retry does (`Story::resumeRuins`, RuinsLoop: `retry_` when the record's retry
+floor is this floor). Checked from the pre-ruins checkpoint: retry-point
+checkpoints on floors 1..7; continuing at floor 2 places Layton at its retry
+point, the floor plays on to floor 3 and a puzzle there; the same save
+through Reprise's quick save test. Before the first retry point (floor 1
+from outside) Continue returns to the place before the ruins.
 Hypothesis to watch: state the title or the recap sets that a direct place
 start lacks (none seen so far).
 

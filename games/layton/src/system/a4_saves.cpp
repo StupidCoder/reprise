@@ -326,6 +326,46 @@ void restore(GameData& data, const SaveRecord& r) {
     data.passedBy = r.passedBy;
 }
 
+namespace {
+constexpr char kCheckpointMagic[8] = {'P', 'C', 'R', '4', 'C', 'K', 'P', '1'};
+}
+
+bool writeCheckpoint(const std::filesystem::path& file, const Checkpoint& checkpoint) {
+    std::vector<std::uint8_t> bytes(std::begin(kCheckpointMagic), std::end(kCheckpointMagic));
+    const auto slot = std::uint32_t(checkpoint.slot);
+    for (int i = 0; i < 4; ++i) {
+        bytes.push_back(std::uint8_t(slot >> (8 * i)));
+    }
+    const auto record = encode(checkpoint.record);
+    bytes.insert(bytes.end(), record.begin(), record.end());
+    // Written beside and then moved over the old one: a reader never sees
+    // half a file.
+    auto partial = file;
+    partial += ".part";
+    if (!writeFile(partial, bytes)) {
+        return false;
+    }
+    std::error_code ec;
+    std::filesystem::rename(partial, file, ec);
+    return !ec;
+}
+
+std::optional<Checkpoint> readCheckpoint(const std::filesystem::path& file) {
+    const auto bytes = readFile(file);
+    constexpr std::size_t head = sizeof kCheckpointMagic + 4;
+    if (bytes.size() < head || !std::equal(std::begin(kCheckpointMagic), std::end(kCheckpointMagic), bytes.begin())) {
+        return std::nullopt;
+    }
+    Checkpoint c;
+    c.slot = int(std::int32_t(bytes[8] | bytes[9] << 8 | bytes[10] << 16 | std::uint32_t(bytes[11]) << 24));
+    auto record = decode({bytes.begin() + head, bytes.end()});
+    if (!record || c.slot < -1 || c.slot >= SaveSlots::kCount) {
+        return std::nullopt;
+    }
+    c.record = std::move(*record);
+    return c;
+}
+
 void showSlots(GameData& data, const SaveSlots& slots) {
     for (int i = 0; i < SaveSlots::kCount; ++i) {
         GameData::Slot& s = data.slots[std::size_t(i)];

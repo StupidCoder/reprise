@@ -623,6 +623,12 @@ public:
         startByte_ = valueInt(this->values[1], 0);
         game_.setVariable("\x8c\xbb\x8d\xdd\x82\xcc\x83\x76\x83\x8c\x83\x43\x83\x58", // 現在のプレイス
                           (floorNumber_ + 10) * 10);
+        // The app's checkpoint on a floor (Story::checkpoint): the floor
+        // starts as a retry does, from its stored retry point.
+        if (story.resumeRuins) {
+            story.resumeRuins = false;
+            retry_ = game_.ruins.retryFloor == floorNumber_;
+        }
     }
 
     void start() override {

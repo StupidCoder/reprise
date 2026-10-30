@@ -81,4 +81,16 @@ void restore(GameData& data, const SaveRecord& record);
 // The slot table as the scripts read it (GameData::slots, 3051).
 void showSlots(GameData& data, const SaveSlots& slots);
 
+// The app's checkpoint (a host convenience, not the original's): the slot
+// record of the game as it stands when a room is ready, and the slot the
+// game was last saved to or loaded from (where the bag saves).
+struct Checkpoint {
+    SaveRecord record;
+    int slot = -1;
+};
+
+bool writeCheckpoint(const std::filesystem::path& file, const Checkpoint& checkpoint);
+// None for a missing, damaged or foreign file.
+std::optional<Checkpoint> readCheckpoint(const std::filesystem::path& file);
+
 } // namespace picarat::adventure4

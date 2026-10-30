@@ -7,6 +7,7 @@
 #include "shell/game_session.hpp"
 #include "shell/library.hpp"
 #include "shell/screen_layout.hpp"
+#include "system/a4_saves.hpp"
 #include "system/a5_saves.hpp"
 #include "system/resources.hpp"
 #include <algorithm>
@@ -148,8 +149,9 @@ Picture picture(std::string title, const Surface& surface) {
 fs::path checkpointFile(Title title, const fs::path& progress) {
     switch (title) {
     case Title::CuriousVillage:
-    case Title::LostFuture:  // (the slots' checkpoint record, adventure3::SaveSlots::kCheckpoint)
-    case Title::MiracleMask: // (adventure5::writeCheckpoint)
+    case Title::LostFuture:   // (the slots' checkpoint record, adventure3::SaveSlots::kCheckpoint)
+    case Title::SpectresCall: // (adventure4::writeCheckpoint)
+    case Title::MiracleMask:  // (adventure5::writeCheckpoint)
         return progress / "checkpoint.sav";
     case Title::PandorasBox:
         return progress / "checkpoint.l2cp";
@@ -456,7 +458,7 @@ bool storyPlayable(Title title) { return title != Title::AzranLegacy; }
 
 bool hasCheckpoints(Title title) {
     return title == Title::CuriousVillage || title == Title::PandorasBox || title == Title::LostFuture ||
-           title == Title::MiracleMask;
+           title == Title::SpectresCall || title == Title::MiracleMask;
 }
 
 struct Session::Implementation {
@@ -534,7 +536,7 @@ std::unique_ptr<Session> Session::start(Title title, const fs::path& pack, const
         impl->game = shell::GameSession::adventure3Story(pack, progress, resume);
         break;
     case Title::SpectresCall:
-        impl->game = shell::GameSession::adventure4Story(pack, progress);
+        impl->game = shell::GameSession::adventure4Story(pack, progress, checkpoint, resume);
         break;
     case Title::MiracleMask:
         impl->game = shell::GameSession::adventure5Story(pack, progress, checkpoint, resume);
@@ -659,6 +661,7 @@ std::string Session::checkCheckpoint(Title title, const fs::path& pack, const fs
         const bool usable = title == Title::CuriousVillage ? shell::adventure1Checkpoint(file).has_value()
                             : title == Title::PandorasBox  ? shell::adventure2Checkpoint(pack, file).has_value()
                             : title == Title::MiracleMask  ? adventure5::readCheckpoint(file).has_value()
+                            : title == Title::SpectresCall ? adventure4::readCheckpoint(file).has_value()
                                                            : shell::adventure3Checkpoint(folder).has_value();
         return usable ? std::string() : "The checkpoint cannot be continued (damaged or from another version).";
     } catch (const std::exception& e) {

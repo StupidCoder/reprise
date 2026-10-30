@@ -61,9 +61,13 @@ public:
     static std::unique_ptr<GameSession> adventure5Puzzle(std::filesystem::path pack, int id,
                                                          bool sixth = false);
     // Plays the fourth adventure from its title (adventure4::Game); its save
-    // slots live in the folder `saves`.
+    // slots live in the folder `saves`, the app's checkpoint in the file
+    // `checkpoint` (written whenever a room is ready; empty: none). With
+    // `resume` the story continues from the checkpoint instead of the title.
     static std::unique_ptr<GameSession> adventure4Story(std::filesystem::path pack,
-                                                        std::filesystem::path saves);
+                                                        std::filesystem::path saves,
+                                                        std::filesystem::path checkpoint = {},
+                                                        bool resume = false);
     // Minigame free play of the fourth adventure: minigame `which` (0 the
     // railway, 1 the puppet show, 2 the fish) on `progress`
     // (adventure4::minigameRecord); finish() hands the record back.

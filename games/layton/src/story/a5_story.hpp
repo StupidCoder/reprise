@@ -267,13 +267,17 @@ public:
     // same): once a place is ready - the place loop on top and begun, taking
     // touches, no request waiting, two frames in a row - the game's save
     // record (saveRecord) goes to this file, once each time the place loop
-    // comes back on top (entering a place, back from an event or a puzzle).
+    // comes back on top (entering a place, back from an event or a puzzle),
+    // and on a ruins floor at each new retry point (checkpoint()).
     // Empty: none written.
     std::filesystem::path checkpointFile;
     // Continue from such a record: the game loop restores it and asks for
     // the place loop at the saved place instead of the title - the title's
     // continue (10100, then 10001) without its recap event.
     std::optional<SaveRecord> continueFrom;
+    // Set while continuing into a ruins place: the floor starts at its
+    // retry point (RuinsLoop).
+    bool resumeRuins = false;
 
 private:
     struct Request {
@@ -291,6 +295,7 @@ private:
     std::vector<std::unique_ptr<Loop>> stack_;
     std::deque<Request> requests_;
     std::uint64_t resumeSerial_ = 0, checkpointSerial_ = 0;
+    std::array<int, 3> checkpointRetry_{}; // the ruins' retry point last written {floor, row, column}
     int readyFrames_ = 0;
 };
 

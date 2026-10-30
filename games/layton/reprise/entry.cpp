@@ -49,7 +49,7 @@ const Info games[] = {
      "the cartridge image (NDS) of the German edition",
      "From the title to the end credits: the story, 228 puzzles, the bag's three minigames, the "
      "whack-a-mouse, the bonus section, films, music and effects. Places and some faces are approximated. "
-     "Saves: the game's own three slots and its continue from the title; no Reprise quick save yet."},
+     "Saves: the game's three slots; the quick save keeps the last room checkpoint."},
     {"miracle_mask_3ds", embed::Title::MiracleMask, "Miracle Mask", app::Machine::nintendo_3ds, ctr_media,
      "From the title to the end credits: the story, all 150 puzzles, the ruins, robot, shop, horse ride, "
      "train and rabbit, the secrets, movies, music and voices. Some side-game stages and the Wi-Fi menus "

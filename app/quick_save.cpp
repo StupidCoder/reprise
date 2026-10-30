@@ -245,7 +245,7 @@ bool persistent_saves(std::string_view game) {
            // The puzzle adventures with checkpoints: the quick save keeps the last room checkpoint
            // (games/layton/reprise/saved_checkpoint.hpp), not the exact moment.
            game == "curious_village_ds" || game == "pandoras_box_ds" || game == "lost_future_ds" ||
-           game == "miracle_mask_3ds";
+           game == "spectres_call_ds" || game == "miracle_mask_3ds";
 }
 std::unique_ptr<GameModule> with_quick_save(const GameEntry &entry, const fs::path &content) {
     if (persistent_saves(entry.id))

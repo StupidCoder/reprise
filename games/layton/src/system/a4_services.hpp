@@ -165,8 +165,6 @@ struct GameData {
 
     std::array<Slot, 3> slots;
 
-    // The place the story is at (3910 sets it by name or number; 020c0860).
-    int place = -1;
     // The slot last saved or loaded, -1 after a failure (game data +0x5308;
     // 3052).
     int currentSlot = -1;
@@ -179,7 +177,6 @@ struct GameData {
         marks.clear();
         notices.clear();
         names.clear();
-        place = -1;
         event = -1;
         playFrames = 0;
         memo.clear();

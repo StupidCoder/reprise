@@ -359,7 +359,13 @@ by a depth-first relaxation over the place exits. Area maps draw routes as
 polylines.
 
 **Investigation.** A pad cursor moves a magnifier by drag × speed; 3022 picks
-3D objects by ray.
+3D objects by ray: the segment from the near to the far plane against each
+object's touch shapes in its own space (scale included), the nearest entry
+wins; a segment that starts inside a shape misses it. The view swings with
+the cursor by moving the eye on a 30-unit sphere around a point in front of
+it (ControlCamera / SwingCamera; the place's angles, default ±15° across and
+4°..15° up), so the direction turns only a little. Close views are
+Place_RunMove objects to the place itself (Place_ToView).
 
 **Rooms.** A room's mesh layers are split between `MAP_%04d` and
 `MAP_%04d_NEAR`. Place changes build the new room on another screen and swap

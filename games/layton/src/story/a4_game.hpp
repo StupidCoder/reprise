@@ -31,6 +31,7 @@
 #include <deque>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace picarat {
@@ -119,6 +120,13 @@ public:
     // The app's boot: the title without the logos in front of it.
     bool startAtTitle = false;
 
+    // The app's checkpoint (a host convenience; see checkpoint()): written
+    // to `checkpointFile` (none: not written). With `continueFrom` the game
+    // loop restores it and opens its room instead of the title - the
+    // title's Continue without its recap event.
+    std::filesystem::path checkpointFile;
+    std::optional<Checkpoint> continueFrom;
+
     // Loop numbers the game has no loop for yet: the request is refused and
     // reported here (research runs).
     std::function<void(int id)> unknownLoop;
@@ -142,10 +150,17 @@ private:
     // them.
     void carryOut();
     std::unique_ptr<Loop> make(int id, std::span<const Value> values);
+    // After a frame: once a room entered plainly is ready for the player,
+    // its checkpoint is written (once each time it comes to the top).
+    void checkpoint();
 
     std::vector<std::unique_ptr<Loop>> stack_;
     bool withGameLoop_ = true;
     std::deque<Request> requests_;
+    // Counts the times a loop came to the top; the count the last
+    // checkpoint was written in; frames the room has been ready in a row.
+    std::uint64_t turn_ = 0, checkpointTurn_ = 0;
+    int readyFrames_ = 0;
 };
 
 } // namespace picarat::adventure4

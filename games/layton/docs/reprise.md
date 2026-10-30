@@ -11,8 +11,8 @@ describes the integration, not the games' rules.
 | Curious Village | `curious_village_ds` | A5FP NDS | title → end credits | last room checkpoint | 3 slots (`backup.sav`) |
 | Pandora's Box | `pandoras_box_ds` | YLTD NDS | title → ending, post-game | last checkpoint (room, event or puzzle start) | 3 slots (`backup.sav`) |
 | Lost Future | `lost_future_ds` | C3JD NDS | title → end credits | last room checkpoint | 3 slots (`slot0..2.sav`) |
-| Spectre's Call | `spectres_call_ds` | BLFD NDS | title → end credits | not yet | 3 slots + table (`slot0..2.sav`, `table.sav`) |
-| Miracle Mask | `miracle_mask_3ds` | AKKD CCI (unencrypted) | title → end credits | start of the current place | 3 slots (`slot0..2.sav`) |
+| Spectre's Call | `spectres_call_ds` | BLFD NDS | title → end credits | last room checkpoint | 3 slots + table (`slot0..2.sav`, `table.sav`) |
+| Miracle Mask | `miracle_mask_3ds` | AKKD CCI (unencrypted) | title → end credits | start of the current place; in the ruins the floor's retry point | 3 slots (`slot0..2.sav`) |
 | Azran Legacy | `azran_legacy_3ds` | AL6D CCI (unencrypted) | **not startable** (no story yet) | — | — |
 
 Start always opens the game's own title (the boot logos are skipped, as in
@@ -101,11 +101,11 @@ runs the same per-region code but was not exercised on a non-GPU renderer.
 
 - **Original slots** live in `<data>/progress/<id>/` (never inside the
   import). Quick saves never change them.
-- **Quick save (Curious Village, Pandora's Box, Lost Future, Miracle Mask)**:
-  these games write an automatic checkpoint whenever a room is ready
-  (Pandora's Box also at event and puzzle starts; Miracle Mask since
-  2026-10-29, see its plan) - the game's own save record, continued through
-  its own load path. A quick save stores that record (`SavedCheckpoint`) in
+- **Quick save (all but Azran Legacy)**: these games write an automatic
+  checkpoint whenever a room is ready (Pandora's Box also at event and puzzle
+  starts; Miracle Mask since 2026-10-29 and its ruins floors at their retry
+  points, Spectre's Call since 2026-10-30, see their plans) - the game's own
+  save record, continued through its own load path. A quick save stores that record (`SavedCheckpoint`) in
   Reprise's persistent save; Continue/quick load starts a fresh session from
   it. It is **not** an arbitrary-moment save; the pause menu says "Saved:
   Continue returns to the last room you entered" and the details page says the
@@ -119,9 +119,6 @@ runs the same per-region code but was not exercised on a non-GPU renderer.
   checkpoint was written with (`Session::checkpointGeneration`), so the
   details page shows where Continue returns; after a fade (Pandora's Box) the
   frames that follow while it brightens, until steady.
-- **Spectre's Call**: no app checkpoint in this engine yet, so it is not in
-  the persistent-save allowlist; progress is its own slots, continued from its
-  title.
 - Options: the VHS look and the touch-area help are presentation options
   (kept on load); Curious Village's language is a game option (saved with a
   quick save, applied when the game starts).

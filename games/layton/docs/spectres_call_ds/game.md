@@ -431,6 +431,9 @@ the slot table and headers.
   (and the 15 challenges), name and place title.
 - **Table flag 0** is set once the game is cleared or any slot is finished.
 - **Continue** opens with the event named after the step's heading (a recap).
+- **The current place** (3900, 020c0848) is the variable 現在のプレイス, which
+  3910 (020c0860) sets with the room, area and sound set; a loaded game has
+  it from the save.
 
 The port keeps its own files (`slot0..2.sav`, `table.sav`), not the
 cartridge layout.

@@ -176,7 +176,6 @@ bool setPlace(Assets& assets, GameData& data, const Value& key) {
     data.setVariable(name(0x020bf1a4), idOf(2131, Definitions::text(*row, 4)));
     data.setVariable(name(0x020bfc20), idOf(2141, Definitions::text(*row, 5)));
     data.setVariable(name(0x020c08d4), Definitions::number(*row, 3));
-    data.place = Definitions::number(*row, 0);
     return true;
 }
 
@@ -892,9 +891,9 @@ void installServices(gss::Machine& m, Services& s) {
         return setInt(c, 1);
     });
     m.service(3493, [&](Call& c) { return setInt(c, data.notices.empty() ? 0 : 1); }); // 020f3bb0
-    m.service(3900, [&](Call& c) { // 020f3d68: the current place (020c0848)
-        return setInt(c, data.place);
-    });
+    // 3900 020f3d68: the current place (020c0848 reads the variable
+    // 現在のプレイス, so a loaded game has it too).
+    m.service(3900, [&, storyVariable](Call& c) { return setInt(c, storyVariable(0x020c08d0)); });
     m.service(3906, [&](Call& c) { // 020f3e50: the current story step (020bc0a0)
         return setInt(c, currentStep(scene.assets, data));
     });
@@ -2529,7 +2528,12 @@ void installServices(gss::Machine& m, Services& s) {
     });
     m.service(5931, [&](Call& c) { // 020fd850 {names...} (020d2230)
         // The cast keeps only the named: every other kind-13 object goes,
-        // with the animation of its name.
+        // with the animation of its name; then each named one not there
+        // yet comes (020d2104): its character record (lt4_def 2121 by
+        // name; none: nothing), the pack "chr/c%03d.ca" (020b6a30) as an
+        // animation of its name on screen 0 (020d132c, 020d10f8), an
+        // object of kind 13 showing it at priority 9 (020d16ac, 020d1b44),
+        // alpha 0 (020ab8e4: +0x190) until the event fades the cast in.
         std::vector<std::string> keep;
         for (std::size_t i = 0; i < c.count() && i < 16; ++i) {
             if (const std::string* t = c.text(i)) {
@@ -2545,6 +2549,32 @@ void installServices(gss::Machine& m, Services& s) {
         for (const auto& n : gone) {
             scene.remove(n);
             scene.unloadAnimation(n);
+        }
+        for (const auto& n : keep) {
+            if (scene.find(n)) {
+                continue;
+            }
+            const auto* row = definitions(scene.assets).find(2121, 1, Value::ofText(n));
+            const int pack = row ? Definitions::number(*row, 3) & 0x3ff : 0;
+            if (!pack) {
+                continue;
+            }
+            char path[24];
+            std::snprintf(path, sizeof path, "chr/c%03d.ca", pack);
+            if (!scene.loadAnimation(n, 0, path)) {
+                continue;
+            }
+            const std::array<Value, 2> values{Value::ofText(n), Value::ofInt(13)};
+            Chara* o = scene.create(n, 13, values);
+            const AnimationResource* a = scene.animation(n);
+            if (!o || !a) {
+                scene.unloadAnimation(n);
+                continue;
+            }
+            o->visual = Chara::Visual::Animation;
+            o->animation.attach(a);
+            scene.place(*o, a->screen, 9);
+            o->alpha.set(0);
         }
         return setInt(c, 1);
     });

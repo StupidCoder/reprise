@@ -267,7 +267,8 @@ void with_packs(const fs::path& packs, const fs::path& checkpoints) {
     }
     // Quick saves (checkpoint saves) through the persistent save wrapper.
     const std::pair<std::size_t, const char*> saved[] = {
-        {0, "a5fp-checkpoint.sav"}, {1, "checkpoint.l2cp"}, {2, "c3jd-checkpoint.sav"}, {4, "akkd-checkpoint.sav"}};
+        {0, "a5fp-checkpoint.sav"}, {1, "checkpoint.l2cp"},     {2, "c3jd-checkpoint.sav"},
+        {3, "blfd-checkpoint.sav"}, {4, "akkd-checkpoint.sav"}};
     for (const auto& [index, file] : saved) {
         const auto& entry = games[index];
         if (checkpoints.empty() || !fs::exists(checkpoints / file) || !fs::exists(data / "games" / entry.id)) continue;

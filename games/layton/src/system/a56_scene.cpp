@@ -1520,10 +1520,13 @@ float dot3(const float* a, const float* b) {
 // The ray o + t d (t >= 0) entering a sphere; -1 when it misses (from
 // inside: 0).
 float raySphere(const float* c, float r, const float* o, const float* d) {
+    // 0x2bf2d8: the entry along the ray; a ray that starts inside misses
+    // (its entry lies behind it), so a big shape around the camera never
+    // hides the objects in it.
     const float m[3] = {o[0] - c[0], o[1] - c[1], o[2] - c[2]};
     const float a = dot3(d, d), b = dot3(m, d), k = dot3(m, m) - r * r;
     if (k <= 0) {
-        return 0;
+        return -1;
     }
     const float disc = b * b - a * k;
     if (a <= 0 || b > 0 || disc < 0) {
@@ -1573,8 +1576,9 @@ float Scene::rayShape(const Object::Shape& sh, const std::array<float, 3>& origi
         }
         return best;
     }
-    // A box between the two corners (slab test).
-    float t0 = 0, t1 = 1e30f;
+    // A box between the two corners (slab test). 0x150810 tests only the
+    // three faces that face the ray: from inside, no hit.
+    float t0 = -1e30f, t1 = 1e30f;
     for (int i = 0; i < 3; ++i) {
         const float lo = std::min(sh.a[i], sh.b[i]), hi = std::max(sh.a[i], sh.b[i]);
         if (std::fabs(d[i]) < 1e-9f) {
@@ -1594,7 +1598,7 @@ float Scene::rayShape(const Object::Shape& sh, const std::array<float, 3>& origi
             return -1;
         }
     }
-    return t0;
+    return t0 >= 0 ? t0 : -1;
 }
 
 Scene::MeshHit Scene::meshPick(const Object& o, int screen, float x, float y) const {
