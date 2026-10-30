@@ -66,7 +66,7 @@ void TouchPainter::draw(const platform::TouchDeck& deck, const platform::GpuFram
                 cache_->icons.emplace(key,texture);
             }
             if (auto* texture=cache_->icons.at(key)) {
-                SDL_SetTextureAlphaMod(texture,v.held?245:195);
+                SDL_SetTextureAlphaMod(texture,v.held?210:100);
                 SDL_FRect at{std::round(cx-float(size)/2),std::round(cy-float(size)/2),float(size),float(size)};
                 SDL_RenderTexture(r,texture,nullptr,&at);
             }

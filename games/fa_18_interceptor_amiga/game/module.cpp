@@ -712,7 +712,7 @@ public:
         layout.push_back({"gear", "GEAR", Kind::button, .75f, .76f, .12f, .16f});
         layout.back().icon = platform::ControlIcon::landing_gear;
         // The cockpit / outside camera (keypad Enter).
-        layout.push_back({"view", "VIEW", Kind::button, .75f, .56f, .12f, .16f});
+        layout.push_back({"view", "VIEW", Kind::button, .89f, .08f, .09f, .16f});
         layout.back().icon = platform::ControlIcon::camera;
         return layout;
     }
