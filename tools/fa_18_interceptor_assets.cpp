@@ -45,6 +45,7 @@
 #include "fa_18_interceptor_amiga/game/replay.hpp"
 #include "fa_18_interceptor_amiga/game/carrier.hpp"
 #include "fa_18_interceptor_amiga/game/object_step.hpp"
+#include "fa_18_interceptor_amiga/game/object_world.hpp"
 #include "fa_18_interceptor_amiga/game/radar.hpp"
 #include "fa_18_interceptor_amiga/game/shot_hits.hpp"
 #include "fa_18_interceptor_amiga/game/world_objects.hpp"
@@ -330,6 +331,16 @@ struct Record {
     std::int16_t s16(int at) const { return std::int16_t(u16(at)); }
     std::int32_t s32(int at) const { return std::int32_t(std::uint32_t(u16(at)) << 16 | u16(at + 2)); }
 };
+
+// `$13AA2A` (the stage's first list entry) as a research address: newer
+// recordings log where the object lists (`$11DFB2`) were loaded ("lists").
+std::uint32_t list_start_of(const std::string& line, const Record& g) {
+    const auto running = std::uint32_t(g.s32(0x13AA2A - 0x13A9E0));
+    const auto at = line.find("\"lists\": \"");
+    if (at == std::string::npos) return running;
+    const auto loaded = std::uint32_t(std::stoul(line.substr(at + 10, 8), nullptr, 16));
+    return running - loaded + 0x11DFB2;
+}
 
 interceptor::game::Aircraft aircraft_from(const Frame& f) {
     const Record o{f.object};
@@ -1208,7 +1219,7 @@ int trainer_check(const std::filesystem::path& content, const std::filesystem::p
 // it: the object step (`$11797E`), the trigger areas' turn for home
 // (`$11D60C`, by the frame counter), the autopilot and the flight step,
 // with the globals of the frame (`g`).
-void step_recorded(interceptor::game::WorldObject& o, interceptor::game::Records& all, const Record& g, int frame,
+void step_recorded(interceptor::game::WorldObject& o, interceptor::game::Records& all, const Record& g, std::uint32_t list, int frame,
                    const interceptor::game::ObjectStep& step, const interceptor::game::TriggerAreas& areas,
                    const interceptor::game::Autopilot& autopilot, const interceptor::game::FlightTables& tables) {
     using namespace interceptor;
@@ -1218,7 +1229,7 @@ void step_recorded(interceptor::game::WorldObject& o, interceptor::game::Records
     const auto lock = g.s16(0x13ACB0 - 0x13A9E0);
     world.locked = lock < 0 ? -1 : lock / 0x200;
     world.attack_now = g.u8(0x13AAA7 - 0x13A9E0) != 0;
-    world.list = std::uint32_t(g.s32(0x13AA2A - 0x13A9E0));
+    world.list = list;
     auto& a = o.craft;
     if (a.state & 0x0200) { // ($1169D0: crashed becomes exploding)
         a.timer = 15;
@@ -1288,6 +1299,7 @@ int object_check(const std::filesystem::path& content, const std::filesystem::pa
         int number{};
         std::vector<std::uint8_t> globals, player;
         std::map<int, std::vector<std::uint8_t>> recs;
+        std::uint32_t list{};
     };
     std::vector<Line> lines;
     std::ifstream in(capture);
@@ -1297,6 +1309,7 @@ int object_check(const std::filesystem::path& content, const std::filesystem::pa
         l.number = std::stoi(text.substr(text.find("\"frame\": ") + 9));
         l.globals = hex_field(text, "glob");
         l.player = hex_field(text, "obj");
+        l.list = list_start_of(text, Record{l.globals});
         for (int r = 1; r < 16; ++r) {
             if (text.find("\"" + std::to_string(r) + "\": \"") != std::string::npos) l.recs[r] = hex_field(text, std::to_string(r));
         }
@@ -1317,7 +1330,7 @@ int object_check(const std::filesystem::path& content, const std::filesystem::pa
             auto player = aircraft_from(Frame{0, next.player, next.globals});
             game::Records all{&player, Record{next.player}.s16(0x4A), &objects};
             auto it = std::find_if(objects.begin(), objects.end(), [&](const game::WorldObject& o) { return o.record == r; });
-            step_recorded(*it, all, g, now.number, step, areas, autopilot, tables);
+            step_recorded(*it, all, g, now.list, now.number, step, areas, autopilot, tables);
             const std::string diff = record_diff(*it, object_from(r, next.recs.at(r), next.globals));
             ++compared;
             if (diff.empty()) ++matched;
@@ -1346,6 +1359,7 @@ int area_check(const std::filesystem::path& content, const std::filesystem::path
         int number{};
         std::vector<std::uint8_t> globals, player;
         std::map<int, std::vector<std::uint8_t>> recs;
+        std::uint32_t list{};
     };
     std::vector<Line> lines;
     std::ifstream in(capture);
@@ -1355,6 +1369,7 @@ int area_check(const std::filesystem::path& content, const std::filesystem::path
         l.number = std::stoi(text.substr(text.find("\"frame\": ") + 9));
         l.globals = hex_field(text, "glob");
         l.player = hex_field(text, "obj");
+        l.list = list_start_of(text, Record{l.globals});
         for (int r = 1; r < 16; ++r) {
             if (text.find("\"" + std::to_string(r) + "\": \"") != std::string::npos) l.recs[r] = hex_field(text, std::to_string(r));
         }
@@ -1397,7 +1412,7 @@ int area_check(const std::filesystem::path& content, const std::filesystem::path
         for (const int r : spawned) {
             ++spawns;
             auto it = std::find_if(objects.begin(), objects.end(), [&](const game::WorldObject& o) { return o.record == r; });
-            step_recorded(*it, all, g, now.number, step, areas, autopilot, tables);
+            step_recorded(*it, all, g, now.list, now.number, step, areas, autopilot, tables);
         }
         std::string diff;
         if (areas.inside() != gn.u8(G(0x13AA8D)))
@@ -1425,6 +1440,157 @@ int area_check(const std::filesystem::path& content, const std::filesystem::path
         else if (compared - matched < 30) std::printf("frame %d:%s\n", next.number, diff.c_str());
     }
     std::printf("%d walks, %d spawns; %d of %d frames match\n", walks, spawns, matched, compared);
+    return matched == compared ? 0 : 1;
+}
+
+// --- missioncheck --------------------------------------------------------------
+
+// Research: a mission's world in lockstep with a `flightcap.py --recs`
+// recording of the original: from each frame's records and counters the
+// port's ObjectWorld runs the frame as the module does (the trigger areas
+// every 16th frame, the "near" bits, the records' step after the player's
+// recorded move, the objective while `$13AA88` is 0), then the counters,
+// the outcome and every recorded record are compared with the next frame.
+int mission_check(const std::filesystem::path& content, const std::filesystem::path& capture) {
+    using namespace interceptor;
+    const auto assets = data::load_assets(content);
+    const auto world_map = data::read_world(assets.program);
+    const auto tables = game::read_flight_tables(assets.program);
+    const game::Autopilot autopilot(assets.program, tables);
+    const game::ObjectLists lists(assets.program);
+    const game::ObjectStep step(assets.program, tables, lists);
+    struct Line {
+        int number{};
+        std::vector<std::uint8_t> globals, player;
+        std::map<int, std::vector<std::uint8_t>> recs;
+        std::uint32_t list{};
+        std::vector<std::uint8_t> moved; // (the player before a follow poke)
+    };
+    std::vector<Line> lines;
+    std::ifstream in(capture);
+    for (std::string text; std::getline(in, text);) {
+        if (text.empty()) continue;
+        Line l;
+        l.number = std::stoi(text.substr(text.find("\"frame\": ") + 9));
+        l.globals = hex_field(text, "glob");
+        l.player = hex_field(text, "obj");
+        l.list = list_start_of(text, Record{l.globals});
+        if (text.find("\"moved\": \"") != std::string::npos) l.moved = hex_field(text, "moved");
+        for (int r = 1; r < 16; ++r) {
+            if (text.find("\"" + std::to_string(r) + "\": \"") != std::string::npos) l.recs[r] = hex_field(text, std::to_string(r));
+        }
+        lines.push_back(std::move(l));
+    }
+    const auto G = [](std::uint32_t address) { return address - 0x13A9E0; };
+    const auto counters_of = [&](const Record& g) {
+        game::ObjectWorld::Counters c;
+        c.aircraft = g.u8(G(0x13AB99));
+        c.aircraft_limit = g.u8(G(0x13AB9A));
+        c.destroyed = g.u8(G(0x13AB9B));
+        c.escort = g.s16(G(0x13AA72));
+        c.outcome_wait = g.u8(G(0x13AA9E));
+        c.inside = g.u8(G(0x13AA8D));
+        c.list_start = 0;
+        return c;
+    };
+    int matched = 0, compared = 0, outcomes = 0;
+    std::map<int, int> record_frames;
+    for (std::size_t k = 0; k + 1 < lines.size(); ++k) {
+        const auto& now = lines[k];
+        const auto& next = lines[k + 1];
+        const Record g{now.globals}, gn{next.globals};
+        if (next.number != now.number + 1 || !(g.u8(G(0x13ABBD)) & 0x40) || !(gn.u8(G(0x13ABBD)) & 0x40)) continue;
+        // Mission 6's rescue pod: the missile record `$13ABB2` points at
+        // (record its own here).
+        const int pod_record = g.u16(G(0x13ABB2)) / 0x200;
+        std::vector<game::WorldObject> objects;
+        std::optional<game::WorldObject> pod;
+        for (const auto& [n, bytes] : now.recs) {
+            auto o = world_object_from(n, bytes, now.globals);
+            o.shape_type = Record{bytes}.u8(0x62) == 0x31 ? 11 : 0;
+            if (n == pod_record && pod_record > 0) pod = o;
+            else if (n > 3) objects.push_back(o);
+        }
+        game::ObjectWorld world(tables, lists, step, autopilot);
+        auto counters = counters_of(g);
+        counters.list_start = now.list;
+        world.set(counters, std::move(objects), pod);
+        const int mode = g.u8(G(0x13AB96));
+        const int level = g.s8(G(0x13AB97));
+        if ((now.number & 0xF) == 3 && !g.u8(G(0x13AA80))) {
+            const auto before = aircraft_from(Frame{0, now.player, now.globals});
+            world.trigger_areas(before, mode, level, [&] { return int(g.u16(G(0x13ADE8))); });
+        }
+        world.clear_near();
+        // (The player as its step left it: before a follow poke when one
+        // was made.)
+        const auto& moved = next.moved.empty() ? next.player : next.moved;
+        auto player = aircraft_from(Frame{0, moved, next.globals});
+        game::ObjectWorld::Frame f;
+        f.player = &player;
+        f.player_distance = Record{moved}.s16(0x4A);
+        const auto lock = g.s16(G(0x13ACB0));
+        f.locked = lock < 0 ? -1 : lock / 0x200;
+        f.mode = std::uint8_t(mode);
+        f.level = std::int8_t(level);
+        f.counter = now.number;
+        f.world = &world_map;
+        f.bodies = {{&player, 0, true}};
+        world.step(f);
+        std::string diff;
+        if (g.u8(G(0x13AA88)) == 0 && mode >= 3 && mode <= 8) {
+            const int result = world.objective(mode, player, level, gn.s8(G(0x13AB5F)));
+            const int got = result == 1 ? 0xFF : result == -2 ? 0xFE : result == -3 ? 0xFD : 0;
+            const int want = gn.u8(G(0x13AA88));
+            if (want) ++outcomes;
+            if (got != want) diff += " aa88 " + std::to_string(got) + "/" + std::to_string(want);
+        }
+        const auto c = world.counters(), w = counters_of(gn);
+        const auto check = [&](const char* name, long got, long expected) {
+            if (got != expected) diff += std::string(" ") + name + " " + std::to_string(got) + "/" + std::to_string(expected);
+        };
+        check("ab99", c.aircraft, w.aircraft); check("ab9a", c.aircraft_limit, w.aircraft_limit);
+        check("ab9b", c.destroyed, w.destroyed); check("aa72", c.escort, w.escort);
+        check("aa9e", c.outcome_wait, w.outcome_wait); check("aa8d", c.inside, w.inside);
+        if (pod_record > 0 && world.pod() && next.recs.count(pod_record)) {
+            const auto want = world_object_from(pod_record, next.recs.at(pod_record), next.globals);
+            const auto& p = world.pod()->craft;
+            const auto& w = want.craft;
+            std::string d;
+            const auto pcheck = [&](const char* name, long got, long expected) {
+                if (got != expected) d += std::string(" ") + name + " " + std::to_string(got) + "/" + std::to_string(expected);
+            };
+            pcheck("x", p.x, w.x); pcheck("y", p.y, w.y); pcheck("z", p.z, w.z);
+            pcheck("vx", p.vx, w.vx); pcheck("vy", p.vy, w.vy); pcheck("vz", p.vz, w.vz);
+            pcheck("timer", p.timer, w.timer); pcheck("state", p.state & ~0x6010, w.state & ~0x6010);
+            if (!d.empty()) diff += " pod:" + d;
+            else ++record_frames[pod_record];
+        }
+        for (const auto& [n, bytes] : next.recs) {
+            if (n <= 3) continue; // (the player's missiles; the pod above)
+            const auto want = world_object_from(n, bytes, next.globals);
+            const auto* got = world.record(n);
+            if (!got) continue;
+            if (got->active() != want.active()) {
+                diff += " rec " + std::to_string(n) + " active " + std::to_string(got->active()) + "/" + std::to_string(want.active());
+                continue;
+            }
+            if (!want.active() || (want.craft.type & 0xF0) != 0x10) continue;
+            ++record_frames[n];
+            auto d = record_diff(*got, want);
+            // (State bit 4: the drawer's mark, cleared as its map scan lists
+            // the record, `$110496`.)
+            if ((got->craft.state & ~0x6010) != (want.craft.state & ~0x6010))
+                d += " state " + std::to_string(got->craft.state) + "/" + std::to_string(want.craft.state);
+            if (!d.empty()) diff += " rec " + std::to_string(n) + ":" + d;
+        }
+        ++compared;
+        if (diff.empty()) ++matched;
+        else if (compared - matched < 40) std::printf("frame %d:%s\n", next.number, diff.c_str());
+    }
+    std::printf("records stepped:");
+    for (const auto& [n, frames] : record_frames) std::printf(" %d (%d)", n, frames);
+    std::printf("\n%d outcome frames; %d of %d frames match\n", outcomes, matched, compared);
     return matched == compared ? 0 : 1;
 }
 
@@ -1663,6 +1829,9 @@ int main(int argc, char** argv) {
         }
         if (command == "areacheck" && argc == 4) {
             return area_check(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]));
+        }
+        if (command == "missioncheck" && argc == 4) {
+            return mission_check(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]));
         }
         if (command == "democheck" && argc == 4) {
             return demo_check(platform::utf8_path(argv[2]), platform::utf8_path(argv[3]));

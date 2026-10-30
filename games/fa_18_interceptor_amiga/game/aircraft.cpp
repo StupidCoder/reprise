@@ -786,6 +786,9 @@ FlightEvents fly(Aircraft& a, const FlightControls& controls, const FlightRules&
         constexpr i32 edge = 0x1FFFFFFF;
         a.x = std::clamp(a.x + a.vx, 0, edge);
         a.z = std::clamp(a.z + a.vz, 0, edge);
+        // $11A662: the cruise missile (type $15) flies at height 176
+        // whatever its climb.
+        if (a.type == 0x15) a.y = 0xB000;
     }
     move_gear(a);
     return events;

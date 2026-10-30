@@ -115,15 +115,24 @@ from drawing, and must still respect the passes' model rule).
     recordings; left: the drawer's list as such and the ships' hull test), the objects' touches and crashes, the trigger areas
     (`$11D17A`: spawn, again while inside, sent back on leaving, the way
     home `$11D60C`; checked with `areacheck` on area1-3; area 3 and a
-    respawn not recorded); the missions' flow is built for choosing (6, 7, F1-F6),
+    respawn checked in mission 8); the missions' flow is built for choosing (6, 7, F1-F6),
     the briefings, every mission's objective and failures, mission 6's
-    rescue pod, completion in the log; left: the camera's turns to Air Force One and the cruise
-    missile, the aircraft question of mission 3's runway start, the radio
-    noise, checks of missions 4-8 against recordings.
+    rescue pod, completion in the log, the player's crash ending a
+    mission; missions 4-8 checked against 13 recordings (`missioncheck`,
+    game/object_world.*: every frame equal but the pokes'). Left: the
+    camera's turns to Air Force One and the cruise missile, the aircraft
+    question of mission 3's runway start, the radio noise; unrecorded:
+    −3 (Air Force One shot by the player), the leave rules for records
+    heading for a record or a path point; flying a mission again with
+    the same variant and offsets (`$13AE0C`, `$13AE08`).
 12. **Dusk and night**: palettes 3-9 (the fades).
 13. **Saves**: quick save and load of the module's state.
 
 ## Open research items
+
+- `$10F14E` (message $4005, fuel and stores refilled): in mission 6 it
+  clears `$13AA88` unless the mission succeeded - what calls it (a
+  refuelling landing?) is not traced.
 
 - A soft touch-down (and its tyre sound), the boom and the spin warning
   were never seen in a recording of the original; touch-down rules are
@@ -154,12 +163,13 @@ from drawing, and must still respect the passes' model rule).
   stops at opcodes `$5C` and `$9C` (some mid-distance levels).
 - The title stays 22 s (the original's loading time on the A500) but a key
   skips it; the original takes no key there.
-- Free flight does not yet update the pilot record's numbers (flight
-  time, crashes; the crash adds 1 to config +$10, not decoded).
+- Free flight does not yet update the pilot record's flight time (the
+  crash also adds 1 to config +$10, not decoded).
 - The panel's speed does not drop to 0 at a crash (state bit 15 is set
   by the object collision code, task 7).
-- The crash ends free flight's log update: config +$46 (crashes) is not
-  counted yet.
+- A crash adds 1 to the log's crashes (config +$46) in memory; when the
+  original writes the record after a crash is not traced (the port
+  writes it with the next mission's completion or the front end's).
 - The view's window of object cells is a square, not the original's
   octant lists; the fine water grid's window below height $9000 (by
   heading) draws all cells.

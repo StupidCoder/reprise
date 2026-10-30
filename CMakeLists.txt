@@ -339,6 +339,7 @@ add_library(fa_18_interceptor_amiga
     games/fa_18_interceptor_amiga/game/radar.cpp
     games/fa_18_interceptor_amiga/game/shot_hits.cpp
     games/fa_18_interceptor_amiga/game/trigger_areas.cpp
+    games/fa_18_interceptor_amiga/game/object_world.cpp
     games/fa_18_interceptor_amiga/game/world_objects.cpp
     games/fa_18_interceptor_amiga/game/weapons.cpp
     games/fa_18_interceptor_amiga/game/cockpit.cpp

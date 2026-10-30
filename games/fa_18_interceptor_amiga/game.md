@@ -1385,13 +1385,20 @@ set), by the frame counter's bit 0 either "WARNING: TURBINE FAILURE"
 ($9014, blinking) and a spin - unless flares or chaff are out - or "MINOR
 HYDRAULIC DAMAGE" / "MINOR STRUCTURE DAMAGE" ($D00B / $D00C by bit 1).
 Another record spins, takes +2 bit 12 and role 1, and is taken off at
-once (`$11AA70`). Without a touch: near sets the mover's +2 bit 1
-(`$11AAE0`); a spinning aircraft on the ground blows up (`$11AA80` →
-`$11AA4A`: state bit 10, 15 frames) - for the player the crash. A
-crashed record becomes exploding in its next step (`$1169D0`: 15 frames;
-it makes one more move, then stops), and spins its speed toward $1200 by
-$90 (`$1179C0`); when the 15 frames are out (`$11A398`) it is taken off
-if it is on the ground or has state bit 15, else it falls on spinning.
+once (`$11AA70`). Without a touch (`$11AA80`): a spinning aircraft on the
+ground blows up (`$11AA4A`: state bit 10, 15 frames) - for the player the
+crash; else, for every class but the pod's ($30), state bit 15 is
+cleared (in control again), a crashed record (state bit 9) blows up here
+already (bit 9 cleared, 15 frames), or near sets the mover's +2 bit 1
+and its absence clears it (`$11AAE0`). A record crashed outside its own
+step becomes exploding at the frame's end (`$1169D0`: 15 frames; it
+makes one more move, then stops), and spins its speed toward $1200 by
+$90 (`$1179C0`); when the 15 frames are out (`$11A398`) the cruise
+missile (type $15) and class-0 records are always taken off; an aircraft
+(class $10) not touchable (state bit 3) and not on the ground counts as
+destroyed (`$13AB9B`); it is taken off if it is on the ground or has
+state bit 15, else it falls on spinning - so a record crashed in the air
+is in control again by its next step and flies on (recordings m4a, m8b).
 The frame counter `$13ABCA` starts at 0 with each flight (`$102EC0`).
 
 Built for the aircraft records the port has (the player's and the
@@ -1652,8 +1659,8 @@ objectives first count `$13AA9E` down (5 or 2 frames), the objects
 standing meanwhile.
 
 - 3, visual confirmation (`$118650`): the radar's `$13AB5F` < 0.
-- 4, emergency defense (`$11867C`): Air Force One (record 4, type $14)
-  on the ground below speed $320 with records 8 and 10 gone — or
+- 4, emergency defense (`$11867C`): once Air Force One (record 4, type
+  $14) has a place (cell x or fine x not 0), it on the ground below speed $320 with records 8 and 10 gone — or
   destroyed: −3 when it bore +$20 bit 7 (touched by something touchable:
   block 76 "YOU HAVE DESTROYED AIR FORCE ONE", the flight ends), else −2
   (block 37 or 36 by the frame counter's bit 0). Meanwhile the view turns
@@ -1676,14 +1683,25 @@ standing meanwhile.
   below 0, then 1/4, 1/8 from its third frame, while the drift is above
   $F0 less the timer), the fall toward −$300 (−$3C a frame, −$3C0 once
   rising after its third frame); down, it drifts ($C a frame up to $C0 in
-  x) and its timer runs out (clamped to 4). The port takes it down at
-  height 0 (**hypothesis**: the original's touch result `$11A8C2`).
-- 7, cruise missile (`$118998`): record 4 (type $15) gone or its
+  x) and its timer runs out (clamped to 4). Its move (`$11A5C6`): y +
+  the fall; at 0 or below it is down (+0 bit 15) at height 0, where it
+  was before that frame's move, and moves no more (recordings m6a, m6b).
+- 7, cruise missile (`$118998`): once placed (cell x or fine x not 0),
+  record 4 (type $15) gone or its
   autopilot let go (the end of its path, state bit 7): shot down
   (spinning) → success, else −2 (block 57, then 92 or 58 by the frame
   counter's bit 0; with 58 the flight ends). The view turns to it — not
   built.
-- 8 and others (`$118B1C`): `$13AB9B` reaches `$13AB9A`.
+- 8 and others (`$118B1C`): `$13AB9B` reaches `$13AB9A`. The cruise
+  missile area 3 spawns (mission 8 only) counts towards `$13AB99` but
+  never as destroyed and is not spawned again, so at level 0 (limit 4,
+  the list's bandit, the missile) the fourth kill must be area 2's bogey
+  coming back while the player stays in its box (recording m8c).
+- A crash of the player's aircraft (`$11A982` in the air, `$106FC2` on
+  the ground) adds 1 to the log's crashes (config +$46) and sets
+  `$13AA88` 4: no outcome and no landing after it in that mission; the
+  restart (`$10D950`) keeps any outcome at 4. (**Hypothesis left:** the
+  touch path skips this when the touch result has bit 6, not traced.)
 
 After success, landed (`$118BA2`: +$21 bit 0 — set in the
 take-off/landing step `$1071AE`, **hypothesis**: the aircraft has flown —
@@ -1695,6 +1713,38 @@ stage + 1 (at most 3), the record written. A failure that does not end
 the flight adds 86 and 83 and the flight goes on (`$13AA88` 2: no
 landing check). The camera turns are not built; the trigger areas are
 ("The trigger areas").
+
+**Checked against the original** (2026-10-30; `missioncheck`, below):
+each recording, made with `flightcap.py --recs` from `mstart.py`'s
+start, is run frame by frame from the recorded records and counters
+through the port's `ObjectWorld` (trigger areas, near bits, the records'
+step after the player's recorded move, the objective) and compared with
+the next frame: counters `$13AB99`-`$13AB9B`, `$13AA72`, `$13AA9E`,
+`$13AA8D`, the outcome `$13AA88`, every recorded record.
+
+| recording | what | frames equal |
+|---|---|---|
+| m4a | mission 4 from its start: Air Force One's flight and landing (record 4), the bandit (8); the bandit crashed in the air flies on | 2,896 / 2,897 |
+| m4b, m4c | mission 4 success (bandit taken off: 5-frame wait), failure (Air Force One taken off: −2) | 11 / 12, 25 / 26 |
+| m5a | mission 5: the stolen F-16s (4, 6) and the bandit | 1,499 / 1,499 |
+| m5b | the player beside record 4: `$13AA72` 200 → −1, both turn home; bandits crashed → success | 270 / 271 |
+| m5c | record 4 east of cell $70 → −2, the flight ends | 24 / 26 |
+| m6a, m6b | the pod dropped above the descending pilot (record 11): too far → −2; near → success | 77 / 77, 377 / 377 |
+| m7a | mission 7: the cruise missile's whole path to its end → −2 (flight ends) | 1,854 / 1,854 |
+| m7b | the missile hit (spin, out of control, exploding) → success | 15 / 16 |
+| m8a | mission 8, the player in area 3: the cruise missile spawned into record 4 | 299 / 299 |
+| m8b | missile and bandit crashed: the missile goes uncounted | 197 / 199 |
+| m8c | the player in area 2: the bandit and area 2's bogey (record 12, back twice) destroyed → success | 153 / 161 |
+
+Every frame that differs is a poke's frame (the poke writes a position
+long or a state the original's step had not produced; cell words +6/+8
+not updated) — recipes in "Research tools". Found and fixed by them: the
+cruise missile's fixed height (`$11A662`: a moving type $15 is set to y
+$B000 after its move), the explosion's end and the touch step's no-hit
+path ("Objects touching"), the pod's landing, the player's crash ending
+the objectives. Not recorded: −3 (Air Force One destroyed by the
+player), the leave rules for records heading for a record or a path
+point, the camera's turns.
 
 ### The missions' objects (`$11CF06`, 2026-10-29)
 
@@ -2130,6 +2180,9 @@ the spin warning.
 - **The trigger walk's register** (`$11D17A`): the bit number of the
   areas' walk is overwritten by the spawner's result ("The trigger
   areas"); kept.
+- **Mission 8's count**: the cruise missile counts towards the aircraft
+  limit `$13AB9A` when spawned, but its destruction never counts in
+  `$13AB9B` and it is never spawned again ("The missions' flow").
 - **x below 0** (`$11A640`): a record moved past x = 0 has its z set
   to the move instead of x clamped (only at the world's edge; the port
   clamps x).
@@ -2147,7 +2200,13 @@ Research files live in `.analysis/fa_18_interceptor_amiga/` (`harness/`,
   `F18_INDEX=file` writes colour numbers), `shot.sh` (window capture).
 - `flightcap.py` records the player object and globals each frame
   (`--sound` slots and channels, `--calls` the sound routines' calls,
-  `--objs` the missile records 1-4 and the projectile slots, `--shots`; steps for controls, keys, dives, control byte, pokes);
+  `--objs` the missile records 1-4 and the projectile slots, `--recs`
+  chosen records, `--shots`; steps for controls, keys, dives, control
+  byte, pokes, `orw`/`andw` word bits, `follow:REC,DY,DZ,DX` the player
+  kept at a record's place every frame, logged before the poke as
+  `moved`; each line logs where the object lists are loaded, `lists`);
+  `mstart.py M [LEVEL]` starts mission M from the main menu (config +6,
+  key 7, space through the briefing), `recs.py` lists the records;
   `flashcap.py` times the crash flash; `listsnap.py`, `viewgrab.py`,
   `modelbp.py`, `opbp.py`, `pointcheck.py`, `stepcheck.py`, `fps.py`.
 - `fa_18_interceptor_assets` (tools/): `import`, `export`, `viewcheck`,
@@ -2157,6 +2216,8 @@ Research files live in `.analysis/fa_18_interceptor_amiga/` (`harness/`,
   against `--objs` recordings: wpm, wpg, wpa equal in every frame),
   `objectcheck` (missions' records stepped from each recorded frame),
   `areacheck` (the trigger areas: area1-3 equal in every frame),
+  `missioncheck` (a mission's world in lockstep: m4a-m8c, "The missions'
+  flow"),
   `hudcheck` (the head-up display for given readings against a
   `screen.py` colour dump: `wp/gun.idx` F/A-18, `f16b.idx` F-16, no pixel
   differs), `fly` (headless module run from the title,
@@ -2165,6 +2226,6 @@ Research files live in `.analysis/fa_18_interceptor_amiga/` (`harness/`,
   the keypad's 0 4 6 8 2).
 - `harness/proc.py`: the running original's screen procedure, frame
   countdown and text queue (the front end's traces).
-- Captures in `work/ref/`: `fc*.jsonl`, `sd2`, `cr5`, `td1-3`, `wpm`, `wpg`, `wpa`, flash
+- Captures in `work/ref/`: `m4a`-`m8c` (missions 4-8), `fc*.jsonl`, `sd2`, `cr5`, `td1-3`, `wpm`, `wpg`, `wpa`, flash
   timing `flash_cr4.txt`, message bitplanes `msg7.idx`/`msg8.idx`,
   reference screenshots.

@@ -13,12 +13,12 @@
 #include "fa_18_interceptor_amiga/game/replay.hpp"
 #include "fa_18_interceptor_amiga/game/messages.hpp"
 #include "fa_18_interceptor_amiga/game/object_step.hpp"
+#include "fa_18_interceptor_amiga/game/object_world.hpp"
 #include "fa_18_interceptor_amiga/game/scene.hpp"
 #include "fa_18_interceptor_amiga/game/shot_hits.hpp"
 #include "fa_18_interceptor_amiga/game/sound_driver.hpp"
 #include "fa_18_interceptor_amiga/game/sounds.hpp"
 #include "fa_18_interceptor_amiga/game/text_screen.hpp"
-#include "fa_18_interceptor_amiga/game/trigger_areas.hpp"
 #include "fa_18_interceptor_amiga/game/weapons.hpp"
 #include "fa_18_interceptor_amiga/game/world_objects.hpp"
 #include "ui/vhs.hpp"
@@ -402,110 +402,32 @@ public:
         choice.variant_random = int(random_() & 0xFFFF);
         choice.level = level_;
         if (mode_ == FlightMode::mission) choice.stage = pilot_.stage(mission_);
-        const auto spawned = lists_.spawn(choice, tables_);
-        objects_ = spawned.objects;
-        list_start_ = spawned.first_entry;
-        aircraft_limit_ = spawned.aircraft_limit;
-        aircraft_count_ = spawned.aircraft;
-        areas_.reset();
-        pod_.reset();
-        escort_ = 0;
-        outcome_wait_ = 0;
-        for (const auto& o : objects_) {
+        others_.spawn(choice);
+        for (const auto& o : others_.objects()) {
             if (o.craft.type == 0x20) carrier_.place(o.craft, tables_);
         }
     }
 
-    // The object step for the lists' records, in record order (`$116C4E`
-    // ...): the others' part (`$11797E`), the autopilot, the flight step.
-    // (Their touches, weapons and crashes are not built yet.)
     // $11D17A: the player's cell against the trigger areas; an area's
     // entries are spawned by `$11D2FA` with a fresh draw for the offsets.
     void trigger_areas() {
-        areas_.check(std::int16_t(aircraft_.x >> 22), std::int16_t(aircraft_.z >> 22), objects_,
-                     [&](const ObjectLists::TriggerArea& area, int index) {
-                         ObjectChoice choice;
-                         choice.mode = mission_mode();
-                         choice.level = level_;
-                         choice.variant_random = int(random_() & 0xFFFF);
-                         ObjectLists::Spawned offsets;
-                         return lists_.spawn_area(area, index, objects_, aircraft_count_, aircraft_limit_, choice,
-                                                  offsets, tables_);
-                     });
+        others_.trigger_areas(aircraft_, mission_mode(), level_, [&] { return int(random_() & 0xFFFF); });
     }
 
+    // The object step for the lists' records (ObjectWorld::step).
     void objects_tick() {
-        Records records{&aircraft_, player_distance_, &objects_};
-        StepWorld world;
-        world.locked = radar_.locked();
-        world.mode = std::uint8_t(mission_mode());
-        world.level = level_;
-        world.list = list_start_;
-        for (std::size_t i = 0; i < objects_.size(); ++i) {
-            auto& o = objects_[i];
-            auto& a = o.craft;
-            if (!o.active() || (a.type & 0xF0) != 0x10) continue;
-            object_step_.before_flight(o, records, world);
-            // $11A380: one record a frame by the counter looks whether it
-            // has left the area that spawned it.
-            if ((ticks_ & 0x1F) == unsigned(o.record)) areas_.send_home(o);
-            // $11A398: the explosion's end: an aircraft not touchable in the
-            // air counts as destroyed (`$13AB9B`); on the ground or out of
-            // control the record goes (its timer 20), else it falls on.
-            if (a.state & 0x0400) {
-                if (a.timer <= 0) {
-                    a.state &= ~0x0400;
-                    if (!(a.state & 0x0008) && !(a.motion & flag::on_ground)) ++destroyed_;
-                    if ((a.motion & flag::on_ground) || (a.state & 0x8000)) {
-                        a.state &= ~(0x0040 | 0x4000 | 0x2000);
-                        a.timer = 0x14;
-                        continue;
-                    }
-                }
-                a.state &= ~0x2000;
-            }
-            if (!(a.state & 0x1000) && !(a.state & 0x0100)) continue;
-            PilotWorld pilot_world;
-            pilot_world.mode = world.mode;
-            pilot_world.level = world.level;
-            autopilot_.fly(a, o.pilot, pilot_world, &o.course);
-            FlightControls c;
-            c.recorded = a.controls;
-            const auto roll_before = a.attitude.roll;
-            FlightRules rules;
-            rules.world = &world_;
-            const std::array<std::int32_t, 3> before{a.x, a.y, a.z};
-            if (a.state & 0x1000) fly(a, c, rules, tables_);
-            Autopilot::level_out(a, o.pilot, roll_before);
-            if (a.state & 0x0400) continue; // (no touches while it blows up)
-            // $11A7EA: its touch after the move; hitting something it goes
-            // ($11AA70). Spinning onto the ground it stops and blows up
-            // ($11AA80).
-            auto list = bodies();
-            const auto self = std::find_if(list.begin(), list.end(), [&](const Body& b) { return b.aircraft == &a; });
-            bool near = false;
-            if (touch_bodies(list, std::size_t(self - list.begin()), before, near) == touch::object) {
-                a.state &= ~0x0040;
-                continue;
-            }
-            if ((a.handling & 0x02) && (a.motion & flag::on_ground) && !(a.state & 0x0004)) {
-                a.state = std::uint16_t((a.state & ~0x1000) | 0x0400);
-                a.timer = 15;
-            }
-        }
-        aircraft_limit_ += world.turned_hostile; // ($1181CA)
-        aircraft_count_ += world.turned_hostile;
-        // ($1169D0, with the drawing:) a crashed record blows up for 15
-        // frames; the radar's lock on it goes ($118588: message $4016).
-        for (auto& o : objects_) {
-            auto& a = o.craft;
-            if (!o.active() || !(a.state & 0x0200)) continue;
-            a.state = std::uint16_t((a.state & ~0x0200) | 0x0400);
-            a.timer = 15;
-            if (radar_.locked() == o.record) {
-                messages_.post(0x4016);
-                radar_.unlock();
-            }
+        ObjectWorld::Frame frame;
+        frame.player = &aircraft_;
+        frame.player_distance = player_distance_;
+        frame.locked = radar_.locked();
+        frame.mode = std::uint8_t(mission_mode());
+        frame.level = level_;
+        frame.counter = ticks_;
+        frame.world = &world_;
+        frame.bodies = player_bodies();
+        if (others_.step(frame)) {
+            messages_.post(0x4016);
+            radar_.unlock();
         }
     }
 
@@ -518,7 +440,7 @@ public:
         if (outside_ != radar_outside_ || look != radar_look_) radar_.redraw_panel();
         radar_outside_ = outside_;
         radar_look_ = look;
-        Records records{&aircraft_, player_distance_, &objects_};
+        Records records{&aircraft_, player_distance_, &others_.objects()};
         const auto frame = std::uint16_t(ticks_);
         radar_.after_scene(records, frame, outside_, tables_);
         if (!outside_) {
@@ -535,7 +457,7 @@ public:
     // the list's first aircraft in the air (not type $15), in degrees
     // rounded to tens (360 is 000); without one, no line.
     void queue_bogey_vector() {
-        for (const auto& o : objects_) {
+        for (const auto& o : others_.objects()) {
             if (o.craft.type == 0x15 || (o.craft.type & 0xF0) != 0x10 || !o.active()) continue;
             const auto& v = o.craft.view;
             const std::int64_t ahead[3] = {(std::int64_t(v[2]) * 0x1F4) >> 4, (std::int64_t(v[5]) * 0x1F4) >> 4,
@@ -563,7 +485,7 @@ public:
     // The other records (not the carrier, which is drawn by itself).
     void add_objects(std::vector<Vehicle>& vehicles, double t) const {
         const double back = smooth_ ? 1 - t : 0;
-        for (const auto& o : objects_) {
+        for (const auto& o : others_.objects()) {
             if (!o.active() || (o.craft.type & 0xF0) == 0x20) continue; // (the carrier: carrier_vehicle)
             const auto& a = o.craft;
             Vehicle v;
@@ -572,10 +494,10 @@ public:
             v.body = a.body;
             vehicles.push_back(v);
         }
-        if (pod_) { // (mission 6's rescue pod)
-            const auto& a = pod_->craft;
+        if (const auto& pod = others_.pod()) { // (mission 6's rescue pod)
+            const auto& a = pod->craft;
             Vehicle v;
-            v.type = pod_->shape_type;
+            v.type = pod->shape_type;
             v.position = {(a.x - a.vx * back) / 256.0, (a.y - a.vy * back) / 256.0, (a.z - a.vz * back) / 256.0};
             v.body = a.body;
             vehicles.push_back(v);
@@ -789,114 +711,14 @@ private:
         }
     }
 
-    WorldObject* record_of(int record) {
-        for (auto& o : objects_) {
-            if (o.record == record) return &o;
-        }
-        return nullptr;
-    }
-    bool active(int record) {
-        const auto* o = record_of(record);
-        return o && o->active();
-    }
 
-    // `$13AA9E` as the outcome's countdown (the objects stand meanwhile):
-    // true while it runs.
-    bool outcome_wait(int frames) {
-        if (outcome_wait_ == 0) outcome_wait_ = frames;
-        return --outcome_wait_ != 0;
-    }
 
     // $118650 (3), $11867C (4), $1187BA (5), $118914 (6), $118998 (7),
     // $118B1C (8 and others).
     void mission_objective() {
-        switch (mission_) {
-        case 3:
-            if (radar_.confirmation() < 0) mission_succeeded();
-            return;
-        case 4: {
-            // Air Force One (record 4): landed slowly with both bandits
-            // (records 8, 10) gone - or destroyed.
-            const auto* one = record_of(4);
-            if (!one || (one->craft.x >> 22) == 0) return;
-            if (one->active() && (!(one->craft.motion & flag::on_ground) || one->craft.speed > 0x320 || active(8) ||
-                                  active(10)))
-                return;
-            if (outcome_wait(5)) return; // (the camera's turn to it: not built)
-            if (one->active()) mission_succeeded();
-            else mission_failed((one->craft.handling & 0x80) ? -3 : -2);
-            return;
-        }
-        case 5: {
-            // The stolen F-16s (records 4, 6, touchable while stolen): east
-            // of cell $70 they are lost; flown beside long enough (a box by
-            // the level, 200 frames) they go home along their paths; then
-            // the bandits must be down.
-            auto* a = record_of(4);
-            auto* b = record_of(6);
-            if (!(a && a->active())) std::swap(a, b);
-            bool check_done = true;
-            if (a && a->active()) {
-                if (!(a->craft.state & 0x0008)) {
-                    check_done = false;
-                } else {
-                    if ((a->craft.x >> 22) >= 0x70) {
-                        mission_failed(-2);
-                        return;
-                    }
-                    const std::int32_t box = level_ >= 3 ? 0x18000 : level_ >= 2 ? 0x24000 : 0x30000;
-                    const auto& p = aircraft_;
-                    const bool beside = std::abs(p.x - a->craft.x) <= box && std::abs(p.y - a->craft.y) <= box &&
-                                        std::abs(p.z - a->craft.z) <= box;
-                    if (beside) {
-                        if (escort_ >= 0) {
-                            --escort_;
-                        } else {
-                            for (auto* o : {a, b}) {
-                                if (o) o->course.target = lists_.path(2 * o->course.path);
-                            }
-                        }
-                    } else if (escort_ >= 0) {
-                        escort_ = 0xC8;
-                    }
-                    check_done = false;
-                }
-            }
-            if (!check_done && escort_ >= 0) return;
-            if (aircraft_limit_ > destroyed_) return;
-            if (outcome_wait(2)) return;
-            mission_succeeded();
-            return;
-        }
-        case 6: {
-            // The rescue pod, landed and still: within $10000 of the
-            // downed pilot (record 11) or too far.
-            if (!pod_ || !(pod_->craft.state & 0x8000) || pod_->craft.timer > 0) return;
-            const auto* pilot = record_of(11);
-            const bool near = pilot && std::abs(pilot->craft.x - pod_->craft.x) <= 0x10000 &&
-                              std::abs(pilot->craft.z - pod_->craft.z) <= 0x10000;
-            if (near) mission_succeeded();
-            else mission_failed(-2);
-            return;
-        }
-        case 7: {
-            // The cruise missile (record 4): its path ended (autopilot let
-            // go) or gone - shot down (spinning) or exploded.
-            const auto* missile = record_of(4);
-            if (!missile || (missile->craft.x >> 22) == 0) return;
-            if (missile->active() && (missile->craft.state & 0x0080)) return;
-            if (outcome_wait(2)) return;
-            if (missile->craft.handling & 0x02) mission_succeeded();
-            else mission_failed(-2);
-            return;
-        }
-        default:
-            // $118B1C: the list's aircraft all destroyed.
-            if (aircraft_limit_ > destroyed_) return;
-            if (outcome_wait(2)) return;
-            mission_succeeded();
-            return;
-        }
+        const int result = others_.objective(mission_, aircraft_, level_, radar_.confirmation());
+        if (result > 0) mission_succeeded();
+        else if (result < 0) mission_failed(result);
     }
 
     void mission_succeeded() {
@@ -950,80 +772,9 @@ private:
     // $31, shape 11, 3 units below it, pushed down at $3C0 (`$11788C`),
     // timer −20.
     void drop_pod() {
-        if (mode_ != FlightMode::mission || mission_ != 6 || pod_) return;
-        WorldObject pod;
-        pod.craft = aircraft_;
-        auto& a = pod.craft;
-        a.player = false;
-        a.type = 0x31;
-        pod.shape_type = 11;
-        pod.record = 1;
-        pod.group = 0;
-        pod.scale = 3;
-        a.state = std::uint16_t(((a.state & ~0x8000) | 0x10C0 | 0x0100 | 0x0002) & 0xFFFF);
-        a.pitch_rate = a.yaw_rate = a.roll_rate = 0;
-        a.sink = 0;
-        if (a.motion & flag::on_ground) a.vy = 0;
-        a.motion &= ~(flag::on_ground | 0x0004);
-        a.ground_drag = 0x14;
-        const auto& v = a.view;
-        a.x += (v[1] * -3) >> 6;
-        a.y += (v[4] * -3) >> 6;
-        a.z += (v[7] * -3) >> 6;
-        const auto push = scaled_vector(tables_, 0x3C0, std::int16_t(-(v[1] >> 2)), std::int16_t(-(v[4] >> 2)),
-                                        std::int16_t(-(v[7] >> 2)));
-        a.vx += push[0];
-        a.vy += push[1];
-        a.vz += push[2];
-        a.timer = -20;
-        pod_ = pod;
+        if (mode_ == FlightMode::mission && mission_ == 6) others_.drop_pod(aircraft_);
     }
 
-    // $117C82 (class $30, each frame): drag on the drift by the timer, the
-    // fall toward $300 down (−$3C0 a frame from its third frame), the move;
-    // at height 0 it is down (+0 bit 15, hypothesis: the ground's touch,
-    // `$11A8C2`) and drifts, its timer running out over five frames.
-    void pod_tick() {
-        if (!pod_) return;
-        auto& a = pod_->craft;
-        std::int32_t vx = a.vx, vy = a.vy, vz = a.vz;
-        if (a.state & 0x8000) {
-            if (a.timer > 0) a.timer = std::int16_t(a.timer >= 5 ? 4 : a.timer - 1);
-            if (vx < 0xC0) vx += 0xC;
-            vy = 0;
-            vz += vz > 0 ? -1 : 1;
-        } else {
-            int shift = 2;
-            if (a.timer < 0) {
-                ++a.timer;
-                shift = 6;
-            } else {
-                ++a.timer;
-                if (a.timer >= 3) shift = 3;
-            }
-            const std::int32_t drift = std::max(std::abs(vx), std::abs(vz));
-            const std::int32_t limit = std::max(0, 0xF0 - a.timer);
-            if (drift >= limit) {
-                vx -= vx >> shift;
-                vz -= vz >> shift;
-            }
-            if (a.timer >= 3 && vy > 0) vy -= 0x3C0;
-            else if (vy > -0x300) vy -= 0x3C;
-            else vy = (vy - 0x300) >> 1;
-        }
-        a.vx = vx;
-        a.vy = vy;
-        a.vz = vz;
-        a.airspeed = std::int16_t(std::max({std::abs(vx), std::abs(vy), std::abs(vz)}) >> 2);
-        a.x += vx;
-        a.y += vy;
-        a.z += vz;
-        if (a.y <= 0 && !(a.state & 0x8000)) {
-            a.y = 0;
-            a.state |= 0x8000;
-            a.timer = 5;
-        }
-    }
 
     // $1034A0: the log takes the mission: the last mission and its stage,
     // completed + 1, the level and the mission's stage + 1 (at most 3);
@@ -1255,7 +1006,6 @@ private:
     // $10D51E: the aircraft at the chosen start; the engine sound starts.
     void restart() {
         radar_.reset();
-        destroyed_ = 0;
         player_distance_ = 0;
         spawn_objects();
         if (place_ == carrier_place) {
@@ -1479,8 +1229,12 @@ private:
             if (aircraft_.state & flag::crashed) {
                 // $102EFE: the crash. The flight stops, every sound stops
                 // but the explosion's noise, and at the frame's end the
-                // screen flashes.
+                // screen flashes. The crash counts in the log (config +$46)
+                // and ends a mission's objectives (`$13AA88` 4: no outcome
+                // and no landing after it, `$11A982` / `$106FC2`).
                 aircraft_.state &= ~flag::crashed;
+                ++pilot_.crashes;
+                if (mode_ == FlightMode::mission) mission_result_ = 4;
                 flying_ = false;
                 sounds_.stop_all();
                 sounds_.noise(0x3F, 0x78);
@@ -1612,11 +1366,11 @@ private:
         // `$13AA80`); then the others' "near" bit (+3 bit 0) is cleared
         // ($116BE4: it lasts the frame of the touch that set it).
         if (mode_ != FlightMode::demo && (ticks_ & 0xF) == 3) trigger_areas();
-        for (auto& o : objects_) o.craft.motion &= ~0x0001;
+        others_.clear_near();
         // $1183E2: the distance to the locked record, before the move.
         {
             const Aircraft* locked = nullptr;
-            for (const auto& o : objects_) {
+            for (const auto& o : others_.objects()) {
                 if (radar_.locked() > 0 && o.record == radar_.locked()) locked = &o.craft;
             }
             object_step_.measure_player(aircraft_, player_distance_, locked);
@@ -1663,7 +1417,7 @@ private:
             // The missiles home on the radar's lock; each touches after its
             // move ($11B6A2) and goes when it hits ($11AA70).
             const Aircraft* locked = nullptr;
-            for (const auto& o : objects_) {
+            for (const auto& o : others_.objects()) {
                 if (radar_.locked() > 0 && o.record == radar_.locked()) locked = &o.craft;
             }
             std::array<std::optional<std::array<std::int32_t, 3>>, 3> from;
@@ -1685,16 +1439,13 @@ private:
         }
         weapons_.move_shots(aircraft_, outside_, std::uint16_t(ticks_), sounds_, [&](Shot& shot) {
             int hits = 0;
-            const bool hit = shot_hits_.test(shot, objects_, hits, {aircraft_.x, aircraft_.y, aircraft_.z});
+            const bool hit = shot_hits_.test(shot, others_.objects(), hits, {aircraft_.x, aircraft_.y, aircraft_.z});
             pilot_.cannon_hits = std::uint16_t(pilot_.cannon_hits + hits);
             return hit;
         });
         lead_point();
         if (mode_ == FlightMode::practice) lead_tick();
-        if (outcome_wait_ == 0) {
-            objects_tick();
-            pod_tick();
-        }
+        objects_tick();
         radar_tick();
         if (events.took_off) airborne_ = true;
         mission_tick();
@@ -1705,13 +1456,17 @@ private:
 
     // The bodies that touch: the player's aircraft (group 0) and the
     // practice's lead (record 4, group 4).
-    std::vector<Body> bodies() {
+    std::vector<Body> player_bodies() {
         std::vector<Body> b{{&aircraft_, 0, true}};
         for (auto& m : weapons_.missiles()) {
             if (m) b.push_back({&m->body, 0, true}); // (records 1-3, the player's group)
         }
         if (mode_ == FlightMode::practice) b.push_back({&leader_, 4, lead_active_});
-        for (auto& o : objects_) b.push_back({&o.craft, o.group, o.active()});
+        return b;
+    }
+    std::vector<Body> bodies() {
+        auto b = player_bodies();
+        for (auto& o : others_.objects()) b.push_back({&o.craft, o.group, o.active()});
         return b;
     }
 
@@ -2484,19 +2239,11 @@ private:
     bool replay_ended_ = false;
     Autopilot autopilot_{assets_.program, tables_};
     ObjectLists lists_{assets_.program};
-    std::vector<WorldObject> objects_;  // the object lists' records (the carrier among them)
     ObjectStep object_step_{assets_.program, tables_, lists_};
-    std::uint32_t list_start_ = 0;      // `$13AA2A`
+    ObjectWorld others_{tables_, lists_, object_step_, autopilot_}; // the records beside the player's
     std::int8_t level_ = 0;             // `$13AB97` (the demo: 0)
     Radar radar_;
     ShotHits shot_hits_{assets_.program, tables_};
-    int destroyed_ = 0;                 // `$13AB9B`: the list's aircraft destroyed
-    int aircraft_limit_ = 0;            // `$13AB9A`
-    int aircraft_count_ = 0;            // `$13AB99`: aircraft spawned that count towards it
-    TriggerAreas areas_{lists_};
-    int escort_ = 0;                    // `$13AA72`: mission 5's frames beside the stolen aircraft
-    int outcome_wait_ = 0;              // `$13AA9E` as the outcome's countdown
-    std::optional<WorldObject> pod_;    // mission 6's rescue pod (`$13ABB2`)
     std::int16_t player_distance_ = 0;  // the player's +$4A (`$1183E2`)
     bool radar_outside_ = false;
     int radar_look_ = 0;
@@ -2514,7 +2261,7 @@ private:
     bool reposition_ = false;           // the player's +2 bit 3 (Return)
     bool brief_ = false;                // the qualification's briefing comes (`$13AB1B` clear)
     int mission_ = 0;                   // `$13AB96` of a mission (3-8)
-    int mission_result_ = 0;            // `$13AA88`'s course: 0, 1 the objective, 4 landed after it
+    int mission_result_ = 0;            // `$13AA88`'s course: 0, 1 the objective, 2 failed, 4 landed after it or crashed
     int briefing_part_ = 0;             // a mission's briefing: 1 the first text, 2 the orders
     bool airborne_ = false;             // +$21 bit 0 (hypothesis: flown since the start)
     std::array<bool, 3> f_was_{};       // F1, F3, F5 held last frame
