@@ -710,8 +710,10 @@ public:
         layout.push_back({"throttle", "THROTTLE", Kind::slider, .89f, .30f, .09f, .62f, throttle});
         layout.back().displayed_value = throttle;
         layout.push_back({"gear", "GEAR", Kind::button, .75f, .76f, .12f, .16f});
+        layout.back().icon = platform::ControlIcon::landing_gear;
         // The cockpit / outside camera (keypad Enter).
         layout.push_back({"view", "VIEW", Kind::button, .75f, .56f, .12f, .16f});
+        layout.back().icon = platform::ControlIcon::camera;
         return layout;
     }
     void set_option(std::size_t index, int value) override {

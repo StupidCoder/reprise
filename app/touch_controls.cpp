@@ -1,5 +1,6 @@
 #include "app/touch_controls.hpp"
 #include "ui/shelf.hpp"
+#include "ui/control_icons.hpp"
 #include <SDL3/SDL.h>
 #include <cmath>
 #include <map>
@@ -9,7 +10,12 @@ struct TouchPainter::Cache {
     using Key = std::tuple<std::string,int,int>;
     SDL_Renderer* renderer{};
     std::map<Key,SDL_Texture*> labels;
-    void clear() { for (auto& [key,t]:labels) SDL_DestroyTexture(t); labels.clear(); }
+    std::map<std::pair<platform::ControlIcon,int>,SDL_Texture*> icons;
+    void clear() {
+        for (auto& [key,t]:labels) SDL_DestroyTexture(t);
+        for (auto& [key,t]:icons) SDL_DestroyTexture(t);
+        labels.clear(); icons.clear();
+    }
     ~Cache() { clear(); }
 };
 TouchPainter::TouchPainter() : cache_(std::make_unique<Cache>()) {}
@@ -44,7 +50,28 @@ void TouchPainter::draw(const platform::TouchDeck& deck, const platform::GpuFram
                 SDL_FRect knob{b.x,y-3,b.width,6}; SDL_RenderFillRect(r,&knob);
             }
         }
-        if(!c.label.empty()) {
+        const bool has_icon=c.kind==platform::TouchControl::Kind::button && c.icon!=platform::ControlIcon::none;
+        if (has_icon) {
+            const int size=std::max(1,int(std::lround(std::min(b.width,b.height)*.58f)));
+            const auto key=std::pair{c.icon,size};
+            if (!cache_->icons.contains(key)) {
+                if (cache_->icons.size()>=64) cache_->clear();
+                const auto tile=ui::control_icon(c.icon,size);
+                auto* texture=SDL_CreateTexture(r,SDL_PIXELFORMAT_RGBA32,SDL_TEXTUREACCESS_STATIC,size,size);
+                if (texture) {
+                    SDL_UpdateTexture(texture,nullptr,tile.pixels.data(),size*int(sizeof(platform::Color)));
+                    SDL_SetTextureBlendMode(texture,SDL_BLENDMODE_BLEND);
+                    SDL_SetTextureScaleMode(texture,SDL_SCALEMODE_LINEAR);
+                }
+                cache_->icons.emplace(key,texture);
+            }
+            if (auto* texture=cache_->icons.at(key)) {
+                SDL_SetTextureAlphaMod(texture,v.held?245:195);
+                SDL_FRect at{std::round(cx-float(size)/2),std::round(cy-float(size)/2),float(size),float(size)};
+                SDL_RenderTexture(r,texture,nullptr,&at);
+            }
+        }
+        if(!has_icon && !c.label.empty()) {
             // Small native-resolution text tiles, never a full-screen CPU overlay.
             const int size=std::max(12,int(std::min(frame.width,frame.height)*.024f));
             const int width=std::max(1,int(b.width));

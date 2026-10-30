@@ -55,8 +55,9 @@ Use `GameInput::touch_controls` by ID:
 - Slider `y` is [0,1], bottom to top, and stays where released. Apply it when
   `changed` is true; don't overwrite game state with an untouched default.
   Optional `displayed_value` feeds saved/keyboard/gamepad state back to the
-  slider without generating input or interrupting a drag. Keep `initial` and
-  layout geometry stable during a drag.
+  slider without generating input or interrupting a drag. `initial` is sampled
+  only when a new layout is created; changing it does not reset active fingers.
+  Keep layout geometry stable during a drag.
 - Buttons have `held`, `pressed` and `released`. Use held for continuous fire,
   pressed for weapon cycling or gear toggles. A tap between simulation ticks
   retains both edges. Edges are consumed once, not repeated on catch-up ticks.
@@ -107,3 +108,20 @@ rotate both landscape ways; pause and resume while holding controls; attach and
 remove a controller; save/load with a nonzero throttle; restart with persisted
 scheme settings; test with and without VHS on CPU and GPU rendering. Confirm
 all actions remain reachable around cutouts and that no touch also clicks the game.
+
+## Shared button icons
+
+Set a button's `icon` to `platform::ControlIcon::landing_gear` or
+`platform::ControlIcon::camera`; `none` keeps the text label. Keep a meaningful
+`label` as the textual fallback. The action ID and hit area are unchanged:
+
+```cpp
+layout.push_back({"view", "VIEW", Kind::button, .75f,.56f,.12f,.16f});
+layout.back().icon = platform::ControlIcon::camera;
+```
+
+The shared artwork lives in `shared/ui/control_icons.hpp`. It is original line
+art rendered with antialiased edges at the requested output resolution, cached
+by the SDL touch painter, and drawn after game screen filters. Other framework
+UI can use `ui::control_icon(icon, pixel_size, color)` directly. Add reusable
+symbols here rather than drawing game-specific copies.

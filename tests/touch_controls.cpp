@@ -19,6 +19,20 @@ int main() {
     deck.event({TouchEvent::Kind::down,3,900,300});
     auto v=deck.consume(); check(near(v[0].x,1) && near(v[1].y,.75f) && v[2].pressed && v[2].held);
     check(!deck.consume()[2].pressed);
+    // Interceptor reports its changing engine throttle as both initial and feedback.
+    // These are values, not layout changes: preserve every finger throughout the ramp.
+    for (int step=0;step<40;++step) {
+        layout[1].initial=float(step)/40;
+        layout[1].displayed_value=layout[1].initial;
+        deck.configure(layout,{10,20,1000,500},true);
+        v=deck.consume();
+        check(v[0].held && near(v[0].x,1) && v[1].held && near(v[1].y,.75f) && v[2].held);
+        check(!v[0].released && !v[1].released && !v[2].released && !v[2].pressed);
+        deck.event({TouchEvent::Kind::move,2,600,146});
+        v=deck.consume(); check(v[1].held && v[1].changed && near(v[1].y,.748f));
+        deck.event({TouchEvent::Kind::move,2,600,145});
+        check(near(deck.consume()[1].y,.75f));
+    }
     // A second finger cannot steal the stick; a captured finger can move outside its box.
     deck.event({TouchEvent::Kind::down,4,120,200});
     deck.event({TouchEvent::Kind::move,4,300,200}); check(near(deck.consume()[0].x,1));

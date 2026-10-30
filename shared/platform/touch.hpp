@@ -1,4 +1,5 @@
 #pragma once
+#include "platform/control_icon.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -23,9 +24,11 @@ struct TouchControl {
     float initial{}; // slider only: 0 bottom, 1 top; sampled on a new layout
     float dead_zone{.12f};
     std::optional<float> displayed_value; // optional game-owned slider feedback; ignored during a drag
+    ControlIcon icon{ControlIcon::none}; // label remains a textual fallback
+    // Initial values seed a new layout; changing them must not release active fingers.
     bool operator==(const TouchControl& other) const {
-        return std::tie(id,label,kind,x,y,width,height,initial,dead_zone)==
-               std::tie(other.id,other.label,other.kind,other.x,other.y,other.width,other.height,other.initial,other.dead_zone);
+        return std::tie(id,label,kind,x,y,width,height,dead_zone,icon)==
+               std::tie(other.id,other.label,other.kind,other.x,other.y,other.width,other.height,other.dead_zone,other.icon);
     }
 };
 struct TouchValue {
