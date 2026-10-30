@@ -34,6 +34,26 @@ def is_system(path):
     return path.startswith(('/usr/lib/', '/System/Library/'))
 
 
+def resolve_library(binary, name):
+    """Resolve a Mach-O install name using the executable's embedded search paths."""
+    def expand(path):
+        for token in ('@loader_path', '@executable_path'):
+            if path == token or path.startswith(token + '/'):
+                return binary.parent / path[len(token):].lstrip('/')
+        return Path(path)
+
+    if name.startswith('@rpath/'):
+        paths = re.findall(r'cmd LC_RPATH\s+cmdsize \d+\s+path (.*?) \(offset \d+\)',
+                           run('otool', '-l', binary))
+        candidates = [expand(path) / name[len('@rpath/'):] for path in paths]
+    else:
+        candidates = [expand(name)]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    raise RuntimeError(f'Cannot resolve {name} for {binary}; searched {candidates}')
+
+
 with tempfile.TemporaryDirectory(prefix='package-', dir=root / 'build') as temp:
     bundle = Path(temp) / destination.name
     contents = bundle / 'Contents'
@@ -59,12 +79,12 @@ with tempfile.TemporaryDirectory(prefix='package-', dir=root / 'build') as temp:
     # Bundle SDL (the only non-system library) and point the executable at it.
     external = [p for p in linked_libraries(executable) if not is_system(p)]
     assert len(external) == 1 and Path(external[0]).name == 'libSDL3.0.dylib', external
-    sdl = Path(external[0])
+    sdl = resolve_library(root / 'build' / 'reprise', external[0])
     bundled_sdl = contents / 'Frameworks' / sdl.name
     shutil.copy2(sdl, bundled_sdl)
     bundled_sdl.chmod(bundled_sdl.stat().st_mode | stat.S_IWUSR)
     shutil.copy2(sdl.parent.parent / 'LICENSE.txt', contents / 'Resources/licenses/SDL.txt')
-    run('install_name_tool', '-change', sdl, '@executable_path/../Frameworks/' + sdl.name,
+    run('install_name_tool', '-change', external[0], '@executable_path/../Frameworks/' + sdl.name,
         executable)
     run('install_name_tool', '-id', '@rpath/' + sdl.name, bundled_sdl)
 
