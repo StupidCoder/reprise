@@ -24,7 +24,10 @@ An auto-player run reaches the staff roll in one go.
 
 ## Remaining tasks
 
-1. **Save write error screen** (`0200b590`): not reconstructed.
+1. **Save write error screen** (done 2026-10-30, `0200b590`): shown when the
+   save file cannot be written; checked by forcing a failing path in the
+   research runner, not compared with the ROM (a failing card write cannot
+   be made in the harness without patching it).
 2. **Compare with the ROM**: the save screen, the trunk's own pages and the
    staff roll were ported from the code only. Capture them from a ROM run and
    compare.

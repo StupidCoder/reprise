@@ -85,15 +85,43 @@ const SaveImage& Story::saves() {
     return *saves_;
 }
 
-void Story::storeGame(int slot) {
+bool Story::storeGame(int slot) {
     saves();
     saves_->store(slot, state);
     state.slot = std::int8_t(slot);
-    if (!saveFile.empty()) {
-        std::filesystem::create_directories(saveFile.parent_path());
-        const auto& bytes = saves_->bytes();
-        std::ofstream out(saveFile, std::ios::binary);
-        out.write(reinterpret_cast<const char*>(bytes.data()), std::streamsize(bytes.size()));
+    if (saveFile.empty()) {
+        return true;
+    }
+    std::error_code error;
+    std::filesystem::create_directories(saveFile.parent_path(), error);
+    const auto& bytes = saves_->bytes();
+    std::ofstream out(saveFile, std::ios::binary);
+    out.write(reinterpret_cast<const char*>(bytes.data()), std::streamsize(bytes.size()));
+    out.close();
+    return !error && out.good();
+}
+
+void Story::saveWriteError() {
+    // 0200b590: effect 4 and the music out over 30 frames, both screens to
+    // black, the text gone, then save_writeerror on the lower screen fading
+    // in (0200fb90) and, 30 VBlanks later, nothing more: the game waits for
+    // a reset.
+    if (sound) {
+        sound->effect(4);
+        sound->stopMusicSoftly();
+    }
+    fadeOut(kit, Screens::Both, 1);
+    kit.clearText(SceneKit::Lower);
+    kit.clearText(SceneKit::Upper);
+    kit.lowerOverlay.clear();
+    kit.clearSubmissions(); // the save screen's sprites go with the menu
+    kit.lowerBackground = kit.localized("?/save_writeerror");
+    kit.lowerTint = {};
+    fadeIn(kit, Screens::Lower, 1);
+    stall(0x1e);
+    for (;;) {
+        poll();
+        present();
     }
 }
 

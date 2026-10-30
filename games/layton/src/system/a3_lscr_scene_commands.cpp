@@ -421,6 +421,14 @@ void installScene(Scene& scene) {
         }
         return Result::Next;
     });
+    m.command(2030, [sc](Call& c) { // 0210bc00: the screens swapped {out}
+        put(c, 0, Value::of(sc->swapped ? 1 : 0));
+        return Result::Next;
+    });
+    m.command(2031, [sc](Call& c) { // 0210bc4c (0205a864): swap the screens {on}
+        sc->swapped = c.integer(0) != 0;
+        return Result::Next;
+    });
     m.command(2010, [sc](Call& c) { // 0210b7ec (0205375c): both screens' brightness {level}
         for (auto& b : sc->brightness) {
             b.set({fixed(c, 0)});

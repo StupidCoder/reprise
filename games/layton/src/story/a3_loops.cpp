@@ -4,6 +4,7 @@
 #include "minigames/a3_car.hpp"
 #include "minigames/a3_parrot.hpp"
 #include "sound/a3_sound.hpp"
+#include "story/a3_menus.hpp"
 #include "story/a3_name_entry.hpp"
 #include "story/a3_talk.hpp"
 #include "video/movie.hpp"
@@ -644,7 +645,16 @@ std::unique_ptr<Loop> makeStoryLoop(Story& story, const std::string& name, const
     if (name == "MOVIE") {
         return std::make_unique<MovieLoop>(story, args);
     }
-    return nullptr;
+    if (name == "MENU_NAZOBEE" || name == "MENU_NAZORINE") {
+        // 020eb77c / 020eb7d8: Granny Riddleton's shack and her cat - one
+        // script loop program; the factory overwrites the last two
+        // arguments, (0, 0) for the shack and (1, 0) for the cat.
+        LoopArgs a = args;
+        a[2] = name == "MENU_NAZORINE" ? 1 : 0;
+        a[3] = 0;
+        return std::make_unique<ScriptLoop>(story, name, a, "evt/prg/lt3_menu_nazoba.cbin");
+    }
+    return makeMenuLoop(story, name, args);
 }
 
 } // namespace picarat::adventure3

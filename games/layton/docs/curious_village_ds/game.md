@@ -276,6 +276,13 @@ background. The music starts after 0x78 calls. Then `staff_gfx`, 300 waits,
 "the end" until a touch after 0x78 frames, and event 0x156 saves the cleared
 game.
 
+**Save write error** (`0200b590`): after a save (`0201abec`) the card's
+error flag (+6) is checked; when set, effect 4, the music out over 30 frames,
+both screens to black, the text cleared, `?/save_writeerror` on the lower
+screen fading in, 30 VBlanks, then the program stops (an endless loop: the
+player must switch off). Both callers are the save screen (from an event and
+from the trunk). The port shows it when the save file cannot be written.
+
 
 ## 6 Trunk pages and minigames
 

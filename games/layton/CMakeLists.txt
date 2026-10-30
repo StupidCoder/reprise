@@ -189,6 +189,7 @@ add_library(picarat_core
     src/story/a3_story.cpp
     src/story/a3_story_commands.cpp
     src/story/a3_loops.cpp
+    src/story/a3_menus.cpp
     src/story/a3_name_entry.cpp
     src/story/a3_saves.cpp
     src/minigames/a3_book.cpp

@@ -4,7 +4,7 @@ What remains for a complete re-implementation of the third adventure
 (`C3JD`), and the known bugs and differences. How the game works:
 [game.md](game.md). Detailed notes: `.analysis/adventure3/docs/`.
 
-## Where it stands (2026-10-29)
+## Where it stands (2026-10-30)
 
 Playable from the logos to the end credits:
 
@@ -12,22 +12,27 @@ Playable from the logos to the end credits:
   reconstructed LSCR machine;
 - name entry, the bag, the three save slots and the mystery menu;
 - the parrot, toy car and picture book minigames;
+- the bag's puzzle index, Granny Riddleton's shack and every bonus page;
 - movies, voices, music and sound effects.
 
 An automatic player walks the story from a new game to the credits without
 stand-ins. Conveniences in place: music player, theatre, puzzle mode,
-minigame free play, skipping, checkpoints, touch-area help. None of the
-missing loops below is needed to finish the story.
+minigame free play, skipping, checkpoints, touch-area help.
 
 ## Remaining tasks
 
-1. **Loops not reconstructed yet**: the parrot's story event
-   MINI_PARROT_EVENT (ov24), the puzzle index MENU_NAZOBEE / MENU_NAZORINE,
-   the dictionary MENU_JITEN (ov18), the secrets SCRT_* and the Wi-Fi menus
-   WIFI_*. The research runner can skip them; the app must not need to.
-   In the app, opening one now stops the game ("loop … is not
-   reconstructed yet", a3_story.cpp `Story::create`): the first thing to
-   close for a story with no open issues (2026-10-30).
+1. **Menu loops** (done 2026-10-30): the bag's puzzle index MENU_JITEN,
+   Granny Riddleton's shack MENU_NAZOBEE / MENU_NAZORINE and the bonus
+   pages SCRT_CHARA / VOICE / MOVIE / IMAGE / SOUND / ROOM run on their
+   programs with the classes' commands (`story/a3_menus.*`). Open in them:
+   - the screen swap (2031) ends when the page's loop does (**hypothesis**:
+     the ROM's way back to 0 was not found);
+   - "any object moving" (`020B0BF8`, used by the music page) is read as a
+     position or offset tween (**hypothesis**);
+   - none of these pages was compared with a ROM capture.
+   MINI_PARROT_EVENT stays unbuilt on purpose: nothing in this version
+   reaches it and its data is not on the cartridge (game.md, section 5). The
+   Wi-Fi menus WIFI_* are out of scope.
 2. **Puzzle index mode**: the hints' free state (bg_hN4) and the "prize" page.
 3. **Wi-Fi puzzles** (169–222): decide how to offer them. 19 have no German
    text; six expect kana that the European code table cannot produce.
@@ -57,6 +62,9 @@ missing loops below is needed to finish the story.
     wanted.
 
 ## Known bugs and differences
+
+- **Secret room password**: made from a fixed Wi-Fi address of the port's
+  own (the console's differs), so it shows `6A4C5F3D` on every machine.
 
 - **Upper-screen pictures** are slightly brighter than on the console (item 6).
 - **Thick ink**: drawn with a square pen.

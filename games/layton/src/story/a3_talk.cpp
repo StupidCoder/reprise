@@ -162,9 +162,11 @@ bool TalkWindow::onStep(lscr::Scene& scene, lscr::Object& message, const Message
         }
         return true;
     case MessageStep::Jingle:
-        // 020d07b4: an ordinary stream (hypothesis); </J#> waits for it.
+        // 020d07b4: an ordinary stream (hypothesis); </J#> waits for it
+        // while it opens or plays (020c3f50: 0205f4e4, 0205f4f8) - not for
+        // the music, which may go on under the line.
         if (s.closing) {
-            return !(snd && (snd->musicPlaying() || snd->streamPlaying()));
+            return !(snd && (snd->streamOpening() || snd->streamPlaying()));
         }
         if (snd) {
             snd->openStream(Adventure3Sound::Ordinary, s.a);

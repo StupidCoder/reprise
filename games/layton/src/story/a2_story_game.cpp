@@ -461,6 +461,7 @@ Surface StoryGame::render() {
                                 e.animation, e.x, 192 + e.y);
             }
         }
+        drawBottles(image);
         const auto& pos = assets_.sprite("map/movemode.arc").variables.at("pos");
         drawSprite(image, "map/movemode.arc", moveMode_ ? "on" : "off", pos[0], 192 + pos[1]);
         {
@@ -582,7 +583,27 @@ Surface StoryGame::render() {
     for (std::size_t i = 0; i < listLines_.size(); ++i) {
         textLines(image, font, listLines_[i], 0x19, 192 + 0x11 + 0x16 * int(i), 16);
     }
-    if (!prizeText_.empty()) {
+    if (!prizeText_.empty() && bottleWindow_) {
+        // ov7 020f3910: system/prize_window.spr "window" at (0x14, 0x38), the
+        // text centred on x 0x80 from y 0x44 (02072d80).
+        drawSprite(image, "system/prize_window.arc", "window", 0x14, 192 + 0x38);
+        int y = 192 + 0x44;
+        std::size_t p = 0;
+        while (p <= prizeText_.size()) {
+            auto e = prizeText_.find('\n', p);
+            if (e == std::string::npos) {
+                e = prizeText_.size();
+            }
+            const auto line = prizeText_.substr(p, e - p);
+            int width = 0;
+            for (unsigned char c : line) {
+                width += textAdvance(font, c) + 1;
+            }
+            textLines(image, font, line, 0x80 - (width >> 1), y, 16);
+            y += 16;
+            p = e + 1;
+        }
+    } else if (!prizeText_.empty()) {
         // ov8 prize window: system/prize_window2.spr at its pos, the icon
         // centered at y 0x38, text centered on x 0x80 at y 100 (02072f18).
         const auto& w = assets_.sprite("system/prize_window2.arc").variables.at("pos");
@@ -2471,6 +2492,7 @@ void StoryGame::enterRoom() {
     }
     roomVisible_ = true;
     moveMode_ = false;
+    setUpBottles();
     selectedExit_ = -1;
     objectText_.clear();
 }
@@ -2502,6 +2524,10 @@ bool StoryGame::roomScene() {
         }
         if (roomTouchObjects()) {
             continue;
+        }
+        // ov7 020f2318: the hut's bottles (place 63).
+        if (roomBottles()) {
+            break;
         }
         // ov7 movemode.spr button (0x4fc) opens the exit selection (020f2948).
         if (touch_.released && Rect{228, 158, 28, 34}.contains(touch_.x, touch_.y)) {
@@ -2568,6 +2594,216 @@ void StoryGame::takePhoto() {
         state_.photo = photo[0];
         state_.progress.setPhotoTaken(photo[0], true);
     }
+}
+
+// --- Place 63: Granny Riddleton's hut ----------------------------------------------
+
+namespace {
+// 020f30b4..020f3140: the eight bottles' places on the floor.
+constexpr std::array<std::array<int, 2>, 8> kBottlePlaces{{{0x39, 0x48},
+                                                           {0x61, 0x3d},
+                                                           {0x88, 0x47},
+                                                           {0xb0, 0x41},
+                                                           {0x2a, 0x81},
+                                                           {0x5b, 0x7a},
+                                                           {0x8c, 0x86},
+                                                           {0xbd, 0x7d}}};
+constexpr int kHutPlace = 0x3f;
+} // namespace
+
+void StoryGame::setUpBottles() {
+    // 020f3050: only in the hut. The puzzles 1..153 handed to Granny
+    // Riddleton (bit 6, 02083dc8) and not solved; at most eight stand as
+    // bottles, each of a colour at random; the list is shuffled.
+    bottles_.clear();
+    bottlePuzzles_.clear();
+    bottleFirst_ = 0;
+    bottleAlpha_ = 31;
+    bottleInput_ = true;
+    bottleSmoke_ = false;
+    bottleWindow_ = false;
+    bottleTurnShown_ = false;
+    if (state_.progress.place() != kHutPlace) {
+        return;
+    }
+    std::vector<int> found;
+    for (int n = 1; n <= 0x99; ++n) {
+        const bool handedOver = state_.progress.puzzleByte(std::uint32_t(n - 1)) & 0x40;
+        if (handedOver && state_.puzzleStatus(n) != 2) {
+            found.push_back(n);
+        }
+    }
+    if (found.empty()) {
+        return;
+    }
+    bottleTurnShown_ = found.size() > 8;
+    // 020f33a8: nazoba_btn at (12, 5), sound 0xd2.
+    bottleTurn_ = Button({12, 5, 34, 40}, 0xd2);
+    for (std::size_t i = 0; i < std::min<std::size_t>(found.size(), 8); ++i) {
+        Bottle b;
+        b.x = kBottlePlaces[i][0];
+        b.y = kBottlePlaces[i][1];
+        b.button = Button({b.x, b.y, 0x19, 0x32}, -1); // +8 / +0xc: 25 x 50
+        b.colour = int(gameRandom(randomState_) % 5) + 1;
+        bottles_.push_back(b);
+    }
+    // 020f34cc: each place in turn takes one of the puzzles left at random.
+    while (!found.empty()) {
+        const std::size_t k = gameRandom(randomState_) % found.size();
+        bottlePuzzles_.push_back(found[k]);
+        found.erase(found.begin() + std::ptrdiff_t(k));
+    }
+    if (auto s = sound()) {
+        s->bgmVolume(1.0f, float(duration(1000)) / 60.0f); // 020f3528
+    }
+}
+
+void StoryGame::drawBottles(Surface& image) {
+    // 020f358c: the turn button, then each bottle with its puzzle's number
+    // in three digits above it (020f369c: system_num, 6 pixels apart).
+    if (bottles_.empty()) {
+        return;
+    }
+    if (bottleTurnShown_) {
+        const char* a = bottleTurn_.state == Button::State::Clicked ? "click"
+                        : bottleTurn_.state == Button::State::Armed && bottleTurn_.inside ? "on"
+                                                                                           : "off";
+        drawSprite(image, "map/ge/nazoba_btn.arc", a, 12, 192 + 5);
+    }
+    if (bottleAlpha_ == 0) {
+        return;
+    }
+    const auto& bottle = assets_.sprite("map/nazoba_bottle.arc");
+    const auto& digits = assets_.sprite("system/system_num.arc");
+    auto draw = [&](const Sprite& s, const std::string& animation, int x, int y) {
+        const auto& steps = s.animations.at(s.animationNames.at(animation));
+        if (!steps.empty()) {
+            actorBlit(image, s.images.at(steps[0].image), x, 192 + y, false, bottleAlpha_);
+        }
+    };
+    const int count = int(bottlePuzzles_.size());
+    for (std::size_t i = 0; i < bottles_.size(); ++i) {
+        const Bottle& b = bottles_[i];
+        draw(bottle, number(b.colour), b.x, b.y);
+        int n = bottlePuzzles_[std::size_t((bottleFirst_ + int(i)) % count)];
+        for (int k = 0, x = b.x + 15; k < 3; ++k, x -= 6) {
+            draw(digits, number(n % 10), x, b.y - 11);
+            n /= 10;
+        }
+    }
+    if (bottleSmoke_) {
+        // 020f3880: the smoke over each bottle (x - 5, y + 1).
+        const auto& smoke = assets_.sprite("map/nazoba_kemuri.arc");
+        for (const Bottle& b : bottles_) {
+            const auto& steps = smoke.animations.at(1);
+            if (steps.empty()) {
+                continue;
+            }
+            // The animation's steps by their durations from the turn's start.
+            std::size_t step = 0;
+            for (int t = smokeTick_, guard = 0; guard < 64; ++guard) {
+                const auto d = int(std::max<std::uint32_t>(steps[step].duration, 1));
+                if (t < d || steps[step].next >= steps.size()) {
+                    break;
+                }
+                t -= d;
+                step = steps[step].next;
+            }
+            blit(image, smoke.images.at(steps[step].image), b.x - 5, 192 + b.y + 1);
+        }
+    }
+}
+
+void StoryGame::turnBottles() {
+    // 020f3764: the next ones (two on, wrapping) behind 40 frames of smoke:
+    // at frame 10 the bottles change colour (SE 0xd3); from frame 6 they
+    // fade in.
+    if (bottlePuzzles_.size() <= 8) {
+        return;
+    }
+    bottleAlpha_ = 0;
+    bottleInput_ = false;
+    bottleFirst_ += 2;
+    if (bottleFirst_ >= int(bottlePuzzles_.size())) {
+        bottleFirst_ -= int(bottlePuzzles_.size());
+    }
+    bottleSmoke_ = true;
+    for (int f = 0; f < 40; ++f) {
+        if (f == 10) {
+            for (Bottle& b : bottles_) {
+                b.colour = int(gameRandom(randomState_) % 5) + 1;
+            }
+            if (auto s = sound()) {
+                s->playEffect(0xd3);
+            }
+        }
+        if (bottleAlpha_ < 31 && f > 5) {
+            ++bottleAlpha_;
+        }
+        smokeTick_ = f;
+        frame();
+    }
+    bottleSmoke_ = false;
+    bottleAlpha_ = 31;
+    bottleInput_ = true;
+}
+
+bool StoryGame::askBottle(int index) {
+    // 020f3910: "Solve puzzle No. %.3d?" with its title (tx 300) in the
+    // prize window, yes or no. The German text's %.3d receives the ROM's
+    // digit string, so the console shows a stack address there (a
+    // localisation bug, seen in the reference harness); the port shows the
+    // number, as the shack's menu does.
+    bottleInput_ = false;
+    frame();
+    const int puzzle =
+        bottlePuzzles_[std::size_t((bottleFirst_ + index) % int(bottlePuzzles_.size()))];
+    const auto info = state_.puzzleByNumber(puzzle);
+    std::string text = loadText("tx_300.txt");
+    if (auto p = text.find("%.3d"); p != std::string::npos) {
+        text.replace(p, 4, number(puzzle, 3));
+    }
+    if (auto p = text.find("%s"); p != std::string::npos) {
+        text.replace(p, 2, info ? text_.expand(info->title) : std::string());
+    }
+    prizeText_ = text;
+    bottleWindow_ = true;
+    const bool yes = yesNo();
+    bottleWindow_ = false;
+    if (yes) {
+        state_.following = scene::Room;
+        if (info) {
+            state_.loadPuzzle(info->internal);
+        }
+        state_.scene = scene::Puzzle;
+        return true;
+    }
+    bottleInput_ = true;
+    return false;
+}
+
+bool StoryGame::roomBottles() {
+    // 020f2318: in the hut, the turn button, then the bottles; a bottle
+    // shows the exclamation (020f2c48 with event 29999) and asks.
+    if (bottles_.empty() || !bottleInput_) {
+        return false;
+    }
+    if (bottleTurnShown_) {
+        bottleTurn_.update(touch_);
+        if (bottleTurn_.consumeClick()) {
+            turnBottles();
+            return false;
+        }
+    }
+    for (std::size_t i = 0; i < bottles_.size(); ++i) {
+        Bottle& b = bottles_[i];
+        b.button.update(touch_);
+        if (b.button.consumeClick()) {
+            spotSound(29999);
+            return askBottle(int(i));
+        }
+    }
+    return false;
 }
 
 bool StoryGame::puzzleEventSolved(unsigned event) {

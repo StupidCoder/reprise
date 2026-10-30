@@ -71,7 +71,8 @@ lscr::Value Story::codeName(std::uint32_t address, int overlay) const {
         {6, 0x020a7980},  {12, 0x0211f6e0}, {13, 0x0211dae0}, {14, 0x0211dae0}, {15, 0x0211dae0},
         {16, 0x0211e0a0}, {33, 0x0211dae0}, {35, 0x0211dae0}, {9, 0x02103fe0},  {24, 0x0211dae0},
         {25, 0x0211dae0}, {26, 0x0211dae0}, {19, 0x0211dae0}, {20, 0x0211dae0}, {21, 0x0211f060},
-        {22, 0x0211f060}, {23, 0x0211f060}};
+        {22, 0x0211f060}, {23, 0x0211f060}, {18, 0x0211df00}, {27, 0x0211df00}, {28, 0x0211df00},
+        {29, 0x0211df00}, {30, 0x0211df00}, {31, 0x0211df00}, {32, 0x0211df00}};
     return lscr::Value::ofText(assets.codeText(overlay, kLoads.at(overlay), address));
 }
 

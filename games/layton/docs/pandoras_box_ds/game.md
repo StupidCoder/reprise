@@ -423,6 +423,19 @@ and returns to the title.
 six per page. After a solved shack puzzle event 18000 plays; with a completed
 game and all 138 solved, 18480.
 
+**Hut** (place 63, ov7 `020F3050..020F3C88`, reached by exits from places
+17, 22 and 62): the room shows the shack's puzzles (bit 6, `02083DC8`, and
+not solved; numbers 1..153) as bottles on the floor, eight at most, at fixed
+places, each `map/nazoba_bottle` in one of five colours at random, with its
+number in three `system_num` digits above (x + 15, 6 pixels apart, y − 11).
+The list is shuffled on entry (`020F34CC`). With more than eight, the
+`nazoba_btn` button at (12, 5) turns them (`020F3764`): smoke over every
+bottle for 40 frames, new colours at frame 10 (SE 0xD3), the list moved on by
+two, the bottles fading in from frame 6. A tapped bottle runs the spot
+routine with event 29999 (exclamation, SE 0x6F, SY 0xD), then asks in
+`system/prize_window` "window" at (0x14, 0x38) with tx 300 and yes/no
+(`020F3910`); yes starts the puzzle (scene 10, following scene 1).
+
 **Bonus section** (ov23, ov11, ov24):
 
 - Scene 28 menu: Wi-Fi, index, challenges, extras.
@@ -541,6 +554,8 @@ notes). Subtitles come from the movie scripts.
 - **Bonus extras**: a 3D button partly off screen draws garbled.
 - **Mono streams**: all 293 metered voices are mono. A stereo one would write
   its second channel into the music object.
+- **Hut prompt**: tx 300's German format reads "%.3d" but the code passes
+  its fullwidth digit string, so the number shown is the string's address.
 - **Load lag**: card reads make the DS skip frames (photo album, staff roll,
   bag pages). Waits gated on audio therefore end a few frames earlier on the
   console.

@@ -23,8 +23,12 @@ skipping, checkpoints and touch-area help.
 
 ## Remaining tasks
 
-1. **Place 63, the room with puzzle bottles** (ov7 `020F3050`, G43): not
-   reconstructed. It is reached only when a script puts the player there.
+1. **Place 63, Granny Riddleton's hut** (done 2026-10-30, ov7
+   `020F3050..020F3C88`): reached by ordinary exits from places 17, 22 and 62.
+   Open in it: the bottles' fade during a turn uses the 3D blend
+   (**hypothesis**; they are 2D sprites); the exclamation over a tapped bottle
+   is not drawn (as for all puzzle spots, item 3); the turn button and smoke
+   were not compared with the ROM (the reference run had six bottles).
 2. **First-touch overlay** (command 0x92, ov7 `020F0218..020F0268`, G02):
    recover the flag's lifetime, the sprite (`map/%s/firsttouch.spr`), its
    dismissal and input gating.
@@ -63,6 +67,12 @@ skipping, checkpoints and touch-area help.
     generator and its seed.
 
 ## Known bugs and differences
+
+- **Hut prompt**: the German "Rätsel Nr. %.3d lösen?" is given a pointer to
+  the digit string, so the console shows a stack address (41825528 in the
+  reference run); the port shows the puzzle's number, as the shack menu does.
+- **Hut bottles**: their order and colours come from the port's random
+  numbers (G12), so they differ from a console's.
 
 - **3D renderer**: a clean-room rewrite from hardware documentation, not
   pixel-identical. Edge pixels and blending can differ: hamster message

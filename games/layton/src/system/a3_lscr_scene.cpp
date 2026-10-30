@@ -884,14 +884,14 @@ void Scene::dispatchInput() {
     // (ROM captures of the puzzle memo; the pad's own layer order is not
     // recovered, hypothesis).
     for (Object* o : order_) {
-        if (o->kind == Object::Kind::Canvas && o->memo && o->screen == Screen::Lower &&
+        if (o->kind == Object::Kind::Canvas && o->memo && o->screen == touchScreen() &&
             o->moves()) {
             memoInput(*o, available);
         }
     }
     for (auto it = order_.rbegin(); it != order_.rend(); ++it) {
         Object& o = **it;
-        if (o.screen != Screen::Lower || !o.moves()) {
+        if (o.screen != touchScreen() || !o.moves()) {
             continue;
         }
         if (o.kind == Object::Kind::Button && o.style != Object::Style::Script) {
@@ -2159,7 +2159,7 @@ Surface Scene::render() const {
         // a 15-frame fade from black shows level -15).
         const int level = (brightness[s].value[0] * 16) >> 12;
         applyBrightness(screen, level, level);
-        const int top = s == int(Screen::Upper) ? 0 : 192;
+        const int top = (s == int(Screen::Upper)) != swapped ? 0 : 192;
         std::copy(screen.pixels.begin(), screen.pixels.end(), out.pixels.begin() + top * 256);
     }
     return out;

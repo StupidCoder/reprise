@@ -123,8 +123,11 @@ public:
     // backup (02024538).
     std::filesystem::path saveFile;
     const SaveImage& saves();
-    // 0201a8e8: the game into slot n, written out at once.
-    void storeGame(int slot);
+    // 0201a8e8: the game into slot n, written out at once. False when the
+    // backup could not be written (the card's error flag, +6).
+    bool storeGame(int slot);
+    // 0200b590: the save write error - the screen and the game stops.
+    [[noreturn]] void saveWriteError();
     // The bonus section's saves (0201a8e8 into the loaded slot, scene 3).
     void saveBonusProgress();
     // 0201aadc: slot n into the state; false when it does not hold a game.

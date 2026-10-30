@@ -180,6 +180,29 @@ private:
     Button cameraButton_; // ov7 +0x504 camera_icon.spr
     bool roomPhoto_ = false, cameraVisible_ = false; // ov7 +0x52e / +0x52f (020f08e4)
     void takePhoto();                                // ov7 020f2118 camera branch and 020f3c8c
+    // Place 63, Granny Riddleton's hut (ov7 020f3050 .. 020f3c88): the
+    // puzzles handed to her and not solved stand on the floor as bottles,
+    // eight at most; a button turns to the next ones; a bottle asks whether
+    // to solve its puzzle.
+    struct Bottle {
+        int x = 0, y = 0, colour = 1; // +0x7dc / +0x7fc; nazoba_bottle "1".."5"
+        Button button;                // +0x540
+    };
+    std::vector<int> bottlePuzzles_; // +0x56c: numbers, shuffled
+    std::vector<Bottle> bottles_;
+    int bottleFirst_ = 0;   // +0x7d4: the puzzle of the first bottle
+    int bottleAlpha_ = 31;  // +0x81c
+    bool bottleInput_ = true; // +0x820
+    bool bottleSmoke_ = false; // the turn's smoke (+0x568 nazoba_kemuri)
+    int smokeTick_ = 0;        // frames since the smoke started
+    bool bottleTurnShown_ = false;
+    Button bottleTurn_;     // +0x560 nazoba_btn (more than eight)
+    bool bottleWindow_ = false; // +0x534 prize_window "window" with its text
+    void setUpBottles();        // 020f3050
+    bool roomBottles();         // 020f2318 .. 020f2438
+    void turnBottles();         // 020f3764
+    bool askBottle(int index);  // 020f3910
+    void drawBottles(Surface& image); // 020f358c / 020f369c
     // Native notice for a bag destination that is not reconstructed yet.
     void unavailable(const std::string& what);
     bool yesNo();                      // native yes/no window (0x7b adapter)

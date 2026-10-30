@@ -211,8 +211,8 @@ bool SaveScreen::run() {
                     break;
                 }
             }
-            // 0201abec rereads the backup's header; a write error would
-            // show save_writeerror.bgx and stop the game (0200b590).
+            // 0201abec writes the backup; a write error shows
+            // save_writeerror.bgx and stops the game (0200b590).
             if (sound) {
                 sound->moveMusicVolume(0, 0x14);
             }
@@ -231,8 +231,11 @@ bool SaveScreen::run() {
             if (from == From::Trunk) {
                 story.state.scene = scene::Room;
             }
-            story.storeGame(n);
+            const bool written = story.storeGame(n);
             story.state.scene = scene;
+            if (!written) {
+                story.saveWriteError();
+            }
             saved = true;
             kit.lowerOverlay.clear(); // 02009650
             story.poll();

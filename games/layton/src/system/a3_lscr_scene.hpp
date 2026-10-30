@@ -400,6 +400,13 @@ public:
 
     // Input for the objects off (020f3788: a solved puzzle stops play).
     bool inputBlocked = false;
+    // 2031: the screens swapped (the display manager's +0x14, 0205a864:
+    // POWCNT1 bit 15) - the lower screen's objects show on the upper screen
+    // and the upper screen's take the pen. A new scene starts unswapped
+    // (hypothesis: the ROM's way back to 0 was not found; only two pages set
+    // it, each when it starts).
+    bool swapped = false;
+    Screen touchScreen() const { return swapped ? Screen::Upper : Screen::Lower; }
     // Walls around an object: the id-4 touch areas of every other shown
     // object, mirrored and turned with it, in pixels (020b3444).
     std::vector<std::array<int, 4>> wallsAround(const Object& o) const;

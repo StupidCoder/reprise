@@ -255,9 +255,10 @@ resources loaded, +0xEC update, +0xF8 / +0x100 draw lower / upper.
 | MINI_PARROT_* | parrot menu, game and event |
 | MINI_CAR_* | toy car |
 | MINI_BOOK | picture book |
-| MENU_NAZOBEE / MENU_NAZORINE | puzzle index |
-| MENU_JITEN | dictionary |
-| SCRT_* / WIFI_* | secrets, Wi-Fi |
+| MENU_NAZOBEE / MENU_NAZORINE | Granny Riddleton's shack (script loop) |
+| MENU_JITEN | the bag's puzzle index (ov18) |
+| SCRT_* | the bonus menu's pages (ov27..32) |
+| WIFI_* | Wi-Fi |
 | STAFF_ROLL | a script loop |
 
 **Story conditions** (tree `02103FE0`): 1850..1859 compare the story phase,
@@ -280,6 +281,51 @@ until the movie's stream ends (about 7.7 minutes). Then:
 - 75290;
 - 75350, saving in the power room;
 - the title.
+
+**Menu loops** (factory `020EB5A4`, which also overwrites some request
+arguments; the loops' tables are constants in their overlays, read from the
+ROM's code):
+
+- **MENU_NAZOBEE / MENU_NAZORINE**: one script loop program,
+  `lt3_menu_nazoba`; the factory sets the last two arguments to (0, 0) for
+  the shack and (1, 0) for its cat.
+- **MENU_JITEN** (`lt3CLoopMenuJiten`, ov18, `lt3_menu_jiten`): the puzzle
+  index. Lists (ワーク[4]): every puzzle found (`020E68F4`) or the marked
+  ones (`020E691C`); both are rebuilt over slots 0..167 (`020E6810`). 1280
+  {index, out} an entry; 1282/1283/1285 a row / five rows from the top (mark
+  `face_on`/`face_off`, solved `o`/`x`, number = slot + 1; places 21 pixels
+  apart from y 40); 1286 the cursor on the last puzzle picked in this list;
+  1284 {count, top} the list's titles as one message moved up 21 pixels a row
+  (built the next frame, ワーク[2] busy meanwhile); 1287 the scroll knob
+  (travel ワーク[13]) and its touch box (height ワーク[14]).
+- **SCRT_CHARA** (ov27): twenty buttons a page; picking a character fades
+  the shown one out (5 frames), places the new one on `EV_右側_中` (layer 2)
+  and fades it in (9 frames), with number, name plate and profile; picking the
+  shown one again plays another of its animations at random. Its program
+  swaps the screens first (2031).
+- **SCRT_VOICE** (ov28): 35 lines, each a `str/nrm` stream or an event voice
+  {group, event, line}, with the speaker's balloon and portrait.
+- **SCRT_MOVIE** (ov29): 37 buttons; 1282 maps a button to its movie (the
+  20th button is movie 37). The factory sets the last argument to 1.
+- **SCRT_IMAGE** (ov30): twenty pictures (`img/ebgNNN`) loaded to the upper
+  screen, with number, title and text.
+- **SCRT_SOUND** (ov31): 26 pieces on two pages, each a sequenced piece or a
+  `str/bgm` stream; a piece starts 30 frames after the click (SE 680).
+- **SCRT_ROOM** (ov32): writes the hidden room's password: eight characters
+  from the console's Wi-Fi address (firmware `027FFCF4`) and the salt 0x4B55,
+  digits `0`..`8` (mod 9) at even places and letters `A`..`G` (mod 7) at odd
+  ones (`0211E00C`) - the generator of Pandora's Box (`0206BA48`), whose
+  unlock code this is.
+- **MINI_PARROT_EVENT** (ov24): a word-message screen for the parrot. Only
+  events 90_100001..100012 open it, and they are not in the event table
+  (`lt3_evt` lists the rope-delivery events 90_100500.. instead); its data,
+  `rc/mode/?/lt3_mini_parrot` with rows 4140..4201, is not on this
+  cartridge. Unreachable in this version.
+
+**Screen swap.** Command 2031 {on} sets the display manager's +0x14
+(`0205A864`), which writes POWCNT1 bit 15: the lower screen's engine shows on
+the upper screen and the other way round. 2030 reads it. Only the character
+page and the parrot event set it.
 
 **Text tables.** Command 3321 binary-searches the id in the table's index. A
 fifth operand picks a row within the id's rows; tables keep several rows per
@@ -416,6 +462,9 @@ cartridge layout).
   code table cannot produce, so they cannot be solved in this version.
 - A refused name showed only its window (whose text is part of the picture);
   the port briefly drew another message over it.
+- A talk line's closing jingle tag `</J>` waits only for the jingle's
+  stream (opening or playing, `020C3F50`); the port also waited for the
+  music, so a jingle line spoken over music never ended (event 14010).
 
 
 ## 11 Research tools and checks
