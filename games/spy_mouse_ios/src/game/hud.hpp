@@ -24,8 +24,9 @@ class Hud {
 public:
     enum Item { kTrail = 0, kScore = 1, kBonus = 2, kItems = 3 };
 
-    // SceneGame::initHUD @0xfd0ac: the pills start 54 above their place, the bonus panel one
-    // panel width to the right, and stay there (they come in when the intro ends).
+    // SceneGame::initHUD @0xfd0ac: the pills start 30 above their place (the score pill 26 to
+    // the right), the bonus panel one panel width to the right, and stay there (they come in
+    // when the intro ends).
     void init(float bonusPanelWidth);
 
     // SceneGame::updateHUD @0xfe3ac (item timers and easing) and the counters of

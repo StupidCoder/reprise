@@ -51,6 +51,20 @@ bool Profile::fromText(const std::string& text) {
             for (int& n : cheese) ss >> n;
             continue;
         }
+        if (first == "powerups") {
+            // (Kinds come from the program. The active flags belong to the attempt being played,
+            // kept for quick saves; a new attempt clears them.)
+            int met = 0, done = 0;
+            ss >> met >> done >> sincePowerupUse;
+            metDigger = met != 0;
+            powerupTutorialDone = done != 0;
+            for (PowerupRecord& r : powerups) {
+                int active = 0;
+                ss >> r.count >> r.bought >> r.used >> active;
+                r.active = active != 0;
+            }
+            continue;
+        }
         if (first == "kiska") {
             int owned = 0, here = 0, later = 0;
             ss >> owned >> here >> later >> kiska.lastShown >> kiska.step >> kiska.shown;
@@ -99,6 +113,9 @@ std::string Profile::toText() const {
     out << "cheese";
     for (int n : cheese) out << ' ' << n;
     out << '\n';
+    out << "powerups " << metDigger << ' ' << powerupTutorialDone << ' ' << sincePowerupUse;
+    for (const PowerupRecord& r : powerups) out << ' ' << r.count << ' ' << r.bought << ' ' << r.used << ' ' << r.active;
+    out << '\n';
     for (const auto& [uid, r] : levels_)
         out << uid << ' ' << r.best << ' ' << r.goals[0] << ' ' << r.goals[1] << ' ' << r.goals[2] << ' ' << r.plays
             << ' ' << r.completed << ' ' << r.unlocked << ' ' << r.fresh << '\n';
@@ -118,6 +135,37 @@ void Profile::keepProgressOf(const Profile& other) {
     for (std::size_t k = 0; k < cheese.size(); ++k) cheese[k] = std::max(cheese[k], other.cheese[k]);
     for (std::size_t i = 0; i < dossiers.size(); ++i) dossiers[i] = dossiers[i] || other.dossiers[i];
     if (other.kiska.shown > kiska.shown || other.kiska.lastShown > kiska.lastShown) kiska = other.kiska;
+    // The stock follows the newer profile (its cheese was spent there); which power-ups are on
+    // belongs to the restored attempt.
+    for (std::size_t t = 0; t < powerups.size(); ++t) {
+        const bool active = powerups[t].active;
+        powerups[t] = other.powerups[t];
+        powerups[t].active = active;
+    }
+    metDigger = metDigger || other.metDigger;
+    powerupTutorialDone = powerupTutorialDone || other.powerupTutorialDone;
+}
+
+void Profile::usePowerup(Powerup t) {
+    PowerupRecord& r = powerup(t);
+    if (r.kind > 1 || (r.count < 1 && r.count != -1)) return;
+    if (r.kind == 1) {
+        if (r.active) return;
+        r.active = true;
+    }
+    ++r.used;
+    if (r.count != -1) --r.count;
+}
+
+void Profile::purchasePowerup(Powerup t, int n) {
+    PowerupRecord& r = powerup(t);
+    if (r.kind > 1) return;
+    if (n == -1) {
+        r.count = -1;
+        return;
+    }
+    r.count += n;
+    r.bought += n;
 }
 
 LevelRecord Profile::record(int uid) const {

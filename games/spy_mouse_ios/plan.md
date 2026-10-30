@@ -37,8 +37,11 @@ Fluffy, henchman pictures), the droid's render-driven body frame, no automatic K
 - [ ] `l26_win` 5650: the 1.0.5 script's release at (20, 45) lands on 1.1.1's power-up button;
       the original opens the power-up bar with Digger's introduction (the game pauses from
       5651). Needs section 1a (or a moved release to keep the old plan).
-- [ ] `l11_hud`: the HUD watches (`hudA`/`hudB`) still use 1.0.5 offsets, and 1.1.1's HUD
-      items sit elsewhere (x 30 for the power-up button); re-derive with section 1a's HUD.
+- [x] `l11_hud` (2026-10-30): the HUD watch read SceneGame +0xc4 (a wrong guess; the HUD fields
+      stay at +0xb8 in 1.1.1) and the score watch 1.0.5's spacing (1.1.1 Player +0x670 shown,
+      +0x674 last score, +0x6a0 exit bonus); re-recorded. The port now has 1.1.1's offsets (pills
+      out by 30, the score pill 26 right) and updates the HUD items last in the tick
+      (`updatePaused`).
 - [ ] World-map runs (`map_walk`, `w2_enter`, `w2_back2`) compare nothing since the move
       (found 2026-10-29): `mapcmp.py` still opens 1.0.5's app and evidence, and the 1.1.1
       recording of `map_walk` never reaches the map (its screenshots show level 1-1). In 1.1.1
@@ -46,7 +49,7 @@ Fluffy, henchman pictures), the droid's render-driven body frame, no automatic K
       @0x15c0c4 passes it to `Player::update`) and the update first reads +0x158e0 (1.0.5's
       state was +0x152a0; that this is the state is a hypothesis). Re-record the map runs on
       1.1.1 (how its front end reaches the map), then point `mapcmp.py` at them.
-- [ ] Sound on 1.1.1: `soundall.sh` still compares the 1.0.5 runs (`soundcmp.py` takes
+- [ ] Sound on 1.1.1 (next after section 1a, by the user's order of 2026-10-30): `soundall.sh` still compares the 1.0.5 runs (`soundcmp.py` takes
       `REF_VER=111` since 2026-10-30). Spot checks of 1.1.1 runs: every slot run's level start
       lacks the map's stops and a `ui_wobble` at +9 frames; `l4s_win` lacks 1.1.1's new
       `cat_purr_end`, `l48_win` the twine's `cat_purr_loop`/`cat_string` at 3158. Run all
@@ -74,7 +77,16 @@ power-up tutorial (`setPowerupTutorialState` @0xf73ec, texts 0x6a8–0x6b1, layo
 `powerups_intro_tutorial`, reminder `digger_store_reminder`). The in-level HUD lacks the button
 and the shifted pills today. Kiska is now a power-up: the level skip opens only from the bar.
 
-- [ ] HUD: power-up button and the 1.1.1 pill positions; the bar, its buttons and info card.
+- [x] HUD (2026-10-30): the power-up button at (1,2), the pause button at (455,1), the trail
+      pill after the score pill, the hand name 3 right (run x_pu1 pixel-compared; the empty slot's
+      ring is drawn 1 pixel higher than the original's, a half-pixel placement).
+- [x] Profile power-up records, Digger and tutorial flags, kept in the progress file.
+- [ ] The bar (slide frame, scroll list, counts, "Get More"), the info card, Digger's tutorial
+      (states 0–6, `.analysis/docs/powerups.md`); then `l26_win` (Digger's introduction).
+- [ ] The 1.1.1 pause menu (Digger, the Shop button with the cheese balance, settings and help
+      buttons, the resume button where the pause button was).
+- [ ] Map decorations (bushes) near the top of level 1-2 sit 2–3 pixels off the original's
+      (x_pu1, frame 2390); not checked elsewhere yet.
 - [ ] Each power-up's effect in play (`ObjControllerPowerup`, `Player`), from the code.
 - [ ] The store scene, prices, the cheese balance; buying cheese with money is online and not
       ported (show what the offline game shows).

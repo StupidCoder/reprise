@@ -5,11 +5,15 @@
 namespace doc::game {
 
 void Hud::init(float bonusPanelWidth) {
-    items[kTrail].out = {0.0f, 54.0f};
-    items[kScore].out = {0.0f, 54.0f};
+    // (1.1.1: the score pill sits 26 to the right of the power-up button; both pills hide 30
+    // above their place. 1.0.5 used 54 and no shift.)
+    items[kTrail].out = {0.0f, 30.0f};
+    items[kScore].out = {26.0f, 30.0f};
     items[kBonus].out = {bonusPanelWidth, 0.0f};
+    items[kTrail].in = {};
+    items[kScore].in = {26.0f, 0.0f};
+    items[kBonus].in = {};
     for (HudItem& item : items) {
-        item.in = {};
         item.position = item.out;
         item.target = item.out;  // hidden until the intro ends (SceneGame::hideHudItems after initHUD)
         item.timerMs = 0;

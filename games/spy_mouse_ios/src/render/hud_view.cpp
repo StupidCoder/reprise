@@ -139,7 +139,7 @@ void LevelView::drawHud(const game::Session& session) {
     const bool pills = mode != "infinite" && mode != "boss";
     const platform::Texture* left = texture("hud/hud_elem_left.png");
     if (!left || !pills) {
-        drawPauseButton(session);
+        drawHudButtons(session);
         return;
     }
     const float leftW = float(left->width()), leftH = float(left->height());
@@ -175,7 +175,9 @@ void LevelView::drawHud(const game::Session& session) {
     const platform::Texture* cheese = texture("hud/hud_cheese.png");
     const float slot = cheese ? float(cheese->height()) : 19.0f;  // frames are square (Sprite +0x94)
     const float midW = float(session.strength()) * slot + -14.0f;
-    const game::Vec2 base{90.0f, kScreenH - leftH + p0.y};
+    // (It follows the score pill: its x is the score item's plus the score pill's width,
+    // renderHUD @0xfd234; 90 with 1.0.5's offsets, 116 with 1.1.1's.)
+    const game::Vec2 base{p1.x + 50.0f + 2.0f * leftW, kScreenH - leftH + p0.y};
     hudPill(base.x, base.y, midW, hud.handWidth, alpha);
     // The slots start half a slot into the pill, 7 back (renderHUD @0xfdeec); the multiplier
     // and texts use the pill's own measures.
@@ -190,7 +192,7 @@ void LevelView::drawHud(const game::Session& session) {
         hudText(text, base.x + midW + 2.0f * leftW + 2.0f, slotsStart.y, sx, sy, {1, 1, 1, alpha * textAlpha});
     }
     if (hud.handBounce > 0.0f && !hud.exitBonus && strings_)
-        hudPopupText(strings_->text(trailScoreNameId(hud.hand)), base.x + midW + 2.0f * leftW + hud.handWidth + 5.0f,
+        hudPopupText(strings_->text(trailScoreNameId(hud.hand)), base.x + midW + 2.0f * leftW + hud.handWidth + 3.0f,  // (1.0.5: 5)
                      base.y + leftH * 0.5f, hud.handBounce);
 
     if (g.lastScoreShowMs >= 1) {
@@ -231,16 +233,22 @@ void LevelView::drawHud(const game::Session& session) {
         }
     }
 
-    drawPauseButton(session);
+    drawHudButtons(session);
 }
 
-// The pause button (a GUI item; the game scene's layout is not decoded yet: placed at the
-// top-right as observed).
-void LevelView::drawPauseButton(const game::Session& session) {
+// The level's GUI buttons (SceneGame::initGuiElements @0xf9172): the pause button at the top
+// right, 1 in from the corner (item 0), and the power-up button at the top left, 1 in and one
+// below the pause button's top (item 1). Both are drawn after the dimming; the power-up button
+// stays when the pause button fades in the home hole (runs x_pu1, l4h1_win, l11_pause).
+void LevelView::drawHudButtons(const game::Session& session) {
     const game::Hud& hud = session.hud();
-    if (const platform::Texture* paws = texture("hud/hud_paws.png"); paws && hud.pauseAlpha > 0.0f && !hud.pauseHidden)
-        hudRect(*paws, kScreenW - float(paws->width()), kScreenH - float(paws->height()), float(paws->width()),
-                float(paws->height()), hud.pauseAlpha);
+    const platform::Texture* paws = texture("hud/hud_paws.png");
+    if (paws && hud.pauseAlpha > 0.0f && !hud.pauseHidden)
+        hudRect(*paws, kScreenW - float(paws->width()) - 1.0f, kScreenH - float(paws->height()) - 1.0f,
+                float(paws->width()), float(paws->height()), hud.pauseAlpha);
+    if (const platform::Texture* powerup = texture("hud/hud_powerup.png"); powerup && paws)
+        hudRect(*powerup, 1.0f, kScreenH - float(paws->height()) - 2.0f, float(powerup->width()),
+                float(powerup->height()), 1.0f);
 }
 
 }  // namespace doc::render

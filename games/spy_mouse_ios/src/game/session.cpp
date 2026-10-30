@@ -3404,7 +3404,7 @@ void Session::step(int dtMs) {
     // Scene::update @0x103ae0: the game's clock (SceneGame +8) moves on here, before the
     // objects' update (world 4's henchman sways by it, run lbf4_clock).
     gameTimeMs_ += dtMs;
-    hud_.update(dtMs);
+    hud_.updateCounters(dtMs);
     progress_.bannerMs = progress_.bannerMs < 1 ? 0 : progress_.bannerMs - dtMs;
     // The wait after the boss cat has seen the mouse (SceneGame +0x13890, @0x103b3e).
     {
@@ -3419,7 +3419,11 @@ void Session::step(int dtMs) {
     finger_.began = false;
     if (!finger_.held) finger_.active = false;
     updatePrediction();
-    updateDim(dtMs, false);  // updatePaused, last in SceneGame::update
+    // SceneGame::updatePaused @0xff028, last in SceneGame::update (1.1.1): the HUD's items
+    // (updateHUD), then the dimming. (1.0.5 updated the HUD before the objects; run l11_hud:
+    // the win's retract timer is counted in the tick that sets it.)
+    hud_.updateItems(dtMs);
+    updateDim(dtMs, false);
     ++ticks_;
 }
 

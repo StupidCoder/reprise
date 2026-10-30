@@ -817,7 +817,9 @@ int sessionReplay(const data::GameFiles& files, const std::map<int, PlayerDump>&
                 diff.i((n + "frame").c_str(), q.anim.frame(), pi(0x1c + 0x64));
             }
         }
-        // HUD state (SceneGame +0x136a0.., +0xb8.., Player +0x4d0..), when the run watched it.
+        // HUD state (SceneGame +0x137a4.., +0xb8.., Player +0x650..), when the run watched it.
+        // (1.1.1: Player +0x670 shown score, +0x674 last score (scoreCheese @0x12131c), +0x6a0
+        // exit bonus.)
         if (const auto* a = lookup("hudA", frame)) {
             const game::Hud& h = owner->hud();
             diff.f("hud.handBounce", h.handBounce, at<float>(*a, 0x10));
@@ -832,9 +834,9 @@ int sessionReplay(const data::GameFiles& files, const std::map<int, PlayerDump>&
                     diff.i("hud.item.timer", h.items[k].timerMs, at<int>(*b, 0x60 + 4 * k));
                 }
             if (const auto* p = lookup("pscore", frame)) {
-                diff.f("hud.shownScore", h.shownScore, at<float>(*p, 0x14));
-                diff.i("hud.lastScore", owner->progress().lastScore, at<int>(*p, 0x18));
-                diff.i("hud.exitBonus", h.exitBonus, (*p)[0x40]);
+                diff.f("hud.shownScore", h.shownScore, at<float>(*p, 0x20));
+                diff.i("hud.lastScore", owner->progress().lastScore, at<int>(*p, 0x24));
+                diff.i("hud.exitBonus", h.exitBonus, (*p)[0x50]);
             }
         }
         if (const auto* b = lookup("levelstate", frame)) {

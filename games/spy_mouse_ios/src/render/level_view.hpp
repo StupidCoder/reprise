@@ -87,7 +87,7 @@ private:
     void drawCheeseStamp(const game::ResultsScreen& results);
     void drawResults(const game::Session& session);
     void drawWorldComplete(const game::Session& session);
-    void drawPauseButton(const game::Session& session);
+    void drawHudButtons(const game::Session& session);
     void drawDroid(const game::Session& session, const game::LevelObject& o, int pass);
     void drawSpeech(const game::Session& session);
     void drawWorldNode(const game::Session& session, const data::GuiNode& node, float parentX, float parentY,

@@ -41,6 +41,22 @@ struct KiskaOffers {
     void io(Io& io) { io(owned, offeredHere, offeredLater, lastShown, step, shown); }
 };
 
+// (1.1.1) The power-ups (Profile +0x120, six records of 0x18 bytes; Profile::getPowerup @0x17124c).
+enum class Powerup : int { Banana = 0, FlourBomb = 1, RollerSkate = 2, Invinciball = 3, Kiska = 4, XRay = 5 };
+constexpr int kPowerupCount = 6;  // Profile::getPowerupCount
+
+struct PowerupRecord {
+    int kind = 0;        // +4: 0 used up on use, 1 on for the rest of the attempt, >= 2 unavailable
+    int count = 0;       // +8: how many are left (-1 unlimited)
+    int bought = 0;      // +0xc
+    int used = 0;        // +0x10
+    bool active = false; // +0x14 (kind 1)
+    bool operator==(const PowerupRecord&) const = default;
+    // Quick saves (state_io.hpp).
+    template <class Io>
+    void io(Io& io) { io(kind, count, bought, used, active); }
+};
+
 class Profile {
 public:
     bool load(const std::filesystem::path& file);
@@ -102,7 +118,41 @@ public:
         return n + cheese[7] - cheese[8];
     }
 
+    // (1.1.1) Power-ups: Profile::Profile @0x17ee3c gives the banana, the flour bomb and Kiska
+    // kind 0 and the roller skate, the Invinciball and the X-ray specs kind 1; reset clears the
+    // counts. The bar lists them X-ray specs first (getPowerupList @0x17254c).
+    std::array<PowerupRecord, kPowerupCount> powerups = defaultPowerups();
+    static constexpr std::array<int, kPowerupCount> kBarOrder{5, 0, 1, 2, 3, 4};
+    PowerupRecord& powerup(Powerup t) { return powerups[std::size_t(t)]; }
+    const PowerupRecord& powerup(Powerup t) const { return powerups[std::size_t(t)]; }
+    // getPowerupAvailable @0x17125c.
+    bool powerupAvailable(Powerup t) const {
+        const PowerupRecord& r = powerup(t);
+        return r.kind < 2 && (r.count > 0 || r.count == -1);
+    }
+    bool powerupActive(Powerup t) const { return powerup(t).active; }
+    // usePowerup @0x1712a0 (its level-state flag and the reminder count are the caller's).
+    void usePowerup(Powerup t);
+    // purchasePowerup @0x17131c (n = -1: unlimited).
+    void purchasePowerup(Powerup t, int n);
+    // turnOffTemporaryPowerups @0x17135c: an attempt ends (SceneGame::startGame, hideScene).
+    void turnOffTemporaryPowerups() {
+        for (PowerupRecord& r : powerups)
+            if (r.kind == 1) r.active = false;
+    }
+    // +8: Digger has introduced himself (the store's introduction); +9: the power-up button's
+    // tutorial has run (set on its first press).
+    bool metDigger = false;
+    bool powerupTutorialDone = false;
+    // +0x2c4: reset by every use (the store reminder counts from it; HYPOTHESIS).
+    int sincePowerupUse = 0;
+
 private:
+    static std::array<PowerupRecord, kPowerupCount> defaultPowerups() {
+        std::array<PowerupRecord, kPowerupCount> r{};
+        r[2].kind = r[3].kind = r[5].kind = 1;
+        return r;
+    }
     std::map<int, LevelRecord> levels_;
 };
 
