@@ -9,7 +9,29 @@ namespace fs = std::filesystem;
 void require(bool value, const char* message) {
     if (!value) throw std::runtime_error(message);
 }
-int main() {
+int main(int argc, char** argv) {
+    if (argc == 2) {
+        // Optional read-only benchmark of existing size-only imports. No catalog,
+        // game constructors, save loading or cache writes are involved.
+        std::vector<app::GameEntry> games;
+        for (const auto& entry : fs::directory_iterator(fs::path(argv[1])/"games")) {
+            const auto path=entry.path()/"release.txt";
+            if (!fs::is_regular_file(path)) continue;
+            const auto bytes=platform::read_file(path);
+            if (std::string(bytes.begin(),bytes.end()).find("\ncheck sizes\n")==std::string::npos) continue;
+            app::GameEntry game; game.id=entry.path().filename().string();
+            game.import=[](auto){return app::ImportResult{};}; games.push_back(std::move(game));
+        }
+        for(auto mode:{app::Library::StartupValidation::full, app::Library::StartupValidation::defer_large_imports}) {
+            const auto start=std::chrono::steady_clock::now();
+            app::Library library(argv[1],games,mode);
+            std::size_t count=0;
+            for(std::size_t i=0;i<games.size();++i) count+=library.installed_files(i).size();
+            std::cout<<(mode==app::Library::StartupValidation::full?"Full scan: ":"Shelf inventory: ")
+                     <<count<<" files, "<<std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count()<<" seconds\n";
+        }
+        return 0;
+    }
     const auto root = fs::temp_directory_path() / ("reprise-validation-" +
         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     try {
@@ -61,6 +83,27 @@ int main() {
         platform::write_text(manifest, description + "size 4 asset.bin\ncheck sizes\n");
         platform::write_file(file, bad);
         require(installed(), "Large-import size-only policy is preserved");
+        // Large imports: startup reads the inventory, then Start/Continue checks
+        // the selected game's files. Default/headless and imports stay strict.
+        platform::write_text(manifest, description + "size 4 asset.bin\nsize 4 other.bin\ncheck sizes\n");
+        fs::remove(file);
+        app::Library deferred(root,{game},app::Library::StartupValidation::defer_large_imports);
+        require(deferred.installed(0),"Large inventory loads without per-file access");
+        require(deferred.installed_files(0).size()==2,"Deferred inventory retains asset names and sizes");
+        require(!deferred.verify(0) && !deferred.installed(0),"Selected missing asset is rejected before play");
+        require(!installed(),"Default validation remains strict");
+        platform::write_file(file,good);
+        app::Library valid(root,{game},app::Library::StartupValidation::defer_large_imports);
+        require(valid.verify(0),"Valid selected large import passes");
+        // Validation, like eager startup, is once per process/session.
+        fs::remove(file);
+        require(valid.verify(0),"Returning to a checked game does not repeat its scan");
+        platform::write_text(file,"longer");
+        app::Library changed(root,{game},app::Library::StartupValidation::defer_large_imports);
+        require(!changed.verify(0),"Next session detects changed large asset size");
+        platform::write_text(manifest,"release malformed\nsize nope asset.bin\ncheck sizes\n");
+        app::Library malformed(root,{game},app::Library::StartupValidation::defer_large_imports);
+        require(!malformed.installed(0),"Malformed inventory is not advertised");
         fs::remove_all(root);
         std::cout << "Library validation cache checks passed\n";
     } catch (const std::exception& e) {

@@ -19,13 +19,19 @@ namespace app {
 
 class Library {
 public:
-    Library(std::filesystem::path data_directory, std::vector<GameEntry> games);
+    enum class StartupValidation { full, defer_large_imports };
+    Library(std::filesystem::path data_directory, std::vector<GameEntry> games,
+            StartupValidation validation = StartupValidation::full);
+    // Interactive startup can read large imports' recorded inventories without
+    // statting every asset. Complete that check before Start/Continue (once per
+    // session). Imports and migration always validate immediately.
+    bool verify(std::size_t game);
 
     const std::filesystem::path& data_directory() const { return root_; }
 
     const std::vector<GameEntry>& games() const { return games_; }
 
-    // Installed and validated against the manifest (unchanged files reuse prior validation).
+    // Available import. Deferred large inventories are validated by verify() before play.
     bool installed(std::size_t game) const { return installs_[game].has_value(); }
     // The recognised release, for an installed game.
     std::string release(std::size_t game) const;
@@ -62,12 +68,13 @@ public:
 private:
     struct Install {
         std::string release;
+        bool needs_verification{};
         std::vector<std::pair<std::string, std::uintmax_t>> files;
     };
 
-    std::optional<Install> check_install(const GameEntry& game) const;
+    std::optional<Install> check_install(const GameEntry& game, bool defer_large = false) const;
     std::optional<Install> check_folder(const std::filesystem::path& folder,
-                                        const std::filesystem::path& cache = {}) const;
+                                        const std::filesystem::path& cache = {}, bool defer_large = false) const;
     void install(const GameEntry& game, const ImportResult& result,
                  const std::filesystem::path& source);
     // Installs files `fill` writes into an empty staging folder (returning their release):

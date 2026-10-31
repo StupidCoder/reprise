@@ -399,3 +399,37 @@ Android ARM64 APK built and passed signature verification; the three packaged
 article files match their sources. Physical Android rendering remains a device
 follow-up. The original-runtime comparisons cited by the articles belong to
 the game agent's recorded research, not new runs claimed by these UI tests.
+
+## Large-import startup checks (2026-10-31)
+
+Found that folder imports marked `check sizes` bypassed the timestamp/checksum
+receipt cache and issued a file-size lookup for every asset on every launch.
+The local six Layton imports contain 183,637 files. Interactive startup now uses
+`Library::StartupValidation::defer_large_imports`: parse their recorded inventory
+for the shelf, then `Library::verify` checks the selected import before either
+Start or Continue. The host displays a responsive loading screen while that
+check runs. Successful validation is reused within the current session, as
+startup validation previously was. Missing/resized files clear availability and
+ask for re-import before constructing a game module. The shelf's availability
+is provisional until that first check; this is deliberately not an integrity
+claim based on directory timestamps. Same-size edits remain outside the existing
+large-import size-only policy; no checksum guarantee was removed.
+
+Small/hash-based imports keep their per-file timestamp/size receipts. Imports,
+migrations, staging verification and noninteractive constructors retain strict
+validation. Large manifests are still read at startup, but their assets are not
+statted. No imported files or saves are changed by the optimization.
+
+Validation in a clean snapshot (committed sources plus this change): built
+reprise, shell_checks and library_cache_checks. Four CTest cases passed:
+library_validation_cache, shell_navigation, shell_motion, import_progress.
+Added checks for deferred inventory, missing/resized assets rejected before play,
+once-per-session verification, malformed manifests and unchanged strict defaults.
+`library_cache_checks <data-root>` optionally benchmarks existing size-only imports
+read-only, without loading games or writing cache receipts.
+
+One desktop measurement on the user's actual 183,637-file library: full scan
+1.8994 seconds; shelf inventory 0.150704 seconds (about 12.6x faster for this
+phase). This is a local measurement, not an Android startup-time claim. The
+Android build and signing completed: build-android/Reprise.apk, 86.3 MiB. A
+physical-device timing remains to be measured.

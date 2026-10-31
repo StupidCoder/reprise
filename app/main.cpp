@@ -163,8 +163,8 @@ int run(const Options& options) {
             auto entries = app::catalog();
             log_startup("catalog loaded");
             phase = 1;
-            app::Library result(data, std::move(entries));
-            log_startup("imports verified");
+            app::Library result(data, std::move(entries), app::Library::StartupValidation::defer_large_imports);
+            log_startup("library inventory loaded");
             phase = 2;
             for (const auto& line : result.adopt_legacy())
                 taken += (taken.empty() ? "" : " ") + line;
@@ -587,6 +587,25 @@ int run(const Options& options) {
         case app::Launcher::Request::continue_game:
             try {
                 playing = launcher.selected();
+                // Verify only the chosen large import. Keep the host responsive
+                // while the worker owns the library; do not draw the launcher or
+                // read its install records until the worker has joined.
+                auto validation = std::async(std::launch::async, [&library, playing] { return library.verify(playing); });
+                bool closing = false;
+                while (validation.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) {
+                    closing |= host.poll().quit;
+                    const auto size = host.canvas_size();
+                    const double scale = 640.0 / std::max(1, std::min(size[0], size[1]));
+                    host.present(app::startup_screen(int(size[0]*scale), int(size[1]*scale),
+                        closing ? "Finishing safely before closing" : "Checking this game's imported files", host.seconds()));
+                    std::this_thread::sleep_for(std::chrono::milliseconds(16));
+                }
+                const bool valid = validation.get();
+                if (closing) return 0;
+                if (!valid) {
+                    launcher.open_details();
+                    throw std::runtime_error("The imported files are missing or changed. Please import this game again.");
+                }
                 auto next =
                     app::with_quick_save(library.games()[playing], library.content_directory(playing));
                 const auto canvas = host.canvas_size();

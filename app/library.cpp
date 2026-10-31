@@ -61,11 +61,17 @@ std::string folder_manifest(const fs::path& folder, const std::string& release, 
 }
 } // namespace
 
-Library::Library(fs::path data_directory, std::vector<GameEntry> games)
+Library::Library(fs::path data_directory, std::vector<GameEntry> games, StartupValidation validation)
     : root_(std::move(data_directory)), games_(std::move(games)) {
     for (const auto& game : games_) {
-        installs_.push_back(check_install(game));
+        installs_.push_back(check_install(game, validation == StartupValidation::defer_large_imports));
     }
+}
+
+bool Library::verify(std::size_t game) {
+    if (installs_.at(game) && installs_[game]->needs_verification)
+        installs_[game] = check_install(games_.at(game));
+    return installs_[game].has_value();
 }
 
 fs::path Library::content_directory(std::size_t game) const {
@@ -82,14 +88,14 @@ std::vector<std::pair<std::string, std::uintmax_t>> Library::installed_files(
                            : std::vector<std::pair<std::string, std::uintmax_t>>{};
 }
 
-std::optional<Library::Install> Library::check_install(const GameEntry& game) const {
+std::optional<Library::Install> Library::check_install(const GameEntry& game, bool defer_large) const {
     if (!game.import && !game.import_into) {
         return std::nullopt;
     }
-    return check_folder(root_ / "games" / game.id, root_ / "validation" / (game.id + ".txt"));
+    return check_folder(root_ / "games" / game.id, root_ / "validation" / (game.id + ".txt"), defer_large);
 }
 
-std::optional<Library::Install> Library::check_folder(const fs::path& folder, const fs::path& cache) const {
+std::optional<Library::Install> Library::check_folder(const fs::path& folder, const fs::path& cache, bool defer_large) const {
     std::error_code error;
     if (!fs::exists(folder / "release.txt", error)) {
         return std::nullopt;
@@ -105,6 +111,10 @@ std::optional<Library::Install> Library::check_folder(const fs::path& folder, co
             sizes_only |= line == "check sizes";
             lines.push_back(line);
         }
+        // Large folder imports already have a verified inventory written during
+        // import. Reading it is enough to show the shelf; do the file-size scan
+        // for the chosen game before play, not for every game at each startup.
+        install.needs_verification = sizes_only && defer_large;
         // The cache is disposable, local to this data directory and outside imported game
         // assets. Read the small manifest every time; changing it invalidates all receipts.
         // Still stat every file: directory timestamps do not track file-content edits.
@@ -155,7 +165,7 @@ std::optional<Library::Install> Library::check_folder(const fs::path& folder, co
                 const auto expected = std::stoull(entry.substr(5, space - 5));
                 const auto name = entry.substr(space + 1);
                 std::error_code error;
-                const auto size = fs::file_size(folder / name, error);
+                const auto size = install.needs_verification ? expected : fs::file_size(folder / name, error);
                 if (error || size != expected) {
                     return std::nullopt;
                 }
