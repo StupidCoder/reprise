@@ -60,8 +60,7 @@ struct Car {
     bool sliding{};
     std::array<std::int16_t, 3> impulse{};       // a knock from the other car, pending
     bool impulse_pending{};
-    std::int16_t impulse_left{};
-    std::array<std::int16_t, 3> knock{};
+    std::array<std::int16_t, 3> knock_taken{};   // this frame's knock, for the opponent's share
     std::uint8_t knock_timer{};
 
     // Controls.

@@ -93,6 +93,7 @@ int main(int argc, char** argv) {
         if (command == "drive" && argc >= 6) {
             auto game = stuntcar::game::start(argv[2]);
             const int frames = std::stoi(argv[3]), every = argc > 6 ? std::stoi(argv[6]) : 10;
+            if (argc > 7 && std::string(argv[7]) == "league") game->set_option(1, 1); // against Jumpin' Jack
             std::vector<int> inputs;
             for (std::string list = argv[4]; !list.empty();) {
                 const auto comma = list.find(',');

@@ -3,11 +3,13 @@
 #include "stunt_car_racer_amiga/data/track.hpp"
 #include "stunt_car_racer_amiga/race/car.hpp"
 #include "stunt_car_racer_amiga/race/contact.hpp"
+#include "stunt_car_racer_amiga/race/opponent.hpp"
 #include "stunt_car_racer_amiga/race/random.hpp"
 #include "stunt_car_racer_amiga/race/smoke.hpp"
 #include "stunt_car_racer_amiga/race/tables.hpp"
 #include <array>
 #include <bitset>
+#include <optional>
 #include <vector>
 
 // A race in progress (game.md, "The race"): the player's car lowered onto the
@@ -95,11 +97,16 @@ struct RaceState {
     std::uint8_t wheel_base = 0xBA;    // the front wheels' rest row; lower when wrecked
     Random random;
     Smoke smoke;
+    bool league{};                     // against an opponent
+    int distance_shown{};              // the dashboard's gap to the opponent (negative: behind)
+    Opponent opponent;
 };
 
 class Race {
   public:
-    Race(const data::Program&, const data::Circuits&, int track, bool super_league = false);
+    // A practice, or a league race against `opponent`.
+    Race(const data::Program&, const data::Circuits&, int track, bool super_league = false,
+         std::optional<Driver> opponent = std::nullopt);
     Race(const Race&) = delete;
     Race& operator=(const Race&) = delete;
 
@@ -110,10 +117,12 @@ class Race {
     const RaceState& state() const { return state_; }
     const data::Track& track() const { return track_; }
     const Tables& tables() const { return tables_; }
+    const OpponentDriver* opponent_driver() const { return driver_ ? &*driver_ : nullptr; }
 
     // Research tools load a captured frame into the race.
     Car& player_for_tools() { return car_; }
     RaceState& state_for_tools() { return state_; }
+    OpponentDriver* opponent_driver_for_tools() { return driver_ ? &*driver_ : nullptr; }
 
   private:
     void spawn(int segment);
@@ -128,6 +137,7 @@ class Race {
     void grow_crack();
     void wreck();
     void place_car();
+    void physics();
 
     const data::Track& track_;
     Tables tables_;
@@ -137,7 +147,7 @@ class Race {
     std::array<std::uint8_t, 16> start_allowed_{}; // by shape kind
     std::array<std::bitset<320>, 8> roof_{};        // the cockpit picture's top rows: drawn pixels
     int lap_segment_{}, halfway_segment_{};
-    bool league_{}; // against an opponent (the practice has none)
+    std::optional<OpponentDriver> driver_;
 };
 
 } // namespace stuntcar::race

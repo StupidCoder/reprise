@@ -41,7 +41,9 @@ Next:
       and the per-segment table built at $1C952 (opponent speeds?); the
       shape description bytes ($1BB7B, $1BBD9, $1BBD4).
 - [ ] The drawbridge animation ($5A794) in the race view.
-- [ ] Race view, remaining: sides in colour 9 while $1BB66 is set; thin
+- [ ] Race view, remaining: the thin dark lines between wall pieces and
+      where the wall colour changes (Little Ramp's start, the wall left of
+      the crane); sides in colour 9 while $1BB66 is set; thin
       stripes on near sides at glancing angles; the thinned far segments
       (check on the tall tracks); facing backwards ($1BC32) once the car
       can turn round; verify Divisions 1–3 circuits (needs league progress
@@ -68,10 +70,14 @@ Next:
       original: a whole-race capture (`physcheck autodrive` finds inputs
       that finish Little Ramp in the port; `harness/racesample.py` needs
       fixing: the original hung after ~160 fed frames).
-- [ ] Race, next: the opponent: its placement ($5A186), driving ($63996,
-      $6076C, $636C0), its lap times and the distance display ($5E12A),
-      and the knocks between the cars ($1BB46); then the league and the
-      menus. Also: the wheels' suspension curve ($5E778, wheel rest row
+- [x] The opponent (`race/opponent.*`): skill and segment speeds at track
+      load, ride, suspension, bumps, speed, steering, the gap, placement,
+      its laps and lap times, the knocks' share; the dashboard distance;
+      checked against `work/league_lr1.bin` (every frame). A "Race" option
+      plays race 3 against Jumpin' Jack.
+- [x] The cars touching ($63CE4) checked: `work/league_touch.bin`.
+- [ ] The league and the menus: drivers, divisions, the season, the
+      Hall of Fame. Also: the wheels' suspension curve ($5E778, wheel rest row
       $1BBDD), pause ($5D9DC), Esc to the menu, the hall-of-fame lap records
       ($5F16C), sounds (engine $5B56C, knocks, scrape, crane).
 - [ ] Captures of the other circuits (jumps, drawbridge, wrecking), of
@@ -81,7 +87,10 @@ Next:
       projection extends naturally), smooth motion up to 120 Hz, higher
       resolution.
 - [ ] Sound effects (engine, impacts).
-- [ ] Keyboard, gamepad and touch controls; quick saves of real state;
+- [x] Touch controls (phones and tablets without a gamepad): left and right
+      bottom left, the accelerator bottom right (it also gives fire while
+      the game waits for it: PRESS FIRE). Not yet tried on a device.
+- [ ] Keyboard and gamepad controls; quick saves of real state;
       VHS/screen filter; cheats (e.g. no damage, practice any track).
 - [ ] Multiplayer / Computer Link: decide scope (serial link has no host).
 - [ ] Load/Save/Replay menu: what it reads and writes on disk (league saves,
@@ -90,7 +99,8 @@ Next:
 
 ## Open bugs
 
-- No opponent in the race yet; the distance box stays blank.
+- The opponent is drawn at its progress step on its segment without the
+  game's handling of reversed pieces ($5A5B6); not yet checked there.
 - The front wheels stay at their rest rows (the suspension curve $5E778 is
   not ported), so a wrecked car's sagging wheels do not show.
 - No sounds.

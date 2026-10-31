@@ -308,8 +308,14 @@ edges into short pieces before projecting, which gives the true picture.
 (turned by the roll); the hills; then the track. The track is walked from
 the car's segment onwards (the one behind too) until a segment ends off the
 side of the view (the last cross-section's x outside 0–255; $660B0), and
-painted from the far end back to the car. Sides (each road edge down to
-height $200, the ground level) are drawn only when seen from outside.
+painted from the far end back to the car, each step's road piece and
+then its sides over it. Sides (each road edge down to height $200, the
+ground level) are drawn only when seen from outside. (Drawing the sides
+first left stair steps where a near wall rises above the road, as on
+Little Ramp's start under the crane: 96.9 % equal pixels before, 98.0 %
+after; the other compared frames are unchanged. The original also draws
+thin dark lines between wall pieces and changes the wall colour at other
+places there; not yet looked at.)
 Segments beyond the first three come from a thinned copy built at track
 load ($65BEC into $7ABDA, pointers per segment at $7AA1A): only
 cross-sections where the left height bends by $A0 or more from its
@@ -665,6 +671,100 @@ only every few seconds, for whole races; checked by `physcheck ...
 samples`) does not work yet: the original hung in the ROM after about
 160 frames, and the start breakpoint was not always reported.
 
+## The opponent's driving (Observed, verified)
+
+League races only ($1CA22 bit 7). The opponent is not a second physics
+car: it rides along the track, and only three wheels bounce on a simple
+suspension. Its routines run in the frame routine after the player's
+placement ($64F68: $63996 ride, $6076C gap, $636C0 steering, $5A186
+place; off the grid only the ride and the place). Driver number $1CA29
+(Jumpin' Jack = 9 in Division 4), habits byte $1ED8A + number (Jumpin'
+Jack: $10, none of the bits below).
+
+**Track load** ($5B1B8, $63A8E, $5B1E0): 256 draws of the generator, then
+the skill: top speed $63CE0 = (draw & mask) + base and curve speed $63CE1
+the same, from the table at $1FE2C by track number (+$20 super league:
+masks at +0 and +$10, bases at +8 and +$18). Then each segment's target
+speed $1C952, from the last segment back: a segment named in the track's
+(segment, value) pairs takes the value (bit 7 set: it and the next three
+found are marked); curves (start table $1F0C2 bit 7) take the curve
+speed and restart the run $A below it; other segments $A more than the
+one after them while that stays below $80 (from $7C). Bit 7 of a segment's
+target: no bumps there and a doubled push. The distance table $1C7E0 is
+32 × the steps of all segments before each; the track length $1CA1E.
+
+**Start** ($5D3C6, $63A58): segment $1BB1D = the car's start segment,
+progress $1BB0C = $0400 (step 4), lane $1BBED = $4C, placed, body heights
+$1BD66.. = road + $68 + a random 0–$7F.
+
+**Ride** ($63996; only once the player's car has been dropped, $1BBC4):
+the suspension ($63EE2: per wheel, compression = road − body + rest ($28,
+$7C on curves), no lower than −$60, spring = compression + Δ × $114/256,
+0..$3FF; on the ground $1BB44 while any spring is loaded; forces (sum +
+5 × own) / 8; drivers with habit bit 2 hop now and then (front settled,
+1 in 16 draws: wheel speed $A0); wheel speeds and heights integrate with
+the 238/256 damping; the rear wheels at most $128 apart, rear and front
+$170, the pair's speeds averaged when held; airborne, it noses down; the
+drawn corners $1BF64.. = body + $50, the front pair split by half the
+rear's tilt), bumps ($5BD1E: on a rough segment, at random against the
+driver's number, it bucks for 16 slow-clock frames: rear wheels and lane
+wobble from the table at $5BE34), the push ($63C04: the car table's bytes
+4/5, less $19 while bucking, none in the air), the target ($63C3C: the
+segment's, capped by the top speed unless marked; over it, the push turns
+to braking; under it after braking, or on a marked segment, double
+push), the speed ($63B08: + push − drag (speed byte × speed>>7, $14 less
+in the slipstream: the player's $1BBC7 and $1BBB8 both set) >> 6; on the
+ground the push also less the speed byte (twice on curves, and $23); plus
+the slope from the road under the rear and front wheels; × 238/256; not
+below 0); then progress += speed × the piece's along gain (× 238/256, in
+1/256 steps with the fraction's carry $1BB3C), wrapping into the next
+segment after the piece's steps.
+
+**Gap** ($6076C): (opponent progress − player progress) / 8 + the two
+segments' distance-table difference = $1BC3E; the shorter way round
+$1BC38, and $1BBB8 bit 7 set when the opponent is behind that way.
+
+**Steering** ($636C0): the player's drag flag $1BBC7 is cleared, then set
+when within $40 and behind it or in its lane ($32); its lane against the
+player's ($1BBA1): within $10 and $32 across, with the player on the road,
+they touch ($63CE4); within $18 it dodges to $20 or $E0 away from the
+player (or, habit bit 3, keeps its lane from $E on when ahead); when
+behind, it passes on the far side; within $32 it follows the player's
+lane (habit bit 1) or passes; within $C8 with habit bit 5 it passes; else
+its own lane ($40, $6E with bit 3; inverted for odd drivers). On a curve
+or before one it takes the middle ($80). The lane moves 9 a frame towards
+the target (or with the bump wobble), within $20..$E0, only on the ground.
+
+**Touching** ($63CE4): if either car is in the air and they are within
+$C0 in height, a vertical knock (($100 − apart) << 4) for up to three
+frames; side by side (lane gap < $2D, distance < 8) a sideways knock ±$800;
+once per touch, a knock along by half the speed difference ± 3; the
+player's springs take (($200 + the knocks) >> 8) damage. The player's
+physics applies the knock ($63E2E) and the opponent takes its share: its
+speed less the knock along, its wheels' speeds less the vertical / 16.
+
+**Place** ($5A186): its rear axle $40 behind its progress (into the
+previous segment if need be); the road under the rear wheels either side
+of its lane (± the half track from $1EF4A by its body roll / 16) and
+under the front half a step on, interpolated as the player's road
+($5C554), / 8. The dashboard distance ($5E12A, every fourth frame):
+(distance + distance/4) / 4, minus when it is behind.
+
+**Laps**: as the player's, with its own lap time (slot 1), its progress
+for the crossing fraction, and its best laps count for the best lap.
+
+**Verification**: `work/league_lr1.bin` (600 frames of race 3 against
+Jumpin' Jack: the drop, the opponent driving away, a lap of its own,
+bumps, lane changes, the player crashing and the crane): with the
+original's skill and segment speeds loaded, the race matches every frame
+in every field, the opponent included (3–231 and 233–599; the capture
+lost two frames at 232). `work/league_lr2.bin` (another skill roll, 318
+frames) matches too. `work/league_touch.bin` (1345 frames: league_lr1's
+opening state written into the original at the first frame, then inputs
+the port found to make the player block the opponent as it laps round,
+`physcheck ... race` with TRIAL/BLOCK): the opponent laps, bumps, dodges
+and touches the player's car at frame 1319; all 1342 frames match.
+
 ## Lesson candidates
 
 - Copylock, and how a cracked image still yields the genuine key.
@@ -724,7 +824,12 @@ samples`) does not work yet: the original hung in the ROM after about
   runs the game module headless and saves race screens (inputs as hex
   bytes, `xx*count` repeats).
 - `harness/racecap.py OUT FRAMES INPUTS` (from the track picture): the whole
-  race loop, a record at every frame start; `work/race_lr1.bin`;
+  race loop, a record at every frame start; `work/race_lr1.bin` (practice),
+  `work/league_lr1.bin`, `league_lr2.bin`, `league_touch.bin` (race 3,
+  Division 4: Division menu, 3, Return, Return, then the script; with
+  `STATE=capture.bin` it first writes that capture's opening state into the
+  original); the checker's `TRIAL=inputs [BLOCK=frames]` plays inputs (and a
+  blocking controller) in the port from a capture's opening state;
   checked by `build/stunt_car_racer_physcheck <content> <capture> <track>
   race [first] [count]`. `stunt_car_racer_physcheck <content> autodrive
   <track> <frames> [gain dead flip sign top]` lets a simple controller drive

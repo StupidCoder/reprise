@@ -52,28 +52,32 @@ struct Sampler {
         lateral = flip(lateral);
     }
 
-    // Bilinear: across each of the two cross-sections, then between them.
     std::int32_t interpolate(std::int16_t near_left, std::int16_t near_right, std::int16_t far_left, std::int16_t far_right) const {
-        const std::int32_t t = lateral;
-        const std::int32_t near = (near_right - near_left) * t + (std::int32_t(near_left) << 8);
-        std::int32_t d = (far_right - far_left) * t + (std::int32_t(far_left) << 8);
-        const auto f = std::uint32_t(low(longitudinal));
-        d -= near;
-        const bool big = (d < 0 ? -d : d) >= 0x8000;
-        if (big) d >>= 3;
-        std::int32_t p;
-        if (std::int16_t(d) < 0) {
-            const auto w = std::uint16_t(-std::int16_t(d));
-            p = -std::int32_t((std::uint32_t(w) * f) & ~0xFFu);
-        } else {
-            p = std::int32_t(std::uint32_t(std::uint16_t(std::int16_t(d))) * f);
-        }
-        if (big) p <<= 3;
-        return (p >> 8) + near;
+        return interpolate_road(near_left, near_right, far_left, far_right, lateral, low(longitudinal));
     }
 };
 
 } // namespace
+
+std::int32_t interpolate_road(std::int16_t near_left, std::int16_t near_right, std::int16_t far_left, std::int16_t far_right,
+                              std::uint8_t lateral, std::uint8_t fraction) {
+    const std::int32_t t = lateral;
+    const std::int32_t near = (near_right - near_left) * t + (std::int32_t(near_left) << 8);
+    std::int32_t d = (far_right - far_left) * t + (std::int32_t(far_left) << 8);
+    const auto f = std::uint32_t(fraction);
+    d -= near;
+    const bool big = (d < 0 ? -d : d) >= 0x8000;
+    if (big) d >>= 3;
+    std::int32_t p;
+    if (std::int16_t(d) < 0) {
+        const auto w = std::uint16_t(-std::int16_t(d));
+        p = -std::int32_t((std::uint32_t(w) * f) & ~0xFFu);
+    } else {
+        p = std::int32_t(std::uint32_t(std::uint16_t(std::int16_t(d))) * f);
+    }
+    if (big) p <<= 3;
+    return (p >> 8) + near;
+}
 
 std::int16_t Piece::point_height(int point) const {
     const int step = point >> 1;

@@ -28,6 +28,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -41,7 +42,9 @@ const Window windows[] = {{0x1B800, 0x1400}, {0x5C6B8, 0x10}, {0x61AD4, 0x8}, {0
 
 const Window race_windows[] = {{0x1B800, 0x1400}, {0x5C6B8, 0x10}, {0x61AD4, 0x8}, {0x6125A, 0x8}, {0x620B6, 0x2},
                                {0x63CE2, 0x2},    {0x63EDE, 0x4},  {0x64AEC, 0x4}, {0x57C3C, 0x2}, {0x5E65A, 0x2},
-                               {0x625A2, 0x6},    {0x662AA, 0x2}};
+                               {0x625A2, 0x6},    {0x662AA, 0x2},  {0x63CE0, 0x2}};
+// Captures taken before the opponent's skill was recorded lack the last window.
+bool old_race_capture = false;
 
 struct Ram {
     const std::uint8_t* bytes;
@@ -49,7 +52,7 @@ struct Ram {
     std::uint8_t u8(std::uint32_t a) const {
         std::size_t at = 0;
         const Window* first = race ? std::begin(race_windows) : std::begin(windows);
-        const Window* last = race ? std::end(race_windows) : std::end(windows);
+        const Window* last = race ? std::end(race_windows) - (old_race_capture ? 1 : 0) : std::end(windows);
         for (const auto* w = first; w != last; ++w) {
             if (a >= w->address && a < w->address + w->length) return bytes[at + a - w->address];
             at += w->length;
@@ -131,14 +134,13 @@ std::vector<Field> fields() {
     word("previous_forward_load", 0x1BD46, &Car::previous_forward_load);
     array_word("impulse", 0x1BD54, &Car::impulse, 3, 2);
     word("heading", 0x1BD5A, &Car::heading); word("speed", 0x1BD5C, &Car::speed);
-    array_word("knock", 0x1BD76, &Car::knock, 3, 2);
     array_word("matrix", 0x1C230, &Car::matrix, 36, 2);
     lng("rest_length", 0x1BCA0, &Car::rest_length);
     byte("impact_frames", 0x1BB56, &Car::impact_frames); byte("damage_tolerance", 0x1BB01, &Car::damage_tolerance);
     byte("damage_window", 0x63CE2, &Car::damage_window); byte("bottomed", 0x1BB7D, &Car::bottomed);
     flag("damaged", 0x1BB54, &Car::damaged, 0x80); word("peak_impact", 0x1BC3A, &Car::peak_impact);
     byte("on_ground", 0x1BB7E, &Car::on_ground); flag("sliding", 0x1BBC1, &Car::sliding, 0x80);
-    flag("impulse_pending", 0x1BB46, &Car::impulse_pending, 0xFF); word("impulse_left", 0x1BBEE, &Car::impulse_left);
+    flag("impulse_pending", 0x1BB46, &Car::impulse_pending, 0xFF);
     byte("knock_timer", 0x63EE0, &Car::knock_timer);
     custom("steer", [](Car& c, const Ram& r) { c.steer = std::int8_t(r.u8(0x1BBC6)); }, [](const Car& c) { return long(std::uint8_t(c.steer)); },
            [](const Ram& r) { return long(r.u8(0x1BBC6)); });
@@ -253,6 +255,83 @@ std::vector<StateField> state_fields() {
                      [=](const Ram& r) { return long(r.u8(0x625A2 + std::uint32_t(i))); },
                      [=](RaceState& s, Car&, long v) { s.random.bytes[b] = std::uint8_t(v); }});
     }
+    // Dust and smoke particles.
+    for (int i = 0; i < 32; ++i) {
+        const auto k = std::size_t(i);
+        const auto o = std::uint32_t(i * 2);
+        const auto part = [&](std::string n, std::uint32_t base, std::int16_t stuntcar::race::Particle::*member) {
+            f.push_back({"smoke" + std::to_string(i) + "." + n,
+                         [=](const RaceState& s, const Car&) { return long(s.smoke.particles[k].*member); },
+                         [=](const Ram& r) { return long(r.w(base + o)); },
+                         [=](RaceState& s, Car&, long v) { s.smoke.particles[k].*member = std::int16_t(v); }});
+        };
+        part("x", 0x1C380, &stuntcar::race::Particle::x);
+        part("y", 0x1C3C0, &stuntcar::race::Particle::y);
+        part("vx", 0x1C400, &stuntcar::race::Particle::vx);
+        part("vy", 0x1C440, &stuntcar::race::Particle::vy);
+    }
+    // The opponent.
+    using stuntcar::race::Opponent;
+    const auto o_word = [&](std::string n, std::uint32_t a, auto member) {
+        f.push_back({"opponent." + n, [=](const RaceState& s, const Car&) { return long(std::int16_t(s.opponent.*member)); },
+                     [=](const Ram& r) { return long(r.w(a)); },
+                     [=](RaceState& s, Car&, long v) { s.opponent.*member = decltype(s.opponent.*member)(v); }});
+    };
+    const auto o_byte = [&](std::string n, std::uint32_t a, auto member) {
+        f.push_back({"opponent." + n, [=](const RaceState& s, const Car&) { return long(std::uint8_t(s.opponent.*member)); },
+                     [=](const Ram& r) { return long(r.u8(a)); },
+                     [=](RaceState& s, Car&, long v) { s.opponent.*member = decltype(s.opponent.*member)(v); }});
+    };
+    const auto o_flag = [&](std::string n, std::uint32_t a, auto member) {
+        f.push_back({"opponent." + n, [=](const RaceState& s, const Car&) { return long(s.opponent.*member); },
+                     [=](const Ram& r) { return long(r.u8(a) >> 7); }, [=](RaceState& s, Car&, long v) { s.opponent.*member = v != 0; }});
+    };
+    const auto o_array = [&](std::string n, std::uint32_t a, auto member, int count, int stride = 2) {
+        for (int i = 0; i < count; ++i) {
+            const auto k = std::size_t(i);
+            const auto at = a + std::uint32_t(i * stride);
+            f.push_back({"opponent." + n + std::to_string(i), [=](const RaceState& s, const Car&) { return long((s.opponent.*member)[k]); },
+                         [=](const Ram& r) { return long(stride == 2 ? r.w(at) : r.u8(at)); },
+                         [=](RaceState& s, Car&, long v) { (s.opponent.*member)[k] = decltype((s.opponent.*member)[k])(v); }});
+        }
+    };
+    f.push_back({"opponent.segment", [](const RaceState& s, const Car&) { return long(s.opponent.segment); },
+                 [](const Ram& r) { return long(r.u8(0x1BB1D)); }, [](RaceState& s, Car&, long v) { s.opponent.segment = int(v); }});
+    f.push_back({"opponent.rear_segment", [](const RaceState& s, const Car&) { return long(s.opponent.rear_segment); },
+                 [](const Ram& r) { return long(r.u8(0x1BB40)); }, [](RaceState& s, Car&, long v) { s.opponent.rear_segment = int(v); }});
+    o_word("progress", 0x1BB0C, &Opponent::progress);
+    o_byte("progress_carry", 0x1BB3C, &Opponent::progress_carry);
+    o_word("speed", 0x1BBEE, &Opponent::speed);
+    o_word("lane", 0x1BBEC, &Opponent::lane);
+    o_byte("target_speed", 0x1BB4A, &Opponent::target_speed);
+    o_flag("braking", 0x1BB45, &Opponent::braking);
+    o_byte("bump_timer", 0x1BBC0, &Opponent::bump_timer);
+    o_byte("bump_phase", 0x1BBC2, &Opponent::bump_phase);
+    o_array("wobble", 0x1BBBE, &Opponent::wobble, 2, 1);
+    o_byte("lane_wobble", 0x1BBBD, &Opponent::lane_wobble);
+    o_byte("bump_side", 0x1BB9D, &Opponent::bump_side);
+    o_array("body", 0x1BD66, &Opponent::body, 4);
+    o_array("road", 0x1BD86, &Opponent::road, 3);
+    o_array("compression", 0x1BD5E, &Opponent::compression, 3);
+    o_array("previous", 0x1BD6E, &Opponent::previous, 3);
+    o_array("wheel_speed", 0x1BD76, &Opponent::wheel_speed, 3);
+    o_array("force", 0x1BD7E, &Opponent::force, 3);
+    o_byte("on_ground", 0x1BB44, &Opponent::on_ground);
+    o_word("deepest", 0x63EDE, &Opponent::deepest);
+    o_byte("half_track", 0x1BB43, &Opponent::half_track);
+    o_word("rear_progress", 0x1BB12, &Opponent::rear_progress);
+    f.push_back({"opponent.lift0", [](const RaceState& s, const Car&) { return long(s.opponent.lift[0]); }, [](const Ram& r) { return long(r.w(0x1BF64)); },
+                 [](RaceState& s, Car&, long v) { s.opponent.lift[0] = std::int16_t(v); }});
+    f.push_back({"opponent.lift1", [](const RaceState& s, const Car&) { return long(s.opponent.lift[1]); }, [](const Ram& r) { return long(r.w(0x1BF68)); },
+                 [](RaceState& s, Car&, long v) { s.opponent.lift[1] = std::int16_t(v); }});
+    f.push_back({"opponent.lift2", [](const RaceState& s, const Car&) { return long(s.opponent.lift[2]); }, [](const Ram& r) { return long(r.w(0x1BF66)); },
+                 [](RaceState& s, Car&, long v) { s.opponent.lift[2] = std::int16_t(v); }});
+    f.push_back({"opponent.lift3", [](const RaceState& s, const Car&) { return long(s.opponent.lift[3]); }, [](const Ram& r) { return long(r.w(0x1BF6A)); },
+                 [](RaceState& s, Car&, long v) { s.opponent.lift[3] = std::int16_t(v); }});
+    o_byte("touch_frames", 0x1BBC3, &Opponent::touch_frames);
+    o_flag("knocking", 0x1BBEB, &Opponent::knocking);
+    o_word("gap", 0x1BC3E, &Opponent::gap);
+    o_word("distance", 0x1BC38, &Opponent::distance);
     f.push_back({"message", [](const RaceState&, const Car& c) { return long(c.launch_message); }, [](const Ram& r) { return long(r.u8(0x5E65B)); },
                  [](RaceState&, Car& c, long v) { c.launch_message = std::uint8_t(v); }});
     f.push_back({"message_groups", [](const RaceState&, const Car& c) { return long(c.launch_message_length); }, [](const Ram& r) { return long(r.u8(0x5E65A)); },
@@ -285,7 +364,9 @@ int main(int argc, char** argv) {
             const bool flip = argc > 7 && std::stoi(argv[7]);
             const int across_sign = argc > 8 ? std::stoi(argv[8]) : 1;
             const int top = argc > 9 ? std::stoi(argv[9], nullptr, 0) : 0x2000;
-            stuntcar::race::Race race(assets.program, circuits, track);
+            std::optional<stuntcar::race::Driver> rival;
+            if (std::getenv("LEAGUE")) rival = stuntcar::race::Driver{9, assets.program.u8(0x1ED8A + 9)};
+            stuntcar::race::Race race(assets.program, circuits, track, false, rival);
             std::vector<std::uint8_t> inputs;
             int crashes = 0;
             bool was_crashed = false;
@@ -393,28 +474,119 @@ int main(int argc, char** argv) {
         if (argc > 4 && std::string(argv[4]) == "race") {
             std::size_t window = 0;
             for (const auto& w : race_windows) window += w.length;
+            if (capture.size() % (2 + window)) {
+                old_race_capture = true;
+                window -= std::end(race_windows)[-1].length;
+            }
             const std::size_t record = 2 + window, frames = capture.size() / record;
             const int first = argc > 5 ? std::stoi(argv[5]) : 0;
             const int count = argc > 6 ? std::min(first + std::stoi(argv[6]), int(frames)) : int(frames);
-            stuntcar::race::Race race(assets.program, circuits, std::stoi(argv[3]));
+            const Ram opening{capture.data() + 2, true};
+            // A league race: the opponent's number and habits from the capture.
+            std::optional<stuntcar::race::Driver> driver;
+            if (std::int8_t(opening.u8(0x1CA22)) < 0) {
+                const auto number = opening.u8(0x1CA29);
+                driver = stuntcar::race::Driver{number, assets.program.u8(0x1ED8A + number)};
+            }
+            stuntcar::race::Race race(assets.program, circuits, std::stoi(argv[3]), false, driver);
             const auto cars = fields();
             const auto states = state_fields();
             {
                 // Start from the captured frame: the car, the race state and
-                // the phase the frame is in.
+                // the phase the frame is in; the opponent's skill and segment
+                // speeds as the original rolled them.
                 const auto* at = capture.data() + std::size_t(first) * record;
                 const Ram start{at + 2, true};
+                if (auto* d = race.opponent_driver_for_tools()) {
+                    std::vector<std::uint8_t> speeds;
+                    for (std::size_t s = 0; s < race.track().segments.size(); ++s) speeds.push_back(start.u8(0x1C952 + std::uint32_t(s)));
+                    d->set_skill(start.u8(0x63CE0), start.u8(0x63CE1), speeds);
+                }
                 for (const auto& f : cars) f.load(race.player_for_tools(), start);
                 for (const auto& f : states) f.load(race.state_for_tools(), race.player_for_tools(), f.ram(start));
                 race.state_for_tools().phase = stuntcar::race::Phase(at[0]);
                 race.state_for_tools().spawn_segment = race.state_for_tools().last_segment;
                 if (first == 0) race.state_for_tools().spawn_segment = race.track().car_start_segment;
             }
+            if (const char* trial = std::getenv("TRIAL")) {
+                // Plays the given inputs (driving frames) from the captured
+                // state and reports the knocks between the cars.
+                std::vector<std::uint8_t> inputs;
+                for (std::string list = trial; !list.empty();) {
+                    const auto comma = list.find(',');
+                    const auto item = list.substr(0, comma);
+                    const auto star = item.find('*');
+                    const int repeat = star == std::string::npos ? 1 : std::stoi(item.substr(star + 1));
+                    for (int r = 0; r < repeat; ++r) inputs.push_back(std::uint8_t(std::stoi(item.substr(0, star), nullptr, 16)));
+                    list = comma == std::string::npos ? "" : list.substr(comma + 1);
+                }
+                std::size_t driven = 0;
+                int knocks = 0, first_knock = -1;
+                const int block = std::getenv("BLOCK") ? std::stoi(std::getenv("BLOCK")) : 0;
+                std::vector<std::uint8_t> played;
+                for (int k = 0; k < 100000 && driven < inputs.size() + std::size_t(block); ++k) {
+                    const bool drive = race.state().phase == stuntcar::race::Phase::drive;
+                    std::uint8_t in = 0;
+                    if (drive && driven < inputs.size()) {
+                        in = inputs[driven];
+                    } else if (drive) {
+                        // Block: into the opponent's lane as it comes close.
+                        const auto& o = race.state().opponent;
+                        const auto& c = race.player();
+                        if (c.recovery) in = (driven / 4) % 2 ? 0x10 : 0;
+                        else if (o.distance < 0x80) {
+                            const int lane = std::uint8_t(o.lane), mine = c.rear_along;
+                            if (std::getenv("CRAWL") && (driven % std::stoi(std::getenv("CRAWL"))) == 0) in |= 1;
+                            if (lane > mine + 8) in |= 0x08;
+                            else if (lane < mine - 8) in |= 0x04;
+                        }
+                    }
+                    if (drive) played.push_back(in);
+                    if (std::getenv("PRINT") && k % std::stoi(std::getenv("PRINT")) == 0) {
+                        const auto& o = race.state().opponent;
+                        std::printf("frame %d seg %d prog %04x lane %d dist %d flags %02x lift %d %d %d %d road %d %d %d launched %d\n", k,
+                                    o.segment, o.progress, o.lane, o.distance, race.player().opponent_flags, o.lift[0], o.lift[1],
+                                    o.lift[2], o.lift[3], o.road[0], o.road[1], o.road[2], int(race.player().launched));
+                    }
+                    race.step({bool(in & 1), bool(in & 2), bool(in & 4), bool(in & 8), bool(in & 16)});
+                    if (drive) ++driven;
+                    if (race.state().opponent.knocking) {
+                        ++knocks;
+                        if (first_knock < 0) first_knock = int(driven);
+                    }
+                }
+                std::printf("knock frames %d, first at driving frame %d, laps %d/%d\n", knocks, first_knock,
+                            race.state().cars[0].laps, race.state().cars[1].laps);
+                std::string list;
+                for (std::size_t k = 0; k < played.size();) {
+                    std::size_t n = 1;
+                    while (k + n < played.size() && played[k + n] == played[k]) ++n;
+                    char buf[16];
+                    std::snprintf(buf, sizeof buf, "%s%02x*%zu", list.empty() ? "" : ",", played[k], n);
+                    list += buf;
+                    k += n;
+                }
+                std::printf("%s\n", list.c_str());
+                return 0;
+            }
             int exact = 0, shown = 0;
             for (int k = first; k + 1 < count; ++k) {
                 const auto* at = capture.data() + std::size_t(k) * record;
                 const auto in = at[1];
+                const auto before = race.state().random;
                 race.step({bool(in & 1), bool(in & 2), bool(in & 4), bool(in & 8), bool(in & 16)});
+                if (std::getenv("DRAWS")) {
+                    // How many numbers each side drew this frame.
+                    const auto count = [](stuntcar::race::Random r, const std::array<std::uint8_t, 5>& target) {
+                        for (int n = 0; n < 400; ++n, r.next())
+                            if (r.bytes == target) return n;
+                        return -1;
+                    };
+                    const Ram next_ram{at + record + 2, true};
+                    std::array<std::uint8_t, 5> theirs{};
+                    for (std::uint32_t i = 0; i < 5; ++i) theirs[i] = next_ram.u8(0x625A2 + i);
+                    std::printf("frame %d draws port %d original %d\n", k + 1, count(before, race.state().random.bytes), count(before, theirs));
+                }
                 const auto* next = at + record;
                 const Ram expected{next + 2, true};
                 std::string bad;

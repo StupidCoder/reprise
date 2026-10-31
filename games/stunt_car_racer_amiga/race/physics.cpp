@@ -294,9 +294,8 @@ void knock(Car& c) {
     if (c.knock_timer) --c.knock_timer;
     if (!c.impulse_pending) return;
     c.impulse_pending = false;
-    c.impulse_left = std::int16_t(std::max(0, c.impulse_left - c.impulse[2]));
-    const auto i = std::int16_t(c.impulse[1] >> 4);
-    for (auto& k : c.knock) k = std::int16_t(k - i);
+    // (The opponent takes its share too: race::OpponentDriver::take_knock.)
+    c.knock_taken = c.impulse;
     for (std::size_t a = 0; a < 3; ++a) c.loads[a] = std::int16_t(c.loads[a] + c.impulse[a]);
     c.impulse = {};
     if (!c.knock_timer) c.knock_timer = 5;

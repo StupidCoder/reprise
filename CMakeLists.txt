@@ -375,6 +375,7 @@ add_library(stunt_car_racer_amiga
     games/stunt_car_racer_amiga/race/contact.cpp
     games/stunt_car_racer_amiga/race/physics.cpp
     games/stunt_car_racer_amiga/race/placement.cpp
+    games/stunt_car_racer_amiga/race/opponent.cpp
     games/stunt_car_racer_amiga/race/race.cpp
     games/stunt_car_racer_amiga/race/smoke.cpp
     games/stunt_car_racer_amiga/race/tables.cpp

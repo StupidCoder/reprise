@@ -28,6 +28,12 @@ struct Piece {
     std::int16_t point_height(int point) const;
 };
 
+// The road's height between two cross-sections ($5C554): across each at
+// `lateral` (0 left edge .. 255 right), then between them at `fraction`;
+// in units of 1/256 of the corner heights (large steps are scaled by 8).
+std::int32_t interpolate_road(std::int16_t near_left, std::int16_t near_right, std::int16_t far_left, std::int16_t far_right,
+                              std::uint8_t lateral, std::uint8_t fraction);
+
 class TrackContact {
   public:
     TrackContact(const data::Circuits&, const data::Track&);

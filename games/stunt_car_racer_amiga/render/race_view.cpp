@@ -514,9 +514,11 @@ View draw_race_view(const data::Circuits& circuits, const data::Scenery& scenery
             const auto al = left(c[std::size_t(i - 1)]), ar = right(c[std::size_t(i - 1)]);
             const auto bl = left(c[std::size_t(i)]), br = right(c[std::size_t(i)]);
             const auto base = [](Point3 p) { return Point3{p.x, p.z, double(side_base)}; };
+            // The road piece, then its sides over it (a side seen from
+            // outside lies in front of the surface it holds up).
+            painter.draw({al, bl, br, ar}, road_colour(s, i));
             painter.draw_side({al, base(al), base(bl), bl}, wall_colours[parity]);
             painter.draw_side({br, base(br), base(ar), ar}, wall_colours[parity]);
-            painter.draw({al, bl, br, ar}, road_colour(s, i));
             // The opponent after the road piece just nearer than its rear
             // axle (the row before its cross-section, $66FF0).
             if (opponent && s == opponent_piece.first && i == opponent_piece.second && !opponent_drawn) {

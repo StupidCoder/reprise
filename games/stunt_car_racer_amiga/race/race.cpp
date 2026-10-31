@@ -20,6 +20,7 @@ constexpr std::int32_t spring_start = 0x1000;
 // The clock: 0.13 s a frame; a race is four crossings of the line (three
 // laps); the times start at 9 minutes so that any lap beats them.
 constexpr std::uint8_t frame_time = 0x13, start_minutes = 9;
+constexpr std::uint8_t random_seed = 0x3B;
 constexpr std::uint8_t laps_to_finish = 4;
 // A finished lap's time stays shown for $1B frames before the best lap.
 constexpr std::uint8_t lap_time_hold = 0x1B;
@@ -102,9 +103,17 @@ CarSpec car_spec(const data::Program& program, bool super_league) {
     return {program.u8(at + 2), program.u8(at + 3), program.u8(at + 6), program.u8(at + 9)};
 }
 
-Race::Race(const data::Program& program, const data::Circuits& circuits, int track, bool super_league)
+Race::Race(const data::Program& program, const data::Circuits& circuits, int track, bool super_league,
+           std::optional<Driver> opponent)
     : track_(circuits.tracks.at(std::size_t(track))), tables_(load_tables(program)),
       contact_(circuits, track_) {
+    // Loading the track rolls the opponent's skill; the race set-up then
+    // seeds one byte of the generator.
+    if (opponent) {
+        driver_.emplace(program, track_, contact_, *opponent, super_league);
+        driver_->prepare(track, state_.random);
+    }
+    state_.random.bytes[3] = random_seed;
     for (std::size_t k = 0; k < start_allowed_.size(); ++k) start_allowed_[k] = program.u8(start_table + std::uint32_t(k));
     const auto spec = car_spec(program, super_league);
     car_.accelerate_low = spec.accelerate_low;
@@ -124,7 +133,8 @@ Race::Race(const data::Program& program, const data::Circuits& circuits, int tra
     state_.laps_to_finish = laps_to_finish;
     for (auto& c : state_.cars) c.lap_time.minutes = start_minutes;
     state_.best_lap.minutes = start_minutes;
-    car_.league = league_;
+    state_.league = car_.league = bool(driver_);
+    if (driver_) driver_->start(state_.opponent, state_.random);
     // Which of the roof's pixels are painted (any colour but 0): the crack
     // only shows on them.
     const auto art = data::load_cockpit_art(program);
@@ -154,7 +164,7 @@ void Race::spawn(int segment) {
     const int turn = (piece.shape == 4 || piece.shape == 10) ? 0x20 : 0; // diagonals: 45 degrees more
     car_.yaw = std::int16_t(std::uint8_t(((piece.heading << 6) ^ (piece.reversed ? 0x80 : 0)) + turn) << 8);
     place(car_, tables_, contact_);
-    step_physics(car_, tables_, contact_, state_.random);
+    physics();
     car_.y = start_height;
     const auto rear_surface = car_.springs[2].surface;
     if (relaunch) {
@@ -177,6 +187,12 @@ void Race::spawn(int segment) {
     place(car_, tables_, contact_);
 }
 
+void Race::physics() {
+    step_physics(car_, tables_, contact_, state_.random);
+    if (driver_) OpponentDriver::take_knock(state_.opponent, car_);
+    car_.knock_taken = {};
+}
+
 void Race::place_car() {
     place(car_, tables_, contact_);
     if (car_.crash_started) {
@@ -185,9 +201,21 @@ void Race::place_car() {
         state_.crash_wait = crash_wait;
         state_.smoke.clear();
     }
-    if (!(car_.crash_state & 0x40)) {
+    const bool on_grid = !(car_.crash_state & 0x40);
+    if (on_grid) {
         state_.cars[0].segment = car_.segment;
         state_.last_segment = car_.segment;
+    }
+    // The opponent's frame (off the grid it only rides and is placed).
+    if (driver_) {
+        auto& o = state_.opponent;
+        driver_->drive(o, car_, state_.random);
+        if (on_grid) {
+            driver_->measure(o, car_);
+            driver_->steer(o, car_);
+        }
+        driver_->place(o);
+        state_.cars[1].segment = o.segment;
     }
     // The drawing pass: dust and smoke after the view.
     state_.smoke.step(car_, state_.random, state_.frame_clock);
@@ -207,7 +235,7 @@ void Race::step(const Controls& controls) {
         state_.phase = Phase::settle;
         return;
     case Phase::settle:
-        step_physics(car_, tables_, contact_, random);
+        physics();
         place_car();
         clock();
         --state_.frame_clock;
@@ -224,11 +252,18 @@ void Race::step(const Controls& controls) {
     }
     random.next(); // the joystick routine stirs the generator
     read_controls(car_, controls);
-    step_physics(car_, tables_, contact_, random);
+    physics();
     random.next(); // and the engine sound
     place_car();
     damage();
     clock();
+    // The dashboard's distance, every fourth frame ($5E12A): 5/16 of the
+    // gap, signed by who is ahead.
+    if (!(state_.frame_clock & 3)) {
+        const auto d = state_.opponent.distance;
+        const int shown = (d + (d >> 2)) >> 2;
+        state_.distance_shown = std::int8_t(car_.opponent_flags) < 0 ? -shown : shown;
+    }
     // The race ends once the countdown has run out, on a frame drawn into
     // the second buffer, with no lap time on show and the car down or held.
     if (state_.race_over && state_.odd_frame && !state_.lap_time_hold && (car_.recovery || car_.on_ground)) {
@@ -350,6 +385,10 @@ void Race::after_frame() { state_.odd_frame = !state_.odd_frame; }
 void Race::clock() {
     end_frame(car_);
     if (state_.lap_time_hold && !--state_.lap_time_hold) show_best_lap();
+    if (state_.league) {
+        add_time(state_.cars[1].lap_time, frame_time);
+        count_laps(1);
+    }
     add_time(state_.cars[0].lap_time, frame_time);
     count_laps(0);
     check_finish();
@@ -371,7 +410,7 @@ void Race::count_laps(int car) {
     if (c.laps != 1) {
         // The part of the frame before the line: the time to cover the rest
         // of the step the car is in (13 hundredths for a whole step).
-        const auto progress = car == 0 ? car_.progress : 0;
+        const auto progress = car == 0 ? car_.progress : std::int16_t(state_.opponent.progress);
         if (!(std::uint16_t(progress) >> 8)) {
             int part = (std::uint8_t(~progress) * 0x0D) >> 8;
             if (part >= 0x0A) part += 6;
@@ -403,9 +442,10 @@ void Race::check_finish() {
         const auto round = [&](int segment) { return (segment - lap_segment_ + count) % count; };
         int ahead = state_.cars[1].laps - state_.cars[0].laps;
         if (!ahead) ahead = round(state_.cars[1].segment) - round(state_.cars[0].segment);
+        if (!ahead) ahead = state_.opponent.gap;
         const bool won = ahead < 0;
         state_.flag_lamp = won;
-        show_message(won ? (league_ ? race_won : laps_over) : race_lost, 4);
+        show_message(won ? (state_.league ? race_won : laps_over) : race_lost, 4);
     }
 }
 

@@ -15,6 +15,12 @@ namespace {
 // The crane's chains: down at $B0 while it holds the car, then pulled up
 // faster each frame (8, 16, 24, 32) and gone at $60.
 constexpr int chains_down = 0xB0, chains_gone = 0x60, chain_first_pull = 8;
+// The league's drivers: Jumpin' Jack is number 9; their habits at $1ED8A.
+constexpr std::uint8_t jumpin_jack = 9;
+constexpr std::uint32_t driver_habits = 0x1ED8A;
+// The opponent is drawn while 10 <= distance < $C80 and ahead ($67AA6); its
+// rear axle $40 behind its place.
+constexpr int opponent_near = 10, opponent_far = 0xC80, rear_axle = 0x40;
 // The speed bar: the forward speed less $1100, times $B700 >> 23 (0-127).
 constexpr int speed_bar_floor = 0x1100, speed_bar_gain = 0xB700;
 
@@ -40,13 +46,27 @@ class Module final : public app::GameModule {
         controls.left = input.left;
         controls.right = input.right;
         controls.fire = input.fire;
+        // Touch: steering bottom left, the accelerator bottom right. While
+        // the game waits for fire (PRESS FIRE after the crane, or at the
+        // end) the accelerator gives it, as there is no fire button.
+        bool touch_accelerate = false;
+        for (const auto& v : input.touch_controls) {
+            if (v.id == "left") controls.left = controls.left || v.held;
+            if (v.id == "right") controls.right = controls.right || v.held;
+            if (v.id == "accelerate") touch_accelerate = v.held;
+        }
+        if (touch_accelerate) {
+            const auto& c = race_->player();
+            const bool waiting = race_->state().phase == race::Phase::over || (c.recovery && c.launched);
+            (waiting ? controls.fire : controls.accelerate) = true;
+        }
         // After PRESS FIRE, a new press starts the practice again.
         if (race_->state().phase == race::Phase::over) {
-            if (input.fire && !fire_held_) start_race();
-            fire_held_ = input.fire;
+            if (controls.fire && !fire_held_) start_race();
+            fire_held_ = controls.fire;
             return;
         }
-        fire_held_ = input.fire;
+        fire_held_ = controls.fire;
         race_->step(controls);
         const auto& car = race_->player();
         if (car.recovery) {
@@ -67,8 +87,21 @@ class Module final : public app::GameModule {
         camera.yaw = std::uint16_t(car.yaw);
         camera.pitch = car.view_pitch;
         camera.roll = car.view_roll;
-        const auto view = render::draw_race_view(circuits_, scenery_, race_->track(), car.segment, camera);
+        std::optional<render::Opponent> opponent;
+        if (state.league) {
+            const auto& o = state.opponent;
+            if (o.distance >= opponent_near && o.distance < opponent_far && std::int8_t(car.opponent_flags) >= 0) {
+                // Corner lifts above the road under each wheel.
+                const int left = o.road[0], right = o.road[1], middle = o.road[2], half = (right - left) / 2;
+                opponent = render::Opponent{o.segment, (int(o.progress) - rear_axle) / 256.0, double(o.lane),
+                                            {double(o.lift[0] - left), double(o.lift[1] - right),
+                                             double(o.lift[2] - (middle - half)), double(o.lift[3] - (middle + half))}};
+            }
+        }
+        const auto view = render::draw_race_view(circuits_, scenery_, race_->track(), car.segment, camera, opponent);
         render::Cockpit cockpit;
+        cockpit.distance = state.distance_shown;
+        if (state.league) cockpit.boost_left = race::decimal(car.boost_left);
         if (chains_ != chains_gone) cockpit.chain_bottom = chains_;
         // As the race ends only PRESS FIRE shows, flashing white with the
         // countdown ($5E508).
@@ -97,9 +130,35 @@ class Module final : public app::GameModule {
         return render::draw_race_screen(art_, view, palette_, cockpit);
     }
 
-    std::vector<app::GameOption> options() const override { return {app::screen_filter_option(vhs_)}; }
+    // Touch buttons on a phone or tablet without a gamepad: left and right
+    // at the bottom left, the accelerator at the bottom right.
+    void set_input_capabilities(platform::InputCapabilities caps) override { input_caps_ = caps; }
+    std::vector<platform::TouchControl> touch_controls() const override {
+        if (!input_caps_.touchscreen || !input_caps_.mobile || input_caps_.gamepad) return {};
+        using Icon = platform::ControlIcon;
+        const auto button = [](const char* id, const char* label, Icon icon, float x, float y, float width, float height) {
+            platform::TouchControl c;
+            c.id = id, c.label = label, c.kind = platform::TouchControl::Kind::button, c.icon = icon;
+            c.x = x, c.y = y, c.width = width, c.height = height;
+            return c;
+        };
+        return {button("left", "LEFT", Icon::arrow_left, .02f, .70f, .15f, .26f),
+                button("right", "RIGHT", Icon::arrow_right, .19f, .70f, .15f, .26f),
+                button("accelerate", "GAS", Icon::accelerator, .81f, .62f, .17f, .34f)};
+    }
+
+    std::vector<app::GameOption> options() const override {
+        return {app::screen_filter_option(vhs_),
+                {"Race", {"Practice", "Against Jumpin' Jack"}, league_ ? 1 : 0,
+                 "The practice on Little Ramp, or the league's race there against Jumpin' Jack (Division 4, race 3). "
+                 "Changing it starts the race again."}};
+    }
     void set_option(std::size_t index, int value) override {
         if (index == 0) vhs_ = value;
+        if (index == 1 && (value != 0) != league_) {
+            league_ = value != 0;
+            start_race();
+        }
     }
     int vhs_level() const override { return vhs_; }
 
@@ -110,13 +169,17 @@ class Module final : public app::GameModule {
     data::CockpitArt art_;
     render::Palette palette_;
     void start_race() {
-        race_.emplace(assets_.program, circuits_, 0);
+        std::optional<race::Driver> opponent;
+        if (league_) opponent = race::Driver{jumpin_jack, assets_.program.u8(driver_habits + jumpin_jack)};
+        race_.emplace(assets_.program, circuits_, 0, false, opponent);
         chains_ = chains_down, pull_ = chain_first_pull;
         race_->step({}); // the crane lowers the car
     }
 
     std::optional<race::Race> race_;
+    bool league_ = false;
     bool fire_held_ = false;
+    platform::InputCapabilities input_caps_{};
     int chains_ = chains_down, pull_ = chain_first_pull;
     int vhs_ = 0;
 };
