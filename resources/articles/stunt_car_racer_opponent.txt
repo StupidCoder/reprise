@@ -1,0 +1,43 @@
+# A rival built for the road
+
+The other car looks as though it faces the same problem you do: stay on a narrow elevated road, survive the jumps and reach the line first. But beneath that shared appearance, Stunt Car Racer runs two different kinds of vehicle. Your car has a body moving through space, with forces, orientation and road contact feeding back into its motion. The rival has a position along the circuit, a lane across it and a smaller suspension model. Its convincing behaviour comes from combining these layers, not from giving a second driver your steering wheel.
+
+## 1 / A road-relative racing car
+
+Think of the rival's address as three questions: which road segment, how far through it, and where across its width? Speed advances the first two; lane choices change the third. Reaching the end of a segment carries the car into the next one. The circuit itself supplies the route, so the opponent does not need to discover a path through a three-dimensional world.
+
+!figure road
+
+These cross-sections come from the imported Hump Back circuit. They describe the surface that both cars use, but the rival follows that surface in track coordinates. Its longitudinal progress remains attached to the route even when its suspension is airborne. That is a meaningful limit of the model: a dramatic bounce does not imply that the computer car can fly off the course in the same way yours can.
+
+## 2 / A pace written into the circuit
+
+At race setup, the game rolls speed parameters from track-specific tables. It then builds a target for each segment, working backwards through the circuit. Curves use the curve-speed setting; ordinary segments build a progression away from it. Explicit segment/value pairs in the track data override this process. Some also mark a short run of segments for different acceleration and bump behaviour.
+
+!figure opponent_marks
+
+The bars show those stored overrides, not a replay of the rival's speed. A target is an instruction to its speed controller, not an instantaneous velocity. Above the target it brakes; below it, acceleration depends on the controller's state and the segment's marking. Drag, the road's slope and whether the suspension has contact also affect the result. In the air, the normal drive push disappears. These ingredients let a route-following car gain and lose speed without running the player's full vehicle simulation.
+
+## 3 / Choosing a lane, not planning a journey
+
+The opponent measures separation along the circuit using the shorter distance around the loop. It also compares the two cars' lanes. Far away it favours its own lane. Near you, different branches can send it towards a passing side, make it follow your lane, or dodge away when the cars are extremely close. Driver habit flags alter which branches apply: the opponents do not all use one identical set of preferences.
+
+!figure opponent_choices
+
+This is a condensed decision map, not a complete state machine. In branches that consult the road ahead, being on a curve or immediately before one overrides the target with the middle lane. The chosen lane is still only a target: the car moves towards it in bounded steps while grounded, with a small tolerance rather than endless correction. Bump wobble can temporarily influence that sideways movement. A visible swerve can therefore be a passing decision, a curve correction or a disturbance from the road.
+
+## 4 / Giving the route follower weight
+
+Three suspension supports sample the road: two at the rear and one towards the front. Their compression and recent change produce spring forces. Wheel heights and vertical speeds evolve over time; limits keep the body from stretching implausibly, and the airborne car can pitch nose-down. The visible front corners are derived from the front support and the rear pair's tilt. The rendered car consequently rolls and pitches even though its route is constrained.
+
+Rough segments can trigger a timed bucking motion using a stored wobble pattern. Some drivers can also hop when their suspension is settled. These are specific additions to the opponent model, not evidence that every movement is a physically emergent accident. They give the simpler car a vocabulary of visible reactions.
+
+## 5 / When the cars meet
+
+!figure opponent_contact
+
+Close enough along the road and across its width, the cars enter a contact check. Height matters when either is airborne. Contact can give the player a sideways shove, a vertical knock and a forward or backward impulse related to the speed difference; it can also damage the player's springs. The rival takes a corresponding change in its speed and vertical motion. This coupling is why blocking the opponent has consequences even though the two cars use different simulations.
+
+## Evidence and scope
+
+This article follows the reconstructed Amiga opponent and its recorded comparisons with original league races, including a blocking-and-contact sequence. The track figures decode your imported copy; the decision and contact diagrams are explanatory schematics. The comparisons cover particular races and states, not every driver, track or collision. No live race is run here, and your save is untouched.

@@ -81,7 +81,7 @@ int main(int argc, char** argv) {
                 return a.width==b.width && a.height==b.height &&
                     std::memcmp(a.pixels.data(),b.pixels.data(),a.pixels.size()*sizeof(platform::Color))==0;
             };
-            for(int chapter=0;chapter<2;++chapter) {
+            for(int chapter=0;chapter<3;++chapter) {
                 browser.set_canvas(960,640);
                 browser.update(click(450,210+chapter*106),0);
                 stuntcar::lessons::TechnicalArticle expected(library.content_directory(index),chapter);

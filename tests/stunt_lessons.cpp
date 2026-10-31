@@ -16,8 +16,8 @@ bool same(const platform::Image& a,const platform::Image& b) {
 }
 int main(int argc,char** argv) {
     try {
-        const std::set<std::string> figures={"race","angles","projection","road","profile","surface","springs","damping"};
-        for(const char* name:{"projection","physics"}) {
+        const std::set<std::string> figures={"race","angles","projection","road","profile","surface","springs","damping","opponent_marks","opponent_choices","opponent_contact"};
+        for(const char* name:{"projection","physics","opponent"}) {
             auto bytes=platform::resource(std::string("articles/stunt_car_racer_")+name+".txt");
             std::string text(bytes.begin(),bytes.end());
             check(text.starts_with("# "),"Article needs a title");
@@ -28,7 +28,7 @@ int main(int argc,char** argv) {
             }
             check(count==4,"Each article has four explanatory figures");
         }
-        if(argc>1) for(int chapter=0;chapter<2;++chapter) {
+        if(argc>1) for(int chapter=0;chapter<3;++chapter) {
             stuntcar::lessons::TechnicalArticle lesson(argv[1],chapter);
             for(auto size:{std::pair{960,640},std::pair{640,1138},std::pair{1422,640}}) {
                 lesson.set_canvas(size.first,size.second);

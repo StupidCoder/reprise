@@ -1,8 +1,9 @@
 # Stunt Car Racer: technical lesson evidence
 
-Date: 2026-10-30. Two illustrated articles, with no live gameplay simulation.
-The opponent chapter is deferred at the user's request until the game is fully
-re-implemented. Neither game logic nor saves are changed by these lessons.
+Started 2026-10-30; opponent article added 2026-10-31. Three illustrated
+articles, with no live gameplay simulation. Neither game logic nor saves are
+changed by these lessons. The earlier opponent deferral and its resolution are
+recorded below.
 
 ## Provenance
 
@@ -65,7 +66,7 @@ contact-height, interpolation, drive, lateral tyre, load, matrix, gravity,
 integration and the final three frame sequences all reported OK. This is research
 coverage of selected states; it does not make the unimplemented Reprise car playable.
 
-### Deferred opponent lesson
+### Earlier opponent deferral (2026-10-30)
 
 The previous Part V labels two physics calls as player/opponent; Part VI says
 the opponent has no physics. This conflict is not resolved by the rendering
@@ -107,4 +108,68 @@ Commands:
 build/stunt_lesson_checks /tmp/reprise-stunt-lesson-content /tmp/reprise-stunt-lesson-captures
 build/shell_checks --stunt-lessons <user-image.adf>
 ctest --test-dir build -R '^(shell_navigation|shell_motion|development_articles|technical_articles|import_progress)$' --output-on-failure
+```
+
+## Article 3: A rival built for the road (2026-10-31)
+
+Source: resources/articles/stunt_car_racer_opponent.txt. Four SDL figures,
+read-only; no gameplay or save state is created. This resolves the earlier
+publication deferral for the established mechanism, not every possible AI case.
+
+The new evidence is the game agent's local `game.md`, "The opponent's driving
+(Observed, verified)", and its reconstructed `race/opponent.cpp/.hpp`. Those
+files were pending game work during lesson authoring; they were inspected but
+are not included in the lesson commit. The article renderer deliberately does
+not depend on that new engine API. The original image provenance above remains
+unchanged. No outside game disassembly or historical article was consulted.
+
+| Section / figure | Evidence and limits |
+| --- | --- |
+| 1: progress and lane; imported road | Original frame order recorded at $64F68, movement at $63996, placement at $5A186. `OpponentDriver::drive/place` advances segment-relative progress and samples road heights; airborne status does not switch to a free world trajectory. The Hump Back road figure reuses actual decoded `data::road`, not a new invented circuit. |
+| 2: segment pace; override bars | Track-load $5B1B8/$63A8E/$5B1E0; `prepare` warms the generator, rolls track-specific top/curve parameters, and walks segments backwards. Marked pairs affect themselves and a following run in this backwards traversal. `aim_speed/change_speed/push` establish braking, drag, slope and no airborne drive push. Figure reads `Track::segment_marks` directly: low seven bits are the target; high bit distinguishes marked entries. Empty chart positions are not zero-speed targets. These are stored directives, not generated final targets, mph, or a measured speed trace. |
+| 3: choices | $6076C shortest-loop gap; $636C0 lane selection. `measure/steer` check near distance, ahead/behind, lateral gap, and habit bits. Dodge/pass branches differ; road look-ahead is conditional, not a universal centre override. Movement is 9 lane units per grounded frame within 32..224, with a 16-unit tolerance. Diagram deliberately suppresses thresholds, exceptions and side-selection details; it is labelled a simplified branch map, not an executable AI. |
+| 4: suspension and disturbances | $63EE2 spring calculation and constrained body heights; $5BD1E timed wobble; $5A186 road samples and visible corner heights. Reconstructed suspension includes compression/change term, vertical integration, airborne nose-down adjustment and optional driver hops. These are smaller, distinct mechanics, not "no physics" and not the player's entire simulation. |
+| 5: contact / exchange diagram | $63CE4 checks separation and height, creates impulses and spring damage; $63E2E applies the player's impulse; `take_knock` changes rival speed and wheel vertical velocities. Diagram is a causal schematic, not a contact capture or proof of conservation of momentum. |
+
+### Reported original-execution coverage
+
+The game agent records `work/league_lr1.bin`: a 600-frame Division 4 race
+against Jumpin' Jack, with compared frames 3–231 and 233–599 matching every
+recorded field; two frames were lost around 232. `league_lr2.bin` is a second
+318-frame skill roll. `league_touch.bin` uses an opening state written into the
+original and blocking inputs, with contact at frame 1319 and all 1342 compared
+frames matching. The checker is `stunt_car_racer_physcheck <content> <capture>
+<track> race [first] [count]`. These are the game agent's recorded results,
+not freshly rerun original captures by the lesson task. They support specific
+league races, not exhaustive coverage of all driver habits or collisions.
+
+Source fingerprints at review (SHA-256):
+
+- race/opponent.cpp: `b32addd9a1e80b98aa02b9ec646cff97ea3307412efc2f86ade465344c96c73a`
+- race/opponent.hpp: `42b3717d09486f21d9e08a2c7b25ff65233d0b8dee2ba0ac2d5b4d839d6f5727`
+
+The former conflict in the older research is resolved at the level needed for
+this article: the rival has its own suspension and speed dynamics, while track
+progress and lane replace the player's free vehicle movement. Neither "a second
+player car" nor "no physics" describes that combination adequately.
+
+### Opponent article validation
+
+Built `reprise`, `shell_checks` and `stunt_lesson_checks` in an isolated snapshot
+of committed HEAD plus only this lesson's seven files, excluding the pending
+opponent/game changes. The reader passed with the user's imported program at
+960x640, 640x1138 and 1422x640, including fractional wheel input, key/page and
+drag scrolling, bounds and resize. The real launcher imported the original ADF,
+opened all three chapters and returned to the lesson list successfully. CTest
+passed shell_navigation, shell_motion, development_articles, technical_articles
+and import_progress. Reviewed the new chart, decision diagram, contact diagram
+and final paragraph in rendered portrait captures, plus landscape chart layout.
+These are desktop/headless checks; no Android-device run is claimed.
+
+Commands (isolated snapshot):
+
+```
+build/stunt_lesson_checks /tmp/reprise-stunt-lesson-content /tmp/stunt-opponent-captures
+build/shell_checks --stunt-lessons <user-image.adf>
+ctest --test-dir build -R 'shell_navigation|shell_motion|technical_articles|development_articles|import_progress' --output-on-failure
 ```

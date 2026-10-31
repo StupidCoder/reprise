@@ -40,7 +40,7 @@ struct Block { std::string text; int size{}, y{}, height{}; bool figure{}; };
 }
 
 TechnicalArticle::TechnicalArticle(const std::filesystem::path& content, int chapter) : chapter_(chapter) {
-    if(chapter<0 || chapter>1) throw std::runtime_error("Unknown Stunt Car Racer article.");
+    if(chapter<0 || chapter>2) throw std::runtime_error("Unknown Stunt Car Racer article.");
     const auto assets=data::load_assets(content);
     circuits_=data::load_circuits(assets.program);
     if(circuits_.tracks.size()<3) throw std::runtime_error("The article needs the imported circuits.");
@@ -53,7 +53,7 @@ TechnicalArticle::TechnicalArticle(const std::filesystem::path& content, int cha
     race_=render::to_image(render::draw_race_view(circuits_,data::load_scenery(assets.program),track,
         track.car_start_segment,camera),render::race_palette(assets.program));
     const auto bytes=platform::resource(chapter==0 ? "articles/stunt_car_racer_projection.txt" :
-                                                   "articles/stunt_car_racer_physics.txt");
+                                                   chapter==1 ? "articles/stunt_car_racer_physics.txt" : "articles/stunt_car_racer_opponent.txt");
     article_.assign(bytes.begin(),bytes.end());
     if(article_.empty()) throw std::runtime_error("The technical article is missing.");
     compose();
@@ -109,6 +109,47 @@ Image TechnicalArticle::figure(const std::string& kind,int w) const {
         ui::picture(im,race_,0,0,w,h-68);
         label(im,"HUMP BACK / imported track, elevated reconstructed view",16,h-48);
         label(im,"Original picture window: 256 x 128 pixels",16,h-26);
+    } else if(kind=="opponent_marks") {
+        const auto& track=circuits_.tracks[2];
+        label(im,"HUMP BACK / stored segment speed overrides",18,16);
+        const int x0=44,x1=w-24,y0=244;
+        line(im,x0,60,x0,y0,s::muted);line(im,x0,y0,x1,y0,s::muted);
+        label(im,"127",7,58);label(im,"0",18,y0-10);
+        const double step=double(x1-x0)/track.segments.size();
+        for(const auto& [segment,value]:track.segment_marks) {
+            const int x=x0+int(segment*step),height=int((value&127)*180.0/127);
+            ui::rect(im,x,y0-height,std::max(2,int(step)-2),height,(value&128)?orange:s::cobalt);
+        }
+        label(im,"0",x0,252);label(im,std::to_string(track.segments.size()-1),x1-20,252);
+        label(im,"segment index / gaps have no stored override",18,277);
+        label(im,"Plain target",18,307,s::cobalt);label(im,"Marked target",w/2,307,orange);
+    } else if(kind=="opponent_choices") {
+        label(im,"LANE CHOICE / simplified decision branches",18,16);
+        const char* conditions[]={"Far apart","Behind the player","Ahead and nearby","Almost touching"};
+        const char* outcomes[]={"Preferred lane","Choose passing side","Follow or pass: habits","Dodge / contact checks"};
+        for(int i=0;i<4;++i) {
+            const int y=58+i*52;
+            ui::rounded(im,14,y,w-28,42,5,s::paper);
+            label(im,conditions[i],24,y+12,s::ink);
+            arrow(im,w/2-18,y+21,w/2+8,y+21,s::muted);
+            label(im,outcomes[i],w/2+20,y+12,i==3?orange:s::cobalt);
+        }
+        label(im,"Road look-ahead can replace the choice with centre.",18,282);
+        label(im,"Ground contact gates the sideways movement.",18,308);
+    } else if(kind=="opponent_contact") {
+        label(im,"CONTACT / two different simulations exchange a knock",18,16);
+        const int centre=w/2;
+        ui::rounded(im,24,64,w-48,94,6,s::paper);
+        label(im,"Close along the road?",42,80,s::ink);
+        label(im,"Close across it? Compatible heights?",42,112,s::ink);
+        arrow(im,centre,162,centre,192,s::muted);
+        line(im,w/4,194,3*w/4,194,s::muted);
+        arrow(im,w/4,194,w/4,218,s::cobalt);
+        arrow(im,3*w/4,194,3*w/4,218,orange);
+        label(im,"PLAYER",22,230,s::cobalt);label(im,"RIVAL",centre+16,230,orange);
+        label(im,"Body impulses",22,259);label(im,"Speed change",centre+16,259);
+        label(im,"Spring damage",22,284);label(im,"Vertical wheel motion",centre+16,284);
+        label(im,"Schematic / not a collision replay",18,315);
     } else if(kind=="angles") {
         label(im,"TOP VIEW / equally spaced viewing directions",18,16);
         const int cx=w/2, cy=272;
@@ -252,7 +293,7 @@ platform::Image TechnicalArticle::draw() const {
     Image im(width_,height_);ui::fill(im,s::paper);
     s::button(im,"< Lessons",24,20,104,34);
     s::text(im,"Stunt Car Racer",148,22,23,s::ink,true);
-    s::text(im,chapter_==0?"01 / THE ANGULAR CAMERA":"02 / THE SPRUNG CAR",24,62,13,s::muted);
+    s::text(im,chapter_==0?"01 / THE ANGULAR CAMERA":chapter_==1?"02 / THE SPRUNG CAR":"03 / THE COMPUTER RIVAL",24,62,13,s::muted);
     const int x=(width_-page_.width)/2, visible=height_-128;
     for(int y=0;y<visible && y+int(scroll_)<page_.height;++y)
         for(int px=0;px<page_.width;++px)

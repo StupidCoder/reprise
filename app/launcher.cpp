@@ -50,6 +50,7 @@ constexpr LessonEntry interceptor_lessons[] = {
 constexpr LessonEntry stunt_lessons[] = {
     {"A world measured in angles", "How bearings, elevation and roll turn the imported road into a cockpit view.", "Illustrated article"},
     {"A car balanced on three springs", "Road sampling, suspension, grip and the forces behind a convincing landing.", "Illustrated article"},
+    {"A rival built for the road", "Track speed targets, passing decisions and the suspension behind the computer car.", "Illustrated article"},
 };
 constexpr LessonEntry mindwalker_guide[] = {
     {"The whole journey", "How the landscape, tunnel, arena and picture puzzle fit together.",

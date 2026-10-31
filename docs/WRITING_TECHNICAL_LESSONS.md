@@ -76,8 +76,9 @@ state, never the player's current progress or persistent save. Preserve a clear
 return to the lesson and explain the controls on touch, keyboard and gamepad.
 
 For an unresolved subsystem, publish the established mechanism or wait for the
-reconstruction. The Stunt Car Racer opponent chapter is explicitly deferred until
-the playable game and driving decisions can support it.
+reconstruction. The Stunt Car Racer opponent chapter was deferred until league
+race and contact comparisons could support its driving explanation; its evidence
+map records that boundary and the later findings.
 
 ## Consistent voice and structure
 
