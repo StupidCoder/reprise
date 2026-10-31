@@ -212,6 +212,7 @@ public:
         }
         --countdown_; // $13ADC6, every frame ($101748)
         run_procedure();
+        if (phase_ != Phase::fade_in && phase_ != Phase::fade_out) step_fade();
         messages_.clock();
         if (phase_ == Phase::end_wait || phase_ == Phase::end_text || phase_ == Phase::ready ||
             phase_ == Phase::descent || phase_ == Phase::to_ready || phase_ == Phase::fade_in ||
@@ -1326,8 +1327,25 @@ private:
         messages_.clear();
         sounds_.clear_warnings();
         blackout_ = 0; // ($103922)
+        fade_target_ = 15;
         overloaded_ = false;
         sounds_.set_blackout(false);
+    }
+
+    // The vertical-blank server's fade ($109440) over this tick's blanks
+    // (50 a second against the 15 Hz frame): towards the screen
+    // procedure's target, a step down every second blank, up every third.
+    void step_fade() {
+        for (fade_blanks_ += 10; fade_blanks_ >= 3; fade_blanks_ -= 3) {
+            if (fade_ == fade_target_ || --fade_wait_ >= 0) continue;
+            if (fade_target_ < fade_) {
+                --fade_;
+                fade_wait_ = 1;
+            } else {
+                ++fade_;
+                fade_wait_ = 2;
+            }
+        }
     }
 
     // The screen procedure of this frame.
@@ -1540,7 +1558,12 @@ private:
                 sounds_.noise(0x3F, 0x78);
                 flash_left_ = flash_ticks;
                 phase_ = Phase::crashed;
+                break;
             }
+            // $103166: the pilot's sight blacks out (step 2) after more
+            // than five seconds of overload, seen from the cockpit of the
+            // player's aircraft; otherwise full.
+            fade_target_ = viewed_ == 0 && !outside_ && blackout_ > 5 ? 2 : 15;
             break;
         case Phase::crashed:
             // $1038D8 / $103902: the next aircraft, or the end.
@@ -1721,7 +1744,8 @@ private:
         if (events.stall_warning) sounds_.warn(warning::stall);
         if (events.gear_speed_warning) sounds_.warn_beep(4);
         // $117128: 7.8 G or more beeps once until it is less again.
-        const int load = std::abs((aircraft_.pitch_rate + (aircraft_.pitch_rate >> 3)) >> 3);
+        const int load =
+            std::abs(std::int16_t(aircraft_.pitch_rate + (aircraft_.pitch_rate >> 3) + aircraft_.bank_pitch) >> 3);
         if (load >= 0x4E) {
             if (!overloaded_) sounds_.warn_beep(8);
             overloaded_ = true;
@@ -2626,6 +2650,8 @@ private:
     FlightMode mode_ = FlightMode::free_flight;
     Replay replay_{assets_.demo_controls, assets_.demo_keys};
     int fade_ = 15, fade_ticks_ = 0;    // $13AB90: the screen's fade step (15: full)
+    int fade_target_ = 15;              // $13AB91: the step the flight's fade goes to
+    int fade_wait_ = 0, fade_blanks_ = 0; // $13AB93: blanks to the next step; blanks owed (thirds)
     std::uint16_t replay_game_ = 0, replay_view_ = 0; // `$13AC86`, `$13AC88`: last frame's key events
     bool replay_ended_ = false;
     Autopilot autopilot_{assets_.program, tables_};

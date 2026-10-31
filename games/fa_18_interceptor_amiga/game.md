@@ -985,21 +985,34 @@ goes out); below $70800 (1,800 lb) critical (bit 1); below $BB800
 
 Load factor (`$117128`, every frame): |(pitch rate + pitch rate / 8 +
 `$13AC36`) / 8| ≥ $4E (7.8 G) beeps once (`$127D6A(8)`, latch
-`$13AB78`). Every real second (`$119954`) the overload counter `$13AB79`
-goes up (at most 15) while latched, else down to −1; above 5 the
-engine's volume is halved (`$1054A8`) and the screen procedure asks for
-the palette step `$13AB91` = 2 (`$10317A`, otherwise 15). The palette
-steps (`$1092DE` → `$109480`: `$13AB90` towards `$13AB91`, LoadRGB4 of
-16 colours from `$11A04C + (15 − step) × 32`: 16 darker copies of the
-flight palette, each step one less in every component, step 0 black).
-Correction (2026-10-31): this section once read the table *before*
-`$11A04C` (subtracting) and so took the steps for palette 1's orange
-and program bytes; `$109492`-`$109498` add. The view port is the shown
-one: the demo's fade-in captured step by step on the original
-(breakpoint on `$101B9C`, `screen.py`) shows exactly these rows (step 13:
-$447 → $225, $036 → $014, $333 → $111). An earlier capture with
-`$13AB79` poked to 15 showed no darkening of the flight view; not
-explained (**open**: the overload blackout, not rebuilt). No code posts "AT MAXIMUM ALTITUDE" (record 8): the
+`$13AB78`). The absolute value: pulling and pushing count alike, and
+there is no separate negative-G effect (no red-out). Every real second
+(`$119954`) the overload counter `$13AB79` goes up (at most 15) while
+latched, else down to −1; above 5 the engine's volume is halved
+(`$1054A8`) and the flight's screen procedure (`$102EFE` → `$103166`)
+asks for the palette step `$13AB91` = 2 when the view is the player's
+(`$13ABCE` 0) from the cockpit (`$13AA75` 0), otherwise 15 (`$103190`;
+`$103922` resets the counter and the target at a restart). The
+vertical-blank server (`$1092DE` → `$109440`) moves `$13AB90` one step
+towards the target, a step down every second blank, up every third
+(`$13AB93`), loading 16 colours from `$11A04C + (15 − step) × 32`
+(`$109480`): 16 darker copies of the flight palette, each step one less
+in every component, step 0 black; the display is one 16-colour playfield,
+so the panel darkens with the view. At the target it stores the colours
+as the view's own (`*$13A950`) and reloads them for three more blanks.
+Step 2 is black in every colour: the blackout is a black screen.
+Checked on the original (2026-10-31): free flight in the cockpit,
+`$13AB79` poked to 15: `$13AB90` went 15 → 2 within half a second and
+both copper lists carried the table's rows (12, 10, 3, then all zero).
+Correction: this section once read the table *before* `$11A04C` and
+reported no change of the flight view's colours; the captures then were
+taken after the counter had run down. The port (2026-10-31): the target
+set in the flying phase, the server's steps over 10/3 blanks a tick.
+Also 10 is a target: while the P key's pause (`$10DD84`, raw key $19 →
+`$10EDC2`: `$13AA9E` = $FF) holds the flight, `$102FE6` dims the screen
+to step 10 and `$103B76` / `$103BA0` wait, then step 15 again (the
+pause is not rebuilt in the port).
+No code posts "AT MAXIMUM ALTITUDE" (record 8): the
 ceiling `$13A9EA` only limits the climb (`$106ABE`).
 
 Collision proximity ($D00A with the crash beep, `$11A50E`) is posted when
