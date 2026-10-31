@@ -1,0 +1,43 @@
+# Landing the wrong way up
+
+Can an upside-down Hornet survive touching the carrier? The reconstructed contact rules explain how it can. The aircraft you see is a rotated three-dimensional model, but the touchdown decision is much smaller: a reference height, a downward movement rate and a few state flags. It does not ask whether the cockpit is above the wheels. That gap between appearance and decision is the interesting part of this trick.
+
+## 1 / Where is the bottom of an aircraft?
+
+A detailed collision model might follow each wheel, wingtip and canopy as the aircraft rolls. Interceptor's ground-height step instead gives the aircraft's reference point a fixed clearance above the surface. For the Hornet, deployed gear uses 1,800 position units; retracted gear uses 750. Recognising a carrier deck adds that deck's height beneath the clearance. The imported carrier specifies the deck elevation; the aircraft type and gear state select the offset.
+
+!figure landing_pose
+
+Turn the experiment from Upright to Inverted. The schematic flips the wheels, but the height offset remains unchanged. The offset is applied vertically in the world; it is not a wheel position rotated around the aircraft. The picture is deliberately schematic, not a measured silhouette or a claim about the Hornet's real dimensions. It shows the relationship that the contact calculation actually uses.
+
+## 2 / One number separates soft contact from a crash
+
+Movement blends the aircraft's previous velocity towards its direction of flight, then adds the flight model's sink contribution. If the next height crosses the selected surface height, the reference point is clamped there. On the first contact, the resulting downward rate is compared with 576 internal units. Below that cutoff, the touchdown branch accepts the contact. At 576 or above, the normal branch marks the aircraft crashed.
+
+!figure landing_probe
+
+The controls change a freshly constructed laboratory state, never your aircraft or save. Both orientations start at the same carrier position, with level pitch and heading, airspeed 1,200 internal units (100 knots), and no previous velocity. The experiment runs the production movement/contact routines, without engine or control integration. Soft selects rate 384; Edge selects 575; Hard selects 576. The sharp change at the last step is the lesson: there is no gradual judgement of landing quality at this boundary.
+
+The paired results are computed, not handwritten outcomes. Upright and inverted survive the softer cases and crash at the threshold. This isolates touchdown classification. Flying a complete inverted approach is a different challenge: roll, pitch, sink and controls interact before you ever reach this test. The experiment does not promise that an arbitrary inverted approach will reproduce its carefully held conditions.
+
+## 3 / Gear matters without being an upright test
+
+Choose Gear up. The same soft rate now contacts the lower reference height. At the fixed speed used here, the game also sets its fast-contact flag for a gear-up touchdown. That is different from immediately setting the crash flag. Deployed gear, safe contact and stopping are separate questions; the game does not reduce them to a single realistic verdict about wheel contact.
+
+Nor is every surface interchangeable. Away from a recognised deck, ground sampling checks water and runway footprints. The player's surrounding game loop treats water contact as a crash. Other objects have their own collision checks. Passing the soft-contact branch is therefore only one part of surviving a frame.
+
+## 4 / A carrier is more than a raised floor
+
+!figure landing_rules
+
+The carrier checks two transformed aircraft points near the nose and tail against outlines from the imported ship model. Those points do rotate with the aircraft, so orientation is not irrelevant to all collision detection. The carrier check refreshes deck flags after movement, using the aircraft's pre-move pose. In normal flight those flags connect successive frames; the experiment first establishes them at its chosen pose.
+
+Catching the arresting wires adds another test: the tail point must be in the wire zone, the aircraft must be grounded and its heading must align with the deck. Combining the zone flag with the lowered hook supplies full braking. None of that is demonstrated by merely surviving first contact. Below the deck, hull collision is another danger; Reprise's hull handling remains an approximation and is not evidence for every edge case around the ship.
+
+## 5 / Surviving is not completing a landing
+
+Mission completion adds its own requirements, including the mission outcome, a qualifying base or carrier surface, the appropriate flight-progress state and zero airspeed. A touchdown can survive without stopping, catching a wire or earning a completed mission. Likewise, a cockpit warning is not the crash decision itself: warnings can inspect attitude even where the touchdown branch does not.
+
+## Evidence and scope
+
+The cutoff and fixed clearances are supported by the supplied Amiga program's contact routine and the reconstructed movement code. The experiment exercises that reconstruction at eight controlled contacts, including the carrier probes. It is not an original-machine capture of an inverted approach. The supported explanation is precise: this touchdown branch lacks an upright test, so inverted contact can pass its rules; other flight, collision and mission checks still apply.

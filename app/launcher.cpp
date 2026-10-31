@@ -46,6 +46,7 @@ constexpr LessonEntry interceptor_lessons[] = {
     {"Painting the Hornet", "Walk the imported draw tree and build the aircraft one polygon list at a time.", "Illustrated article + experiment"},
     {"The roads that start as zeros", "Follow stored endpoints into the road corners generated at startup.", "Illustrated article + experiment"},
     {"What makes the Hornet fly?", "Explore input ramps, flight tables and motion with isolated physics runs.", "Illustrated article + experiment"},
+    {"Landing the wrong way up", "Compare upright and inverted contact: height, sink rate, gear and carrier rules.", "Illustrated article + experiment"},
 };
 constexpr LessonEntry stunt_lessons[] = {
     {"A world measured in angles", "How bearings, elevation and roll turn the imported road into a cockpit view.", "Illustrated article"},

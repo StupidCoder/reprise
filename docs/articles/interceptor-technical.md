@@ -101,3 +101,51 @@ Screenshots belong in temporary output, not the repository. Review includes
 all article endings, polygon-list overflow, road-inset label placement and graph
 axis alignment. Future changes to the underlying flight or geometry reconstruction
 must be checked against these explanations and their scope statements.
+
+## Chapter 4: Landing the wrong way up (2026-10-31)
+
+`resources/articles/interceptor_landing.txt`, three figures and eight controlled
+contact probes in the existing SDL lesson reader. No game rules changed.
+The original program identity is the same as above. Fresh inspection used the
+user-ROM-derived `.analysis/fa_18_interceptor_amiga/work/all.dis`; no external
+reverse engineering or internet anecdote was used as evidence.
+
+| Topic | Evidence and limits |
+| --- | --- |
+| Fixed height | Original $106D6E–$106E6E reads deck flags and gear, adding $708 (Hornet gear down), $2EE (gear up), or $A8C (other aircraft type $14) to deck height. No roll-dependent clearance. `aircraft.cpp::move` reproduces this. Schematic wheel placement is not game geometry. |
+| Touchdown threshold | $106F30–$107052 checks existing crash/ground state then compares the effective vertical rate with $240; signed less-than enters the soft path. Normal hard contact sets state bit $200 and mission crash state. The original also has a global bypass at $13AB8A; this lesson describes the normal branch, not every diagnostic/game-mode override. $107000–$107022 sets fast contact for water/gear up at speed >=$3C0; $10702E selects the tyre sound at $180. No roll test occurs in the touchdown classifier. |
+| Controlled experiment | `landing_probe` constructs a fresh aircraft at the imported carrier's start point, pitch/heading 0, roll 0 or 180 degrees; body/view matrices use imported flight tables. Gear 0 or $E0, airspeed/speed 1200, velocity zero, surface initially clear, motion airborne, state moves. Height is deck*256+clearance+1. The production `Carrier::touch` first establishes deck flags. `coast` calls the same private `move` used by `fly`, with default flight rules and no world pointer; another `Carrier::touch` follows, using the pre-move pose. Sink 384/575/576/384 yields the tested effective rate because pitch is level and initial vertical velocity is zero. This intentionally bypasses engine, attitude integration and approach dynamics; it is not a full flight replay. |
+| Carrier probes and wire | game.md "The carrier", $11B6AA/$11BA3E, `carrier.cpp`. Nose/tail probes do rotate. Carrier check follows movement with pre-move pose in `module.cpp`. Wire-zone/heading/hook conditions are separate; the probe is at the launch position, not a wire-catch scenario. Existing hull implementation explicitly approximates original face tests; no claim of exact inverted hull behavior. |
+| Water, warnings, completion | `module.cpp` converts `events.in_water` to crash and handles other object contacts. `messages.cpp::ground_warnings` can inspect bank/pitch separately. game.md "Mission outcomes" ($118BA2) and the module's mission handling require a qualifying surface, flight progress, zero airspeed and outcome; no mission-completion claim is made by the isolated contact result. |
+
+The original routine inspection supports why there is no upright check; it is
+not a fresh original-emulator landing replay. Reconstructed boundary tests and
+carrier contact must not be described as proof of an entire historical approach.
+
+### Landing lesson validation
+
+Built `reprise`, `interceptor_lesson_checks` and `shell_checks` in an isolated
+snapshot of committed HEAD plus only this lesson's files. Imported-data checks
+passed all eight probes: deck recognised, no hull hit, grounded; 384/575 survive,
+576 crashes in both orientations; gear-up at 384 sets fast contact, and reference
+clearance is 750 instead of 1800 regardless of roll. The reader passed at 960x640,
+640x1138 and 1422x640, including selection, held-fire edges, touch drag, fractional
+scroll, bottom bounds and resize. The launcher test reaches the fourth lesson
+by scrolling the list, opens it, resizes and returns. Six CTest cases passed:
+interceptor_lessons, shell_navigation, shell_motion, development_articles,
+technical_articles, import_progress. Rendered portrait figures and the ending
+were inspected for clipping and readable labels. No Android-device run claimed.
+
+Commands in the isolated snapshot:
+
+```
+build/interceptor_lesson_checks <imported-interceptor> /tmp/interceptor-landing-captures
+build/shell_checks --interceptor-lessons <imported-interceptor>
+ctest --test-dir build -R 'shell_navigation|shell_motion|interceptor_lessons|technical_articles|development_articles|import_progress' --output-on-failure
+```
+
+SHA-256 of inspected evidence/implementation:
+
+- ROM-derived work/all.dis: `4934ec03efa6fb41f89d3617cacb77ab852077b985144268278c578d42043cce`
+- game/aircraft.cpp: `a01d25c7ef6a3cbc466f8bcd643d76a5668be580613079dd18f51bb375995031`
+- game/carrier.cpp: `774ab93a9153cf6043bcde4729a681b8921f2df03a05c70725c98ccce2812c32`

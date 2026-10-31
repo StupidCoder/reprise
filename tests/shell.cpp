@@ -55,8 +55,11 @@ int main(int argc, char** argv) {
             check(found!=games.end(),"Interceptor is catalogued");
             app::Launcher browser(library);browser.select(std::size_t(found-games.begin()));browser.open_details();browser.open_lessons();
             const auto same=[](const platform::Image& a,const platform::Image& b){return a.width==b.width&&a.height==b.height&&std::memcmp(a.pixels.data(),b.pixels.data(),a.pixels.size()*sizeof(platform::Color))==0;};
-            for(int chapter=0;chapter<3;++chapter){
-                browser.set_canvas(960,640);browser.update(click(450,210+chapter*106),0);
+            for(int chapter=0;chapter<4;++chapter){
+                browser.set_canvas(960,640);
+                if(chapter<3) browser.update(click(450,210+chapter*106),0);
+                else { platform::Controls down; down.nav_down=true; browser.update(down,0);
+                       platform::Controls enter; enter.accept=true; browser.update(enter,0); }
                 interceptor::lessons::TechnicalLesson expected(argv[2],chapter);
                 check(same(browser.draw(1),expected.draw()),"Browser opens selected Interceptor lesson");
                 browser.set_canvas(640,1138);expected.set_canvas(640,1138);

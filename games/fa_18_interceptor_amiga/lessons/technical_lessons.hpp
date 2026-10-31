@@ -5,6 +5,13 @@
 #include "fa_18_interceptor_amiga/game/aircraft.hpp"
 #include <optional>
 namespace interceptor::lessons {
+// Isolated contact probe using the production carrier and movement routines.
+// No engine, control integration, mission progress or player save is advanced.
+struct LandingProbe {
+    int rate{}, clearance{};
+    bool deck{}, hull{}, grounded{}, crashed{}, fast_contact{};
+};
+LandingProbe landing_probe(const data::Assets&, const game::FlightTables&, bool inverted, int setting);
 class TechnicalLesson final : public app::Lesson {
   public:
     TechnicalLesson(const std::filesystem::path &, int chapter);

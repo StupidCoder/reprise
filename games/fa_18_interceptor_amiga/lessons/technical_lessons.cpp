@@ -1,5 +1,6 @@
 #include "fa_18_interceptor_amiga/lessons/technical_lessons.hpp"
 #include "fa_18_interceptor_amiga/game/draw_order.hpp"
+#include "fa_18_interceptor_amiga/game/carrier.hpp"
 #include "fa_18_interceptor_amiga/game/scene.hpp"
 #include "platform/resources.hpp"
 #include "ui/shelf.hpp"
@@ -64,9 +65,34 @@ struct Block {
 };
 } // namespace
 
+LandingProbe landing_probe(const data::Assets& assets, const game::FlightTables& tables, bool inverted, int setting) {
+    game::Carrier carrier(assets.program);
+    auto a=carrier.start_on_deck(assets.program,tables);
+    a.attitude={0,0,std::int16_t(inverted ? game::full_turn/2 : 0)};
+    a.body=game::body_matrix(tables,a.attitude);
+    a.view=game::view_matrix(tables,a.attitude);
+    a.gear=setting==3 ? 0xE0 : 0;
+    a.motion=0; a.state=game::flag::moves; a.surface=0;
+    a.speed=a.airspeed=1200; a.vx=a.vy=a.vz=0;
+    const int rates[]={384,575,576,384};
+    a.sink=std::int16_t(rates[std::clamp(setting,0,3)]);
+    const int clearance=setting==3 ? 0x2EE : 0x708;
+    a.y=carrier.deck_height*256+clearance+1;
+    // Establish deck recognition at this controlled pose, then reproduce the
+    // movement/contact order. coast uses the very same move() as fly().
+    const bool hull_before=carrier.touch(a,a);
+    const bool deck=(a.surface&0xC0)!=0;
+    const auto before=a;
+    game::coast(a,{},tables);
+    const bool hull=carrier.touch(a,before) || hull_before;
+    return {rates[std::clamp(setting,0,3)], int(a.y-carrier.deck_height*256),deck,hull,
+            bool(a.motion&game::flag::on_ground),bool(a.state&game::flag::crashed)||hull,
+            bool(a.motion&game::flag::touched_down_fast)};
+}
+
 TechnicalLesson::TechnicalLesson(const std::filesystem::path &content, int chapter)
     : assets_(data::load_assets(content)), chapter_(chapter) {
-    if (chapter < 0 || chapter > 2)
+    if (chapter < 0 || chapter > 3)
         throw std::runtime_error("Unknown Interceptor lesson");
     tables_ = game::read_flight_tables(assets_.program);
     plane_ = data::read_shape(assets_.program, 4); // F/A-18, not the F-16 type 3.
@@ -86,7 +112,7 @@ TechnicalLesson::TechnicalLesson(const std::filesystem::path &content, int chapt
     }
     if (roads_.empty() || plane_.faces.empty())
         throw std::runtime_error("Lesson geometry is missing");
-    const char *names[] = {"painting", "roads", "flight"};
+    const char *names[] = {"painting", "roads", "flight", "landing"};
     const auto bytes = platform::resource(std::string("articles/interceptor_") + names[chapter] + ".txt");
     article_.assign(bytes.begin(), bytes.end());
     if (chapter_ == 0)
@@ -190,7 +216,56 @@ void TechnicalLesson::compose() {
 Image TechnicalLesson::figure(const std::string &kind, int w) const {
     Image im(w, 360);
     ui::fill(im, s::pale);
-    if (kind == "plane" || kind == "order") {
+    if (kind == "landing_pose") {
+        label(im,"CONTACT LAB / a schematic, not a flight replay",16,16,s::ink);
+        const auto result=landing_probe(assets_,tables_,selection_!=0,stage_);
+        const int cx=w/2,cy=145,sign=selection_ ? -1 : 1;
+        line(im,32,240,w-32,240,s::ink);
+        label(im,"carrier deck",32,250);
+        line(im,cx-100,cy,cx+100,cy,s::cobalt);
+        line(im,cx-24,cy,cx,cy-sign*18,s::cobalt);
+        line(im,cx,cy-sign*18,cx+24,cy,s::cobalt);
+        if(stage_!=3) for(int dx:{-35,35}) {
+            line(im,cx+dx,cy,cx+dx,cy+sign*24,s::cobalt);
+            dot(im,cx+dx,cy+sign*30,s::ink);
+        }
+        dot(im,cx,cy,orange);
+        line(im,cx+120,cy,cx+120,240,orange);
+        label(im,"reference height",cx-64,205,orange);
+        label(im,selection_?"INVERTED / wheels above":"UPRIGHT / wheels below",16,48,s::cobalt);
+        label(im,"Height clamp: deck + "+number(result.clearance)+" position units",16,292);
+        label(im,"Gear changes this offset. Roll does not rotate it.",16,324);
+    } else if(kind=="landing_probe") {
+        label(im,"ONE CONTACT STEP / production movement + deck checks",16,16,s::ink);
+        const auto selected=landing_probe(assets_,tables_,selection_!=0,stage_);
+        label(im,"Downward rate: "+number(selected.rate)+" / crash cutoff: 576",16,50);
+        label(im,"Airspeed fixed at 1200 (100 kt); pitch and heading level.",16,76);
+        const char* names[]={"Upright","Inverted"};
+        for(int i=0;i<2;++i) {
+            const auto p=landing_probe(assets_,tables_,i!=0,stage_);
+            const int y=119+i*76;
+            ui::rounded(im,16,y,w-32,64,6,i==selection_?s::paper:s::card);
+            label(im,names[i],28,y+10,s::ink);
+            label(im,p.crashed?"CRASH":"SURVIVES CONTACT",w/2,y+10,p.crashed?orange:s::green);
+            label(im,p.deck?"Deck recognised":"Deck not recognised",28,y+36);
+            label(im,p.fast_contact?"Fast belly contact":"No fast-contact flag",w/2,y+36);
+        }
+        label(im,"575 survives; 576 crashes at either roll angle.",16,292);
+        label(im,"Controlled state: no approach, wire catch or mission result.",16,324);
+    } else if(kind=="landing_rules") {
+        label(im,"SEPARATE QUESTIONS / simplified contact sequence",16,16,s::ink);
+        const char* rows[]={"Deck or ground? Select a reference height.",
+                            "Cross that height? Clamp position to the surface.",
+                            "First contact? Compare vertical rate with 576.",
+                            "Carrier probes? Check deck, wire zone and hull.",
+                            "Water, other objects, mission rules? Further checks."};
+        for(int i=0;i<5;++i) {
+            const int y=56+i*51;
+            ui::rounded(im,16,y,w-32,42,5,s::paper);
+            label(im,std::to_string(i+1)+" / "+rows[i],28,y+13,i==2?orange:s::ink);
+        }
+        label(im,"No universal rule that says: inverted means crashed.",16,324);
+    } else if (kind == "plane" || kind == "order") {
         const double angle = (35 + selection_ * 45) * std::numbers::pi / 180;
         P eye{400 * std::sin(angle), selection_ % 2 ? -180.0 : 180.0, 400 * std::cos(angle)};
         const auto order =
@@ -418,12 +493,12 @@ void TechnicalLesson::update(const platform::Controls &in, double) {
     };
     bool changed = false;
     if (hit(24, 210) || in.nav_right || in.nav_left) {
-        const int count = chapter_ == 0 ? 8 : chapter_ == 1 ? int(roads_.size()) : 3;
+        const int count = chapter_ == 0 ? 8 : chapter_ == 1 ? int(roads_.size()) : chapter_ == 3 ? 2 : 3;
         selection_ = (selection_ + (in.nav_left ? count - 1 : 1)) % count;
         changed = true;
     }
     if (hit(250, 210) || (in.fire && !fire_was_)) {
-        const int count = chapter_ == 0 ? std::max(1, plane_.lists) : chapter_ == 1 ? 4 : 2;
+        const int count = chapter_ == 0 ? std::max(1, plane_.lists) : chapter_ == 1 || chapter_ == 3 ? 4 : 2;
         stage_ = (stage_ + 1) % count;
         changed = true;
     }
@@ -452,15 +527,18 @@ Image TechnicalLesson::draw() const {
     ui::fill(im, s::paper);
     s::button(im, "< Lessons", 24, 20, 104, 34);
     s::text(im, "F/A-18 Interceptor", 148, 22, 23, s::ink, true);
-    const char *headings[] = {"01 / PAINTING THE HORNET", "02 / BUILDING THE ROADS", "03 / THE FLIGHT MODEL"};
+    const char *headings[] = {"01 / PAINTING THE HORNET", "02 / BUILDING THE ROADS", "03 / THE FLIGHT MODEL", "04 / LANDING OR CRASHING"};
     label(im, headings[chapter_], 24, 62);
     const char *inputs[] = {"Neutral", "Pull up", "Bank right"};
     const auto first =
         chapter_ == 0 ? "View " + std::to_string(selection_ + 1) + (selection_ % 2 ? " / below" : " / above")
         : chapter_ == 1 ? "Road " + std::to_string(selection_ + 1) + " / " + std::to_string(roads_.size())
+                        : chapter_ == 3 ? std::string(selection_ ? "Inverted" : "Upright")
                         : std::string("Input: ") + inputs[selection_];
+    const char* contact_settings[]={"Soft: 384", "Edge: 575", "Hard: 576", "Gear up: 384"};
     const auto second = chapter_ == 0   ? "Next layer"
                         : chapter_ == 1 ? "Step " + std::to_string(stage_ % 4) + " / 3"
+                                        : chapter_ == 3 ? std::string(contact_settings[stage_])
                                         : "Throttle: " + std::to_string(stage_ % 2 ? 120 : 60);
     s::button(im, first, 24, 84, 210, 38);
     s::button(im, second, 250, 84, 210, 38);

@@ -21,8 +21,8 @@ bool same(const platform::Image &a, const platform::Image &b) {
 int main(int argc, char **argv) {
     try {
         const std::set<std::string> known{"plane",  "order", "road",     "records",
-                                          "flight", "bank",  "response", "sink"};
-        for (auto name : {"painting", "roads", "flight"}) {
+                                          "flight", "bank",  "response", "sink", "landing_pose", "landing_probe", "landing_rules"};
+        for (auto name : {"painting", "roads", "flight", "landing"}) {
             const auto bytes = platform::resource(std::string("articles/interceptor_") + name + ".txt");
             std::string text(bytes.begin(), bytes.end());
             check(text.starts_with("# "), "Article title");
@@ -66,7 +66,15 @@ int main(int argc, char **argv) {
                 zeros += assets.program.s16(at) == 0 && assets.program.s16(at + 2) == 0;
             std::cout << "Road points: " << built.size() << "; stored zero pairs: " << zeros << '\n';
             check(zeros == 120, "Stored points really start at zero");
-            for (int chapter = 0; chapter < 3; ++chapter) {
+            const auto tables=interceptor::game::read_flight_tables(assets.program);
+            for(int setting=0;setting<4;++setting) for(bool inverted:{false,true}) {
+                const auto p=interceptor::lessons::landing_probe(assets,tables,inverted,setting);
+                check(p.deck && !p.hull && p.grounded,"Laboratory contact is on the carrier, clear of hull");
+                check(p.crashed==(setting==2),"576 crashes; softer contacts survive at either roll");
+                check(p.fast_contact==(setting==3),"Gear-up contact sets the fast-contact flag");
+                check(p.clearance==(setting==3?750:1800),"Reference clearance depends on gear, not roll");
+            }
+            for (int chapter = 0; chapter < 4; ++chapter) {
                 interceptor::lessons::TechnicalLesson lesson(argv[1], chapter);
                 for (auto size : {std::pair{960, 640}, std::pair{640, 1138}, std::pair{1422, 640}}) {
                     lesson.set_canvas(size.first, size.second);
