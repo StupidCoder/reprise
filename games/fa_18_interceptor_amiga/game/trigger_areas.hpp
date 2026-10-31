@@ -37,6 +37,8 @@ private:
 
     const ObjectLists& lists_;
     std::uint8_t inside_{}; // `$13AA8D`: a bit per area entered (by the walk's bit number)
+public:
+    template <class A> void persist(A& ar) { ar(inside_); }
 };
 
 } // namespace interceptor::game

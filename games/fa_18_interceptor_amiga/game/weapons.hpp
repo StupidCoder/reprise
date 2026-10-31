@@ -42,6 +42,7 @@ struct Stores {
     int sidewinders = 2, amraams = 4; // +$5F high and low nibble
     int rounds = 500;                 // +$60
     int flares = 16, chaff = 16;      // $13AB3D, $13AB3C
+    template <class A> void persist(A& ar) { ar(selected, sidewinders, amraams, rounds, flares, chaff); }
 };
 
 // One of the ten projectile slots ($13AF62, $80 bytes apart): a round, a
@@ -55,6 +56,7 @@ struct Shot {
     bool moved{};                  // +$24: the first frame stands still
     bool hit{};                    // +$26 bit 1: sparks where it hit
     std::int32_t ex{}, ey{}, ez{}; // an eighth of the first move (+$18 .. +$20), for the hit tests
+    template <class A> void persist(A& ar) { ar(kind, x, y, z, vx, vy, vz, life, moved, hit, ex, ey, ez); }
 };
 
 // A missile in flight: an object record of its own (records 1-3).
@@ -70,6 +72,7 @@ struct Missile {
     std::uint8_t pilot{}; // +$64
     Course course;   // where it heads for (the locked record's place)
     bool stopped{};    // +0 bit 12 cleared: it hit the ground and moves no more
+    template <class A> void persist(A& ar) { ar(body, type, life, fading, fresh, pilot, course, stopped); }
 };
 
 class Weapons {
@@ -171,6 +174,9 @@ private:
     std::optional<std::size_t> flare_slot_, chaff_slot_; // `$13AB7C`, `$13AB7D`
     std::vector<Ended> ended_;
     std::array<std::optional<Missile>, 3> missiles_{};
+public:
+    template <class A> void persist(A& ar) { ar(stores_, firing_, launch_asked_, decoy_asked_, burst_left_, burst_hold_, flare_time_, chaff_time_, shots_,
+           flare_slot_, chaff_slot_, missiles_); }
 };
 
 } // namespace interceptor::game

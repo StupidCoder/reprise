@@ -44,6 +44,8 @@ public:
         std::int32_t wait{};         // ticks to the script's next entries (0: none)
         int script{-1};              // the slot's script (first entry), if it has one
         int position{};              // next entry, counted from the script's start
+        template <class A> void persist(A& ar) { ar(present, data, length, period, volume, repeat, repeat_reload, next, period_step, volume_step, period_ticks,
+                volume_ticks, loops, wait, script, position); }
     };
 
     // The effect scripts' first entries.
@@ -96,6 +98,7 @@ private:
         enum Kind { set_period, set_volume, set_period_step, set_volume_step, set_loop0, set_loop1, wait,
                     loop0, loop1 } kind{};
         std::int32_t value{};
+        template <class A> void persist(A& ar) { ar(kind, value); }
     };
 
     void audio_interrupt(int channel);
@@ -119,6 +122,9 @@ private:
     double to_blank_ = 0;      // samples left to the next tick
     bool in_interrupt_ = false;
     std::array<bool, 4> pending_{};
+public:
+    template <class A> void persist(A& ar) { ar(slots_, cells_, entries_, script_start_, shift_register_, master_volume_, master_, master_target_, tune_,
+           tune_playing_, paula_, to_blank_, in_interrupt_, pending_); }
 };
 
 } // namespace interceptor::game

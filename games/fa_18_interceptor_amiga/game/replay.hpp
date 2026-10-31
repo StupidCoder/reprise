@@ -78,6 +78,8 @@ private:
     const std::vector<std::uint8_t>& controls_;
     const std::vector<std::uint8_t>& keys_;
     std::size_t control_ = 0, key_ = 1; // `$1450A4`, `$1450A0` (in records)
+public:
+    template <class A> void persist(A& ar) { ar(control_, key_); }
 };
 
 } // namespace interceptor::game

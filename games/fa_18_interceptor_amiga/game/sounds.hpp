@@ -126,6 +126,9 @@ private:
     bool outside_ = false;
     int view_position_ = 0, view_distance_ = -1;
     bool active_ = true;
+public:
+    template <class A> void persist(A& ar) { ar(cockpit_engine_, outside_engine_, tyres_, wind_, gear_, noise_, thump_, gun_, event_, restart_in_, frame_,
+           gear_seconds_, beep_lock_, warnings_, blackout_, outside_, view_position_, view_distance_, active_); }
 };
 
 } // namespace interceptor::game

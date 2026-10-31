@@ -58,6 +58,7 @@ struct TextLine {
     int speed{};   // frames per character (hypothesis: $13AACB counts down)
     int delay{};   // pause after the line, in units of 4 frames ($127836)
     std::string text;
+    template <class A> void persist(A& ar) { ar(flags, colour, speed, delay, text); }
 };
 
 struct TextBlock {
@@ -65,6 +66,7 @@ struct TextBlock {
     std::uint32_t address{};
     int row{}, column{};     // scanline and byte column (8 pixels)
     std::vector<TextLine> lines;
+    template <class A> void persist(A& ar) { ar(number, address, row, column, lines); }
 };
 
 struct Assets {

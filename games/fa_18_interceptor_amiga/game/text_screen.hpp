@@ -67,6 +67,7 @@ private:
         int wait = 0;
         bool pausing = false;
         bool finished() const { return line >= int(block.lines.size()); }
+        template <class A> void persist(A& ar) { ar(block, line, shown, wait, pausing); }
     };
     bool step(Running& r);
     bool advance();
@@ -84,6 +85,8 @@ private:
     std::string text_;
     bool fast_ = false;
     double steps_due_ = 0; // fast text: steps owed from earlier frames
+public:
+    template <class A> void persist(A& ar) { ar(blocks_, queued_, current_, spacing_, idle_frames_, input_, input_length_, text_, steps_due_); }
 };
 
 } // namespace interceptor::game

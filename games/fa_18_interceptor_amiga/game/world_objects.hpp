@@ -29,6 +29,7 @@ struct WorldObject {
     std::uint8_t stores{0x44};   // +$5F: Sidewinders (high nibble) and AMRAAMs (low), $44 at the spawn ($11D58C)
     std::uint8_t damage{};       // +$3C: rounds taken (low nibble)
     bool active() const { return craft.state & 0x0040; }
+    template <class A> void persist(A& ar) { ar(craft, record, shape_type, scale, group, area, course, pilot, weapons, stores, damage); }
 };
 
 // The global choices the spawner reads.

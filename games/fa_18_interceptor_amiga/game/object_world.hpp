@@ -30,6 +30,7 @@ struct Smoke {
     int type{};                         // +2: $11-$13, drawn as object type 16 more (33-35, `$11608C`)
     int timer{};                        // +4: $7F, down a frame (`$116B82`); never freed in a flight
     std::array<std::int32_t, 3> at{};   // the record's place then (cells and fine +6 ... +$10: world units)
+    template <class A> void persist(A& ar) { ar(type, timer, at); }
 };
 
 // The smoke trail behind the last aircraft hit (`$1450BA`: set with +2
@@ -45,6 +46,7 @@ struct Trail {
     int next{}, count{};
     void update(Aircraft& a);
     void reset() { *this = Trail{}; }
+    template <class A> void persist(A& ar) { ar(record, places, next, count); }
 };
 
 class ObjectWorld {
@@ -177,6 +179,9 @@ private:
     std::array<std::optional<Smoke>, 16> smoke_;
     Trail trail_;
     std::vector<int> ended_;
+public:
+    template <class A> void persist(A& ar) { ar(objects_, list_start_, aircraft_, aircraft_limit_, destroyed_, escort_, outcome_wait_, pod_, smoke_, trail_,
+           areas_); }
 };
 
 } // namespace interceptor::game

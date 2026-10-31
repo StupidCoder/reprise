@@ -87,6 +87,11 @@ struct Aircraft {
     std::uint8_t fuel_warning{};     // `fuel` bits ($13AE40 bits 0, 1, 6)
     bool supersonic{};               // past the speed of sound ($13ABC2 bit 14)
     bool gear_speed_warned{};        // the gear is down too fast: warned ($13AB36)
+    template <class A> void persist(A& ar) { ar(x, y, z, vx, vy, vz, attitude, pitch_rate, yaw_rate, roll_rate, pitch_input, rudder_input, roll_input, throttle,
+           throttle_target, throttle_steps, controls, speed, airspeed, fuel, sink, climb_speed, ground_drag, bank_sine,
+           bank_cosine, bank_side, bank_side_was, bank_turn, bank_turn_limit, bank_pitch, gear, deck_height, body, view,
+           state, motion, surface, handling, type, role, trail, analog_pitch, analog_roll, player, timer, stall_warning,
+           fuel_warning, supersonic, gear_speed_warned); }
 };
 
 // The game-wide switches the flight model reads.

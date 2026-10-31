@@ -24,11 +24,13 @@ public:
     struct Blip {
         int x{}, y{}, colour{};
         bool wide{};
+        template <class A> void persist(A& ar) { ar(x, y, colour, wide); }
     };
     struct Entry {
         std::int32_t x{}, z{};   // turned by the heading, scaled back up
         int record{};
         bool on_scope{};         // flags bit 5
+        template <class A> void persist(A& ar) { ar(x, z, record, on_scope); }
     };
 
     void reset();
@@ -88,6 +90,8 @@ private:
     std::uint8_t threats_{};    // `$13AB5E`
     std::uint32_t warnings_{};
     std::uint8_t threat_timer_{};
+public:
+    template <class A> void persist(A& ar) { ar(entries_, blips_, passes_, scan_due_, target_request_, locked_, confirm_, redraw_, threats_, warnings_, threat_timer_); }
 };
 
 } // namespace interceptor::game

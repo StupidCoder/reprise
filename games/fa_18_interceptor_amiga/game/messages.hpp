@@ -68,6 +68,8 @@ private:
     std::uint8_t attribute_ = 0, duration_ = 0, beeps_ = 0; // $13AB52, $13AB83, $13AB53
     std::uint8_t clock_ = 0;    // $13AB80: 8 .. 1
     std::uint8_t ticks_ = 0;    // $13AB7E: this frame's blink ticks (bit 1 every 4th, bit 2 every 2nd)
+public:
+    template <class A> void persist(A& ar) { ar(code_, chosen_, shown_, posted_, kept_, started_, lit_, count_, attribute_, duration_, beeps_, clock_, ticks_); }
 };
 
 class Sounds;

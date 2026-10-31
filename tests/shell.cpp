@@ -59,7 +59,7 @@ int main(int argc, char** argv) {
                 check(std::set<app::GameFeature>(entry.features.begin(), entry.features.end()).size() == entry.features.size(),
                       "Capabilities must not be duplicated");
                 if (entry.id == "fa_18_interceptor_amiga") {
-                    check(badges.size() == 3, "Interceptor offers widescreen, smooth motion and touch, not planned tilt or saves");
+                    check(badges.size() == 4, "Interceptor offers widescreen, smooth motion, touch and quick saves, not planned tilt");
                 }
             }
         }

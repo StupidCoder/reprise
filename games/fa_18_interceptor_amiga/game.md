@@ -2674,6 +2674,21 @@ message line (`$13ADD0`, `$13ADCE`) with the next record:
 Not seen in the original yet: the tyres (a soft touch-down), the boom,
 the spin warning.
 
+### Quick saves (2026-10-31)
+
+`write_state` / `read_state` keep the module's whole running state as
+values (`state::Writer`, "FA18" version 1, about 20 KB): the front end
+and its texts, the flight, the player's and the others' records, the
+weapons' slots, the radar, the messages, the sound driver's slots,
+scripts and Paula channels, the pilot record as it is in memory and the
+random generator. The options stay as the player has them; gone records
+still drawn are dropped (the lists are built anew). Checked with `fly
+... N:!twin`: from the title, the front end, the demo (start, the shot,
+the landing), a free flight (rolling, crash, weapons), a mission from
+the carrier, the maneuvers, the practice (a collision) and the
+qualification, the loaded module's pictures, sound and saved state stay
+equal to the original module's every tick.
+
 ## 6 Bugs and oddities in the original
 
 - **Wind loop length** ($1099CA): the copy of textwnd in slot 9 takes its
@@ -2757,7 +2772,10 @@ Research files live in `.analysis/fa_18_interceptor_amiga/` (`harness/`,
   `screen.py` colour dump: `wp/gun.idx` F/A-18, `f16b.idx` F-16, no pixel
   differs), `fly` (headless module run from the title,
   pictures, `!sub` four pictures between the step before and that one
-  (smooth motion), and `!wav`; keys: digits, `*` Return, `~` Tab (Esc), `^`
+  (smooth motion), `!wav`, `!reload` (a quick save loaded into a fresh
+  module at that tick) and `!twin` (the same, run beside the module:
+  prints whether pictures, sound and saved state stay equal to the end;
+  not with `!wav`); keys: digits, `*` Return, `~` Tab (Esc), `^`
   Ctrl+Tab (Shift-Esc), `_` space, capitals the letter keys, `@ [ ] { }`
   the keypad's 0 4 6 8 2; touch: `?stick=X,Y` held until the next stick
   step, `?throttle=Y`, `?gear`, `?view`, `?tap=X,Y` in picture pixels - quote

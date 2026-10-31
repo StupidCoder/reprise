@@ -145,7 +145,8 @@ app has none yet).
     heading for a record or a path point; flying a mission again with
     the same variant and offsets (`$13AE0C`, `$13AE08`).
 12. **Dusk and night**: palettes 3-9 (the fades).
-13. **Saves**: quick save and load of the module's state.
+13. **Saves**: done 2026-10-31 (game.md "Quick saves"): the module's
+    whole state, checked by running a loaded twin beside the module.
 
 ## Open research items
 

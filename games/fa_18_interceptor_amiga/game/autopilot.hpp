@@ -24,6 +24,7 @@ struct Waypoint {
     std::int32_t height{};
     bool none() const { return cell_x < 0; } // (+$2C -1)
     bool operator==(const Waypoint&) const = default;
+    template <class A> void persist(A& ar) { ar(cell_x, cell_z, fine_x, fine_z, height); }
 };
 
 // A record's fields for where it goes, which the autopilot and the object
@@ -34,6 +35,7 @@ struct Course {
     std::uint8_t behaviour{};         // +$7A
     std::int16_t distance{};          // +$4A: to the target point (0x7FFF: far)
     std::uint8_t path{};              // +$3A: the path entry its role 8 follows (x 2)
+    template <class A> void persist(A& ar) { ar(target, target_record, behaviour, distance, path); }
 };
 
 namespace role {

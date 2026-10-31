@@ -42,6 +42,9 @@ struct PilotRecord {
     // $108556 (the flight log's Shift 2): the whole record cleared, call
     // sign and launches too: a new pilot.
     void reset() { *this = PilotRecord{}; }
+    template <class A> void persist(A& ar) { ar(qualified, level, launches, last_mission, last_stage, flight_seconds, bytes_c, call_sign, missions_started,
+           missions_completed, cannon_fired, cannon_hits, amraams_fired, amraam_hits, sidewinders_fired, sidewinder_hits,
+           crashes, missile_hits, tail); }
 };
 
 // `config` in the game's folder; a missing or short file is a new pilot.

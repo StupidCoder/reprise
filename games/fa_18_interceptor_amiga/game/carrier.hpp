@@ -51,6 +51,8 @@ private:
     std::array<std::int16_t, 9> view_{0x4000, 0, 0, 0, 0x4000, 0, 0, 0, 0x4000};
     int shift_ = 3;
     std::vector<std::vector<int>> deck_;     // the deck's outlines: point indices
+public:
+    template <class A> void persist(A& ar) { ar(position, body, shape_type, deck_height, attitude, turned_, view_); }
 };
 
 } // namespace interceptor::game

@@ -21,6 +21,7 @@
 #include "fa_18_interceptor_amiga/game/text_screen.hpp"
 #include "fa_18_interceptor_amiga/game/weapons.hpp"
 #include "fa_18_interceptor_amiga/game/world_objects.hpp"
+#include "state/archive.hpp"
 #include "ui/vhs.hpp"
 #include <optional>
 #include <algorithm>
@@ -28,6 +29,8 @@
 #include <cmath>
 #include <cstdio>
 #include <random>
+#include <span>
+#include <stdexcept>
 
 namespace interceptor::game {
 namespace {
@@ -53,6 +56,7 @@ constexpr int menu_hint_text = 83;    // "(SHIFT ESC) TO RETURN TO MAIN MENU"
 constexpr int bogey_text = 88;        // "YOUR VECTOR XXX FOR BOGEY" (mission 3, the demo's)
 constexpr int carrier_place = 3;      // place 4 ($137CF6's $800E: record 14)
 constexpr int menu_palette = 0;
+constexpr std::uint32_t save_magic = 0x38314146, save_version = 1; // "FA18"
 
 // Smooth motion: an attitude part of the way (t) from one tick's matrix to
 // the next, turned about the axis between them rather than mixed entry by
@@ -812,6 +816,46 @@ public:
     }
     // The flight's touch controls ($10DFD2's stick, F1 - F10, key G), while
     // the player flies.
+    // Quick saves keep the whole running state (front end, flight, records,
+    // sound driver), never a replay; the options are the player's and stay
+    // as they are now. Gone records still drawn are dropped (the lists are
+    // built anew).
+    std::vector<std::uint8_t> write_state() override {
+        state::Writer ar;
+        std::uint32_t magic = save_magic, version = save_version;
+        ar(magic, version);
+        persist(ar);
+        return std::move(ar.bytes);
+    }
+    void read_state(std::span<const std::uint8_t> in) override {
+        state::Reader ar(in);
+        std::uint32_t magic{}, version{};
+        ar(magic, version);
+        if (magic != save_magic || version != save_version)
+            throw std::runtime_error("F/A-18 Interceptor: not a save of this version.");
+        persist(ar);
+        ar.finish();
+        leftovers_.clear();
+        list_camera_.clear();
+        list_cells_.clear();
+    }
+    template <class A> void persist(A& ar) {
+        ar(explosion_noise_.delay, explosion_noise_.volume, explosion_noise_.ticks, burning_, was_active_, palette_,
+           messages_, driver_, sounds_, carrier_, weapons_, mode_, replay_, fade_, fade_ticks_, fade_target_,
+           paused_from_, pause_text_, fade_wait_, fade_blanks_, fade_start_, fade_count_, fade_at_, replay_game_,
+           replay_view_, replay_ended_, others_, level_, radar_, player_distance_, radar_outside_, radar_look_,
+           random_, trainer_pilot_, maneuver_, maneuver_started_, skip_maneuver_, maneuvers_running_, leader_,
+           lead_pilot_, lead_active_, practice_wait_, trigger_, reposition_, brief_, mission_, mission_result_,
+           briefing_part_, airborne_, f_was_, ctrl_digits_was_, briefing_key_, radar_range_, ecm_, lead_, pipper_,
+           pipper_next_, pilot_, front_, text_, in_front_, ready_done_, aircraft_, before_, keys_was_, fire_was_,
+           ctrl_tab_was_, ctrl_two_was_, aircraft_type_);
+        ar(outside_, distance_, position_, viewed_, outside_distance_, outside_request_, keep_aim_, turn_done_,
+           saved_outside_, saved_distance_, saved_position_, last_heading_, text_delay_, outcome_, chase_, chase_was_,
+           chase_set_, pad_was_, above_, v_was_, look_, descent_, cam_angles_, cam_angles_was_, framing_, aim_now_,
+           zoom_, above_height_, phase_, flying_, aircraft_left_, flash_left_, countdown_, overloaded_, blackout_,
+           second_ticks_, place_, ticks_);
+    }
+
     void set_input_capabilities(platform::InputCapabilities caps) override { input_caps_ = caps; }
     bool touch_scheme() const {
         return controls_ == 2 || (controls_ == 0 && input_caps_.touchscreen && input_caps_.mobile && !input_caps_.gamepad);
@@ -2483,6 +2527,7 @@ private:
         std::array<std::int64_t, 3> target{}, velocity{};
         int countdown = 0; // $13AB95
         bool done = false;
+        template <class A> void persist(A& ar) { ar(state, camera, target, velocity, countdown, done); }
     };
 
     std::array<std::int64_t, 3> plane_offset(int ox, int oy, int oz) const {

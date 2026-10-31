@@ -2059,6 +2059,12 @@ int fly_script(const std::filesystem::path& content, const std::string& prefix, 
     auto game = interceptor::game::start(content);
     std::map<int, std::string> steps;
     std::vector<int> shots, subshots; // `!sub`: four pictures between the step before and this one (smooth motion)
+    std::vector<int> reloads;         // `!reload`: a quick save loaded into a fresh module (the save's check)
+    std::vector<int> twins;           // `!twin`: the same, run beside the module and compared with it
+    std::unique_ptr<app::GameModule> twin;
+    int twin_from = -1, twin_differs = -1;
+    std::vector<float> twin_chunk;
+    std::vector<std::pair<std::size_t, int>> options;
     bool wav = false;
     constexpr int rate = 44100;
     std::vector<float> sound, chunk;
@@ -2073,7 +2079,10 @@ int fly_script(const std::filesystem::path& content, const std::string& prefix, 
         else if (keys.rfind("!option=", 0) == 0) { // `0:!option=6,1`: an option set before the start
             const auto comma = keys.find(',');
             game->set_option(std::size_t(std::stoi(keys.substr(8, comma - 8))), std::stoi(keys.substr(comma + 1)));
+            options.emplace_back(std::size_t(std::stoi(keys.substr(8, comma - 8))), std::stoi(keys.substr(comma + 1)));
         } else if (keys == "!sub") subshots.push_back(tick);
+        else if (keys == "!reload") reloads.push_back(tick);
+        else if (keys == "!twin") twins.push_back(tick);
         else if (keys == "!wav") wav = true;
         else steps[tick] = keys;
         last = std::max(last, tick);
@@ -2147,6 +2156,30 @@ int fly_script(const std::filesystem::path& content, const std::string& prefix, 
             {'J', 34}, {'K', 37}, {'L', 42}, {'M', 36}, {'N', 39}, {'O', 38}, {'P', 41}, {'Q', 62}, {'R', 17},
             {'S', 13}, {'T', 22}, {'U', 30}, {'V', 31}, {'W', 9},  {'X', 23}, {'Y', 25}, {'Z', 12}};
         for (const auto& [c, k] : letters) input.c64_keys[std::size_t(k)] = input.c64_keys[std::size_t(k)] || has(c);
+        if (std::find(reloads.begin(), reloads.end(), tick) != reloads.end()) {
+            const auto saved = game->write_state();
+            game = interceptor::game::start(content);
+            for (const auto& [index, value] : options) game->set_option(index, value);
+            game->read_state(saved);
+            std::printf("tick %d: reloaded a save of %zu bytes\n", tick, saved.size());
+        }
+        if (std::find(twins.begin(), twins.end(), tick) != twins.end()) {
+            const auto saved = game->write_state();
+            twin = interceptor::game::start(content);
+            for (const auto& [index, value] : options) twin->set_option(index, value);
+            twin->read_state(saved);
+            twin_from = tick;
+            twin_differs = -1;
+        }
+        if (twin && twin_differs < 0) {
+            const auto a = game->picture(), b = twin->picture();
+            const auto same = [](const platform::Color& x, const platform::Color& y) {
+                return x.r == y.r && x.g == y.g && x.b == y.b;
+            };
+            if (a.pixels.size() != b.pixels.size() || !std::equal(a.pixels.begin(), a.pixels.end(), b.pixels.begin(), same))
+                twin_differs = tick;
+            if (game->write_state() != twin->write_state()) twin_differs = tick;
+        }
         if (std::find(shots.begin(), shots.end(), tick) != shots.end()) {
             platform::save_png(game->picture(), prefix + std::to_string(tick) + ".png");
         }
@@ -2158,6 +2191,14 @@ int fly_script(const std::filesystem::path& content, const std::string& prefix, 
             game->set_frame_fraction(1);
         }
         game->tick(input);
+        if (twin) {
+            twin->tick(input);
+            chunk.assign(std::size_t(rate * game->step_seconds()) * 2, 0.0f);
+            twin_chunk.assign(chunk.size(), 0.0f);
+            game->audio(chunk, rate);
+            twin->audio(twin_chunk, rate);
+            if (chunk != twin_chunk && twin_differs < 0) twin_differs = tick;
+        }
         if (wav) {
             owed += rate * game->step_seconds();
             const auto frames = std::size_t(owed);
@@ -2166,6 +2207,10 @@ int fly_script(const std::filesystem::path& content, const std::string& prefix, 
             game->audio(chunk, rate);
             sound.insert(sound.end(), chunk.begin(), chunk.end());
         }
+    }
+    if (twin) {
+        if (twin_differs < 0) std::printf("twin from tick %d: pictures, sound and state equal to the end\n", twin_from);
+        else std::printf("twin from tick %d: differs at tick %d\n", twin_from, twin_differs);
     }
     if (wav) {
         // 16-bit stereo PCM.

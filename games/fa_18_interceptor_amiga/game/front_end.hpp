@@ -129,6 +129,9 @@ private:
     data::Palette title_palette_{};
     int fade_ = 0;                // title fade steps done
     std::array<std::int32_t, 2> carrier_{};
+public:
+    template <class A> void persist(A& ar) { ar(text_, screen_, countdown_, frame_, choice_, mission_, unbuilt_, again_, place_, asking_aircraft_, palette_,
+           fade_, carrier_); }
 };
 
 } // namespace interceptor::game

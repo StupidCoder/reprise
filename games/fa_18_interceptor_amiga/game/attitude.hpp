@@ -13,6 +13,7 @@ constexpr int full_turn = 0x7080;
 
 struct Angles {
     std::int16_t pitch{}, heading{}, roll{};
+    template <class A> void persist(A& ar) { ar(pitch, heading, roll); }
 };
 
 using Matrix = std::array<std::int16_t, 9>; // rows of three; $4000 = 1
