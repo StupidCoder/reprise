@@ -76,6 +76,7 @@ public:
     FrontKeys tap(int x, int y, int margin) const;
     // 50 frames a second on the text screens, 15 on the map.
     bool fast() const { return screen_ != Screen::map && screen_ != Screen::map_wait; }
+    void set_fast_text(bool on) { text_.set_fast(on); }
 
     void draw(IndexedImage& image, int margin) const;
     const data::Palette& palette() const;

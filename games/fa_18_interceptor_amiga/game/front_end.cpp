@@ -212,7 +212,7 @@ std::optional<FlightStart> FrontEnd::tick(const FrontKeys& keys) {
     // The runner clicks for each typed character, but not while the tune
     // started at the title plays ($13AAC7 = 2: the credits).
     const bool silent = screen_ == Screen::credits || screen_ == Screen::credits_wait;
-    if (text_.tick() && !silent) sounds_.click();
+    if (text_.tick(fast() ? 1.0 / 50 : 1.0 / 15) && !silent) sounds_.click();
     switch (screen_) {
     case Screen::title:
         if (frame_ >= title_frames || keys.any) {

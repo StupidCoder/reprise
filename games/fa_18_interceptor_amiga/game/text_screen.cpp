@@ -80,7 +80,20 @@ bool TextRunner::step(Running& r) {
     return clicked;
 }
 
-bool TextRunner::tick() {
+bool TextRunner::tick(double seconds) {
+    if (!fast_) return advance();
+    if (idle()) {
+        steps_due_ = 0;
+        return advance();
+    }
+    constexpr double fast_steps_per_second = 100;
+    steps_due_ += seconds * fast_steps_per_second;
+    bool clicked = false;
+    for (; steps_due_ >= 1 && !idle(); steps_due_ -= 1) clicked |= advance();
+    return clicked;
+}
+
+bool TextRunner::advance() {
     if (current_ >= int(blocks_.size())) {
         if (queued_.empty()) {
             ++idle_frames_;

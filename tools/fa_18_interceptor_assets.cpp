@@ -641,7 +641,7 @@ int sound_check(const std::filesystem::path& content, const std::filesystem::pat
             text.queue(99);
             typing = true;
         }
-        if ((proc == "1039F0" || proc == "103A36") && typing && text.tick()) sounds.click();
+        if ((proc == "1039F0" || proc == "103A36") && typing && text.tick(1.0 / 15)) sounds.click();
         messages.clock();
         if (flying) {
             game::ground_warnings(a, messages, sounds);
@@ -2070,7 +2070,10 @@ int fly_script(const std::filesystem::path& content, const std::string& prefix, 
         const int tick = std::stoi(step.substr(0, colon));
         const std::string keys = step.substr(colon + 1);
         if (keys == "!png") shots.push_back(tick);
-        else if (keys == "!sub") subshots.push_back(tick);
+        else if (keys.rfind("!option=", 0) == 0) { // `0:!option=6,1`: an option set before the start
+            const auto comma = keys.find(',');
+            game->set_option(std::size_t(std::stoi(keys.substr(8, comma - 8))), std::stoi(keys.substr(comma + 1)));
+        } else if (keys == "!sub") subshots.push_back(tick);
         else if (keys == "!wav") wav = true;
         else steps[tick] = keys;
         last = std::max(last, tick);

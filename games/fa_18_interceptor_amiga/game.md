@@ -403,6 +403,17 @@ $133FFE + word[n-1]. A block:
 spacing 12) equals the reference capture (`.analysis/fa_18_interceptor_amiga/work/ref/s2.png`, 0 pixels
 differ). Which palette each briefing uses is not traced; previews use 0.
 
+**Typing pace.** The runner ($1278EA) steps once a frame whatever the
+frame's length, so the start map's texts (block 75's aircraft list, a
+character every 4 frames) type at the map's 15 Hz cap: about 3.7
+characters a second against 12.5 on the 50 Hz screens. Timed in the
+original (2026-10-31): "1 ... F/A-18 HORNE" about 7 s after the place's
+key, the port the same. **Fast text (option, enhancement, 2026-10-31,
+off by default):** the port's runner then steps by time, 100 steps a
+second (twice the 50 Hz screens) on every screen, the map and the flight
+texts included; the 50-frame hold after the last block stays a count of
+frames. `fly ... 0:!option=6,1` turns it on in the headless runner.
+
 ### Cockpit messages ($1321C8, hunk 59)
 
 54 records of 28 bytes: an attribute byte, 26 characters, a zero. $127126

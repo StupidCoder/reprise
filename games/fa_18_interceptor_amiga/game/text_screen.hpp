@@ -31,8 +31,15 @@ public:
     void clear();
     void set_line_spacing(int rows) { spacing_ = rows; }
 
-    // One frame; true when a character was typed (the runner clicks).
-    bool tick();
+    // One frame of `seconds`; true when a character was typed (the runner
+    // clicks). The original steps once a frame whatever the frame's length,
+    // so its texts type three times slower on the 15 Hz start map than on
+    // the 50 Hz screens.
+    bool tick(double seconds);
+    // Fast text (an enhancement): every text steps by time instead, at
+    // twice the 50 Hz screens' pace; the hold after the last block stays
+    // a count of frames.
+    void set_fast(bool on) { fast_ = on; }
     bool idle() const { return current_ >= int(blocks_.size()) && queued_.empty(); }
     bool done() const { return idle() && idle_frames_ >= 50; }
 
@@ -62,6 +69,7 @@ private:
         bool finished() const { return line >= int(block.lines.size()); }
     };
     bool step(Running& r);
+    bool advance();
 
     enum class Input { off, armed, typing, ended };
 
@@ -74,6 +82,8 @@ private:
     Input input_ = Input::off;
     int input_length_ = 0;
     std::string text_;
+    bool fast_ = false;
+    double steps_due_ = 0; // fast text: steps owed from earlier frames
 };
 
 } // namespace interceptor::game

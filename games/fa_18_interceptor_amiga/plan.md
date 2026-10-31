@@ -21,7 +21,8 @@ VHS, sound. Checked against the original: `flightcheck`, `soundcheck`,
 Owner's design notes: widescreen and smooth motion stay (own renderer from
 game state, rules at 15 Hz); the High detail option (done 2026-10-30,
 off by default) draws the nearest detail level that each pass may draw,
-at any distance and height. Later
+at any distance and height. Fast text (done 2026-10-31, off by default):
+every text types at 100 steps a second, twice the menu screens. Later
 (owner, 2026-10-30): analog joystick input as an option - the stick's
 deflection sets the inputs the original ramps (`ramp_inputs`: pitch and
 rudder ±20, roll ±60, looked up in the response tables) and a throttle

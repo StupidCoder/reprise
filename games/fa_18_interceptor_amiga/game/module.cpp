@@ -740,7 +740,10 @@ public:
                 {"High detail", {"Off", "On"}, high_detail_ ? 1 : 0,
                  "Draws every building, bridge and city block with its most detailed model at any "
                  "distance and height, instead of the original's simpler models and early cut-off far "
-                 "away. The game plays the same."}};
+                 "away. The game plays the same."},
+                {"Fast text", {"Off", "On"}, fast_text_ ? 1 : 0,
+                 "Every text types at one pace, twice that of the menu screens. In the original the "
+                 "start map's texts type three times slower than the others."}};
     }
     // The flight's touch controls ($10DFD2's stick, F1 - F10, key G), while
     // the player flies.
@@ -775,6 +778,11 @@ public:
         if (index == 5) {
             high_detail_ = value != 0;
             scene_.set_high_detail(high_detail_);
+        }
+        if (index == 6) {
+            fast_text_ = value != 0;
+            front_.set_fast_text(fast_text_);
+            text_.set_fast(fast_text_);
         }
     }
     void set_canvas(int width, int height) override {
@@ -1363,7 +1371,7 @@ private:
             }
             break;
         case Phase::briefing:
-            if (!text_.done() && text_.tick()) sounds_.click();
+            if (!text_.done() && text_.tick(step_seconds())) sounds_.click();
             if ((text_.done() || briefing_key_) && mode_ == FlightMode::maneuvers) {
                 // $1024C4 / $102DB8 / $102E4E: no text, the flight starts
                 // ($13AA83 set), three frames, the beep ($102EDA).
@@ -1414,7 +1422,7 @@ private:
             break;
         case Phase::lead_lost:
             if (!text_.done()) {
-                if (text_.tick()) sounds_.click();
+                if (text_.tick(step_seconds())) sounds_.click();
                 if (text_.done()) countdown_ = 0x64 / 6; // (as after the landing)
             } else if (countdown_ < 0) {
                 leave_flight();
@@ -1425,7 +1433,7 @@ private:
             // ($102EFE: the flight goes on once they are typed; the wait
             // after them is the landing's - hypothesis.)
             if (!text_.done()) {
-                if (text_.tick()) sounds_.click();
+                if (text_.tick(step_seconds())) sounds_.click();
                 if (text_.done()) countdown_ = 0x64 / 6;
             } else if (countdown_ < 0) {
                 text_.clear();
@@ -1443,7 +1451,7 @@ private:
             // blank (the demo's recording: 18 a fade step of 3 blanks),
             // so 17 blanks.
             if (!text_.done()) {
-                if (text_.tick()) sounds_.click();
+                if (text_.tick(step_seconds())) sounds_.click();
                 if (text_.done()) countdown_ = 0x64 / 6;
             } else if (countdown_ < 0) {
                 start_again();
@@ -1487,7 +1495,7 @@ private:
             // $102E4E: the text typed, then three frames and a beep.
             // (Typed a frame per vertical blank over the still view.)
             if (!ready_done_) {
-                if (text_.tick()) sounds_.click();
+                if (text_.tick(step_seconds())) sounds_.click();
                 if (text_.done()) {
                     ready_done_ = true;
                     countdown_ = 3;
@@ -1565,7 +1573,7 @@ private:
             phase_ = Phase::end_text;
             [[fallthrough]];
         case Phase::end_text:
-            if (text_.tick()) sounds_.click();
+            if (text_.tick(step_seconds())) sounds_.click();
             if (text_.done()) { // $103A36 → $101A70: the main menu
                 leave_flight();
                 front_.to_menu();
@@ -2703,6 +2711,7 @@ private:
     bool smooth_ = true, widescreen_ = false, sound_ = true;
     int vhs_ = 0;
     bool touch_view_ = false; // the VIEW touch button, held
+    bool fast_text_ = false;   // every text at one pace (enhancement)
     bool high_detail_ = false; // the scenery's nearest levels of detail at any distance (enhancement)
     int controls_ = 0; // the controls' scheme (0 automatic, 1 keyboard / gamepad, 2 touch stick)
     platform::InputCapabilities input_caps_{};
