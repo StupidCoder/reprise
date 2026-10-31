@@ -758,10 +758,51 @@ cut the rest.
 the runway markings and towers in the right places while flying.
 Differences, open: moving objects (aircraft, carrier) are not drawn by
 the check; it ignores detail levels and distance limits (as the planned
-"no LOD" option), and draws the white specks on the water nowhere (their
-source is not traced); type 58 (a dark-green four-faced hill, model
+"no LOD" option) and leaves out the ground's specks (below); type 58 (a dark-green four-faced hill, model
 flag `$10`, like types 86 and 104) sits at the carrier's starting point
 and the original does not show it in these frames.
+
+**The ground's specks** (`$11C1B4`, every frame from `$101212`, after
+the land, the water and the coarse maps' passes `$10FA64` / `$10FA76`,
+before the near map and the moving objects): a fixed pattern of marks
+repeated every $800 world units over the ground plane, so it stays put
+on the ground as the camera moves; only near a low camera.
+- How high: `$13AB5B` (`$1043F2`, every frame) from the view's pitch
+  over 8 (`$13AD78` the cockpit's view, `$13AD84` the outside camera's;
+  down positive, 80ths of a degree): $259-$C4D (75-315 degrees) 3, from
+  $C80 (looking up) 0, above $12C 2, above $64 1, else 0. The camera
+  (`$13AD68`, world units below the ground, negated) may be up to $800
+  (0), $D80 (1) or $1200 (2, 3) high.
+- Which pattern: by the height's word, $80 or lower `$11C908` (96
+  marks, worked eight times larger: positions, height and the
+  triangles' table), $E0 or lower `$11CB4C` (80), else `$11CD30` (64).
+  Each starts with its count and a distance limit (2, 3, 4), then x, z,
+  kind per mark. The camera's place in its $800 tile
+  (`$13AD62`/`$13AD66`: $400 − (($400 − x) & $7FF)) is added; a mark
+  whose entry in the 32 × 32 byte table `$11C508` (by |z| / 256 and
+  |x| / 256) is above the limit is left out.
+- Kinds: 0-2 a dot, two pixels (the one to the left too, `$12420A`) for
+  2; −12, −16, −20 a small triangle (corners at `$11CEB4`, `$11CECC`,
+  `$11CEE4`, the eightfold pattern's at `$11CEC0`, `$11CED8`, `$11CEF0`;
+  filled by `$124B48`) while the camera is below $200 and the mark's
+  table entry is 1 or less, else a dot (one pixel for −12, two for the
+  others).
+- Placed as `$1238AE` places a point but without its extra row
+  (column 159 − 160 x / z, row 89 − 90 y / z), kept only with |x|, |y|
+  ≤ z and the row inside the view.
+- Colour: `$13A9D6` = 4 (only bitplane 2 written) and colour 3, so the
+  pixel's plane 2 is cleared: the sea (6) shows grey (2), the land (4)
+  black (0) - the grey specks on the water and the black ones on the
+  fields in the original's pictures (look-down after the demo's hit,
+  `work/ref` capture 2026-10-31, pictures 615-669: 25-31 grey pixels a
+  picture, the port about 30; demopics2 1840/1860: black specks on the
+  land, as the port's).
+- The port draws them after all flat ground (the near map's too) and
+  before the shadows; it takes the pitch from the view matrix (asin of
+  the view axis, 0-90 degrees: the original's 90-315 range for views
+  past the vertical is not reached) and keeps the marks still between
+  whole world units. Widescreen extends the column test to the wider
+  picture.
 
 ## 4 Free flight and the flight model
 
@@ -1139,7 +1180,7 @@ from $FEB0 in steps of $230; x from $1440 to $EA40), colour 8, every
 other line labelled with the panel's number drawer (colour 2): the
 first set 115 on at the line's clipped bottom end (12 left, 5 up), the
 second 34 on at its left end. Checked against `work/ref/above.png`
-(runway 1): equal but for the carrier and the sea's specks.
+(runway 1): equal but for the carrier and the sea's specks (the specks drawn since 2026-10-31).
 
 Below the view (row $A7 = 167, `$13AC74`) colour 3 with "HDG nnn" (three
 digits with zeros, $126AB2: heading (+$68 >> 3) / 10), "nnn KTS", "nnnnn

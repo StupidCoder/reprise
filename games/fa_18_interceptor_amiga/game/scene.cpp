@@ -4,6 +4,7 @@
 #include "fa_18_interceptor_amiga/game/flight_tables.hpp"
 #include <algorithm>
 #include <cmath>
+#include <optional>
 
 namespace interceptor::game {
 namespace {
@@ -71,6 +72,21 @@ public:
     // ground shapes are not convex; a fan of triangles would spill over
     // their bays). A pixel is in when its centre is.
     void fill(const std::vector<Point>& screen, int colour) {
+        fill_rows(screen, [&](int x, int y) { plot(x, y, 0, colour, false); });
+    }
+
+    // A speck's pixel ($1241F4 with `$13A9D6` = 4 and colour 3): only
+    // bitplane 2 is written, and cleared - the water (6) shows colour 2,
+    // the land (4) colour 0. No depth: what stands is painted over it.
+    void clear_plane(int x, int y) {
+        if (x < 0 || y < 0 || x >= image_.width || y > bottom_) return;
+        image_.pixels[std::size_t(y * image_.width + x)] &= std::uint8_t(~4);
+    }
+    void fill_clear(const std::vector<Point>& screen) {
+        fill_rows(screen, [&](int x, int y) { clear_plane(x, y); });
+    }
+
+    template <typename Put> void fill_rows(const std::vector<Point>& screen, Put put) {
         double low = 1e30, high = -1e30;
         for (const auto& p : screen) {
             low = std::min(low, p[1]);
@@ -91,7 +107,7 @@ public:
             for (std::size_t k = 0; k + 1 < crossings.size(); k += 2) {
                 const int from = std::max(0, int(std::ceil(crossings[k] - 0.5)));
                 const int to = std::min(image_.width - 1, int(std::ceil(crossings[k + 1] - 0.5)) - 1);
-                for (int x = from; x <= to; ++x) plot(x, y, 0, colour, false);
+                for (int x = from; x <= to; ++x) put(x, y);
             }
         }
     }
@@ -236,6 +252,75 @@ private:
     int object_ = 0;
 };
 
+// $11C1B4: the ground's specks, drawn after the land, the water and the
+// coarse maps' scenery, before the rest ($101212).
+void draw_specks(Raster& r, const Camera& camera, const GroundSpecks& specks) {
+    // `$13AB5B` ($1043F2): how steeply the view looks down - the view's
+    // pitch (down positive, 80ths of a degree) over 8 - picks how high the
+    // camera may be: from 75 to 315 degrees (counting on past straight
+    // down) the most, from 320 on (looking up) the least.
+    const auto& m = camera.matrix;
+    const double ahead = std::sqrt(m[6] * m[6] + m[7] * m[7] + m[8] * m[8]);
+    int pitch = int(std::lround(std::asin(std::clamp(-m[7] / ahead, -1.0, 1.0)) * 180 / 3.14159265358979 * 80));
+    pitch = ((pitch % 0x7080) + 0x7080) % 0x7080 >> 3;
+    int steep = 0;
+    if (pitch > 0x258 && pitch < 0xC4E) steep = 3;
+    else if (pitch >= 0xC80) steep = 0;
+    else if (pitch > 0x12C) steep = 2;
+    else if (pitch > 0x64) steep = 1;
+    const int highest = steep == 0 ? 0x800 : steep == 1 ? 0xD80 : 0x1200;
+    // The camera's place as the original keeps it (`$13AD62`..`$13AD68`,
+    // world units, negated, rounded down).
+    const auto& eye = camera.position;
+    const long long height = static_cast<long long>(std::floor(-eye[1]));
+    if (height < -highest) return;
+    const bool high = height < -0x200;
+    const int h = std::int16_t(height);
+    const int pattern = h >= -0x80 ? 0 : h >= -0xE0 ? 1 : 2;
+    const int shift = pattern == 0 ? 3 : 0; // (the nearest works eight times larger)
+    const long long cx = static_cast<long long>(std::floor(-eye[0])), cz = static_cast<long long>(std::floor(-eye[2]));
+    // The camera's offset within the $800 tiles, -$3FF to $400.
+    const int ox = 0x400 - int((0x400 - cx) & 0x7FF), oz = 0x400 - int((0x400 - cz) & 0x7FF);
+    // (The rounding taken back out, so the marks keep still as the camera
+    // moves between whole units.)
+    const double fx = double(cx) + eye[0], fz = double(cz) + eye[2];
+    const double reach = r.half_width() / 160;
+    const auto show = [&](double x, double z) -> std::optional<Point> {
+        const auto v = r.to_camera({eye[0] + x + fx, 0, eye[2] + z + fz});
+        if (v[2] <= 0 || std::abs(v[0]) > v[2] * reach || std::abs(v[1]) > v[2]) return std::nullopt;
+        return Point{double(r.centre() - int(160 * v[0] / v[2])), double(89 - int(90 * v[1] / v[2])), v[2]};
+    };
+    const auto& p = specks.patterns[std::size_t(pattern)];
+    for (const auto& mark : p.marks) {
+        const int x = mark.x + ox, z = mark.z + oz;
+        const int at = (std::abs(z) >> 8) * 32 + (std::abs(x) >> 8);
+        if (at >= 1024) continue;
+        const int near = std::int8_t(specks.reach[std::size_t(at)]);
+        if (near > p.limit) continue;
+        int kind = mark.kind;
+        // A triangle only for a camera below $200 and the nearest marks;
+        // otherwise a dot, two pixels wide but for kind -12.
+        if (kind < 0 && (high || near - 1 > 0)) kind = kind == -12 ? 1 : 2;
+        if (kind >= 0) {
+            const auto s = show(x, z);
+            if (!s || (*s)[1] > r.bottom()) continue;
+            const int sx = int((*s)[0]), sy = int((*s)[1]);
+            if (kind == 2) r.clear_plane(sx - 1, sy);
+            r.clear_plane(sx, sy);
+            continue;
+        }
+        const auto& t = specks.triangles[shift ? 1 : 0][std::size_t((-kind - 12) / 4)];
+        std::vector<Point> corners;
+        for (int i = 0; i < 3; ++i) {
+            const double scale = 1 << shift;
+            const auto s = show(x + t[std::size_t(2 * i)] / scale, z + t[std::size_t(2 * i + 1)] / scale);
+            if (!s) break;
+            corners.push_back(*s);
+        }
+        if (corners.size() == 3) r.fill_clear(corners);
+    }
+}
+
 } // namespace
 
 data::BuiltPoints road_points(const amiga::LoadedImage& program) {
@@ -266,8 +351,28 @@ data::BuiltPoints road_points(const amiga::LoadedImage& program) {
     return built;
 }
 
+GroundSpecks read_ground_specks(const amiga::LoadedImage& program) {
+    GroundSpecks g;
+    const std::uint32_t tables[3] = {0x11C908, 0x11CB4C, 0x11CD30};
+    for (std::size_t i = 0; i < 3; ++i) {
+        auto at = tables[i];
+        const int count = program.s16(at);
+        g.patterns[i].limit = program.s16(at + 2);
+        at += 4;
+        for (int k = 0; k < count; ++k, at += 6)
+            g.patterns[i].marks.push_back({program.s16(at), program.s16(at + 2), program.s16(at + 4)});
+    }
+    for (std::uint32_t i = 0; i < 1024; ++i) g.reach[i] = std::uint8_t(program.u16(0x11C508 + (i & ~1u)) >> (i & 1 ? 0 : 8));
+    for (std::size_t kind = 0; kind < 3; ++kind)
+        for (std::size_t large = 0; large < 2; ++large)
+            for (std::size_t k = 0; k < 6; ++k)
+                g.triangles[large][kind][k] = program.s16(0x11CEB4 + std::uint32_t(24 * kind + 12 * large + 2 * k));
+    return g;
+}
+
 Scene::Scene(const data::Assets& assets, const data::World& world)
     : world_(world), program_(assets.program), explosions_(data::read_explosions(assets.program)) {
+    specks_ = read_ground_specks(assets.program);
     for (int i = 0; i < 3; ++i) smoke_shapes_[std::size_t(i)] = data::read_smoke_shape(assets.program, 33 + i);
     const auto roads = road_points(assets.program);
     for (const auto* map : {&world.pass_a, &world.pass_b, &world.near}) {
@@ -630,6 +735,7 @@ void Scene::draw(IndexedImage& image, int centre, int bottom, const Camera& came
             paint_shape(r, *p.shape, {p.object->x, 0, p.object->z}, scenery_place(*p.object, *p.shape), eye, false);
         }
     }
+    draw_specks(r, camera, specks_);
     const auto vehicle_shape = [&](const Vehicle& v) -> const data::Shape* {
         const double dx = v.position[0] - eye[0], dy = v.position[1] - eye[1], dz = v.position[2] - eye[2];
         const double distance = std::sqrt(dx * dx + dy * dy + dz * dz);

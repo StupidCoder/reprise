@@ -80,6 +80,29 @@ struct Spark {
     bool burst = false;
 };
 
+// The ground's specks ($11C1B4): a pattern of marks repeated every $800
+// units over the ground near a low camera, one of three by height
+// (`$11C908`, `$11CB4C`, `$11CD30`: a count, a distance limit, then x, z
+// and kind per mark: 0-2 a dot, two pixels for 2; -12, -16, -20 a
+// triangle), kept while the 32 x 32 table `$11C508` (by |x| and |z| in
+// 256ths) gives at most the limit. Read from the program as it starts.
+struct GroundSpecks {
+    struct Mark {
+        int x{}, z{}, kind{};
+    };
+    struct Pattern {
+        int limit{};
+        std::vector<Mark> marks;
+    };
+    std::array<Pattern, 3> patterns;
+    std::array<std::uint8_t, 1024> reach{};
+    // The triangles' corners (x, z) for kinds -12, -16, -20 (`$11CEB4`,
+    // `$11CECC`, `$11CEE4`), and for the nearest pattern, which works
+    // eight times larger (`$11CEC0`, `$11CED8`, `$11CEF0`).
+    std::array<std::array<std::array<int, 6>, 3>, 2> triangles{};
+};
+GroundSpecks read_ground_specks(const amiga::LoadedImage& program);
+
 // The road strips' corners the game builds into the ground shapes' point
 // blocks as it starts ($1197E0).
 data::BuiltPoints road_points(const amiga::LoadedImage& program);
@@ -114,6 +137,7 @@ private:
     mutable std::map<int, std::vector<data::DetailLevel>> vehicle_levels_; // read when first drawn
     const std::vector<data::DetailLevel>& vehicle_levels(int type) const;
     std::array<data::SmokeShape, 3> smoke_shapes_; // types 33-35
+    GroundSpecks specks_;
     data::Explosions explosions_;
     std::map<int, std::vector<data::DetailLevel>> levels_; // vehicle and scenery formats
     std::map<int, std::vector<data::DetailLevel>> ground_; // flat ground shapes by distance ($112D76)

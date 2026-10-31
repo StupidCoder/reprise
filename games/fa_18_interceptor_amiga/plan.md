@@ -167,7 +167,7 @@ app has none yet).
 - Real-second counters $13AB74 and the 10-second flag; $13ABE0 (set to 2
   by the stall check).
 - World: the coarse water grid's cell layout; type 58's role (a hill at
-  the carrier's start; model flag $10); the white specks on the water; the
+  the carrier's start; model flag $10); the
   run-time cell bitmaps; the visible-list entry fields after the position;
   the octant lists (`$136464`).
 - Shapes: scenery opcode $18 (types 107, 108); discs (other than the
@@ -195,6 +195,8 @@ app has none yet).
 
 ## Known bugs and differences in the port
 
+- Done 2026-10-31: the ground's specks (`$11C1B4`: grey on the sea,
+  black on the land, near a low camera; game.md "The ground's specks").
 - Fixed 2026-10-31: looking up or down from the cockpit drew the
   player's own aircraft (the demo's look down at the wreck showed the
   fuselage); the original draws it only for look directions 3-9.
