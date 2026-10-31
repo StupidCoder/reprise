@@ -11,10 +11,13 @@
 //       the race view from a camera (plan units, height units, angles in
 //       65536ths of a turn), for comparison with the original's screen
 //   stunt_car_racer_assets drive <content> <frames> <inputs> <out_prefix> [every]
-//       runs the game module (the practice race) for <frames> frames; <inputs>
-//       is a comma list of hex joystick bytes per frame (bits 0 up, 1 down,
-//       2 left, 3 right, 4 fire), the last repeated; saves every <every>th
-//       picture as <out_prefix>NNNN.png
+//       runs the game module (from the SELECT menu) for <frames> ticks;
+//       <inputs> is a comma list of hex bytes per tick (bits 0 up, 1 down,
+//       2 left, 3 right, 4 fire, 5 Tab, 6 F1; "xx*n" repeats), the last
+//       repeated; saves every <every>th picture as <out_prefix>NNNN.png
+//   stunt_car_racer_assets league <content> <capture.bin>
+//       replays the original's league rounds and season end
+//       (harness/leaguecap.py) with the port's league rules
 //   stunt_car_racer_assets screen <content> <state.txt> <out.png>
 //       the whole race screen; state.txt holds "key value" lines: track,
 //       segment, x, z, eye, yaw, pitch, roll, wheel_frame, right_wheel_y,
@@ -31,6 +34,7 @@
 #include "stunt_car_racer_amiga/data/preview.hpp"
 #include "stunt_car_racer_amiga/game/module.hpp"
 #include "stunt_car_racer_amiga/import/disk_import.hpp"
+#include "stunt_car_racer_amiga/league/league.hpp"
 #include "stunt_car_racer_amiga/render/race_screen.hpp"
 #include "stunt_car_racer_amiga/render/race_view.hpp"
 #include <map>
@@ -99,7 +103,6 @@ int main(int argc, char** argv) {
         if (command == "drive" && argc >= 6) {
             auto game = stuntcar::game::start(argv[2]);
             const int frames = std::stoi(argv[3]), every = argc > 6 ? std::stoi(argv[6]) : 10;
-            if (argc > 7 && std::string(argv[7]) == "league") game->set_option(1, 1); // against Jumpin' Jack
             std::vector<int> inputs;
             for (std::string list = argv[4]; !list.empty();) {
                 const auto comma = list.find(',');
@@ -113,6 +116,9 @@ int main(int argc, char** argv) {
                 const int in = inputs.empty() ? 0 : inputs[std::size_t(std::min<int>(k, int(inputs.size()) - 1))];
                 app::GameInput input;
                 input.up = in & 1, input.down = in & 2, input.left = in & 4, input.right = in & 8, input.fire = in & 16;
+                // 20: Tab (leaves a race), 40: F1 (passes a league race by).
+                input.c64_keys[63] = in & 0x20;
+                input.f1 = in & 0x40;
                 game->tick(input);
                 if (k % every == 0) {
                     char name[16];
@@ -121,6 +127,78 @@ int main(int argc, char** argv) {
                 }
             }
             return 0;
+        }
+        if (command == "league" && argc == 4) {
+            // Replays the original's league rounds (harness/leaguecap.py):
+            // each round from the state before it, compared with the state
+            // after it; then the season's end.
+            const auto assets = stuntcar::data::load_assets(argv[2]);
+            std::ifstream in(argv[3], std::ios::binary);
+            std::vector<std::pair<int, std::vector<std::uint8_t>>> records;
+            for (int kind; (kind = in.get()) != EOF;) {
+                const int length = in.get() << 8 | in.get();
+                std::vector<std::uint8_t> data(static_cast<std::size_t>(length));
+                in.read(reinterpret_cast<char*>(data.data()), length);
+                records.push_back({kind, std::move(data)});
+            }
+            // Offsets in a record: the generator, then $1C9C2-$1CA3F, then
+            // $1BBB4 and $5EB76.
+            constexpr int at_slots = 5, at_division = 5 + 12, at_super = 5 + 14, at_ratings = 5 + 16, at_wins = 5 + 28,
+                          at_laps = 5 + 40, at_raced = 5 + 52, at_order = 5 + 76, at_winner = 5 + 99, at_fastest = 5 + 100,
+                          at_race = 5 + 115, at_result = 5 + 126;
+            const auto unpack = [&](const std::vector<std::uint8_t>& r) {
+                stuntcar::league::League::ToolState s{};
+                for (int d = 0; d < 12; ++d) {
+                    const auto k = std::size_t(d);
+                    s.slots[k] = r[std::size_t(at_slots + d)], s.order[k] = r[std::size_t(at_order + d)];
+                    s.raced[k] = r[std::size_t(at_raced + d)], s.wins[k] = r[std::size_t(at_wins + d)];
+                    s.laps[k] = r[std::size_t(at_laps + d)], s.ratings[k] = r[std::size_t(at_ratings + d)];
+                }
+                s.race = r[at_race], s.player_division = r[at_division], s.super_league = r[at_super] != 0;
+                return s;
+            };
+            int checked = 0, wrong = 0;
+            for (std::size_t k = 0; k + 1 < records.size(); ++k) {
+                const auto& [kind, before] = records[k];
+                const auto& after = records[k + 1].second;
+                if (!((kind == 1 && records[k + 1].first == 2) || (kind == 3 && records[k + 1].first == 4))) continue;
+                stuntcar::league::League league(assets.program);
+                league.set_for_tools(unpack(before));
+                stuntcar::race::Random random;
+                for (int b = 0; b < 5; ++b) random.bytes[std::size_t(b)] = before[std::size_t(b)];
+                std::string differs;
+                const auto expect = unpack(after);
+                if (kind == 1) {
+                    const auto result = before[at_result];
+                    const auto outcome = league.play_round(
+                        random, stuntcar::league::PlayerResult{bool(result & 0x80), bool(result & 0x40)});
+                    const auto got = league.state_for_tools();
+                    for (int d = 0; d < 12; ++d) {
+                        const auto i = std::size_t(d);
+                        if (got.wins[i] != expect.wins[i]) differs += " wins" + std::to_string(d);
+                        if (got.laps[i] != expect.laps[i]) differs += " laps" + std::to_string(d);
+                        if (got.raced[i] != expect.raced[i]) differs += " raced" + std::to_string(d);
+                        if (got.order[i] != expect.order[i]) differs += " order" + std::to_string(d);
+                        if (got.ratings[i] != expect.ratings[i]) differs += " rating" + std::to_string(d);
+                    }
+                    if (outcome.winner != after[at_winner]) differs += " winner";
+                    if (outcome.fastest != after[at_fastest]) differs += " fastest";
+                } else {
+                    league.end_season();
+                    const auto got = league.state_for_tools();
+                    for (int d = 0; d < 12; ++d)
+                        if (got.slots[std::size_t(d)] != expect.slots[std::size_t(d)]) differs += " slot" + std::to_string(d);
+                    if (got.player_division != expect.player_division) differs += " division";
+                }
+                // (Between the changes and the divisions screen the menus
+                // poll the joystick, which stirs the generator.)
+                for (int b = 0; b < 5 && kind == 1; ++b)
+                    if (random.bytes[std::size_t(b)] != after[std::size_t(b)]) differs += " random";
+                ++checked;
+                if (!differs.empty()) ++wrong, std::printf("record %zu (kind %d):%s\n", k, kind, differs.c_str());
+            }
+            std::printf("%d of %d steps exact\n", checked - wrong, checked);
+            return wrong ? 1 : 0;
         }
         if (command == "screen" && argc == 5) {
             const auto assets = stuntcar::data::load_assets(argv[2]);

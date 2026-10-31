@@ -39,7 +39,7 @@ app::GameEntry entry() {
         .import = import::import_disk,
         .previews = previews,
         .start = game::start,
-        .progress = "A whole practice race on Little Ramp with the game's own car physics: the crane, laps and lap times, going over the edge and the crane's rescue, damage and wrecking, dust and smoke. A race against Jumpin' Jack is in the options; the rest of the league is not rebuilt yet.",
+        .progress = "The single-player league from the SELECT menu: your name, the four divisions, practice on every track, the racing season against the computer drivers with results, standings, promotion and relegation, the Super League, the Hall of Fame and track pictures. Races use the game's own car physics and opponent. Multiplayer, the Computer Link, loading and saving, and sound are not rebuilt yet.",
     };
 }
 

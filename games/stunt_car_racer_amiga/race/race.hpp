@@ -116,8 +116,11 @@ struct WheelSpin {
 class Race {
   public:
     // A practice, or a league race against `opponent`.
+    // The front end hands over the random generator as its menus left it,
+    // and the roll-bar marks the car still has (they carry over in the
+    // league).
     Race(const data::Program&, const data::Circuits&, int track, bool super_league = false,
-         std::optional<Driver> opponent = std::nullopt);
+         std::optional<Driver> opponent = std::nullopt, Random random = {}, int roll_bar_marks = 10);
     Race(const Race&) = delete;
     Race& operator=(const Race&) = delete;
 

@@ -104,9 +104,11 @@ CarSpec car_spec(const data::Program& program, bool super_league) {
 }
 
 Race::Race(const data::Program& program, const data::Circuits& circuits, int track, bool super_league,
-           std::optional<Driver> opponent)
+           std::optional<Driver> opponent, Random random, int roll_bar_marks)
     : track_(circuits.tracks.at(std::size_t(track))), tables_(load_tables(program)),
       contact_(circuits, track_) {
+    state_.random = random;
+    state_.intact_marks = std::uint8_t(roll_bar_marks);
     // Loading the track rolls the opponent's skill; the race set-up then
     // seeds one byte of the generator.
     if (opponent) {

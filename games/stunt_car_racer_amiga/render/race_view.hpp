@@ -33,6 +33,7 @@ using Palette = std::array<data::Colour, 16>;
 Palette race_palette(const data::Program&);
 
 struct View {
+    static constexpr std::uint8_t untouched = 0xFF; // the track picture leaves the arena showing
     std::array<std::uint8_t, view_width * view_height> pixels{}; // colour indices
 };
 
@@ -57,6 +58,11 @@ enum class Beside { no, left, right };
 // `segment`, with the opponent's car where given.
 View draw_race_view(const data::Circuits&, const data::Scenery&, const data::Track&, int segment, const Camera&,
                     const std::optional<Opponent>& opponent = std::nullopt, Beside beside = Beside::no);
+
+// The circuit as the track picture shows it before a race, from one of the
+// four sides of the arena (game.md, "Track picture"); pixels not drawn are
+// View::untouched.
+View draw_track_picture(const data::Program&, const data::Circuits&, const data::Track&, int view);
 
 platform::Image to_image(const View&, const Palette&);
 

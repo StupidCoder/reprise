@@ -109,29 +109,175 @@ equals the research render (`work/title_loader.png`) pixel for pixel.
   $9CEDCD02 and weakens the handling on mismatch. The port will behave as with
   a genuine disk; protection is not game behaviour.
 
-## Front end (Observed)
+## Front end (Observed, verified)
 
-The game boots to a SELECT menu: "1. Single Player League", "2. Multiplayer",
-"3. Computer Link" (`harness/screen.py`, Copper list $E74E). Texts are plain
-ASCII in the program (menu texts around $5A69D, driver names from $1ECAA,
-track names from $1EDAA); an earlier note here that the program holds no
-readable strings was wrong.
-
-Path to a circuit, driven with `harness/scr.py` (keys through the game's key
+Driven in the reference with `harness/scr.py` (keys through the game's key
 matrix at $EAD6, raw key code + $EAD6 = $B3 while held; the level-2 handler
-at $F002 fills it):
+at $F002 fills it). The main loop ($5CF40): a new game ($5A9B6), the SELECT
+menu and the name ($5E8AC), the divisions screen ($648B2), then the
+division's menu ($5BAEA) over and over.
 
-1. SELECT: `1` then Return → "NAME?" entry → type a name, Return.
-2. The divisions screen: four divisions of three drivers (portraits, names)
-   and two tracks each: Division I Drawbridge / Ski Jump, II Roller Coaster /
-   High Jump, III Big Ramp / Stepping Stones, IV Hump Back / Little Ramp.
-3. Return → "DIVISION 4" menu: Hall of Fame, Practise, Start the Racing
-   Season, Load/Save/Replay (so the program does use the disk again).
-4. Practise → "Tracks in DIVISION 1–4" → "Practise The LITTLE RAMP" /
-   "… HUMP BACK" / Cancel.
-5. A picture of the circuit in its stadium with its name ("The LITTLE RAMP")
-   and the crack's text; fire starts the practice race (car lowered by a
-   crane). Escape in the race returns to the practise menu.
+**Pictures**: the menu picture at $23C30 (a flag word, bit 15 = packed, 16
+colour words widened as $1BA82 does, then the planes word-interleaved at
++$22): the logo, sky, wooden frame and a grey panel; on the panel lie the
+menu bars' colour strips and, on the first plane only, the six-pixel font.
+The stadium frame for the track picture ($2B974: colours, $2B994 packed),
+the Hall of Fame ($30BD0, $30BF0 packed), the portrait sheet ($35A76
+colours, $35A96 planes: the divisions screen as first drawn, names and
+track names baked in), and a table of five pictures at $56FF8 (0 the
+loader's screen, then the crowd cheering, the crowd after a loss, the
+wreck, the promotion trophy; flag, colours, planes as the menu picture).
+
+**Text** ($594D6): a stream of characters; $1F x y moves the cursor to
+column x, row y; $7F rubs out the last character. A cell is 7 pixels wide
+and 8 high in the dashboard font ($1FE82, the top 7 bits of each row); with
+$5924A set it is the six-pixel font of the menu picture's first plane
+(character c − ' ' at x 32 + 6 (k mod 32), y 87 + 24 (k div 32); $591C6),
+used for the player's name under the helmet. Pixel offsets $1BB6D (x) and
+$1BB6E (y, mostly 0 or 4) are added; on the menu screens ($5D724 = $41) the
+text lands 8 rows higher. Ink $59806 (colour 0-15 as plane masks, $6770A),
+paper $5981A unless $1BBD3 is set (see-through). Message tables, each text
+ended by $FF and named by its offset: $5A69A (division menu, load/save,
+super league), $5EB7F (SELECT, the league choice, the practice lists),
+$5EC92 (records, Hall of Fame), $5915E (standings), $64354 (division, race,
+result, changes, NAME?). Numbers: one digit ($5DF00), or two in BCD with a
+leading space under 10 ($5EDD2); times M:SS.hh, or seven dashes when the
+minutes are 9 or more or nothing is set ($5ED40).
+
+**The font after a new game** ($5AA02): the new game rewrites three glyphs
+of the dashboard font: '-' gets a longer bar (row 3 $7E), '.' becomes a
+single pixel on row 6, '_' moves to row 6. The program on disk holds the
+old ones; both the menus and the dashboard print with the new ones (this was
+the "timer's '.'" difference on the race screen).
+
+**Menus** ($5B840: initial choice, first entry, count): the panel is the
+menu picture with rows 65-191 cleared to grey (colour 3; the first two rows
+only from x 64, under the logo; $64C6E), the title above it ("DIVISION n",
+n = 4 − the division, or "SUPER DIVISION n", orange, $645C6; not on the
+SELECT screen), "SELECT" (white, column 17 row 11), then one bar per entry
+on the rows of the table at $64AF4 (13, 16, 19, 22). A bar ($64B0E) is 224
+pixels copied from a strip of the menu picture at x 32 (strips at rows 95,
+119, 143, 167 (taller: 25 rows), 71: brown, orange, light grey, grey,
+green; $64C1A), 17 rows from screen row 8r − 9; each extra line copies the
+strip's rows 1-16 a further 8 rows down (the second pointer starts one row
+lower). On a bar: the entry's number, ". ", its text (black). The
+highlighted entry is orange, the others light grey; the one taken turns
+brown for a moment ($5BA42). Joystick up/down moves the highlight, the
+number keys 1-4 move it to that entry ($60C8D), fire takes it. Entries
+(table $5BCD0 indexing the menu or main table): SELECT (Single Player
+League, Multiplayer, Computer Link), the division menu (Hall of Fame,
+Practise, Start the Racing Season, Load/Save/Replay), Load/Save/Replay
+(Load, Save, Replay, Cancel), LOAD and SAVE (Tape, Disc, Cancel), Tracks in
+DIVISION 1-4, Practise The (track) ×2 and Cancel, Enter another driver /
+Continue (multiplayer). The menu shows the last choice highlighted again
+($1BBD6).
+
+**NAME?** ($5B648): the panel, "NAME?" (column 18 row 14), a light grey
+bar on row 16, a colour-10 line at y 133 from x 106 to 190, '>' at column
+14, then up to 12 characters typed (black on light grey): letters, digits,
+". / :", a space not first; Backspace rubs out, Return ends; a blank name
+is asked for again. The name goes into driver 11's record ($1ECAA + $B0).
+
+**The divisions screen** ($58888): the portrait sheet in its colours, each
+of the twelve places ($1C9C2) given its driver's portrait (80 × 55 with the
+name strip, from the sheet at $58AA4 entries 0-11 by the driver's portrait
+number at $58B20; placed at entries 19-30). The player's helmet carries
+the name in the six-pixel font, white, 44 rows down, 3 pixels in, centred by
+half the trailing spaces ($59250).
+
+**Track picture** ($5D20C): the stadium picture, the circuit drawn into
+its window (where the race view goes, x 32 y 16) by the race view's code in
+picture mode ($604B4, $1BB68/$1BB8F set): the camera stands at the middle
+of one side of the 16 × 16 grid ($60552/$60556 x and z high bytes, $6055A
+the heading; joystick left/right walks round the four sides, $5D980) at
+height $03F00000 (eye 32376) looking down at $700. The projection
+($62454, $624C2): plan distances halved, the bearing taken against a
+quarter of the forward distance plus $4900, the drop against half the
+forward distance plus $3100 with heights scaled by $4C1B/$8000. Cells are
+drawn far rows first, each row from the right edge in, then from the left
+edge in to the middle ($602E4/$60324), each cell's segment whole; the row
+count of the edge lines starts again in each cell, so they run red and
+yellow all round. Then "The (name)" (white, column from $6129A, row 21)
+and, in yellow on row 24, the prompt. This image is a cracked copy: the
+line reads "Broken by QUARTEX   Hit fire to continue"; the port shows only
+"Hit fire to continue" where it stands. Port vs the original's picture of
+Little Ramp: 97.0 % equal pixels (edge pixels and the crack's credit).
+
+**Hall of Fame** ($5FBC6): its picture (track initials in it), "SUPER
+LEAGUE" in the Super League, the header (colour 8), then for each track
+(Draw Bridge first, initials from $5FDE0): the initials (orange), the lap
+record's holder (colour 7) and time, the race record's holder and time.
+Records: 16 bytes per track (12 name characters, minutes, seconds,
+hundredths in BCD) at $7A61A (laps) and $7A71A (races), the Super League's
+128 bytes on. They come from the player's own laps only ($5F16C, called
+from the player's lap counting, not the opponent's): a lap faster than the
+track's lap record (strictly) takes it; once all laps are done the race
+time (the laps added, $5EE04) is offered to the race record. Practice laps
+count too. The disk keeps them in a "HALL" file ($5F72C; not ported).
+
+## The league (Observed, verified)
+
+Twelve drivers in four divisions of three; division index 0 is Division 4
+(places 9-11), 3 is Division 1 (places 0-2) ($5AB42). Driver 11 is the
+player; a new game ($5A9B6) puts every driver in their own place (driver d
+in place d), the player in Division 4, the roll-bar marks at 10, and draws
+twelve numbers from the generator.
+
+**Season** (main loop $5D014-$5D1D6): six races ($5EB78); race r pairs the
+division's places $5ABC8[r] and $5ABCE[r] (0-1, 0-1, 0-2, 0-2, 1-2, 1-2)
+on the division's track $648C2[2 · division + (r and 1)] (Division 4:
+Little Ramp, Hump Back; 3: Stepping Stones, Big Ramp; 2: High Jump, Roller
+Coaster; 1: Ski Jump, Draw Bridge). A round ($5AA84) decides race r in
+every division at once: each driver's rating is drawn afresh as a base by
+driver ($5AAF4: 120, 110, … 10) plus 0-63; per division ($5ABD4) a draw of
+$A0 or more marks the first of the pair for the fastest lap (bit 6), both
+count a race; the player's own race uses the player's result (bit 7 lost,
+bit 6 the opponent had the fastest lap; flipped when the player is the
+first of the pair); between computer drivers the higher rating wins (a tie
+draws again: odd keeps), which flips both bits. Winner and fastest lap get
+a win and a lap ($1C9DE, $1C9EA). Then the division's standings are sorted
+($5ACFE): from the places' order, bubble passes on points (laps + 2 ×
+wins), then wins, a tie decided by a draw each time it is compared, until
+a pass swaps nothing. Rounds where the player does not race are decided at
+once without a screen; the player's own: the fixture screen (holding F1
+as fire is pressed passes the race by, as lost; $58580), the track
+picture, the race, the after-race picture (won, lost, wrecked; $5930C),
+RESULT, the standings. Esc in the race ends it at once as lost with the
+opponent's fastest lap ($5D62C).
+
+**Fixture** ($64664/$58E7A): the panel and title, "RACE  r of 6" (row 11),
+the pair's portraits (entries 12, 13) with "V" between, "Track:  The
+(name)" in orange, and a green box (strip 4, one extra line, bar row 22)
+with the track's records: "Race Time: (holder) (time)", "Best Lap :
+(holder) (time)". **RESULT** ($58ED4): "RACE r of 6" (row 10), the pair on a
+bar (" (name) V  (name)", 13 characters each), "RESULT", "Winner 2pts
+Best Lap 1pt", portraits of the winner and the fastest (entries 14, 15).
+**Standings** ($58F44): portraits of first, second, third (entries 16-18,
+two pixels trimmed at either side and moved right 14, 9, 4; $58B2C),
+"First Second Third", then for each: Raced, Wins, Laps, Points (labels
+orange, numbers white; columns 4, 15, 26; rows 19, 21, 22, 24).
+
+**Season's end** ($64916): every division's places take their standings.
+In the player's division: "Promotion for (winner)" and "Relegation for
+(last)" on bars (not from Division 4 down; from Division 1 only the player
+goes up: "to the SUPER LEAGUE", or "EXCELLENT DRIVING - WELL DONE" when
+already there); then each division's winner swaps places with the last of
+the division above. The player promoted sees the trophy picture. Winning
+Division 1 starts the Super League: every driver back in their own place,
+the player in Division 4 again (the league's harder car and track colours,
+$5D29C). The player's division follows the place ($64AC6); the roll-bar
+marks are reset to 10 only on entering Division 4 or the Super League.
+Then the divisions screen and the menu. The player's car keeps its damage
+from race to race ($1C9CF).
+
+**Verification** (`harness/leaguecap.py`, tool `stunt_car_racer_assets
+league`): rounds and a season's end of the original replayed by the port's
+league from the state before, all equal (see the evidence list).
+
+**Not yet ported**: Multiplayer (up to seven players taking turns), the
+Computer Link, Load/Save/Replay (league positions and the HALL file on
+disk), the "New track record" screen after a league race, the fades
+between screens ($64470), the Super League's wall colours in the race view.
 
 ## Program structure: a C64 game converted to the 68000 (Interpreted)
 
@@ -836,6 +982,26 @@ and touches the player's car at frame 1319; all 1342 frames match.
   regenerate with `build/stunt_car_racer_assets import <adf> <dir>` (or `dd`
   of the sectors above).
 - `work/title_loader.png` (research render), `work/s1.png` (menu capture).
+- Front end: `harness/fecompare.py ORIGINAL PORT OUT` (a capture against a
+  port screen, pixel by pixel); port screens from `stunt_car_racer_assets
+  drive` (input bits 0 up, 1 down, 2 left, 3 right, 4 fire, 5 Tab, 6 F1).
+  Results: SELECT, the division menu, the Hall of Fame 100 %, NAME? 99.8 %
+  before its title fix (now equal), fixture, RESULT, standings and CHANGES
+  equal but for the player's name and the run's results, the track picture
+  of Little Ramp 97.0 % (`work/ram/little_ramp_picture.png`).
+- League: `harness/leaguecap.py OUT [ROUNDS_PLAYED]` stops the original at
+  each round ($5AA84 and its RTS $5AAF2), passing the player's races by
+  with F1, and at the season's end; `stunt_car_racer_assets league
+  <content> OUT` replays them. `work/league_season.bin`: a round with the
+  player's race passed by (ratings, wins, laps, raced, standings, winner,
+  fastest, generator all equal) and a season's end (places and the
+  player's division equal, from a RAM dump at the CHANGES screen); the first
+  round of an earlier season (computer drivers only) also matched (not
+  kept). Gotchas: breakpoint stops are lost when the round follows straight
+  on from the last stop, and a BRA.s-to-itself patch written while the
+  machine stands inside the routine (or sometimes even before) is not
+  executed, apparently a cache of decoded instructions; a RAM dump while a
+  screen waits is the reliable way.
 - `harness/run.sh`: FS-UAE A500, KS 1.3, GDB stub on **port 6880**
   (`SCR_PORT`), own state directory. (6872 belongs to the Beach Volley
   harness.) `harness/dbg.py` (GDB RSP client), `harness/screen.py OUT COPPER

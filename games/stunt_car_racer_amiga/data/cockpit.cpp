@@ -1,10 +1,9 @@
 #include "stunt_car_racer_amiga/data/cockpit.hpp"
+#include "stunt_car_racer_amiga/data/planar.hpp"
 #include <stdexcept>
 
 namespace stuntcar::data {
 namespace {
-
-constexpr int screen_width = 320, screen_height = 200, row_bytes = 40, planes = 4;
 
 // The cockpit picture, packed (unpacked by $593F8), and its colours (16
 // words, three bits a gun, widened to 2c + 1 as the game loads them).
@@ -25,8 +24,6 @@ constexpr int first_sprite_item = 0x25, last_sprite_item = 0x30;
 constexpr std::uint8_t sheet_clear = 1;
 // The tread sprites' colours (17-19), from the table at $69EB4.
 constexpr std::uint32_t sprite_colours = 0x69EB4;
-// The dashboard font: 8 bytes a character from ' ', the top 7 bits used.
-constexpr std::uint32_t font = 0x1FE82;
 // Messages ($5E508): groups of a control byte ('!' starts the second line)
 // and three characters ('<' is a half space), printed from column 19 of row
 // 4 (one pixel further right with each character), the second line on row
@@ -35,52 +32,8 @@ constexpr std::uint32_t messages = 0x5E65C;
 constexpr int message_column = 19, message_x_offset = 3, message_first_y = 32, message_second_y = 42;
 constexpr int two_group_y = 37, half_space = 4, message_groups_max = 8;
 
-Colour widen3(std::uint16_t word) {
-    const auto gun = [](int c) { return std::uint8_t(c ? (c * 2 + 1) * 17 : 0); };
-    return {gun(word >> 8 & 7), gun(word >> 4 & 7), gun(word & 7)};
-}
-
 Colour colour12(std::uint16_t word) {
     return {std::uint8_t((word >> 8 & 15) * 17), std::uint8_t((word >> 4 & 15) * 17), std::uint8_t((word & 15) * 17)};
-}
-
-// PackBits rows: each screen row holds the four planes' 40 bytes in turn.
-std::vector<std::uint8_t> unpack_picture(const Program& program, std::uint32_t at) {
-    std::vector<std::uint8_t> pixels(std::size_t(screen_width * screen_height));
-    std::uint8_t row[row_bytes];
-    for (int y = 0; y < screen_height; ++y) {
-        for (int p = 0; p < planes; ++p) {
-            int filled = 0;
-            while (filled < row_bytes) {
-                const int code = program.u8(at++);
-                if (code < 128) {
-                    for (int k = 0; k <= code; ++k, ++at)
-                        if (filled < row_bytes) row[filled++] = program.u8(at);
-                } else if (code > 128) {
-                    const auto value = program.u8(at++);
-                    for (int k = 0; k < 257 - code; ++k)
-                        if (filled < row_bytes) row[filled++] = value;
-                }
-            }
-            for (int x = 0; x < screen_width; ++x)
-                if (row[x >> 3] & (0x80 >> (x & 7))) pixels[std::size_t(y * screen_width + x)] |= std::uint8_t(1 << p);
-        }
-    }
-    return pixels;
-}
-
-std::vector<std::uint8_t> read_sheet(const Program& program) {
-    std::vector<std::uint8_t> pixels(std::size_t(screen_width * screen_height));
-    for (int y = 0; y < screen_height; ++y)
-        for (int column = 0; column < screen_width / 16; ++column) {
-            const auto at = sprite_sheet + std::uint32_t(y * 160 + column * 8);
-            for (int p = 0; p < planes; ++p) {
-                const auto word = program.u16(at + std::uint32_t(p) * 2);
-                for (int b = 0; b < 16; ++b)
-                    if (word & (0x8000 >> b)) pixels[std::size_t(y * screen_width + column * 16 + b)] |= std::uint8_t(1 << p);
-            }
-        }
-    return pixels;
 }
 
 } // namespace
@@ -114,12 +67,12 @@ CockpitArt load_cockpit_art(const Program& program) {
     CockpitArt art;
     art.width = screen_width;
     art.height = screen_height;
-    art.picture = unpack_picture(program, cockpit_picture);
+    art.picture = unpack_rows(program, cockpit_picture);
     for (int i = 0; i < 16; ++i) art.palette[std::size_t(i)] = widen3(program.u16(race_colours + std::uint32_t(i) * 2));
     for (int i = 0; i < 8; ++i)
         art.palette[std::size_t(16 + i)] = colour12(program.u16(sprite_colours + std::uint32_t(i) * 2));
 
-    const auto sheet = read_sheet(program);
+    const auto sheet = read_interleaved(program, sprite_sheet);
     for (int i = 0; i < item_count; ++i) {
         const auto record = item_records + std::uint32_t(i) * 16;
         const auto field = [&](int k) { return int(program.u16(record + std::uint32_t(k) * 2)); };
@@ -150,8 +103,7 @@ CockpitArt load_cockpit_art(const Program& program) {
         art.items.push_back(std::move(item));
     }
 
-    for (std::size_t c = 0; c < art.font.size(); ++c)
-        for (std::size_t row = 0; row < 8; ++row) art.font[c][row] = program.u8(font + std::uint32_t(c * 8 + row));
+    art.font = read_font(program);
     return art;
 }
 

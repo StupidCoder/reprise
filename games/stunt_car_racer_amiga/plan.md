@@ -55,8 +55,18 @@ Next:
       saved frames) and turning on the 50 Hz vertical blank ($651B8).
 - [ ] Race screen, remaining: when the message box (item $33) shows; the
       opponent's extra row when $63EDE ≥ $FF00; the 3-pixel '.' difference.
-- [ ] Font and front-end screens (menu, league tables, track select) from the
-      program's data.
+- [x] Front end (`data/front_end.*`, `render/front_end_screen.*`,
+      `game/front_end.*`): SELECT, NAME?, the divisions screen, the
+      division menu, Practise (track lists), the track picture (race view in
+      picture mode, `draw_track_picture`), the Hall of Fame; screens compared
+      with the original's captures (menus, NAME?, Hall of Fame 100 %;
+      fixture, RESULT, standings, CHANGES equal but for names and this run's
+      results; track picture 97 %).
+- [x] Single-player league (`league/league.*`, `league/records.*`): season
+      rounds, ratings, standings, fixtures, RESULT, standings, CHANGES,
+      promotion and relegation, the Super League, track records from the
+      player's laps; rounds replayed against the original
+      (`harness/leaguecap.py`, `stunt_car_racer_assets league`).
 - [x] Car physics (`race/physics.*`, `race/contact.*`), placement
       (`race/placement.*`), the start and race loop (`race/race.*`), checked
       frame by frame against the original; a practice race on Little Ramp
@@ -79,10 +89,11 @@ Next:
       checked against `work/league_lr1.bin` (every frame). A "Race" option
       plays race 3 against Jumpin' Jack.
 - [x] The cars touching ($63CE4) checked: `work/league_touch.bin`.
-- [ ] The league and the menus: drivers, divisions, the season, the
-      Hall of Fame. Also: the wheels' suspension curve ($5E778, wheel rest row
-      $1BBDD), pause ($5D9DC), Esc to the menu, the hall-of-fame lap records
-      ($5F16C), sounds (engine $5B56C, knocks, scrape, crane).
+- [ ] Front end, remaining: the "New track record" screen after a league
+      race ($64664 with $1BBB1); fades between screens ($64470); pause
+      ($5D9DC); the Super League's wall colours in the race view (8 and 4,
+      $5D29C); the "taken" bar's exact time ($5BA42 is a busy loop); sounds
+      (engine $5B56C, knocks, scrape, crane, menus).
 - [ ] Captures of the other circuits (jumps, drawbridge, wrecking), of
       boosting and of the league (the checker's map of the original's variables is in
       `tools/stunt_car_racer_physcheck.cpp`).
@@ -95,12 +106,24 @@ Next:
       the game waits for it: PRESS FIRE). Not yet tried on a device.
 - [ ] Keyboard and gamepad controls; quick saves of real state;
       VHS/screen filter; cheats (e.g. no damage, practice any track).
-- [ ] Multiplayer / Computer Link: decide scope (serial link has no host).
+- [ ] Multiplayer (up to seven players taking turns, "Enter another
+      driver"/"Continue", $5E8AC, $5EE68): the menu entry is there but does
+      nothing yet. Computer Link: no host for the serial link; the entry
+      does nothing.
 - [ ] Load/Save/Replay menu: what it reads and writes on disk (league saves,
-      replays) and how the port stores it.
+      the HALL file $5F72C, replays) and how the port stores it; the menu is
+      there, every entry returns to the division menu. Quick saves of the
+      league.
 - [ ] Desktop and Android builds validated; differences documented.
 
 ## Open bugs
+
+- A league race is left with Tab (the original's Esc, which Reprise keeps
+  for its pause menu); on a touch screen there is no way to leave a race.
+- On a touch screen with no keyboard the name cannot be typed; fire gives
+  the name "Player".
+- The track picture leaves out the crack's "Broken by QUARTEX" (the
+  genuine release's text there is unknown).
 
 - The opponent is drawn at its progress step on its segment without the
   game's handling of reversed pieces ($5A5B6); not yet checked there.

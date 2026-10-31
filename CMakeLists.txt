@@ -365,13 +365,18 @@ target_compile_options(fa_18_interceptor_amiga PRIVATE ${PROJECT_WARNINGS})
 # --- stunt_car_racer_amiga: Stunt Car Racer (Amiga) ---------------------------
 add_library(stunt_car_racer_amiga
     games/stunt_car_racer_amiga/entry.cpp
+    games/stunt_car_racer_amiga/game/front_end.cpp
     games/stunt_car_racer_amiga/game/module.cpp
     games/stunt_car_racer_amiga/data/assets.cpp
     games/stunt_car_racer_amiga/data/cockpit.cpp
+    games/stunt_car_racer_amiga/data/front_end.cpp
+    games/stunt_car_racer_amiga/data/planar.cpp
     games/stunt_car_racer_amiga/data/preview.cpp
     games/stunt_car_racer_amiga/data/scenery.cpp
     games/stunt_car_racer_amiga/data/track.cpp
     games/stunt_car_racer_amiga/import/disk_import.cpp
+    games/stunt_car_racer_amiga/league/league.cpp
+    games/stunt_car_racer_amiga/league/records.cpp
     games/stunt_car_racer_amiga/race/contact.cpp
     games/stunt_car_racer_amiga/race/physics.cpp
     games/stunt_car_racer_amiga/race/placement.cpp
@@ -379,6 +384,7 @@ add_library(stunt_car_racer_amiga
     games/stunt_car_racer_amiga/race/race.cpp
     games/stunt_car_racer_amiga/race/smoke.cpp
     games/stunt_car_racer_amiga/race/tables.cpp
+    games/stunt_car_racer_amiga/render/front_end_screen.cpp
     games/stunt_car_racer_amiga/render/race_screen.cpp
     games/stunt_car_racer_amiga/render/race_view.cpp
     games/stunt_car_racer_amiga/lessons/technical_article.cpp)
