@@ -184,16 +184,6 @@ void fill(View& view, const std::vector<Screen>& points, std::uint8_t colour) {
     }
 }
 
-double signed_area(const std::vector<Screen>& points) {
-    double area = 0;
-    for (std::size_t i = 0; i < points.size(); ++i) {
-        const auto& a = points[i];
-        const auto& b = points[(i + 1) % points.size()];
-        area += a.x * b.y - b.x * a.y;
-    }
-    return area / 2;
-}
-
 class Painter {
   public:
     Painter(View& view, const Projector& projector) : view_(view), projector_(projector) {}
@@ -231,12 +221,6 @@ class Painter {
     }
 
     void draw(const std::vector<Point3>& polygon, std::uint8_t colour) const { fill(view_, outline(polygon), colour); }
-
-    // A side is seen only from outside the road.
-    void draw_side(const std::vector<Point3>& polygon, std::uint8_t colour) const {
-        const auto screen = outline(polygon);
-        if (screen.size() >= 3 && signed_area(screen) > 0) fill(view_, screen, colour);
-    }
 
   private:
     View& view_;
@@ -333,6 +317,8 @@ using AfterPiece = std::function<void(const std::vector<Row>&, std::size_t botto
 // its edges at the rows whose edge lines are red ($6892A, $6897C; rows with
 // yellow lines have no such edge inside a piece, $67284); the surface
 // ($68D82) with the start line; the edge lines along it ($689CE, $68A12).
+// A side is filled whichever way it faces ($68A56/$68BEC test only that it
+// is on screen): a curve's inner side seen from outside is drawn too.
 // Normally the sides come first; while the car is beside the road ($1BB9A
 // set) the side nearer the car comes after the surface, since it then
 // stands between the car and the road.
@@ -359,9 +345,7 @@ void paint_run(const Road& road, const Painter& painter, const std::vector<Row>&
             std::vector<Point3> polygon;
             for (const auto& r : run) polygon.push_back(base(road.point(r, right_side)));
             for (auto it = run.rbegin(); it != run.rend(); ++it) polygon.push_back(road.point(*it, right_side));
-            // Wound so that a side seen from outside turns positively.
-            if (right_side) std::reverse(polygon.begin(), polygon.end());
-            painter.draw_side(polygon, wall);
+            painter.draw(polygon, wall);
             for (std::size_t k = top; k > bottom; --k) {
                 const auto colour = edge_colour(k);
                 if (!colour || *colour == edge_yellow) continue;

@@ -473,8 +473,13 @@ on the left) comes after the surface and its edge lines, since it then
 stands between the car and the road. Under the crane on Little Ramp the
 car hangs right of the road, so the road's right side is drawn last; with
 the sides always first, the start line showed through it. Sides (each road
-edge down to height $200, the ground level) are filled only when seen from
-outside.
+edge down to height $200, the ground level) are filled whichever way they
+face: $68A56/$68BEC only skip a side that is off screen ($681D6), and the
+drawing order alone hides the faces behind the road. A curve's inner side
+seen from outside is drawn (pose on Little Ramp under the crane camera,
+`work/ram/inner_wall.bin`, `work/compare/inner_wall.png`: 98.1 % equal,
+97.8 % when such sides were left out, which also left their dark lines
+standing on the road beyond).
 
 **Dark lines on the sides** ($6892A/$6897C, colour $691B3 = 9, a very
 dark red): along a side's upright edge at each row of the piece (its far
