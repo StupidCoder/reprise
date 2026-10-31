@@ -13,7 +13,8 @@
 //   stunt_car_racer_assets drive <content> <frames> <inputs> <out_prefix> [every]
 //       runs the game module (from the SELECT menu) for <frames> ticks;
 //       <inputs> is a comma list of hex bytes per tick (bits 0 up, 1 down,
-//       2 left, 3 right, 4 fire, 5 Tab, 6 F1; "xx*n" repeats), the last
+//       2 left, 3 right, 4 fire, 5 Tab, 6 F1; "@x.y" a tap at x, y;
+//       "xx*n" repeats), the last
 //       repeated; saves every <every>th picture as <out_prefix>NNNN.png
 //   stunt_car_racer_assets league <content> <capture.bin>
 //       replays the original's league rounds and season end
@@ -109,16 +110,25 @@ int main(int argc, char** argv) {
                 const auto item = list.substr(0, comma);
                 const auto star = item.find('*');
                 const int repeat = star == std::string::npos ? 1 : std::stoi(item.substr(star + 1));
-                for (int r = 0; r < repeat; ++r) inputs.push_back(std::stoi(item.substr(0, star), nullptr, 16));
+                // "@x.y": a tap at (x, y), kept as x << 16 | y with bit 30 set.
+                const auto head = item.substr(0, star);
+                const int value = head[0] == '@'
+                                      ? (1 << 30) | std::stoi(head.substr(1)) << 16 | std::stoi(head.substr(head.find('.') + 1))
+                                      : std::stoi(head, nullptr, 16);
+                for (int r = 0; r < repeat; ++r) inputs.push_back(value);
                 list = comma == std::string::npos ? "" : list.substr(comma + 1);
             }
             for (int k = 0; k < frames; ++k) {
                 const int in = inputs.empty() ? 0 : inputs[std::size_t(std::min<int>(k, int(inputs.size()) - 1))];
                 app::GameInput input;
-                input.up = in & 1, input.down = in & 2, input.left = in & 4, input.right = in & 8, input.fire = in & 16;
-                // 20: Tab (leaves a race), 40: F1 (passes a league race by).
-                input.c64_keys[63] = in & 0x20;
-                input.f1 = in & 0x40;
+                if (in & (1 << 30)) {
+                    input.pointer_events.push_back({platform::PointerEvent::Kind::down, float(in >> 16 & 0x3FFF), float(in & 0xFFFF), true});
+                } else {
+                    input.up = in & 1, input.down = in & 2, input.left = in & 4, input.right = in & 8, input.fire = in & 16;
+                    // 20: Tab (leaves a race), 40: F1 (passes a league race by).
+                    input.c64_keys[63] = in & 0x20;
+                    input.f1 = in & 0x40;
+                }
                 game->tick(input);
                 if (k % every == 0) {
                     char name[16];

@@ -64,9 +64,9 @@ class FrontEnd {
 
     void show(Screen);
     void open_menu(int base, int count, bool main, int chosen = 0);
-    void menu_tick(const app::GameInput&);
+    void menu_tick(const app::GameInput&, std::optional<data::Point> tap);
     void menu_chosen(int item);
-    void name_tick(const app::GameInput&);
+    void name_tick(const app::GameInput&, bool fire_pressed);
     void next_league_race();
     void after_season();
 

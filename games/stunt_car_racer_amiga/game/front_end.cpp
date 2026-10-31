@@ -41,6 +41,10 @@ constexpr int name_length = 12, name_column = 14, name_row = 16, underline_y = 1
 // Menu bars stay brown this long when chosen ($5BA42 with 15), and the
 // joystick repeats this often while held (50 Hz ticks).
 constexpr int taken_ticks = 15, repeat_ticks = 10;
+// Taps: the menu bars span x 32-255 and 17 rows from 8 · row - 9; the
+// track picture's window (x 32, 256 wide) turns at its outer 64 pixels.
+constexpr int bar_left = 32, bar_right = 256, bar_height = 17;
+constexpr int picture_window_x = 32, picture_window_width = 256, picture_edge = 64;
 // The standings' columns and rows ($58F44).
 constexpr int standings_columns[] = {4, 15, 26};
 constexpr int standings_shifts[] = {14, 9, 4};
@@ -107,18 +111,29 @@ std::optional<RaceRequest> FrontEnd::take_race() {
 // --- Input ---------------------------------------------------------------
 
 void FrontEnd::tick(const app::GameInput& input) {
+    // A tap (or a click) on the picture: on a menu the bar under it, on the
+    // track picture its left or right edge walks round, anywhere else fire.
+    std::optional<data::Point> tap;
+    for (const auto& e : input.pointer_events)
+        if (e.kind == platform::PointerEvent::Kind::down && !tap) tap = data::Point{int(e.x), int(e.y)};
     const bool fire = input.fire || input.c64_keys[key_return] || input.space;
-    const bool fire_pressed = fire && !fire_was_;
+    bool fire_pressed = (fire && !fire_was_) || (tap && screen_ != Screen::track_picture);
+    if (tap && screen_ == Screen::track_picture) {
+        const int x = tap->x - picture_window_x;
+        if (x < picture_edge) picture_view_ = (picture_view_ + 3) & 3;
+        else if (x >= picture_window_width - picture_edge) picture_view_ = (picture_view_ + 1) & 3;
+        else fire_pressed = true;
+    }
     switch (screen_) {
     case Screen::select:
     case Screen::division_menu:
     case Screen::practise_divisions:
     case Screen::practise_tracks:
     case Screen::load_save:
-        menu_tick(input);
+        menu_tick(input, tap);
         break;
     case Screen::name:
-        name_tick(input);
+        name_tick(input, fire_pressed);
         break;
     case Screen::divisions:
         if (fire_pressed) open_menu(division_menu, 4, false, division_choice_);
@@ -193,7 +208,7 @@ void FrontEnd::tick(const app::GameInput& input) {
     space_was_ = input.space;
 }
 
-void FrontEnd::menu_tick(const app::GameInput& input) {
+void FrontEnd::menu_tick(const app::GameInput& input, std::optional<data::Point> tap) {
     if (menu_.taken >= 0) {
         if (++menu_.taken >= taken_ticks) {
             menu_.taken = -1;
@@ -212,6 +227,12 @@ void FrontEnd::menu_tick(const app::GameInput& input) {
     for (int k = 0; k < std::min(menu_.count, 4); ++k)
         if (input.c64_keys[std::size_t(number_keys[k])] && !keys_was_[std::size_t(number_keys[k])]) menu_.chosen = k;
     if (fire && !fire_was_) menu_.taken = 0;
+    // A tap on a bar takes that entry.
+    if (tap && tap->x >= bar_left && tap->x < bar_right)
+        for (int i = 0; i < menu_.count; ++i) {
+            const int top = 8 * art_.bar_rows[std::size_t(i)] - 9;
+            if (tap->y >= top && tap->y < top + bar_height) menu_.chosen = i, menu_.taken = 0;
+        }
 }
 
 void FrontEnd::menu_chosen(int item) {
@@ -255,7 +276,7 @@ void FrontEnd::menu_chosen(int item) {
     }
 }
 
-void FrontEnd::name_tick(const app::GameInput& input) {
+void FrontEnd::name_tick(const app::GameInput& input, bool fire_pressed) {
     const auto pressed = [&](int k) { return input.c64_keys[std::size_t(k)] && !keys_was_[std::size_t(k)]; };
     if (pressed(key_backspace) && !player_name_.empty()) player_name_.pop_back();
     if (input.space && !space_was_ && !player_name_.empty() && int(player_name_.size()) < name_length)
@@ -263,7 +284,7 @@ void FrontEnd::name_tick(const app::GameInput& input) {
     for (const auto& k : name_keys)
         if (pressed(k.index) && int(player_name_.size()) < name_length)
             player_name_.push_back(input.shift ? k.upper : k.lower);
-    const bool done = pressed(key_return) || (input.fire && !fire_was_);
+    const bool done = pressed(key_return) || fire_pressed;
     if (!done) return;
     // A touch screen has no keys to type with: a name is given.
     if (player_name_.empty()) player_name_ = "Player";

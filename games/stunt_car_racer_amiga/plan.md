@@ -62,6 +62,11 @@ Next:
       with the original's captures (menus, NAME?, Hall of Fame 100 %;
       fixture, RESULT, standings, CHANGES equal but for names and this run's
       results; track picture 97 %).
+- [x] Touch and mouse in the front end: a tap on a menu bar takes that
+      entry; on the track picture the outer 64 pixels of the window walk
+      round the stadium, the middle starts the race; on every other screen
+      (and after PRESS FIRE) a tap is fire. The race's touch buttons show
+      only in races. Driven with `stunt_car_racer_assets drive` ("@x.y").
 - [x] Single-player league (`league/league.*`, `league/records.*`): season
       rounds, ratings, standings, fixtures, RESULT, standings, CHANGES,
       promotion and relegation, the Super League, track records from the

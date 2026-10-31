@@ -162,7 +162,8 @@ green; $64C1A), 17 rows from screen row 8r − 9; each extra line copies the
 strip's rows 1-16 a further 8 rows down (the second pointer starts one row
 lower). On a bar: the entry's number, ". ", its text (black). The
 highlighted entry is orange, the others light grey; the one taken turns
-brown for a moment ($5BA42). Joystick up/down moves the highlight, the
+brown for a moment ($5BA42). (The port adds taps and clicks: a tap on a
+bar takes that entry, elsewhere a tap is fire.) Joystick up/down moves the highlight, the
 number keys 1-4 move it to that entry ($60C8D), fire takes it. Entries
 (table $5BCD0 indexing the menu or main table): SELECT (Single Player
 League, Multiplayer, Computer Link), the division menu (Hall of Fame,

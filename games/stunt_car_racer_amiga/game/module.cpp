@@ -81,7 +81,10 @@ class Module final : public app::GameModule {
             finish_race(true);
             return;
         }
-        // After PRESS FIRE, a press goes back to the front end.
+        // After PRESS FIRE, a press (or a tap) goes back to the front end.
+        for (const auto& e : input.pointer_events)
+            controls.fire = controls.fire || (e.kind == platform::PointerEvent::Kind::down &&
+                                              race_->state().phase == race::Phase::over);
         if (race_->state().phase == race::Phase::over) {
             if (controls.fire && !fire_held_) finish_race();
             fire_held_ = controls.fire;
@@ -170,7 +173,8 @@ class Module final : public app::GameModule {
     // at the bottom left, the accelerator at the bottom right.
     void set_input_capabilities(platform::InputCapabilities caps) override { input_caps_ = caps; }
     std::vector<platform::TouchControl> touch_controls() const override {
-        if (!input_caps_.touchscreen || !input_caps_.mobile || input_caps_.gamepad) return {};
+        // (The menus are tapped directly.)
+        if (!race_ || !input_caps_.touchscreen || !input_caps_.mobile || input_caps_.gamepad) return {};
         using Icon = platform::ControlIcon;
         const auto button = [](const char* id, const char* label, Icon icon, float x, float y, float width, float height) {
             platform::TouchControl c;
