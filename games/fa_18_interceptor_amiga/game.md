@@ -201,9 +201,12 @@ cracked disk block 71 reads "CRACKED BY A-HA" and any answer passes;
 the check is skipped once passed, `$13AB1B`). Block 7 ("SELECT YOUR FREE
 FLIGHT STARTING LOCATION") at the bottom over the strip; the places of
 `$137CF6` (16-byte records: the three runways by cell and offset, then
-moving objects $800E and $800F, the carrier) are marked with their
-digit at their projected position (`$11FB9E`, colour 9), the chosen one
-blinking. A digit key chooses ($10EBB4, `$13AB38` = place - 1). For a
+moving objects $800E and $800F, the carrier) are marked with a dot in
+colour 2 at their projected position (`$1238AC`) and their digit
+(`$127640`, colour 9) from the dot's column rounded down to 4, plus 8
+(`$11FB9E`), the chosen one blinking. Checked 2026-10-31 against the
+original's map (harness screen capture): the same scenery and water but
+for one-pixel differences in the bridges' lines and the coastline. A digit key chooses ($10EBB4, `$13AB38` = place - 1). For a
 place other than 4 block 75 asks for the aircraft (1 F/A-18, `$13AB39`
 = $11; 2 F-16, $10). Then the aircraft is set at the place ($10D51E)
 and the outside camera flies from the map down to it (`$11DC90`…, the
@@ -489,7 +492,8 @@ Flat things (ground shapes, flag-2 models such as the airfields' paving)
 are painted first with no depth test (filled row by row between edge
 crossings, so shapes with bays fill right; faces of standing objects
 are split into triangles), pass by pass and far to near
-within a pass (hypothesis: the original's lists run far to near), then
+within a pass (hypothesis: the original paints its lists in their
+order, which the builder's tables mostly give far to near), then
 the aircraft's shadows, then everything standing. Before this a depth
 buffer per face let coplanar ground shapes fight (the city streaked
 with green) and the F/A-18's wings and stabilizers cut jaggedly through
@@ -505,14 +509,14 @@ an opcode word follows. Opcodes (78 entries):
 |---|---|---|---|
 | $00 | $1135A8 | – | nothing |
 | $04 | $1135AC | point, colour | a dot |
-| $08 / $C0 / $128 | $11373C / $113724 / $11372C | p1, p2, colour | a line (two drawers; $128 near only) |
+| $08 / $C0 / $128 | $11373C / $113724 / $11372C | p1, p2, colour | a line (two drawers; $128 only with the camera above 192, `$13AD68` < −$C0) |
 | $0C | $1137E4 | points up to one with bit 15, colour word | a face |
 | $114 | $11378A | three points, colour word | a triangle |
 | $10 | $11392E | altitude, records `n, flag, n points`, negative end | the ground shadow, black |
 | $34 | $114A34 | colour, point pairs (bit 15 on the last) | lines |
 | $DC | $113888 | long pointer, offsets (negative end) | faces kept in a shared table |
 | $58 | $1144F0 | colour, point, n, n counts | rows of parallel lines |
-| $80 / $50 | $1141C8 / $1141DA | (colour), point, count | lines across a quad (deck markings, hypothesis) |
+| $80 / $50 | $1141C8 / $1141DA | (colour), point, count | stripes across a quad (deck markings, hypothesis); $50 inverts plane 1 (see below) |
 | $F8 | $1157C8 | point, colour, radius | a filled disc |
 | $C4 | $1136CE | three points, colour | a dot seen from one side (a light, hypothesis) |
 | $CC | $1150C4 | byte count | skip unless the object's flag bit 3 |
@@ -565,12 +569,16 @@ with more model flags and opcodes:
 
 | Op | Routine | Operands | What |
 |---|---|---|---|
-| $24 / $78 | $114C14 / $1145EA | colour, point | parallelogram P0, P1, P2, P2 − (P1 − P0) ($24 near only) |
+| $24 / $78 / $6C | $114C14 / $1145D6 / $1145C8 | colour, point | parallelogram P0, P1, P2, P2 − (P1 − P0) ($24 only with the camera at most 128 high, in the mode the last op left; $78 sets plane 3, $6C inverts plane 1) |
 | $28 | $114C84 | colour, point | parallelogram at P3 with edges P1 − P0, P2 − P1 |
-| $44 / $48 | $1147E4 | 4-point records, negative end | quads, colour 12 dithered |
+| $44 / $48 | $1147E4 | 4-point records, negative end | quads setting plane 3 (colour 4 becomes 12) |
 | $4C | $11408C | colour, point, n | 2n parallel lines across a quad |
-| $50 / $80 | $1141DA / $1141C8 | (colour), point, n | 2n filled stripes (runway markings) |
-| $54 / $E4 | $1143C0 / $1143AA | (colour), point, n, n counts | rows of filled stripes |
+| $50 / $80 | $1141DA / $1141C8 | (colour), point, n | 2n filled stripes (runway markings; $50 inverts plane 1, $80 in its colour) |
+| $54 / $E4 | $1143C0 / $1143AA | (colour), point, n, n counts | rows of filled stripes ($54 inverts plane 1) |
+| $5C | $11486A | point, count | from P3 on, `count` parallelograms (Pk, Pk + V, Pk + V + W, Pk + W), V = P0 − P3 + 1.5 (P1 − P3), W = P2 − P3, inverting plane 1: the runways' threshold blocks |
+| $9C | $113B58 | two colours (long), top colour | a box (model points 0-3: P1 a foot, P0 above it, P2 and P3 its neighbours) drawn as one diagonal face: P1 to the far corner when the camera's x and z about the object have the same sign, P2 to P3 otherwise; the long's low word while the camera is farther along z than x, else its high word; the top in its colour while the view looks steeply down (`$13AA76`); nothing unless the model's point 1 lies in the view's pyramid |
+| $A0 | $113D1A | two colours (long) | the same for a pyramid: triangle P0 P1 P4 (same signs) or P0 P2 P3 |
+| $18 | $113E6C | n, A, B, C, D, colour | n − 1 lines from A + k (B − A) / n to C + k (D − C) / n (the stadium's rows, types 107/108; the original in sixteenths, rounded) |
 | $2C | $114960 | count << 8 \| colour, point | lines between point pairs (bridge hangers) |
 | $30 | $1149AE | count << 8 \| colour, ref, point | the same, moved by P[ref+1] − P[ref] |
 | $38 | $114AA0 | colour, ref, pairs | lines moved by P[ref+1] − P[ref] |
@@ -579,7 +587,6 @@ with more model flags and opcodes:
 | $7C | $113FB2 | model point | orientation set-up, draws nothing (hypothesis) |
 | $88 $8C $90 $94 $A4 | see shapes.py | point (, shift) | vertex builders (parallelograms; shift scales a difference) |
 | $124 | $11365C | – | skips a word for type 87 only |
-| $18 | $113E6C | variable | curves (types 107/108); not decoded |
 | $118 | $1135F0 | – | variants by the smoke slot's timer (types 33-35): `read_smoke_shape` |
 
 62 of the 70 scenery types decode (`.analysis/fa_18_interceptor_amiga/work/sc*.png`): runway centre lines
@@ -611,15 +618,58 @@ side). y points up (the camera matrix's y row maps +y to the screen's
 up); +x points west (the projection puts camera +x on the left); z runs
 along the maps' rows.
 
-**Scene builder** `$11005C`: per frame it walks precomputed lists of cell
-offsets around the camera (by heading octant, tables `$136464`-`$1367A4`,
-pairs `$1106B4`), gathers each cell's objects into slots and then the
+**Scene builder** `$11005C` (rebuilt 2026-10-31, `game::visit_map`): when
+the camera's cell, quarter or look-down flag changes (`$13AB48`) it
+walks lists of cells around the camera's cell and of slots within each
+cell, gathers each cell's objects into slots and then the
 visible-object lists (`$143C92`, `$144322`, `$1449B2`; 24-byte entries:
 word type << 8 | flags with the precision shift in the low nibble, long
 type record, x, y, z words relative to the camera's fine cell corner and
 shifted, long info, …; the lists start at the offsets in `$13AC9C`,
 `$13AC9E`, `$13ACA0`). The camera cell runs 0-30 (coarse) or 0-127
 (fine) and wraps to the other end past them (`$1102C0`).
+
+Which list: by the camera's quarter of its cell (`$13AB40`, the fine
+cell within the coarse one, for the coarse passes; `$13AB41`, the
+quarter of the fine cell, for the near pass: (3 − x & 3) + 4 (3 − z & 3)
+of the position >> 22 or >> 20), whose variant `$136464[q]` (0-3)
+picks the remap tables: `$136474` (list by the heading's eighth
+`$13AB44`), `$1364A4` (slot codes) and `$1364E4` (cell codes → pairs
+`$1106B4`). The lists' base is `$1367A4`, `$136542` while the view looks
+steeply down (`$13AA76`, set by `$1043F2` for a pitch over 8 in
+$259-$C4D), or `$137386` for the first coarse pass with the camera
+below 160 (`$13AD56` > −$A000); the word at base + index is the list's
+offset from the base, index = `$136494[q]` × 16 + 2 × the eighth's list
+(looking down: 2 × `$136494[$136494[q]]`; low: `$136494[$13AB40]` × 32 +
+2 × `$1364A4`[variant][`$13AB41`]). A list: cell code (0-20), count,
+that many slot codes; a negative byte ends it. The objects are placed
+from the camera's cell by `$1106DE` (coarse) / `$110772` (near) × 4:
+the coarse table's +2 entries overflow their word (+32768 reads −32768),
+so **the coarse passes put the objects of the cells two ahead two cells
+behind** (the dark speck west of the coast on the port's start map was
+one put where it lies). The near pass also files the moving records and
+smoke slots of the visited cells (`$110470`, `$110528`). A pass keeps at
+most 70 entries (from the 70th on each overwrites the last) and, with
+the camera below 8192, only the last ones (`$11106A` by height / 2048:
+30, 30, 32, 40, or 40, 50, 60, 70 looking down; `$111048` moves the
+list's start on). Distances (`+$10` of an entry, 16-unit steps >> the
+precision) start at 0, are worked out at once, then again every frame
+below $100, every fourth frame below $400, and not at all beyond until
+the next rebuild (`$10FB46`).
+
+Two type routines filter by height: `$111C90` (types 43-133 of the
+low-altitude kind) is skipped above 14336 by the coarse passes
+(`$10FB0E`) and above 16384 by the near one (`$10FDCC`); `$111C84`
+(types 67 and 87, the Golden Gate's high version) draws only above
+10240 (`$111C84`) and the coarse passes leave its distance at 0
+(`$10FB36`).
+
+**Checked** (2026-10-31): the port's three lists equal the original's
+type by type, in order and place, on the start map (60, 27 and 4 + the
+carrier's record) and at demo frames 1840 (the first pass capped from
+37 to its last 30), 1880 and 1900 (the low list: 16): harness capture
+of the lists `+$13AC9C` with the camera words. The port draws the
+moving records apart and does not count them in the caps.
 
 **Three object maps** (hunk 66): `$137584` and `$137684` (the two coarse
 passes `$10FA64` / `$10FA76`, `$13AB55`) and `$137784` (fine, near the
@@ -709,15 +759,28 @@ nothing). City blocks: `$4D0`, then `$C00`, then nothing; the downtown
 types 39-42, 99 and 100 are `$7FFF`. Their lists use the scenery's opcode
 table (`$113470`, indexed by the opcode as a byte offset) beyond `$60`
 `$64` `$68`: `$24`, `$78` and `$6C` a parallelogram P0 P1 P2 (colour,
-point offset; `$24` only with the camera low, `$13AD68` ≥ −$80; `$6C`
-with other clip flags, `$1145C8`), `$34` lines sharing a colour (colour,
-then pairs of point offsets, bit 15 on the last), `$12C` the same lines
-only with the camera above −$C0 of `$13AD68` (`$114A20`). Partly known:
-`$5C` (`$11486A`: a point offset and a count; with P0-P3 there, V =
-P0 − P3 + 1.5 (P1 − P3) and W = P2 − P3, then `count` parallelograms
-(Pk, Pk + V, Pk + W + V, Pk + W) from P3 on, in the colour left by the
-op before: rows of building fronts, not rebuilt), `$9C` (a long and a word, `$113B58`), `$08` and `$128` in
-ground lists.
+point offset; `$24` only with the camera low, `$13AD68` ≥ −$80; `$78`
+sets plane 3, `$6C` inverts plane 1), `$34` lines sharing a colour
+(colour, then pairs of point offsets, bit 15 on the last), `$12C` the
+same lines only with the camera above −$C0 of `$13AD68` (`$114A20`),
+`$08` and `$128` single lines (p1, p2, colour; `$128` only above
+−$C0, `$11372C`). (`$68`'s colour 7 is the planes 0 and 1 set, `$1130E0`:
+the same over land and water.) All decode since 2026-10-31.
+
+**Bitplane modes** (`$13A9D6`, four words, `$124B48` → `$125066`): the
+first word picks the planes the filler writes; with the second word
+negative each gets its bit of the colour, else per plane the third
+word's bit inverts it (blitter minterm $3C), or the second word's bit
+sets it ($FC) or clears it ($0C) (a nonzero fourth word takes another
+path, `$12500C`: the ground's specks). An object starts with plain
+colours (`$112640`, `$112D7A`); ops $50, $54, $5C and $6C invert plane 1
+(2, 0, 2, 0: the runways' white threshold blocks and stripes are the
+paving inverted), $44, $48 and $78 set plane 3 (8, 8, 0, 0), $4C, $58,
+$80, $E4, $34 and $08 go back to plain colours; faces and the other ops
+paint in the mode the last op left. The port marks such faces'
+colours (`data::invert_planes`, `data::set_planes`) and changes the
+pixel's bits; it carries the mode in decoding order (the original's runs
+in drawing order, which can differ when a facing tree reorders lists).
 
 **The airfields' paving** is the runway types' own flat models (runway 1:
 type 46, model `$12C062`: scale 2^−2, flags 6, two main points), not a
@@ -740,6 +803,9 @@ ceiling: `$112D5C` above $380000 (32-bit units, 14,336 world units),
 x, y, z, 1.0 = 256, rows scaled by the field of view: about 167, 251,
 129) × (point − camera); screen x = 159 − 160 x / z, y = 90 − 90 y / z,
 a 320 × 180 window clipped at row `$13AC74` (167 in the cockpit view).
+Rows run from 1 (`$1238AE` clamps a point's row to 1-180): row 0 of
+every view picture is colour 0 (all the original's captures), as the
+port draws it since 2026-10-31.
 The camera is the fine cell corner minus `$13AD52` / 256 (`$13AD52`,
 `$13AD56`, `$13AD5A`: minus the offset from the corner × 256). Model
 points are scaled by 2^−(low nibble of model byte +6) (`$111E68`).

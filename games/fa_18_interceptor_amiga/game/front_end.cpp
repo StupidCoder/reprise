@@ -20,7 +20,7 @@ constexpr int welcome_name_at = 8;     // "WELCOME " ($1344D7 + 10)
 // palette steps ($13AB90, 45 blanks), countdowns 5, 3 and 2.
 constexpr int map_frames_to_choice = 5 + 14 + 6 + 4 + 3;
 constexpr int map_bottom = 179;        // the view's last row; below it colour 3
-constexpr int strip_colour = 3, marker_colour = 9;
+constexpr int strip_colour = 3, place_colour = 2, marker_colour = 9;
 // The map camera ($10D3D8): high over the bay, looking straight down.
 constexpr double map_x = 0x10800000 / 256.0, map_y = 0x3000000 / 256.0, map_z = 0x10C00000 / 256.0;
 
@@ -398,8 +398,7 @@ std::array<int, 2> FrontEnd::marker(int p, int margin) const {
     const auto at = p == 3 ? carrier_ : place_position(assets_.program, p);
     const std::int32_t dx = (at[0] - 0x10800000) >> 14, dy = -0x3000000 >> 14, dz = (at[1] - 0x10C00000) >> 14;
     const int xc = (0xA8 * dx) >> 8, yc = (0xFC * dz) >> 8, zc = (-0x80 * dy) >> 8;
-    const int sx = 159 - 0xA0 * xc / zc + margin, sy = 90 - 0x5A * yc / zc;
-    return {(sx & ~3) + 8, sy};
+    return {159 - 0xA0 * xc / zc + margin, 90 - 0x5A * yc / zc};
 }
 
 FrontKeys FrontEnd::tap(int x, int y, int margin) const {
@@ -424,7 +423,8 @@ FrontKeys FrontEnd::tap(int x, int y, int margin) const {
         } else {
             // A finger's reach round each place's number.
             for (int p = 0; p < 4; ++p) {
-                const auto [left, top] = marker(p, margin);
+                const auto [sx, top] = marker(p, margin);
+                const int left = (sx & ~3) + 8;
                 if (std::abs(x - (left + 4)) <= 16 && std::abs(y - (top + 3)) <= 14) k.digit = p + 1;
             }
             k.any = k.digit > 0;
@@ -459,16 +459,18 @@ void FrontEnd::draw(IndexedImage& image, int margin) const {
         scene_.draw(image, centre, map_bottom, c);
         for (int y = map_bottom + 1; y < image.height; ++y)
             for (int x = 0; x < image.width; ++x) image.put(x, y, strip_colour);
-        // $11FB9E: each runway's digit where it lies, projected as the
-        // original does it (positions in 1/64 units, integer division) and
-        // drawn by the panel's number drawer ($127640: 4-pixel steps, the
-        // digit 8 pixels on).
+        // $11FB9E: each place as a dot in colour 2 where it lies, projected
+        // as the original does it (positions in 1/64 units, integer
+        // division; `$1238AC`), and its digit by the panel's number drawer
+        // ($127640: 4-pixel steps, the digit 8 pixels on).
         const auto& font = assets_.small_font;
         for (int p = 0; p < 4; ++p) {
             if (asking_aircraft_ && p != place_) continue;
             const auto* glyph = font.glyph(char('1' + p));
             if (!glyph) continue;
-            const auto [left, sy] = marker(p, margin);
+            const auto [sx, sy] = marker(p, margin);
+            image.put(sx, sy, place_colour);
+            const int left = (sx & ~3) + 8;
             for (int r = 0; r < font.rows && r < int(glyph->size()); ++r)
                 for (int b = 0; b < 8; ++b)
                     if ((*glyph)[std::size_t(r)] & (0x80 >> b)) image.put(left + b, sy + r, marker_colour);

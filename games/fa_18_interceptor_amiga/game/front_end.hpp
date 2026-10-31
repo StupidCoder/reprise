@@ -103,8 +103,8 @@ private:
     void show_chosen(int item, int line);
     void missions_list();
     bool mission_open(int mission) const;
-    // Where place p's number is drawn on the start map (its left column and
-    // top row).
+    // Where place p shows on the start map (column and row of its dot; its
+    // number is drawn from the dot's column rounded down to 4, plus 8).
     std::array<int, 2> marker(int p, int margin) const;
     void flight_log();
     void choose(const FrontKeys& keys);

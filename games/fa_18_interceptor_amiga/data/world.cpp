@@ -51,9 +51,10 @@ ObjectMap read_map(const amiga::LoadedImage& m, std::uint32_t table, bool coarse
                     p += 4;
                 }
                 const int slot = header & 15;
+                map.by_cell[row << 8 | column][std::size_t(slot)].push_back(map.objects.size());
                 map.objects.push_back({(type & 0x7F) + first_scenery_type,
                                        (column * 16384 + (3 - slot % 4) * 4096 + ox) * scale,
-                                       (row * 16384 + (3 - slot / 4) * 4096 + oz) * scale});
+                                       (row * 16384 + (3 - slot / 4) * 4096 + oz) * scale, column, row, slot});
             }
         }
     }
@@ -224,6 +225,11 @@ WaterGrid read_water(const amiga::LoadedImage& m) {
 }
 
 } // namespace
+
+const std::array<std::vector<std::size_t>, 16>* ObjectMap::slots(int column, int row) const {
+    const auto at = by_cell.find(row << 8 | column);
+    return at == by_cell.end() ? nullptr : &at->second;
+}
 
 namespace {
 

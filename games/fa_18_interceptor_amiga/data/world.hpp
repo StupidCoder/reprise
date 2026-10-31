@@ -2,6 +2,7 @@
 #include "amiga/hunk.hpp"
 #include <array>
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -17,12 +18,17 @@ namespace interceptor::data {
 struct MapObject {
     int type{};        // index in the object type table ($115F4C)
     double x{}, z{};
+    int column{}, row{}, slot{}; // its cell (x, z) and the slot in it (0-15)
 };
 
 struct ObjectMap {
     int cells{};              // 32 coarse (maps A, B) or 128 fine (map C) per side
     double cell_size{};       // in world units
     std::vector<MapObject> objects;
+    // The objects of a cell's slots in the map's order (indices into
+    // `objects`), or nothing for an empty cell.
+    const std::array<std::vector<std::size_t>, 16>* slots(int column, int row) const;
+    std::map<int, std::array<std::vector<std::size_t>, 16>> by_cell; // row << 8 | column
 };
 
 // The water ($11F27C): polygons in colour 6 over a grid of cells, each

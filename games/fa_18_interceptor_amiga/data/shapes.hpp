@@ -37,17 +37,44 @@ struct ListPlace {
     int order{};
 };
 
+// A face's paint other than a palette index: the filler can change only
+// some of a pixel's bitplanes (`$13A9D6`: the planes, then a word per
+// mode; the blitter's minterms at `$125066`): `invert_planes | m` flips
+// the planes in m (the runway's threshold blocks and stripes, ops $50,
+// $54, $5C, $6C: plane 1), `set_planes | m` sets them (ops $44, $48, $78:
+// plane 3). The ops that do not set the planes paint in the mode the last
+// one left (an object starts with plain colours, `$112640`).
+constexpr int invert_planes = 0x100, set_planes = 0x200;
+
 struct ShapeFace : ListPlace {
     std::vector<ShapePoint> corners;
-    int colour{};             // palette index (flight palette); the front for two-sided faces
+    int colour{};             // palette index (flight palette) or a plane change; the front for two-sided faces
     bool two_sided{};
     Facing facing{Facing::always};
     int back_colour{};        // two-sided faces
+    // Ops $9C and $A0 ($113B58, $113D1A: a box or a pyramid drawn as one
+    // face across it): shown only with the camera in some quadrants about
+    // the object (the signs of its x and z from the object's place the
+    // same or opposite), in `z_colour` while it is farther from the object
+    // along z than along x; the box's top only while the view looks
+    // steeply down (`$13AA76`); all only while the model's point 1 lies in
+    // the view's pyramid.
+    enum class Quadrant { any, same_signs, opposite_signs };
+    Quadrant quadrant{Quadrant::any};
+    int z_colour = -1;
+    bool steep_only{};
+    std::optional<ShapePoint> anchor;
+    // Drawn only with the camera at most this high (world units; op $24:
+    // 128, `$114C14`).
+    double up_to = -1;
 };
 
 struct ShapeLine : ListPlace {
     ShapePoint from, to;
     int colour{};
+    // Drawn only with the camera higher than this (world units; ops $128
+    // and $12C: above 192, `$11372C`, `$114A20`).
+    double above = -1;
 };
 
 struct ShapeDot : ListPlace {
@@ -176,6 +203,13 @@ std::vector<Shape> read_shapes(const amiga::LoadedImage& program, ShapeFamily fa
 // units): its routine returns at once above $380000 ($112D5C) or $800000
 // ($112D6A) in 32-bit units.
 double ground_ceiling(const amiga::LoadedImage& program, int type);
+// How high the camera must be for a standing object, by its type record's
+// routine: `$111C90` objects are left out above 14336 by the coarse passes
+// (`$10FB0E`) and above 16384 by the near one (`$10FDCC`); `$111C84` ones
+// show only above 10240, and the coarse passes leave their distance at 0
+// (`$10FB36`: the nearest level of detail).
+enum class Altitude { any, low, high };
+Altitude altitude(const amiga::LoadedImage& program, int type);
 
 // A ground shape (flat, on the ground).
 Shape read_ground_shape(const amiga::LoadedImage& program, int type);

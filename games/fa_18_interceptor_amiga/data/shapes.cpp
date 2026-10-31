@@ -348,6 +348,7 @@ private:
                 a += 2;
             }
         }
+        if (planes_) face.colour = face.back_colour = planes_;
         shape_.faces.push_back(tagged(std::move(face)));
         return a;
     }
@@ -355,7 +356,7 @@ private:
     void add_face(std::vector<ShapePoint> corners, int colour) {
         ShapeFace face;
         face.corners = std::move(corners);
-        face.colour = colour & 0x1F;
+        face.colour = planes_ ? planes_ : colour & 0x1F;
         shape_.faces.push_back(tagged(std::move(face)));
     }
 
@@ -409,8 +410,11 @@ private:
             }
             a += 4;
             return true;
-        case 0x08: case 0xC0: case 0x128:                         // a line (thick, thin, near only)
-            line(m_.u16(a), m_.u16(a + 2), m_.u16(a + 4)); a += 6; return true;
+        case 0x08: case 0xC0: case 0x128:                         // a line ($11373C; $128 only above 192, $11372C)
+            if (op != 0xC0) planes_ = 0;
+            line(m_.u16(a), m_.u16(a + 2), m_.u16(a + 4)); a += 6;
+            if (op == 0x128) shape_.lines.back().above = 192;
+            return true;
         case 0x0C: a = face(a); return true;                      // a face
         case 0x114:                                               // a triangle ($11378A)
             a = face_colour(a + 6, {at_offset(m_.u16(a)), at_offset(m_.u16(a + 2)), at_offset(m_.u16(a + 4))});
@@ -433,6 +437,7 @@ private:
             return true;
         }
         case 0x34: {                                              // lines sharing a colour ($114A34)
+            planes_ = 0;
             const auto colour = m_.u16(a); a += 2;
             for (int guard = 0; guard < 64; ++guard) {
                 const auto from = m_.u16(a), to = m_.u16(a + 2); a += 4;
@@ -451,6 +456,7 @@ private:
             return true;
         }
         case 0x58: {                                              // rows of parallel lines ($1144F0)
+            planes_ = 0;
             const auto colour = m_.u16(a);
             const int first = m_.u16(a + 2) / point_size;
             const int rows = m_.u16(a + 4);
@@ -478,9 +484,12 @@ private:
         case 0x7C: a += 2; return true;                           // orientation set-up, draws nothing
         // Scenery (game.md "Scenery shapes").
         case 0x24: case 0x78: case 0x6C: {                        // parallelogram P0 P1 P2 ($114C14, $1145EA, $1145C8)
+            if (op == 0x78) planes_ = set_planes | 8;
+            if (op == 0x6C) planes_ = invert_planes | 2;
             const int colour = m_.u16(a), v = m_.u16(a + 2) / point_size;
             a += 4;
             add_face({point(v), point(v + 1), point(v + 2), point(v + 2) - (point(v + 1) - point(v))}, colour);
+            if (op == 0x24) shape_.faces.back().up_to = 128;
             return true;
         }
         case 0x28: {                                              // parallelogram at P3 ($114C84)
@@ -490,7 +499,8 @@ private:
             add_face({point(v + 3), point(v + 3) + u, point(v + 3) + u + w, point(v + 3) + w}, colour);
             return true;
         }
-        case 0x44: case 0x48:                                     // quads, colour 12 dithered ($1147E4)
+        case 0x44: case 0x48:                                     // quads setting plane 3 ($1147E4)
+            planes_ = set_planes | 8;
             for (int guard = 0; guard < 64; ++guard) {
                 const auto first = m_.s16(a);
                 a += 2;
@@ -501,6 +511,7 @@ private:
             }
             return true;
         case 0x4C: {                                              // 2n lines across a quad ($11408C)
+            planes_ = 0;
             const int colour = m_.u16(a), v = m_.u16(a + 2) / point_size, n = m_.u16(a + 4);
             a += 6;
             const auto across = point(v) - point(v + 2), step = point(v + 1) - point(v + 2);
@@ -514,7 +525,8 @@ private:
         }
         case 0x50: case 0x80: {                                   // 2n filled stripes ($1141DA, $1141C8)
             int colour = 0xD;
-            if (op == 0x80) { colour = m_.u16(a); a += 2; }
+            planes_ = invert_planes | 2;
+            if (op == 0x80) { colour = m_.u16(a); a += 2; planes_ = 0; }
             const int v = m_.u16(a) / point_size, n = m_.u16(a + 2);
             a += 4;
             const auto across = point(v) - point(v + 2), step = point(v + 1) - point(v + 2);
@@ -529,7 +541,8 @@ private:
         }
         case 0x54: case 0xE4: {                                   // rows of stripes ($1143C0, $1143AA)
             int colour = 0xD;
-            if (op == 0xE4) { colour = m_.u16(a); a += 2; }
+            planes_ = invert_planes | 2;
+            if (op == 0xE4) { colour = m_.u16(a); a += 2; planes_ = 0; }
             const int v = m_.u16(a) / point_size, rows = m_.u16(a + 2);
             a += 4;
             const auto across = point(v) - point(v + 3), step = point(v + 1) - point(v + 3),
@@ -638,6 +651,66 @@ private:
             P(10) = P(5) + P(2) - P(1); P(11) = P(10) + e;
             return true;
         }
+        case 0x5C: {                                              // rows of parallelograms inverting plane 1 ($11486A)
+            // From P3 on, `count` of them: (Pk, Pk + V, Pk + V + W, Pk + W)
+            // with V = P0 - P3 + 1.5 (P1 - P3) and W = P2 - P3 (the
+            // original on its turned points, in words).
+            planes_ = invert_planes | 2;
+            const int v = m_.u16(a) / point_size, count = m_.s16(a + 2);
+            a += 4;
+            const auto p3 = point(v + 3);
+            const auto side = point(v) - p3 + 1.5 * (point(v + 1) - p3), along = point(v + 2) - p3;
+            for (int k = 0; k < count; ++k) {
+                const auto pk = point(v + 3 + k);
+                add_face({pk, pk + side, pk + side + along, pk + along}, 0);
+            }
+            return true;
+        }
+        case 0x18: {                                              // lines between two divided edges ($113E6C)
+            // n, then A, B, C, D (point offsets) and a colour: the lines
+            // from A + k (B - A) / n to C + k (D - C) / n for k = 1 .. n - 1
+            // (the original in sixteenths, rounded).
+            const int n = std::max(1, int(m_.u16(a)));
+            const auto pa = at_offset(m_.u16(a + 2)), pb = at_offset(m_.u16(a + 4));
+            const auto pc = at_offset(m_.u16(a + 6)), pd = at_offset(m_.u16(a + 8));
+            const int colour = m_.u16(a + 10);
+            a += 12;
+            for (int k = 1; k < n; ++k) {
+                const double t = double(k) / n;
+                add_line(pa + t * (pb - pa), pc + t * (pd - pc), colour);
+            }
+            return true;
+        }
+        case 0x9C: case 0xA0: {                                   // a box or pyramid across ($113B58, $113D1A)
+            // The model's points 0-3 (the box: P1 a foot, P0 above it, P2
+            // and P3 its neighbours on the ground) or 0-4 (the pyramid).
+            // Two colours in a long (the high word while the camera is
+            // farther along x), then for the box its top's colour.
+            const int x_colour = m_.u16(a), z_colour = m_.u16(a + 2);
+            a += 4;
+            const auto p0 = point(0), p1 = point(1), p2 = point(2), p3 = point(3);
+            const auto across = [&](std::vector<ShapePoint> corners, ShapeFace::Quadrant quadrant) {
+                add_face(std::move(corners), x_colour);
+                auto& face = shape_.faces.back();
+                face.quadrant = quadrant;
+                if (!planes_) face.z_colour = z_colour & 0x1F;
+                face.anchor = p1;
+            };
+            if (op == 0xA0) {
+                across({p0, p1, point(4)}, ShapeFace::Quadrant::same_signs);
+                across({p0, p2, p3}, ShapeFace::Quadrant::opposite_signs);
+                return true;
+            }
+            const int top_colour = m_.u16(a);
+            a += 2;
+            const auto up = p0 - p1, x = p2 - p1, z = p3 - p1, far = p1 + x + z;
+            across({p0, p1, far, far + up}, ShapeFace::Quadrant::same_signs);
+            across({p2, p3, p3 + up, p2 + up}, ShapeFace::Quadrant::opposite_signs);
+            add_face({p0, p0 + x, p0 + x + z, p0 + z}, top_colour);
+            shape_.faces.back().steep_only = true;
+            shape_.faces.back().anchor = p1;
+            return true;
+        }
         case 0x110: case 0x120: case 0x134: return true;          // animation frames follow: the first is drawn
         default: break;
         }
@@ -655,6 +728,7 @@ private:
     Shape& shape_;
     std::uint32_t base_, model_;
     bool flat_;
+    int planes_ = 0; // the planes mode the last op left (`$13A9D6`; ShapeFace)
     std::map<std::uint32_t, int> node_at_;
     std::vector<std::pair<int, std::array<std::uint16_t, 3>>> facing_; // facing nodes' point offsets
     std::vector<std::uint32_t> lists_;
@@ -776,6 +850,7 @@ Shape read_ground_list(const amiga::LoadedImage& m, int type, std::uint32_t list
     shape.lists = 1;
     shape.flat = true;
     int order = 0;
+    int planes = 0; // as the scenery's Decoder::planes_ (an object starts plain, $112D7A)
     for (int guard = 0; guard < 200; ++guard) {
         auto word = m.u16(a);
         a += 2;
@@ -798,6 +873,16 @@ Shape read_ground_list(const amiga::LoadedImage& m, int type, std::uint32_t list
         if (word == 0xFFFF) break;
         const int op = word & 0x3FFF;
         ShapeFace face;
+        const auto add_line = [&](int from, int to, int colour, double above) {
+            ShapeLine line;
+            line.from = point((from & 0x7FFF) / point_size);
+            line.to = point((to & 0x7FFF) / point_size);
+            line.colour = colour & 0x1F;
+            line.above = above;
+            line.list = 0;
+            line.order = order++;
+            shape.lines.push_back(line);
+        };
         if (op == 0x68) {
             const int n = m.u16(a), first = m.u16(a + 2) / point_size;
             a += 4;
@@ -816,30 +901,34 @@ Shape read_ground_list(const amiga::LoadedImage& m, int type, std::uint32_t list
             face.colour = m.u16(a) & 0x1F;
             a += 2;
         } else if (op == 0x24 || op == 0x78) {
-            // A parallelogram P0 P1 P2 ($114C14, $1145D6; $24 only with
-            // the camera low, `$13AD68` >= -$80: drawn always here).
-            face.colour = m.u16(a) & 0x1F;
+            // A parallelogram P0 P1 P2 ($114C14, $1145D6): $78 sets plane
+            // 3, $24 paints in the mode the last op left, and only with the
+            // camera at most 128 high (`$13AD68` >= -$80).
+            if (op == 0x78) planes = set_planes | 8;
+            face.colour = planes ? planes : m.u16(a) & 0x1F;
+            if (op == 0x24) face.up_to = 128;
             const int v = m.u16(a + 2) / point_size;
             a += 4;
             face.corners = {point(v), point(v + 1), point(v + 2), point(v + 2) - (point(v + 1) - point(v))};
         } else if (op == 0x34 || op == 0x12C) {
             // Lines sharing a colour: pairs of point offsets, the last
-            // with bit 15 ($114A34; $12C only with the camera above -$C0
-            // of `$13AD68`: drawn always here).
+            // with bit 15 ($114A34; $12C only with the camera above 192,
+            // `$114A20`).
+            planes = 0;
             const int colour = m.u16(a) & 0x1F;
             a += 2;
             for (int guard = 0; guard < 64; ++guard) {
                 const int from = m.u16(a), to = m.u16(a + 2);
                 a += 4;
-                ShapeLine line;
-                line.from = point((from & 0x7FFF) / point_size);
-                line.to = point((to & 0x7FFF) / point_size);
-                line.colour = colour;
-                line.list = 0;
-                line.order = order++;
-                shape.lines.push_back(line);
+                add_line(from, to, colour, op == 0x12C ? 192 : -1);
                 if (to & 0x8000) break;
             }
+        } else if (op == 0x08 || op == 0x128) {
+            // A line: two point offsets and a colour ($11373C; $128 only
+            // with the camera above 192, `$11372C`).
+            planes = 0;
+            add_line(m.u16(a), m.u16(a + 2), m.u16(a + 4), op == 0x128 ? 192 : -1);
+            a += 6;
         } else {
             char text[48];
             std::snprintf(text, sizeof text, "ground opcode %X", op);
@@ -895,6 +984,11 @@ ShapeFamily shape_family(const amiga::LoadedImage& program, int type) {
 double ground_ceiling(const amiga::LoadedImage& program, int type) {
     const auto routine = program.u32(type_table + std::uint32_t(type) * type_size);
     return routine == 0x112D5C ? 0x380000 / 256.0 : 0x800000 / 256.0;
+}
+
+Altitude altitude(const amiga::LoadedImage& program, int type) {
+    const auto routine = program.u32(type_table + std::uint32_t(type) * type_size);
+    return routine == 0x111C90 ? Altitude::low : routine == 0x111C84 ? Altitude::high : Altitude::any;
 }
 
 std::vector<Shape> read_shapes(const amiga::LoadedImage& program, ShapeFamily family) {

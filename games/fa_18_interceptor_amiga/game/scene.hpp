@@ -103,6 +103,30 @@ struct GroundSpecks {
 };
 GroundSpecks read_ground_specks(const amiga::LoadedImage& program);
 
+// The scene builder's way round the camera ($11005C): for each of the
+// three object maps an ordered list of cells about the camera's cell (the
+// coarse maps' cells for the two coarse passes, the fine map's for the
+// near one) and of slots in each cell, picked by the camera's quarter of
+// its cell (`$13AB40` coarse, `$13AB41` near), its heading's eighth
+// (`$13AB44`) and a steep look down (`$13AA76`); the lists themselves are
+// read from the program each frame (`$1367A4`, `$136542` looking down,
+// `$137386` for the first coarse pass with the camera below 160).
+struct VisitTables {
+    std::array<int, 16> variant{};                 // $136464: by quarter
+    std::array<std::array<int, 8>, 4> by_eighth{};  // $136474: list by eighth
+    std::array<int, 16> list{};                    // $136494: by quarter
+    std::array<std::array<int, 16>, 4> slot{};     // $1364A4: slot codes
+    std::array<std::array<int, 21>, 4> cell{};     // $1364E4: cell codes
+    std::array<std::array<int, 2>, 21> neighbour{}; // $1106B4: cells about the camera's
+    // Where each neighbour's objects are placed, in quarter world units
+    // (`$1106DE` coarse, `$110772` near). The coarse table's +2 cells
+    // overflow the word (+32768 reads -32768): the original places the
+    // objects of the cells two ahead two cells behind.
+    std::array<std::array<std::array<int, 2>, 21>, 2> offset{};
+    std::array<int, 8> cap{}; // $11106A: entries kept by height, looking down
+};
+VisitTables read_visit_tables(const amiga::LoadedImage& program);
+
 // The road strips' corners the game builds into the ground shapes' point
 // blocks as it starts ($1197E0).
 data::BuiltPoints road_points(const amiga::LoadedImage& program);
@@ -138,6 +162,7 @@ private:
     const std::vector<data::DetailLevel>& vehicle_levels(int type) const;
     std::array<data::SmokeShape, 3> smoke_shapes_; // types 33-35
     GroundSpecks specks_;
+    VisitTables visits_;
     data::Explosions explosions_;
     std::map<int, std::vector<data::DetailLevel>> levels_; // vehicle and scenery formats
     std::map<int, std::vector<data::DetailLevel>> ground_; // flat ground shapes by distance ($112D76)

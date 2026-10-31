@@ -166,11 +166,10 @@ app has none yet).
 - Real-second counters $13AB74 and the 10-second flag; $13ABE0 (set to 2
   by the stall check).
 - World: the coarse water grid's cell layout; type 58's role (a hill at
-  the carrier's start; model flag $10); the
-  run-time cell bitmaps; the visible-list entry fields after the position;
-  the octant lists (`$136464`).
-- Shapes: scenery opcode $18 (types 107, 108); discs (other than the
-  smoke's), dots, lights, deck stripes ($80/$50) and shadows; the vertex
+  the carrier's start; model flag $10); the visible-list entry fields
+  after the distance.
+- Shapes: discs (other than the smoke's), dots, lights, deck stripes
+  ($80) and shadows; whether the line drawers follow the bitplane mode; the vertex
   builders' rounding; the polygon lists' distance bands in the renderer;
   the order of flat ground shapes between objects (taken far to near per
   pass: hypothesis); the axis tests on x and z (offsets `$13AE1A` /
@@ -194,6 +193,21 @@ app has none yet).
 
 ## Known bugs and differences in the port
 
+- Done 2026-10-31: the scene builder's own cell and slot lists
+  (`$11005C`, game.md "Scene builder") in place of a square window:
+  the port's lists equal the original's on the start map and at demo
+  frames 1840-1900, with the 70-entry and low-camera caps, the overflow
+  that puts the coarse cells two ahead two cells behind (the start map's
+  dark speck west of the coast) and the height filters of `$111C90` /
+  `$111C84`. The start map's place dots (colour 2) are drawn, and row 0
+  of the view stays colour 0 as in the original.
+- Done 2026-10-31: every scenery and ground op decodes ($5C threshold
+  blocks, $9C boxes, $A0 pyramids, $18 the stadium's rows, ground $08 /
+  $128 lines) and the filler's bitplane modes are followed (inverted
+  plane 1 for the runways' white blocks and stripes, plane 3 set for
+  $44/$48/$78; `$24` only at most 128 high, `$128`/`$12C` only above
+  192). The demo's final approach now shows the threshold blocks as the
+  original (frame 1880).
 - Done 2026-10-31: the ground's specks (`$11C1B4`: grey on the sea,
   black on the land, near a low camera; game.md "The ground's specks").
 - Fixed 2026-10-31: looking up or down from the cockpit drew the
@@ -212,9 +226,19 @@ app has none yet).
   In scripted `fly` runs the port's loops peak at 7.6 G; a real 7.8 G
   pull was not flown, the blackout was checked with a forced latch.
 
-- The start map misses the carrier's marker (4) and shows a dark speck
-  west of the coast the original does not; the scenery decoder still
-  stops at opcodes `$5C` and `$9C` (some mid-distance levels).
+- Not checked against pictures: $9C/$A0's quadrant faces and colours,
+  the stadium (types 107/108). The bitplane mode is carried in decoding
+  order, not drawing order.
+- Demo approach (frame 1870, 390 ft, just after the switch to the
+  cockpit): the port shows a wedge of water at the view's bottom left
+  that the original does not - the far version of the fine water cell
+  one west and one south (16, 16; polygon 291 of the far list), which
+  both choose by the reach; probably the original's polygon clipper
+  (`$118C02`) with corners behind the camera: not traced.
+- The scene builder's lists are worked out every frame (the original
+  rebuilds them on cell changes and keeps far objects' distances from
+  the rebuild, `$10FB46`); the moving records are not filed into the
+  near pass's cells (drawn apart, not counted in its caps).
 - The title stays 22 s (the original's loading time on the A500) but a key
   skips it; the original takes no key there.
 - Free flight does not yet update the pilot record's flight time (the
@@ -224,18 +248,12 @@ app has none yet).
 - A crash adds 1 to the log's crashes (config +$46) in memory; when the
   original writes the record after a crash is not traced (the port
   writes it with the next mission's completion or the front end's).
-- The view's window of object cells is a square, not the original's
-  octant lists. (The water's cell windows follow the original since
-  2026-10-31.)
 - The water windows' quarter and heading are taken from the camera; the
   original takes the cockpit's from the aircraft's cell words (+6, +8)
   and its heading word `$13AD7E` (3,302 of 3,335 demo frames give the
   same eighth; the rest lie on a 45-degree boundary). The water
   routine's `-$20` (2 up to height $400, 1 up to $C80, for the camera's
   cell) is passed to the polygon drawer and not followed.
-- The runway's markings during the demo's final approach (frames
-  1880-1900) differ from the original's (threshold blocks nearer):
-  not traced.
 - No objects other than the carrier in free flight (as the original's
   free flight; others come with the modes, tasks 10-11).
 - A missile taken off when it hits still shows where it hit for some

@@ -14,10 +14,6 @@ using Point = std::array<double, 3>;
 constexpr int sky = 5, land = 4, water = 6; // flight palette indices
 constexpr double near_plane = 1.0 / 16;
 constexpr double far_ground = 400000;
-// The scene builder's window of cells around the camera ($1106B4: offsets
-// up to two or three cells): the coarse maps' cells are 65536 units, the
-// fine map's 16384.
-constexpr double coarse_window = 3 * 65536.0, fine_window = 3 * 16384.0;
 
 class Raster {
 public:
@@ -133,6 +129,13 @@ public:
     }
 
     int centre() const { return centre_; }
+    const Camera& camera() const { return camera_; }
+    // A point lies in the view's pyramid (|x| and |y| within the depth;
+    // sideways as far as the picture reaches).
+    bool in_pyramid(const Point& p) const {
+        const auto v = to_camera(p);
+        return v[2] > 0 && std::abs(v[0]) * 160 / half_width() <= v[2] && std::abs(v[1]) <= v[2];
+    }
     int bottom() const { return bottom_; }
     // How far the picture reaches sideways from the centre, in the
     // original's 160ths of the depth (160 in its 320 columns).
@@ -222,7 +225,10 @@ private:
             d = z;
             owner_[at] = object_;
         }
-        image_.pixels[std::size_t(y * image_.width + x)] = std::uint8_t(colour & 31);
+        auto& pixel = image_.pixels[std::size_t(y * image_.width + x)];
+        if (colour & data::invert_planes) pixel ^= std::uint8_t(colour & 31);
+        else if (colour & data::set_planes) pixel |= std::uint8_t(colour & 31);
+        else pixel = std::uint8_t(colour & 31);
     }
     void triangle(const Point& a, const Point& b, const Point& c, int colour, bool test) {
         const double area = (b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1]);
@@ -252,6 +258,98 @@ private:
     int object_ = 0;
 };
 
+// The view's pitch as `$1043F2` takes it: down positive, 80ths of a
+// degree, over 8.
+int view_pitch(const Camera& camera) {
+    const auto& m = camera.matrix;
+    const double ahead = std::sqrt(m[6] * m[6] + m[7] * m[7] + m[8] * m[8]);
+    const int pitch = int(std::lround(std::asin(std::clamp(-m[7] / ahead, -1.0, 1.0)) * 180 / 3.14159265358979 * 80));
+    return ((pitch % 0x7080) + 0x7080) % 0x7080 >> 3;
+}
+
+// `$13AA76`: the view looks steeply down (from 75 to 315 degrees).
+bool looks_down(const Camera& camera) {
+    const int pitch = view_pitch(camera);
+    return pitch > 0x258 && pitch < 0xC4E;
+}
+
+// An object the scene builder takes, where it places it (world units).
+struct Visit {
+    const data::MapObject* object;
+    double x, z;
+};
+
+// $11005C for one map (0 and 1 the coarse passes, 2 the near one): the
+// objects of the listed cells' listed slots in the list's order. Of these
+// the visible list keeps 70 (from the 70th on each overwrites the last)
+// and, with the camera low, only the last few (`$11106A` by height /
+// 2048 up to 8191, else 70; the list's start moves on one entry for each
+// beyond them, `$111048`). (The near pass's moving objects, which the
+// original files into the same cells, are drawn apart and not counted.)
+std::vector<Visit> visit_map(const amiga::LoadedImage& program, const VisitTables& t, const data::ObjectMap& map,
+                             int pass, const Camera& camera, int eighth) {
+    const bool near_pass = pass == 2;
+    const auto& eye = camera.position;
+    const auto x32 = std::int64_t(std::floor(eye[0] * 256)), z32 = std::int64_t(std::floor(eye[2] * 256));
+    const int fine_x = int(x32 >> 22), fine_z = int(z32 >> 22);
+    const int coarse_quarter = (3 - (fine_x & 3)) + 4 * (3 - (fine_z & 3));
+    const int fine_quarter = (3 - int((x32 >> 20) & 3)) + 4 * (3 - int((z32 >> 20) & 3));
+    const int quarter = near_pass ? fine_quarter : coarse_quarter;
+    const int cam_x = near_pass ? fine_x : int(x32 >> 24), cam_z = near_pass ? fine_z : int(z32 >> 24);
+    const int variant = t.variant[std::size_t(quarter)];
+    const bool steep = looks_down(camera);
+    const bool low = pass == 0 && eye[1] * 256 < 0xA000;
+    std::uint32_t base = low ? 0x137386 : steep ? 0x136542 : 0x1367A4;
+    int index;
+    if (low) {
+        index = (t.list[std::size_t(coarse_quarter)] << 5) +
+                2 * t.slot[std::size_t(t.variant[std::size_t(coarse_quarter)])][std::size_t(fine_quarter)];
+    } else if (steep) {
+        index = 2 * t.list[std::size_t(t.list[std::size_t(quarter)])];
+    } else {
+        index = (t.list[std::size_t(quarter)] << 4) + 2 * t.by_eighth[std::size_t(variant)][std::size_t(eighth)];
+    }
+    const int offset = program.s16(base + std::uint32_t(index));
+    if (offset <= 0) return {};
+    std::uint32_t at = base + std::uint32_t(offset);
+    const int last = near_pass ? 127 : 30; // past it the cell wraps ($1102C0)
+    const double unit = near_pass ? 16384 : 65536;
+    std::vector<Visit> visits;
+    for (int guard = 0; guard < 64; ++guard) {
+        const int code = program.s8(at++);
+        if (code < 0 || code > 20) break;
+        const auto pair = std::size_t(t.cell[std::size_t(variant)][std::size_t(code)]);
+        const auto wrap = [last](int c) { return c < 0 ? last : c > last ? 0 : c; };
+        const int cx = wrap(cam_x + t.neighbour[pair][0]), cz = wrap(cam_z + t.neighbour[pair][1]);
+        const double ox = cam_x * unit + t.offset[near_pass][pair][0] * 4.0;
+        const double oz = cam_z * unit + t.offset[near_pass][pair][1] * 4.0;
+        const auto* slots = map.slots(cx, cz);
+        const int count = program.s8(at++);
+        for (int i = 0; i < std::max(count, 1); ++i) {
+            const int code_slot = program.s8(at + std::uint32_t(i));
+            if (!slots || code_slot < 0 || code_slot > 15) continue;
+            const auto slot = std::size_t(t.slot[std::size_t(variant)][std::size_t(code_slot)]);
+            for (const auto index_in_map : (*slots)[slot]) {
+                const auto& o = map.objects[index_in_map];
+                visits.push_back({&o, ox + o.x - o.column * unit, oz + o.z - o.row * unit});
+            }
+        }
+        at += std::uint32_t(std::max(count, 1));
+    }
+    const long long height = std::max(0LL, static_cast<long long>(std::ceil(eye[1])) >> 11);
+    const int cap = height <= 3 ? t.cap[std::size_t(2 * height + (steep ? 1 : 0))] : 70;
+    std::vector<Visit> kept;
+    std::size_t start = 0;
+    int count = 0;
+    for (const auto& v : visits) {
+        if (kept.size() < 70) kept.push_back(v);
+        else kept.back() = v;
+        if (++count > cap) ++start;
+    }
+    kept.erase(kept.begin(), kept.begin() + std::ptrdiff_t(std::min(start, kept.size())));
+    return kept;
+}
+
 // $11C1B4: the ground's specks, drawn after the land, the water and the
 // coarse maps' scenery, before the rest ($101212).
 void draw_specks(Raster& r, const Camera& camera, const GroundSpecks& specks) {
@@ -259,10 +357,7 @@ void draw_specks(Raster& r, const Camera& camera, const GroundSpecks& specks) {
     // pitch (down positive, 80ths of a degree) over 8 - picks how high the
     // camera may be: from 75 to 315 degrees (counting on past straight
     // down) the most, from 320 on (looking up) the least.
-    const auto& m = camera.matrix;
-    const double ahead = std::sqrt(m[6] * m[6] + m[7] * m[7] + m[8] * m[8]);
-    int pitch = int(std::lround(std::asin(std::clamp(-m[7] / ahead, -1.0, 1.0)) * 180 / 3.14159265358979 * 80));
-    pitch = ((pitch % 0x7080) + 0x7080) % 0x7080 >> 3;
+    const int pitch = view_pitch(camera);
     int steep = 0;
     if (pitch > 0x258 && pitch < 0xC4E) steep = 3;
     else if (pitch >= 0xC80) steep = 0;
@@ -351,6 +446,26 @@ data::BuiltPoints road_points(const amiga::LoadedImage& program) {
     return built;
 }
 
+VisitTables read_visit_tables(const amiga::LoadedImage& program) {
+    VisitTables t;
+    for (std::uint32_t i = 0; i < 16; ++i) {
+        t.variant[i] = program.s8(0x136464 + i);
+        t.list[i] = program.s8(0x136494 + i);
+    }
+    for (std::uint32_t v = 0; v < 4; ++v) {
+        for (std::uint32_t i = 0; i < 8; ++i) t.by_eighth[v][i] = program.s8(0x136474 + 8 * v + i);
+        for (std::uint32_t i = 0; i < 16; ++i) t.slot[v][i] = program.s8(0x1364A4 + 16 * v + i);
+        for (std::uint32_t i = 0; i < 21; ++i) t.cell[v][i] = program.s8(0x1364E4 + 24 * v + i);
+    }
+    for (std::uint32_t i = 0; i < 21; ++i) {
+        t.neighbour[i] = {program.s8(0x1106B4 + 2 * i), program.s8(0x1106B4 + 2 * i + 1)};
+        t.offset[0][i] = {program.s16(0x1106DE + 4 * i), program.s16(0x1106DE + 4 * i + 2)};
+        t.offset[1][i] = {program.s16(0x110772 + 4 * i), program.s16(0x110772 + 4 * i + 2)};
+    }
+    for (std::uint32_t i = 0; i < 8; ++i) t.cap[i] = program.s16(0x11106A + 2 * i);
+    return t;
+}
+
 GroundSpecks read_ground_specks(const amiga::LoadedImage& program) {
     GroundSpecks g;
     const std::uint32_t tables[3] = {0x11C908, 0x11CB4C, 0x11CD30};
@@ -373,6 +488,7 @@ GroundSpecks read_ground_specks(const amiga::LoadedImage& program) {
 Scene::Scene(const data::Assets& assets, const data::World& world)
     : world_(world), program_(assets.program), explosions_(data::read_explosions(assets.program)) {
     specks_ = read_ground_specks(assets.program);
+    visits_ = read_visit_tables(assets.program);
     for (int i = 0; i < 3; ++i) smoke_shapes_[std::size_t(i)] = data::read_smoke_shape(assets.program, 33 + i);
     const auto roads = road_points(assets.program);
     for (const auto* map : {&world.pass_a, &world.pass_b, &world.near}) {
@@ -443,6 +559,7 @@ void paint_shape(Raster& r, const data::Shape& shape, const Point& origin, const
         for (const auto& part : parts) {
             if (part.kind == 1) {
                 const auto& line = shape.lines[part.index];
+                if (line.above >= 0 && eye[1] <= line.above) continue;
                 r.line(place(line.from), place(line.to), line.colour);
                 continue;
             }
@@ -452,9 +569,19 @@ void paint_shape(Raster& r, const data::Shape& shape, const Point& origin, const
                 continue;
             }
             const auto& face = shape.faces[part.index];
+            int colour = face.colour;
+            if (face.up_to >= 0 && eye[1] > face.up_to) continue;
+            if (face.quadrant != data::ShapeFace::Quadrant::any || face.steep_only || face.anchor) {
+                const double dx = eye[0] - origin[0], dz = eye[2] - origin[2];
+                if (face.quadrant != data::ShapeFace::Quadrant::any &&
+                    ((dx < 0) == (dz < 0)) != (face.quadrant == data::ShapeFace::Quadrant::same_signs))
+                    continue;
+                if (face.steep_only && !looks_down(r.camera())) continue;
+                if (face.anchor && !r.in_pyramid(place(*face.anchor))) continue;
+                if (face.z_colour >= 0 && std::abs(dz) > std::abs(dx)) colour = face.z_colour;
+            }
             corners.clear();
             for (const auto& c : face.corners) corners.push_back(place(c));
-            int colour = face.colour;
             if (face.facing != data::Facing::always && !r.faces_camera(corners)) {
                 if (face.facing == data::Facing::one_sided) break;
                 colour = face.back_colour;
@@ -684,17 +811,26 @@ void Scene::draw(IndexedImage& image, int centre, int bottom, const Camera& came
         const data::MapObject* object;
         const data::Shape* shape;
         double distance;
+        double x, z;
     };
     std::array<std::vector<Placed>, 3> passes;
     std::size_t pass = 0;
     for (const auto* map : {&world_.pass_a, &world_.pass_b, &world_.near}) {
         const bool near_pass = map == &world_.near;
-        const double window = near_pass ? fine_window : coarse_window;
-        for (const auto& object : map->objects) {
-            const double dx = object.x - eye[0], dz = object.z - eye[2];
-            if (std::abs(dx) > window || std::abs(dz) > window) continue;
+        for (const auto& visit : visit_map(program_, visits_, *map, int(pass), camera, eighth)) {
+            const auto& object = *visit.object;
+            const double dx = visit.x - eye[0], dz = visit.z - eye[2];
             const data::Shape* chosen = nullptr;
-            const double distance = std::sqrt(dx * dx + eye[1] * eye[1] + dz * dz);
+            double distance = std::sqrt(dx * dx + eye[1] * eye[1] + dz * dz);
+            // (High detail keeps the low objects at any height, as it keeps
+            // the ground shapes; the high ones stand in for others.)
+            const auto altitude = data::altitude(program_, object.type);
+            if (altitude == data::Altitude::low && !high_detail_ && eye[1] > (near_pass ? 0x400000 : 0x380000) / 256.0)
+                continue;
+            if (altitude == data::Altitude::high) {
+                if (eye[1] <= 0x280000 / 256.0) continue;
+                if (!near_pass) distance = 0;
+            }
             if (const auto g = ground_.find(object.type); g != ground_.end()) {
                 if (!high_detail_ && eye[1] > data::ground_ceiling(program_, object.type)) continue;
                 for (const auto& level : g->second) {
@@ -713,7 +849,7 @@ void Scene::draw(IndexedImage& image, int centre, int bottom, const Camera& came
                     break;
                 }
             }
-            if (chosen) passes[pass].push_back({&object, chosen, distance});
+            if (chosen) passes[pass].push_back({&object, chosen, distance, visit.x, visit.z});
         }
         ++pass;
     }
@@ -722,9 +858,10 @@ void Scene::draw(IndexedImage& image, int centre, int bottom, const Camera& came
     // with no depth test: it is all on one level, so only its order counts
     // (hypothesis: the original's lists run far to near). Then the
     // aircraft's shadows, then everything standing.
-    const auto scenery_place = [](const data::MapObject& object, const data::Shape& shape) {
-        return [&object, &shape](const data::ShapePoint& p) {
-            return Point{object.x + p.x * shape.scale, p.y * shape.scale, object.z + p.z * shape.scale};
+    const auto scenery_place = [](const Placed& placed) {
+        return [&placed](const data::ShapePoint& p) {
+            const double scale = placed.shape->scale;
+            return Point{placed.x + p.x * scale, p.y * scale, placed.z + p.z * scale};
         };
     };
     for (auto& placed : passes) {
@@ -732,7 +869,7 @@ void Scene::draw(IndexedImage& image, int centre, int bottom, const Camera& came
         for (const auto& p : placed) {
             if (!p.shape->flat) continue;
             r.begin_object();
-            paint_shape(r, *p.shape, {p.object->x, 0, p.object->z}, scenery_place(*p.object, *p.shape), eye, false);
+            paint_shape(r, *p.shape, {p.x, 0, p.z}, scenery_place(p), eye, false);
         }
     }
     draw_specks(r, camera, specks_);
@@ -776,7 +913,7 @@ void Scene::draw(IndexedImage& image, int centre, int bottom, const Camera& came
         for (const auto& p : placed) {
             if (p.shape->flat) continue;
             r.begin_object();
-            paint_shape(r, *p.shape, {p.object->x, 0, p.object->z}, scenery_place(*p.object, *p.shape), eye, true);
+            paint_shape(r, *p.shape, {p.x, 0, p.z}, scenery_place(p), eye, true);
         }
     }
     // The moving objects ($10FC0C): their shape for the distance, turned
@@ -855,6 +992,9 @@ void Scene::draw(IndexedImage& image, int centre, int bottom, const Camera& came
         for (const auto& b : burst)
             r.line({p[0] + b[0], p[1] + b[1], p[2] + b[2]}, {p[0] + b[3], p[1] + b[4], p[2] + b[5]}, s.colour);
     }
+    // The view's rows run from 1 ($1238AE: rows 1-180); the top row stays
+    // colour 0.
+    for (int x = 0; x < image.width; ++x) image.put(x, 0, 0);
 }
 
 } // namespace interceptor::game
