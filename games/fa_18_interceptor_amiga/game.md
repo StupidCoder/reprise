@@ -1154,8 +1154,16 @@ $B3 for 5-7) and the cockpit's sideways shift `$13AC76` from `$10E828`
 (0, −7, −14, −21, −50, 50, 50, 50, 50, 21, 14, 7, 50, 50), × 16 pixels
 (`$13AC78`) for the head-up display and panel: the cockpit slides
 right as the pilot looks left; what it uncovers from row 140 down is
-colour 3. From 50 on there is no cockpit and the aircraft's own shape
-shows (no shadow: `$113984` draws it only outside). Checked against
+colour 3. From 50 on there is no cockpit. The aircraft's own shape is
+drawn from the cockpit only for directions 3-9 (`$111CB8`: the player's
+record with `$13AA75` 0 and `$13AA97` 3-9 is drawn with flag bit 0;
+for any other direction the drawer takes the shape's second detail
+pointer `$13AD2A`, which for the F/A-18 ends at once - nothing drawn)
+and without a shadow (`$113984` draws it only outside). Looking up or
+down (12, 13) shows no part of it: the demo's look down after its hit
+(log frames 675-719) shows the sea with the falling wreck below
+(`work/ref` capture 2026-10-31, pictures 615-669); the port drew the
+fuselage and wings there until then. Checked against
 `work/ref/look/l1-l6.png` (directions 11 to 6 on runway 1): the
 cockpit's place and the view's extent equal.
 

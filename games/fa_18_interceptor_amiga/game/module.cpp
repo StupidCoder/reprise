@@ -330,14 +330,16 @@ public:
             }
             // $10E7B8: with a look direction the cockpit slides sideways by
             // `$13AC76` x 16 pixels (table `$10E828`); from 50 on there is
-            // none, the view reaches row $A7 or $B3 and the aircraft itself
-            // shows (its tail and wings).
+            // none and the view reaches row $A7 or $B3. The aircraft itself
+            // (its tail and wings) is drawn only looking sideways or back,
+            // 3-9 ($111CB8); not ahead, up or down (looking down shows the
+            // sea below, not the fuselage).
             static constexpr int look_shift[14] = {0, -7, -14, -21, -50, 50, 50, 50, 50, 21, 14, 7, 50, 50};
             const int shift = look_shift[look_];
             const bool cockpit = std::abs(shift) < 21;
             const int view_rows = cockpit ? Cockpit::view_bottom : (look_ >= 5 && look_ <= 7 ? 0xB3 : 0xA7);
             std::vector<Vehicle> self;
-            if (std::abs(shift) >= 50) {
+            if (look_ >= 3 && look_ <= 9) {
                 Vehicle v;
                 v.shadow = false; // (only from outside, $113984)
                 v.type = aircraft_type_ == 0x10 ? 3 : 4;
