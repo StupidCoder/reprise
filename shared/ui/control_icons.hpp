@@ -83,6 +83,30 @@ inline platform::Image control_icon(platform::ControlIcon icon, int size,
             line(13,3,6,13);line(6,13,11,13);line(11,13,9,21);
             line(9,21,19,10);line(19,10,13,10);line(13,10,16,3);line(16,3,13,3);
             break;
+        case platform::ControlIcon::widescreen:
+            line(3,6,21,6);line(21,6,21,18);line(21,18,3,18);line(3,18,3,6);
+            line(6,12,18,12);line(6,12,8,10);line(6,12,8,14);
+            line(18,12,16,10);line(18,12,16,14);break;
+        case platform::ControlIcon::high_framerate:
+            ring(13,12,8);line(13,12,17,7);
+            line(2,7,5,7);line(1,12,4,12);line(2,17,5,17);break;
+        case platform::ControlIcon::cheats:
+            line(5,20,16,9);line(13,6,19,12);
+            line(17,2,17,5);line(20,5,23,5);line(7,3,7,7);line(5,5,9,5);break;
+        case platform::ControlIcon::extra_modes:
+            line(4,7,16,7);line(16,7,16,20);line(16,20,4,20);line(4,20,4,7);
+            line(8,3,20,3);line(20,3,20,16);line(7,13,13,13);line(10,10,10,16);break;
+        case platform::ControlIcon::touch:
+            line(9,14,9,6);ring(9,5,2);line(11,6,11,11);line(11,11,18,13);
+            line(18,13,18,18);line(18,18,15,21);line(15,21,9,21);
+            line(9,21,4,15);line(4,15,6,13);line(6,13,9,16);break;
+        case platform::ControlIcon::tilt:
+            line(9,3,19,7);line(19,7,13,21);line(13,21,3,17);line(3,17,9,3);
+            line(7,16,11,18);line(20,13,22,16);line(22,16,19,18);break;
+        case platform::ControlIcon::quick_save:
+            line(4,3,17,3);line(17,3,21,7);line(21,7,21,21);
+            line(21,21,3,21);line(3,21,3,4);line(7,3,7,9);line(7,9,16,9);line(16,9,16,3);
+            line(7,21,7,14);line(7,14,17,14);line(17,14,17,21);break;
         case platform::ControlIcon::none: break;
         }
         const float coverage=std::clamp(.5f-distance*scale,0.f,1.f);

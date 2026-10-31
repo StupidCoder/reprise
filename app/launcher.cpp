@@ -1,5 +1,6 @@
 #include "app/launcher.hpp"
 #include "app/catalog.hpp"
+#include "app/feature_badges.hpp"
 #include "fa_18_interceptor_amiga/lessons/technical_lessons.hpp"
 #include "stunt_car_racer_amiga/lessons/technical_article.hpp"
 #include "mindwalker_amiga/game/player_guide.hpp"
@@ -606,6 +607,7 @@ void Launcher::draw_overview(Image &im) const {
             ? "Use Quick save in the pause menu to keep your progress after closing the app."
             : "Persistent saves are not available for this game yet.";
     s::wrap(im, help, (678 + extra_picture), 402, (234 + dx - extra_picture), 7, 16, save_preview_.error.empty() ? theme().muted : s::red);
+    draw_feature_badges(im, game, 24, 556 + dy, 912 + dx, theme().ink, theme().pale);
     s::text(im, "Up / Down: choose action     Enter: open     Esc: library", 24, (598 + dy), 14, theme().muted);
 }
 void Launcher::draw_identity(Image &im) const {
@@ -1227,6 +1229,8 @@ Image Launcher::draw_portrait_details() const {
         y += s::wrap(body, text, 32, y, 568, 1000, size, color) * (size + 5) + 18;
     };
     if (!documentation_) {
+        const int badges_height = draw_feature_badges(body, game, 32, y, 568, theme().ink, theme().pale);
+        if (badges_height) y += badges_height + 22;
         paragraph(game.description, 21, theme().ink);
         ui::rect(body, 32, y, 568, 1, theme().line); y += 24;
         if (game.integration_pending) {

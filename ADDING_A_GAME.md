@@ -276,3 +276,27 @@ reproduction commands, inspect packaged assets/licenses, and report what plays,
 what remains and any compatibility changes. Keep external source projects and
 other agents' working changes intact. Do not mark a requirement complete because
 it has a menu label, empty method, placeholder card or an untested fallback.
+
+## Details-page feature badges
+
+Declare only implemented, player-accessible capabilities in `GameEntry::features`.
+The initial catalog audit is in `app/catalog.cpp`; update its entry when extending
+an existing game. New modules may declare features directly in their entry.
+The SDL details page draws matching labeled icons in landscape and portrait.
+These describe support, not the current option values, and must be available
+without constructing an engine or reading imported assets.
+
+- `widescreen`: expanded gameplay view, not stretching or letterboxing.
+- `high_framerate`: enhanced rendering/interpolation at the display rate; an
+  original 50/60 Hz game alone does not qualify. Keep simulation timing faithful.
+- `cheats`: playable assistance, including direct level selection.
+- `extra_modes`: additional Reprise gameplay modes, not the original mode menu.
+- `touch`: usable touch gameplay or a complete touch-control scheme, not merely
+  pointer events accepted by a menu. Shown on desktop too as a portable capability.
+- `tilt`: an implemented motion-sensor scheme; keyboard simulation or framework
+  support alone does not qualify.
+
+Quick-save badges come directly from `persistent_saves()` so they cannot promise
+persistence for engines that only implement an in-memory snapshot. For checkpoint
+saves, continue to explain their scope in `continue_note`. Pending catalog entries
+show no badges. Keep these declarations current as support changes.

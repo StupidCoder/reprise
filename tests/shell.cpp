@@ -1,6 +1,7 @@
 // Interaction checks against the real catalog, without importing or changing any
 // user data. A fake module isolates menu navigation from game rules.
 #include "app/catalog.hpp"
+#include "app/feature_badges.hpp"
 #include "fa_18_interceptor_amiga/lessons/technical_lessons.hpp"
 #include "stunt_car_racer_amiga/lessons/technical_article.hpp"
 #include "mindwalker_amiga/game/player_guide.hpp"
@@ -45,6 +46,52 @@ platform::Controls click(int x, int y) {
 }
 int main(int argc, char** argv) {
     try {
+        // Capability discovery must be cheap and must never start an engine.
+        {
+            const auto entries = app::catalog();
+            for (const auto& entry : entries) {
+                const auto badges = app::feature_badges(entry);
+                const auto saves = std::count_if(badges.begin(), badges.end(), [](const auto& b) {
+                    return b.icon == platform::ControlIcon::quick_save;
+                });
+                check(saves == int(!entry.integration_pending && bool(entry.start) && app::persistent_saves(entry.id)),
+                      "Quick-save badges must agree with the persistence registry");
+                check(std::set<app::GameFeature>(entry.features.begin(), entry.features.end()).size() == entry.features.size(),
+                      "Capabilities must not be duplicated");
+                if (entry.id == "fa_18_interceptor_amiga") {
+                    check(badges.size() == 3, "Interceptor offers widescreen, smooth motion and touch, not planned tilt or saves");
+                }
+            }
+        }
+        if (argc == 3 && std::string(argv[1]) == "--features") {
+            auto entries = app::catalog();
+            auto& fixture = entries.front();
+            fixture.features = {app::GameFeature::widescreen, app::GameFeature::high_framerate,
+                app::GameFeature::cheats, app::GameFeature::extra_modes, app::GameFeature::touch, app::GameFeature::tilt};
+            fixture.start = [](const auto&) -> std::unique_ptr<app::GameModule> {
+                throw std::runtime_error("Drawing feature badges must not start a game");
+            };
+            check(app::feature_badges(fixture).size() == 7, "All seven badge meanings must be available");
+            fixture.integration_pending = true;
+            check(app::feature_badges(fixture).empty(), "Planned games must not advertise unimplemented capabilities");
+            fixture.integration_pending = false;
+            const auto root = std::filesystem::temp_directory_path() / ("reprise-features-" + std::to_string(SDL_GetTicksNS()));
+            app::Library library(root, std::move(entries));
+            app::Launcher shell(library); shell.select(0); shell.open_details();
+            std::filesystem::create_directories(argv[2]);
+            for (const auto [w,h] : {std::pair{960,640},std::pair{640,1138},std::pair{1422,640}}) {
+                shell.set_canvas(w,h); shell.draw(0);
+                platform::save_png(shell.draw(1), std::string(argv[2])+"/features-"+std::to_string(w)+".png");
+            }
+            platform::Image strip(960,200);
+            const auto& game=library.games().front();
+            check(app::draw_feature_badges(strip,game,24,0,912,ui::shelf::ink,ui::shelf::pale)==32,
+                  "All seven badges fit one landscape row");
+            check(app::draw_feature_badges(strip,game,24,0,568,ui::shelf::ink,ui::shelf::pale)==70,
+                  "Portrait badges wrap to two rows");
+            std::cout << "Feature badges and responsive layouts passed\n";
+            return 0;
+        }
         if (argc == 3 && std::string(argv[1]) == "--interceptor-lessons") {
             const auto root=std::filesystem::temp_directory_path() / ("reprise-interceptor-browser-"+std::to_string(SDL_GetTicksNS()));
             std::filesystem::create_directories(root/"games");

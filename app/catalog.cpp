@@ -282,6 +282,31 @@ std::vector<GameEntry> catalog() {
         }
         break;
     }
+    // Declarative capabilities: opening details must never construct engines or read imports.
+    // Keep this audit beside the catalog until each module owns its declaration.
+    using F = GameFeature;
+    for (auto& game : games) {
+        const auto& id = game.id;
+        const auto is = [&](std::initializer_list<const char*> ids) {
+            return std::any_of(ids.begin(), ids.end(), [&](const char* name) { return id == name; });
+        };
+        if (is({"fort_apocalypse_c64", "bruce_lee_c64", "wizball_c64", "cannon_fodder_amiga",
+                "beach_volley_amiga", "wings_of_fury_amiga", "rock_n_roll_amiga",
+                "spindizzy_worlds_amiga", "fa_18_interceptor_amiga", "tower_of_babel_amiga"}))
+            game.features = {F::widescreen, F::high_framerate};
+        if (is({"sonic_gg", "sonic2_gg", "triple_trouble_gg"})) game.features = {F::widescreen};
+        if (game.collection == Collection::layton || is({"fort_apocalypse_c64", "bruce_lee_c64", "wizball_c64", "cannon_fodder_amiga",
+                "beach_volley_amiga", "wings_of_fury_amiga", "rock_n_roll_amiga",
+                "spindizzy_worlds_amiga", "marble_madness_amiga", "mindwalker_amiga",
+                "sonic_gg", "sonic2_gg", "triple_trouble_gg"}))
+            game.features.push_back(F::cheats); // Includes level selection and Layton's hidden touch-area hints.
+        if (is({"fort_apocalypse_c64", "bruce_lee_c64", "wizball_c64", "marble_madness_amiga"}))
+            game.features.push_back(F::extra_modes); // Carnage / Crowd race, not original modes.
+        if (game.collection == Collection::layton ||
+            is({"spy_mouse_ios", "fa_18_interceptor_amiga", "stunt_car_racer_amiga"}))
+            game.features.push_back(F::touch);
+        // No module currently exposes an actual motion-sensor control scheme.
+    }
     return games;
 }
 

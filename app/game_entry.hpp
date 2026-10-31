@@ -87,6 +87,10 @@ struct Preview {
     std::shared_ptr<const ui::Model> model{};
 };
 
+// Supported enhancements, independent of the current option values. Quick saves
+// are supplied by the framework registry, not duplicated in this list.
+enum class GameFeature { widescreen, high_framerate, cheats, extra_modes, touch, tilt };
+
 struct GameEntry {
     std::string id;    // folder and settings key, e.g. "fort_apocalypse_c64"
     std::string title; // the game's name (descriptive use only)
@@ -139,6 +143,7 @@ struct GameEntry {
 
     Collection collection{Collection::none};
     bool integration_pending{}; // Catalog preview only, no engine/importer wired yet.
+    std::vector<GameFeature> features;
 };
 
 // Whether the game can be imported (by either kind of importer).
