@@ -273,9 +273,10 @@ public:
         data::Palette fading = palette_;
         const data::Palette* palette = &palette_;
         if (fade_ < 15) {
-            // The fade's step ($1093F2): colours 0-15 from the table of
-            // darker copies before `$11A04C`.
-            const std::uint32_t at = 0x11A04C - std::uint32_t((15 - fade_) * 32);
+            // The fade's step ($109480): colours 0-15 from the table of
+            // darker copies after `$11A04C` (step 15 the flight palette,
+            // each step below one less in every component).
+            const std::uint32_t at = 0x11A04C + std::uint32_t((15 - fade_) * 32);
             for (std::uint32_t k = 0; k < 16; ++k) fading[k] = assets_.program.u16(at + 2 * k);
             palette = &fading;
         }

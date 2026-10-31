@@ -195,6 +195,13 @@ app has none yet).
 
 ## Known bugs and differences in the port
 
+- Fixed 2026-10-31: the screen fades (demo start and end, qualification,
+  missions, start map) read their colour steps from the wrong side of
+  `$11A04C` and flickered through random colours and orange; they now
+  fade from black as on the original. Open: the overload blackout
+  (`$13AB91` = 2 above overload 5) is not rebuilt, and an old capture saw
+  no darkening there; re-check on the original.
+
 - The start map misses the carrier's marker (4) and shows a dark speck
   west of the coast the original does not; the scenery decoder still
   stops at opcodes `$5C` and `$9C` (some mid-distance levels).

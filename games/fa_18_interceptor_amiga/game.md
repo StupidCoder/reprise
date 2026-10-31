@@ -194,7 +194,7 @@ too, so writing it makes a new pilot).
 $10800000, $3000000, $10C00000 in the world's 16.8 units, looking
 straight down: view matrix rows ($A8, 0, 0), (0, 0, $FC), (0, -$80,
 0)), five aircraft (`$13AB87`), then the map fades in ($13AB90 → 15:
-the 16-colour palette at `$11A04C - (15 - step) × 32`, a step every
+the 16-colour palette at `$11A04C + (15 - step) × 32`, a step every
 third vertical blank) and the security check runs (`$1027C8`: blocks
 95/96 for missions, block 71 and the input field block 4; on this
 cracked disk block 71 reads "CRACKED BY A-HA" and any answer passes;
@@ -989,12 +989,17 @@ Load factor (`$117128`, every frame): |(pitch rate + pitch rate / 8 +
 goes up (at most 15) while latched, else down to −1; above 5 the
 engine's volume is halved (`$1054A8`) and the screen procedure asks for
 the palette step `$13AB91` = 2 (`$10317A`, otherwise 15). The palette
-steps (`$1092DE`: `$13AB90` towards `$13AB91`, LoadRGB4 of 16 colours
-from `$11A04C − (15 − step) × 32`) run through palette 1's orange and
-then program bytes; on the running original no change of the flight
-view's colours was seen (`screen.py` captures with `$13AB79` poked to
-15 while `$13AB90` stepped down): **hypothesis** they reach a view port
-not shown in flight. Not rebuilt: the visual blackout. No code posts "AT MAXIMUM ALTITUDE" (record 8): the
+steps (`$1092DE` → `$109480`: `$13AB90` towards `$13AB91`, LoadRGB4 of
+16 colours from `$11A04C + (15 − step) × 32`: 16 darker copies of the
+flight palette, each step one less in every component, step 0 black).
+Correction (2026-10-31): this section once read the table *before*
+`$11A04C` (subtracting) and so took the steps for palette 1's orange
+and program bytes; `$109492`-`$109498` add. The view port is the shown
+one: the demo's fade-in captured step by step on the original
+(breakpoint on `$101B9C`, `screen.py`) shows exactly these rows (step 13:
+$447 → $225, $036 → $014, $333 → $111). An earlier capture with
+`$13AB79` poked to 15 showed no darkening of the flight view; not
+explained (**open**: the overload blackout, not rebuilt). No code posts "AT MAXIMUM ALTITUDE" (record 8): the
 ceiling `$13A9EA` only limits the climb (`$106ABE`).
 
 Collision proximity ($D00A with the crash beep, `$11A50E`) is posted when
@@ -1340,8 +1345,8 @@ aircraft, the object list for $7F, entry 10 of `$11DFB2`; then
 `$13AB96` = 3, so the flight runs as mission 3) and plays the recording
 back (`$13AB3B` = 3). Seen on the original (`work/ref/demo.jsonl`, the
 menu's 1 to the second start): the screen fades in (`$13AB90` 0 → 15, a
-step every third blank, `$1093F2`: colours 0-15 from the table of darker
-copies before `$11A04C`), seven frames, blocks 88 ("YOUR VECTOR XXX FOR
+step every third blank, `$109480`: colours 0-15 from the table of darker
+copies after `$11A04C`), seven frames, blocks 88 ("YOUR VECTOR XXX FOR
 BOGEY", the vector filled in) and 90 ("READY TO LAUNCH") typed, then the
 flight with the recording from its first byte.
 
