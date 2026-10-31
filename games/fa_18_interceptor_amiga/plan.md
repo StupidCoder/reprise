@@ -55,9 +55,8 @@ app has none yet).
 4. **Warnings and messages** — partly done 2026-10-29: fuel low,
    critical and exhausted in the message line, the 7.8 G beep and the
    blackout counter (engine at half volume); the radar's threats, the
-   missile alerts and their beeps (2026-10-30). Left: collision
-   proximity, the blackout's picture
-   (see game.md "Warnings").
+   missile alerts and their beeps (2026-10-30), the blackout's picture
+   (2026-10-31). Left: collision proximity (see game.md "Warnings").
 5. **Collisions** — done as far as the original has them: it has no
    collisions with scenery (game.md "Warnings"); ground and water
    contact were rebuilt with the flight. Object collisions and collision
@@ -71,8 +70,8 @@ app has none yet).
    (checked against a recording), and the view from above with its grid
    (V for the original's M, which Reprise keeps for mute), the start
    map's descent to the aircraft (`$13AAA6`, checked frame by frame) and
-   the camera's turning (`$10454A`). Left: looking up and down (keypad 7
-   / 1: no keys for them in Reprise yet).
+   the camera's turning (`$10454A`), looking up and down (keypad 7 / 1;
+   own aircraft only for directions 3-9, 2026-10-31).
 7. **Moving objects** — done 2026-10-29 for free flight, whose only
    object is the carrier: spawned from the game's object list, drawn,
    place 4 on the map and the start on its deck ("READY TO LAUNCH"),
