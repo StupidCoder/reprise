@@ -119,9 +119,9 @@ platform::Image draw_race_screen(const data::CockpitArt& art, const View& view, 
 
     screen.draw(art.item(Item::left_corner));
     screen.draw(art.item(Item::right_corner));
-    const int steering = std::clamp(cockpit.steering, 0, 2);
-    const auto& right = art.item(Item::right_wheel, steering);
-    const auto& left = art.item(Item::left_wheel, 2 - steering);
+    const int frame = std::clamp(cockpit.wheel_frame, 0, 2);
+    const auto& right = art.item(Item::right_wheel, frame);
+    const auto& left = art.item(Item::left_wheel, 2 - frame);
     screen.draw(right, right.x, cockpit.right_wheel_y, wheel_bottom);
     screen.draw(left, left.x, cockpit.left_wheel_y, wheel_bottom);
     screen.draw(art.item(Item::engine));
@@ -179,8 +179,8 @@ platform::Image draw_race_screen(const data::CockpitArt& art, const View& view, 
     // The tyre treads (hardware sprites, in front of everything).
     const int raised_right = cockpit.right_wheel_y < raised_wheel ? 6 : 0;
     const int raised_left = cockpit.left_wheel_y < raised_wheel ? 6 : 0;
-    const auto& right_tread = art.item(Item::tread, steering + raised_right);
-    const auto& left_tread = art.item(Item::tread, 5 - steering + raised_left);
+    const auto& right_tread = art.item(Item::tread, frame + raised_right);
+    const auto& left_tread = art.item(Item::tread, 5 - frame + raised_left);
     screen.draw(right_tread, right_tread.x + sprite_shift, cockpit.right_wheel_y);
     screen.draw(left_tread, left_tread.x + sprite_shift, cockpit.left_wheel_y);
 

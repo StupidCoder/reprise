@@ -307,15 +307,40 @@ edges into short pieces before projecting, which gives the true picture.
 **What is drawn, in what order**: sky above the horizon, ground below
 (turned by the roll); the hills; then the track. The track is walked from
 the car's segment onwards (the one behind too) until a segment ends off the
-side of the view (the last cross-section's x outside 0–255; $660B0), and
-painted from the far end back to the car, each step's road piece and
-then its sides over it. Sides (each road edge down to height $200, the
-ground level) are drawn only when seen from outside. (Drawing the sides
-first left stair steps where a near wall rises above the road, as on
-Little Ramp's start under the crane: 96.9 % equal pixels before, 98.0 %
-after; the other compared frames are unchanged. The original also draws
-thin dark lines between wall pieces and changes the wall colour at other
-places there; not yet looked at.)
+side of the view (the last cross-section's x outside 0–255; $660B0). Its
+cross-sections become rows of a table at $7B08A ($67092, $20 bytes a row,
+built from the car outwards): seven edges (left and right road edge to the
+row before, left and right ground edge, the left and right side's upright
+edge at this row, the line across), then the segment number ($1C), the edge
+line colour ($1D, bit 7: none) and the profile mark ($1E). The table is
+painted from the far end back to the car one road piece at a time
+($68F28; a piece runs between rows whose mark has bit 7 clear, see Road
+pieces): the left side as one polygon from the piece's far row to its near
+one and down to the ground ($68A56), dark lines on its upright edges
+($6892A), the right side and its lines ($68BEC, $6897C), the surface
+($68D82, with the start line, $688FC), then the edge lines along it
+($689CE, $68A12). While the car is beside the road ($1BB9A, the contact
+points' off-the-road bits, is not 0) the order changes: the side on the
+car's own side ($1BC5C, the car's offset from the road's middle, negative
+on the left) comes after the surface and its edge lines, since it then
+stands between the car and the road. Under the crane on Little Ramp the
+car hangs right of the road, so the road's right side is drawn last; with
+the sides always first, the start line showed through it. Sides (each road
+edge down to height $200, the ground level) are filled only when seen from
+outside.
+
+**Dark lines on the sides** ($6892A/$6897C, colour $691B3 = 9, a very
+dark red): along a side's upright edge at each row of the piece (its far
+row included, its near row not) whose edge line is red ($1D 9–11; not
+yellow 3, not beyond the edge lines' reach). Rows with yellow lines inside
+a piece have no upright edges at all ($67284), so near the car the lines
+fall on every other cross-section. The side's colour comes from the
+segment of the piece's far row (bit 0 of $1C: 15 even, 10 odd), so a
+side changes colour where road pieces meet, not where segments meet.
+Checked against the original under the crane on Little Ramp (98.0 % equal
+pixels, the lines and colour changes in the same places; the rest single
+pixels along edges) and on the other saved frames: Hump Back's h4 went
+from 95.2 % to 97.7 %, the others unchanged.
 Segments beyond the first three come from a thinned copy built at track
 load ($65BEC into $7ABDA, pointers per segment at $7AA1A): only
 cross-sections where the left height bends by $A0 or more from its
@@ -332,8 +357,12 @@ piece takes the colour of the segment at its far boundary: 1 for even, 2
 for odd segments. When the left edge rises or falls by $280 or more at the
 boundary, the piece is a jump face, colour 0.
 
-**Sides** ($68A..., $68BEC): 15 for even segments, 10 for odd ($691B2);
-colour 9 ($691B3) for all sides while $1BB66 is set (not yet understood).
+**Sides** ($68A56, $68BEC): 15 for even segments, 10 for odd ($691B2),
+from the piece's far row; colour 9 ($691B3) for all sides while $1BB66 is
+set (it is set per cell while the track is prepared, $60422; not yet
+understood). The opponent is drawn after the piece holding the row behind
+its rear axle ($69188, while $57C69 is 0, as observed; other values move
+it before the surface).
 
 **Edge lines** ($6893A..., colour per row at $673EE): one-pixel lines along
 both road edges for the nearest steps: from the row counter $1BB58 ($20
@@ -395,12 +424,33 @@ plane A = sheet plane 0 inverted, plane B = sheet plane 2; colours 17–19
 black, white, $C88 from $69EB4), $33 the message box.
 
 **Each frame, after the view** ($650E2 on): crane chains ($662B4), the
-window corners, the front wheels (frame $1BBDB on the right, 5 − that on
+window corners, the front wheels (picture $1BBDB on the right, 5 − that on
 the left, top row from the suspension via $5E778, cut off at row $9F), the
 engine, the corner pieces, boost flames while $1BB62 (frame $1BB69, 0–2),
 the messages ($5E508). The tyre-tread sprites follow the wheels (item $25 +
 frame, + 6 when the wheel is above row $7E; $651B8, moved in the vertical
 blank).
+
+**Front wheels** ($5E778, verified): each wheel's top row comes from its
+spring's travel ($1BD14 left, $1BD16 right): travel + $100 limited to
+0–$7FF, shifted right 3 and inverted, indexes the quarter-wave table
+$1CA42; the entry's top five bits lift the wheel from the rest row $1BBDD
+($BA, $92 once wrecked): row = $1BBDD − 1 − lift, at most $B9, at least
+$97, less $32. A wheel over the road's edge (bit 7 of $1BBDA for the
+left, bit 6 for the right; the routine shifts the byte once per wheel)
+drops to $B9. A wheel above row $7E uses the raised tread sprite. The
+formula gives the original's wheel rows in all 71 saved race frames (the
+misses are posed frames and menus). Hanging from the crane the springs
+are fully out and the wheels sit below the view.
+
+**Wheel turning** ($651B8, called from the vertical-blank interrupt
+$616E0 while a race runs and is not paused): each 50 Hz blank adds the
+high byte of $1BC62 to $1BBE3; on a carry the wheel picture $1BBDB moves
+on one (0–2), or back while the forward speed $1BD30 is negative ($5E744).
+$1BC62 is set each frame ($60FBE): on the ground 8 × speed below $800,
+else 2 × speed + $3000 (at most $FF00); in the air it loses a quarter a
+frame. It is also the engine note. A race frame lasts 6.5 blanks, so the
+port runs the blanks on their own clock between its frames.
 
 **Crane**: while the car hangs ($1BBDF counting down), the chains hang from
 the top of the view: links every 8 rows from (bottom − $30) up to row 16,

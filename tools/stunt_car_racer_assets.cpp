@@ -17,7 +17,7 @@
 //       picture as <out_prefix>NNNN.png
 //   stunt_car_racer_assets screen <content> <state.txt> <out.png>
 //       the whole race screen; state.txt holds "key value" lines: track,
-//       segment, x, z, eye, yaw, pitch, roll, steering, right_wheel_y,
+//       segment, x, z, eye, yaw, pitch, roll, wheel_frame, right_wheel_y,
 //       left_wheel_y, chain_bottom, boost, boost_phase, intact_marks, flag_lamp,
 //       right_lamp, speed_bar, distance, lap, lap_minutes, lap_seconds,
 //       lap_hundredths, lap_show_hundredths, message_start, message_groups,
@@ -79,14 +79,20 @@ int main(int argc, char** argv) {
             }
             return 0;
         }
-        if (command == "view" && argc == 12) {
+        if (command == "view" && (argc == 12 || argc == 13)) {
             const auto assets = stuntcar::data::load_assets(argv[2]);
             const auto circuits = stuntcar::data::load_circuits(assets.program);
             const auto& track = circuits.tracks.at(std::size_t(std::stoi(argv[3])));
             stuntcar::render::Camera camera{std::stod(argv[5]), std::stod(argv[6]), std::stod(argv[7]),
                                             std::stoi(argv[8]), std::stoi(argv[9]), std::stoi(argv[10])};
             const auto scenery = stuntcar::data::load_scenery(assets.program);
-            const auto view = stuntcar::render::draw_race_view(circuits, scenery, track, std::stoi(argv[4]), camera);
+            // Optional: the car beside the road, "left" or "right".
+            const std::string side = argc == 13 ? argv[12] : "";
+            const auto beside = side == "left"    ? stuntcar::render::Beside::left
+                                : side == "right" ? stuntcar::render::Beside::right
+                                                  : stuntcar::render::Beside::no;
+            const auto view =
+                stuntcar::render::draw_race_view(circuits, scenery, track, std::stoi(argv[4]), camera, {}, beside);
             platform::save_png(stuntcar::render::to_image(view, stuntcar::render::race_palette(assets.program)), argv[11]);
             return 0;
         }
@@ -138,7 +144,7 @@ int main(int argc, char** argv) {
             const auto view = stuntcar::render::draw_race_view(circuits, stuntcar::data::load_scenery(assets.program),
                                                                track, int(get("segment", 0)), camera, opponent);
             stuntcar::render::Cockpit cockpit;
-            cockpit.steering = int(get("steering", 1));
+            cockpit.wheel_frame = int(get("wheel_frame", 1));
             cockpit.right_wheel_y = int(get("right_wheel_y", 122));
             cockpit.left_wheel_y = int(get("left_wheel_y", 122));
             if (state.count("chain_bottom")) cockpit.chain_bottom = int(get("chain_bottom", 0));

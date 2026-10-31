@@ -49,10 +49,14 @@ struct Opponent {
     std::array<double, 4> lift{15, 15, 15, 15};
 };
 
+// Whether the car is beside the road ($1BB9A set: its contact points are
+// past the edge) and on which side ($1BC5C); this changes the drawing order.
+enum class Beside { no, left, right };
+
 // Draws the hills and `track` as seen from `camera`, the car being on
 // `segment`, with the opponent's car where given.
 View draw_race_view(const data::Circuits&, const data::Scenery&, const data::Track&, int segment, const Camera&,
-                    const std::optional<Opponent>& opponent = std::nullopt);
+                    const std::optional<Opponent>& opponent = std::nullopt, Beside beside = Beside::no);
 
 platform::Image to_image(const View&, const Palette&);
 

@@ -41,16 +41,19 @@ Next:
       and the per-segment table built at $1C952 (opponent speeds?); the
       shape description bytes ($1BB7B, $1BBD9, $1BBD4).
 - [ ] The drawbridge animation ($5A794) in the race view.
-- [ ] Race view, remaining: the thin dark lines between wall pieces and
-      where the wall colour changes (Little Ramp's start, the wall left of
-      the crane); sides in colour 9 while $1BB66 is set; thin
+- [x] Race view: sides as one polygon per road piece with their dark
+      lines and colours, and the drawing order while the car is beside
+      the road (start line no longer shows through the side under the
+      crane); checked against the original's frames.
+- [ ] Race view, remaining: sides in colour 9 while $1BB66 is set; the
+      opponent's place in the order while $57C69 is not 0; thin
       stripes on near sides at glancing angles; the thinned far segments
       (check on the tall tracks); facing backwards ($1BC32) once the car
       can turn round; verify Divisions 1–3 circuits (needs league progress
       or a pose on a loaded track).
+- [x] Front wheels: rows from the suspension ($5E778, checked against 71
+      saved frames) and turning on the 50 Hz vertical blank ($651B8).
 - [ ] Race screen, remaining: when the message box (item $33) shows; the
-      wheel curve from the
-      suspension ($5E778, sine table $1CA42) once physics exists; the
       opponent's extra row when $63EDE ≥ $FF00; the 3-pixel '.' difference.
 - [ ] Font and front-end screens (menu, league tables, track select) from the
       program's data.
@@ -101,8 +104,9 @@ Next:
 
 - The opponent is drawn at its progress step on its segment without the
   game's handling of reversed pieces ($5A5B6); not yet checked there.
-- The front wheels stay at their rest rows (the suspension curve $5E778 is
-  not ported), so a wrecked car's sagging wheels do not show.
+- The wheel turning has not been compared frame by frame with the
+  original (the rule is read from the code; the vertical blanks the port
+  runs between frames are 6.5 to a frame, the original's vary a little).
 - No sounds.
 - The crack's paint test reads the cockpit picture; anything else the
   original has drawn on the roof rows is not considered (nothing observed).

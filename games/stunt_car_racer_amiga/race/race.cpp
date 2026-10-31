@@ -217,8 +217,34 @@ void Race::place_car() {
         driver_->place(o);
         state_.cars[1].segment = o.segment;
     }
-    // The drawing pass: dust and smoke after the view.
+    // The drawing pass: dust and smoke after the view; the wheels.
     state_.smoke.step(car_, state_.random, state_.frame_clock);
+    front_wheels();
+}
+
+// The front wheels' rows ($5E778): each hangs by its spring's travel
+// (-$100..$700 taken, an eighth of it read as a quarter-wave angle, the
+// top five bits of the wave lifting the wheel), from the rest row; a wheel
+// over the road's edge (the rumble bits, one per wheel; the frame's end
+// shifts them on) jumps to its lowest row. Rows $97-$B9 less $32.
+void Race::front_wheels() {
+    for (std::size_t w = 0; w < 2; ++w) { // left (spring 0), right (spring 1)
+        const int travel = std::clamp(car_.springs[w].travel + 0x100, 0, 0x7FF);
+        const auto angle = std::uint8_t(~(travel >> 3));
+        const int lift = tables_.quarter_wave[angle] >> 11;
+        auto row = std::uint8_t(state_.wheel_base - 1 - lift);
+        const bool rumble = car_.edge_side & (0x80 >> w);
+        if (rumble || row >= 0xBA) row = 0xB9;
+        if (row < 0x97) row = 0x97;
+        state_.wheel_rows[w] = row - 0x32;
+    }
+}
+
+void WheelSpin::vertical_blank(const Car& car) {
+    const int sum = phase + (std::uint16_t(car.engine_note) >> 8);
+    phase = std::uint8_t(sum);
+    if (sum < 0x100) return;
+    frame = car.body_velocity[2] < 0 ? (frame + 2) % 3 : (frame + 1) % 3;
 }
 
 void Race::step(const Controls& controls) {

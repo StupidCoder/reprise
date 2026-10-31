@@ -21,6 +21,8 @@ constexpr std::uint32_t driver_habits = 0x1ED8A;
 // The opponent is drawn while 10 <= distance < $C80 and ahead ($67AA6); its
 // rear axle $40 behind its place.
 constexpr int opponent_near = 10, opponent_far = 0xC80, rear_axle = 0x40;
+// The PAL vertical blank, which turns the wheels.
+constexpr double vertical_blanks_per_second = 50;
 // The speed bar: the forward speed less $1100, times $B700 >> 23 (0-127).
 constexpr int speed_bar_floor = 0x1100, speed_bar_gain = 0xB700;
 
@@ -40,6 +42,7 @@ class Module final : public app::GameModule {
     double pixel_aspect() const override { return 1.0; }
 
     void tick(const app::GameInput& input) override {
+        ++ticks_;
         race::Controls controls;
         controls.accelerate = input.up;
         controls.brake = input.down;
@@ -68,6 +71,7 @@ class Module final : public app::GameModule {
         }
         fire_held_ = controls.fire;
         race_->step(controls);
+        spin_wheels(0);
         const auto& car = race_->player();
         if (car.recovery) {
             chains_ = chains_down, pull_ = chain_first_pull;
@@ -98,8 +102,15 @@ class Module final : public app::GameModule {
                                              double(o.lift[2] - (middle - half)), double(o.lift[3] - (middle + half))}};
             }
         }
-        const auto view = render::draw_race_view(circuits_, scenery_, race_->track(), car.segment, camera, opponent);
+        const auto beside = !car.off_track          ? render::Beside::no
+                            : car.across_centre < 0 ? render::Beside::left
+                                                    : render::Beside::right;
+        const auto view =
+            render::draw_race_view(circuits_, scenery_, race_->track(), car.segment, camera, opponent, beside);
         render::Cockpit cockpit;
+        cockpit.wheel_frame = spin_.frame;
+        cockpit.left_wheel_y = state.wheel_rows[0];
+        cockpit.right_wheel_y = state.wheel_rows[1];
         cockpit.distance = state.distance_shown;
         if (state.league) cockpit.boost_left = race::decimal(car.boost_left);
         if (chains_ != chains_gone) cockpit.chain_bottom = chains_;
@@ -147,6 +158,9 @@ class Module final : public app::GameModule {
                 button("accelerate", "GAS", Icon::accelerator, .81f, .62f, .17f, .34f)};
     }
 
+    // The wheels turn on the 50 Hz vertical blank, between the race's frames.
+    void set_frame_fraction(double fraction) override { spin_wheels(fraction); }
+
     std::vector<app::GameOption> options() const override {
         return {app::screen_filter_option(vhs_),
                 {"Race", {"Practice", "Against Jumpin' Jack"}, league_ ? 1 : 0,
@@ -174,6 +188,13 @@ class Module final : public app::GameModule {
         race_.emplace(assets_.program, circuits_, 0, false, opponent);
         chains_ = chains_down, pull_ = chain_first_pull;
         race_->step({}); // the crane lowers the car
+        ticks_ = blanks_ = 0;
+    }
+
+    // Runs the vertical blanks up to the time shown (6.5 to a race frame).
+    void spin_wheels(double fraction) {
+        const auto due = std::int64_t((double(ticks_) + fraction) * step_seconds() * vertical_blanks_per_second);
+        for (; blanks_ < due; ++blanks_) spin_.vertical_blank(race_->player());
     }
 
     std::optional<race::Race> race_;
@@ -182,6 +203,8 @@ class Module final : public app::GameModule {
     platform::InputCapabilities input_caps_{};
     int chains_ = chains_down, pull_ = chain_first_pull;
     int vhs_ = 0;
+    race::WheelSpin spin_;
+    std::int64_t ticks_ = 0, blanks_ = 0;
 };
 
 } // namespace

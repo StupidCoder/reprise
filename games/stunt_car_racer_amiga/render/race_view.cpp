@@ -18,6 +18,8 @@ constexpr std::uint8_t road_colours[2] = {1, 2}, wall_colours[2] = {15, 10};
 constexpr std::uint8_t jump_face = 0;
 constexpr std::uint8_t edge_yellow = 3;
 constexpr std::uint8_t start_line = 15;
+// The dark lines down the sides' edges near the car ($691B3).
+constexpr std::uint8_t side_line = 9;
 // Edge lines are drawn up to 12 steps ahead of the car: red 9 for the first
 // six, 10 for the next four, then 11.
 constexpr struct {
@@ -392,7 +394,7 @@ void draw_opponent(View& view, const Projector& projector, const std::vector<std
 } // namespace
 
 View draw_race_view(const data::Circuits& circuits, const data::Scenery& scenery, const data::Track& track,
-                    int segment, const Camera& camera, const std::optional<Opponent>& opponent) {
+                    int segment, const Camera& camera, const std::optional<Opponent>& opponent, Beside beside) {
     View view;
     const Projector projector(camera);
     for (int y = 0; y < view_height; ++y)
@@ -499,44 +501,132 @@ View draw_race_view(const data::Circuits& circuits, const data::Scenery& scenery
                                 : std::pair{wrap_segment(opponent->segment - 1), int(at(wrap_segment(opponent->segment - 1)).size()) - 1};
     }
 
-    // Painted from the far end back to the car, each segment from its far
-    // end; the one behind the car last, from its near end.
-    const Painter painter(view, projector);
-    for (auto it = order.rbegin(); it != order.rend(); ++it) {
-        const int s = *it;
-        const auto& c = at(s);
-        const int parity = s & 1;
-        const int phase = track.segments[std::size_t(s)].kerb_phase;
-        const int steps = int(c.size()) - 1;
-        const bool far_end_last = (direction > 0) != (s == behind);
-        for (int n = 0; n < steps; ++n) {
-            const int i = far_end_last ? steps - n : n + 1;
-            const auto al = left(c[std::size_t(i - 1)]), ar = right(c[std::size_t(i - 1)]);
-            const auto bl = left(c[std::size_t(i)]), br = right(c[std::size_t(i)]);
-            const auto base = [](Point3 p) { return Point3{p.x, p.z, double(side_base)}; };
-            // The road piece, then its sides over it (a side seen from
-            // outside lies in front of the surface it holds up).
-            painter.draw({al, bl, br, ar}, road_colour(s, i));
-            painter.draw_side({al, base(al), base(bl), bl}, wall_colours[parity]);
-            painter.draw_side({br, base(br), base(ar), ar}, wall_colours[parity]);
-            // The opponent after the road piece just nearer than its rear
-            // axle (the row before its cross-section, $66FF0).
-            if (opponent && s == opponent_piece.first && i == opponent_piece.second && !opponent_drawn) {
-                draw_opponent(view, projector, sections, *opponent);
-                opponent_drawn = true;
-            }
-            if (i == steps && s == track.start_line_segment) painter.draw_line(bl, br, start_line);
-            if (s == behind) continue;
-            const int ahead = steps_ahead(s, i);
-            for (const auto& red : edge_reds) {
-                if (ahead >= red.below) continue;
-                const auto colour = ((i ^ phase) & 1) ? edge_yellow : red.colour;
-                painter.draw_line(al, bl, colour);
-                painter.draw_line(ar, br, colour);
-                break;
+    // The rows drawn ($67092 builds them from the car outwards): the
+    // cross-sections in drawing order, near to far, with the segment each
+    // belongs to. A step joins a row to the one before it.
+    struct Row {
+        int segment, index;
+    };
+    const auto rows_of = [&](const std::vector<int>& segments, int dir) {
+        std::vector<Row> rows;
+        for (std::size_t n = 0; n < segments.size(); ++n) {
+            const int s = segments[n], last = int(at(s).size()) - 1;
+            for (int k = 0; k <= last; ++k) {
+                const int i = dir > 0 ? k : last - k;
+                if (n > 0 && k == 0) continue; // shared with the segment before
+                rows.push_back({s, i});
             }
         }
-    }
+        return rows;
+    };
+    // A road boundary ($1E bit 7 clear): where a piece of road surface
+    // ends (see road_colour).
+    const auto boundary = [&](Row r) {
+        if (r.index == 0) {
+            r.segment = wrap_segment(r.segment - 1);
+            r.index = int(at(r.segment).size()) - 1;
+        }
+        const int last = int(at(r.segment).size()) - 1;
+        return at(r.segment)[std::size_t(r.index)].marked != (r.index == last);
+    };
+
+    const Painter painter(view, projector);
+    const auto base = [](Point3 p) { return Point3{p.x, p.z, double(side_base)}; };
+    // Paints a run of rows from its far end back to its near one, a road
+    // piece (a group of steps between boundaries) at a time ($68F28): both
+    // sides, each a single polygon down to the ground with dark lines
+    // (colour 9) along its edges at the rows whose edge lines are red
+    // ($6892A, $6897C; rows with yellow lines have no such edge inside a
+    // piece, $67284); the surface ($68D82) with the start line; the edge
+    // lines along it ($689CE, $68A12). Normally the sides come first; while
+    // the car is beside the road ($1BB9A set) the side nearer the car comes
+    // after the surface, since it then stands between the car and the road.
+    const auto paint = [&](const std::vector<Row>& rows, int dir, bool lines) {
+        // The step from row k - 1 to row k, as (segment, higher index).
+        const auto step_index = [&](std::size_t k) { return dir > 0 ? rows[k].index : rows[k].index + 1; };
+        const auto edge_colour = [&](std::size_t k) -> std::optional<std::uint8_t> {
+            if (!lines) return std::nullopt;
+            const int s = rows[k].segment, i = step_index(k);
+            const int ahead = steps_ahead(s, i);
+            for (const auto& red : edge_reds)
+                if (ahead < red.below)
+                    return ((i ^ track.segments[std::size_t(s)].kerb_phase) & 1) ? edge_yellow : red.colour;
+            return std::nullopt;
+        };
+        const auto point = [&](const Row& r, bool right_side) {
+            const auto& c = at(r.segment)[std::size_t(r.index)];
+            return right_side ? right(c) : left(c);
+        };
+        std::size_t top = rows.size() - 1;
+        while (top > 0) {
+            std::size_t bottom = top - 1;
+            while (bottom > 0 && !boundary(rows[bottom])) --bottom;
+            // Rows bottom..top in track order (lowest track position first).
+            std::vector<Row> run(rows.begin() + std::ptrdiff_t(bottom), rows.begin() + std::ptrdiff_t(top) + 1);
+            if (dir < 0) std::reverse(run.begin(), run.end());
+            const int far_segment = rows[top].segment;
+            const std::uint8_t wall = wall_colours[far_segment & 1];
+
+            const auto side = [&](bool right_side) {
+                std::vector<Point3> polygon;
+                for (const auto& r : run) polygon.push_back(base(point(r, right_side)));
+                for (auto it = run.rbegin(); it != run.rend(); ++it) polygon.push_back(point(*it, right_side));
+                // Wound so that a side seen from outside turns positively.
+                if (right_side) std::reverse(polygon.begin(), polygon.end());
+                painter.draw_side(polygon, wall);
+                for (std::size_t k = top; k > bottom; --k) {
+                    const auto colour = edge_colour(k);
+                    if (!colour || *colour == edge_yellow) continue;
+                    const auto p = point(rows[k], right_side);
+                    painter.draw_line(p, base(p), side_line);
+                }
+            };
+            const auto surface = [&]() {
+                std::vector<Point3> polygon;
+                for (const auto& r : run) polygon.push_back(point(r, false));
+                for (auto it = run.rbegin(); it != run.rend(); ++it) polygon.push_back(point(*it, true));
+                painter.draw(polygon, road_colour(rows[top].segment, step_index(top)));
+                for (std::size_t k = top; k > bottom; --k) {
+                    const auto& r = rows[k];
+                    const int last = int(at(r.segment).size()) - 1;
+                    if (r.segment == track.start_line_segment && r.index == last)
+                        painter.draw_line(point(r, false), point(r, true), start_line);
+                }
+            };
+            const auto edges = [&](bool right_side) {
+                for (std::size_t k = top; k > bottom; --k)
+                    if (const auto colour = edge_colour(k))
+                        painter.draw_line(point(rows[k - 1], right_side), point(rows[k], right_side), *colour);
+            };
+            // The opponent after the piece holding the row behind its rear
+            // axle ($69188 with $57C69 clear).
+            const auto car = [&]() {
+                if (!opponent || opponent_drawn) return;
+                for (std::size_t k = bottom; k <= top; ++k)
+                    if (rows[k].segment == opponent_piece.first && rows[k].index == opponent_piece.second) {
+                        draw_opponent(view, projector, sections, *opponent);
+                        opponent_drawn = true;
+                        return;
+                    }
+            };
+            switch (beside) {
+            case Beside::left:
+                side(true), surface(), edges(true), car(), side(false), edges(false);
+                break;
+            case Beside::right:
+                side(false), surface(), edges(false), car(), side(true), edges(true);
+                break;
+            case Beside::no:
+                side(false), side(true), surface(), edges(false), edges(true), car();
+                break;
+            }
+            top = bottom;
+        }
+    };
+
+    std::vector<int> ahead_segments(order.begin() + 1, order.end());
+    paint(rows_of(ahead_segments, direction), direction, true);
+    paint(rows_of({behind}, -direction), -direction, false);
     if (opponent && !opponent_drawn) draw_opponent(view, projector, sections, *opponent);
     return view;
 }

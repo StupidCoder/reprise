@@ -12,7 +12,7 @@ namespace stuntcar::render {
 
 // What the screen shows besides the view; the race fills it in each frame.
 struct Cockpit {
-    int steering = 1;                  // wheel frame 0-2 (1 straight ahead)
+    int wheel_frame = 1;               // the front wheels' turning picture, 0-2 ($1BBDB)
     int right_wheel_y = 122;           // top rows of the front wheels, 101-135
     int left_wheel_y = 122;
     std::optional<int> chain_bottom;   // while the crane holds the car (game units)

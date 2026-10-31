@@ -95,11 +95,22 @@ struct RaceState {
     Crack crack;
     bool wrecked{};
     std::uint8_t wheel_base = 0xBA;    // the front wheels' rest row; lower when wrecked
+    std::array<int, 2> wheel_rows{0x7A, 0x7A}; // the front wheels' top rows on screen (left, right)
     Random random;
     Smoke smoke;
     bool league{};                     // against an opponent
     int distance_shown{};              // the dashboard's gap to the opponent (negative: behind)
     Opponent opponent;
+};
+
+// The front wheels turning ($651B8, each 50 Hz vertical blank, apart from
+// the race's own frames): the engine note's high byte is added to a byte;
+// each time it carries, the wheel picture (one of three) moves on, or
+// back while the car rolls backwards ($5E744).
+struct WheelSpin {
+    std::uint8_t phase{};
+    int frame = 1;
+    void vertical_blank(const Car&);
 };
 
 class Race {
@@ -137,6 +148,7 @@ class Race {
     void grow_crack();
     void wreck();
     void place_car();
+    void front_wheels();
     void physics();
 
     const data::Track& track_;
