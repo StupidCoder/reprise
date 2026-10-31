@@ -200,8 +200,11 @@ app has none yet).
   `$11A04C` and flickered through random colours and orange; they now
   fade from black as on the original. The overload blackout (screen to
   black after more than five seconds at 7.8 G or more, either sign) is
-  rebuilt and checked on the original (2026-10-31). Open: the P key's
-  pause (`$13AA9E` = $FF, the screen dimmed to step 10) is not rebuilt.
+  rebuilt and checked on the original (2026-10-31), and so is the P key's
+  pause (dimmed screen, "- PAUSED -", sound off). Open: P during a
+  mission's text countdown, which the original also toggles, and the
+  pause's time left out of the flight time (the port keeps no flight
+  time yet).
   In scripted `fly` runs the port's loops peak at 7.6 G; a real 7.8 G
   pull was not flown, the blackout was checked with a forced latch.
 

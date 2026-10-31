@@ -44,6 +44,7 @@ constexpr int ready_text = 89;        // "READY FOR TAKEOFF"
 constexpr int launch_text = 90;       // "READY TO LAUNCH" (on the carrier, $102E10)
 constexpr int maneuvers_text = 9;     // "BASIC FLIGHT MANEUVERS - PART 1" ($102488)
 constexpr int practice_text = 10;     // "... PART 2" ($102496)
+constexpr int pause_text = 38;        // "- PAUSED -" ($103B8C: `$13AA3A` = $26)
 constexpr int lead_lost_text = 72;    // "THE LEAD AIRCRAFT HAS BEEN DESTROYED ..." ($1032AE)
 constexpr int qualification_text = 73; // the qualification's briefing ($101CDA)
 constexpr int landed_text = 74;       // "LANDING SUCCESSFUL ... YOU ARE NOW QUALIFIED" ($1032D6)
@@ -98,7 +99,7 @@ std::array<std::int16_t, 9> body_between(const std::array<std::int16_t, 9>& from
 // Keys of the C64-style matrix the host gives (GameInput::c64_keys).
 namespace key {
 constexpr int backspace = 0, return_key = 1, g = 26, b = 28, z = 12, minus = 43, period = 44, comma = 47,
-              equals = 53, tab = 63, v = 31, c = 20, f = 21, r = 17, t = 22, j = 34;
+              equals = 53, tab = 63, v = 31, c = 20, f = 21, r = 17, t = 22, j = 34, p = 41;
 constexpr int digits[10] = {35, 56, 59, 8, 11, 16, 19, 24, 27, 32}; // 0 .. 9
 // The characters of the matrix's keys, for the call sign (0: none).
 constexpr char characters[64] = {
@@ -196,6 +197,11 @@ public:
             start_again();
             return;
         }
+        if (pressed(key::p) && (phase_ == Phase::paused || ((phase_ == Phase::flying && flying_) || phase_ == Phase::descent))) {
+            remember_keys(input);
+            toggle_pause();
+            return;
+        }
         before_ = aircraft_;
         if (flash_left_ > 0) { // (the frame's end, held by the flash)
             --flash_left_;
@@ -217,7 +223,7 @@ public:
         if (phase_ == Phase::end_wait || phase_ == Phase::end_text || phase_ == Phase::ready ||
             phase_ == Phase::descent || phase_ == Phase::to_ready || phase_ == Phase::fade_in ||
             phase_ == Phase::fade_out || phase_ == Phase::briefing || phase_ == Phase::landed ||
-            phase_ == Phase::lead_lost || phase_ == Phase::mission_text) {
+            phase_ == Phase::lead_lost || phase_ == Phase::mission_text || phase_ == Phase::paused) {
             if (phase_ == Phase::briefing) {
                 // ($101D06: any key ends the briefing; `$13AA93`.)
                 bool any = input.fire && !fire_was_;
@@ -247,7 +253,7 @@ public:
     // The phases whose texts are typed over the flight's picture.
     bool texts_shown() const {
         return phase_ == Phase::ready || phase_ == Phase::briefing || phase_ == Phase::landed ||
-               phase_ == Phase::lead_lost || phase_ == Phase::mission_text;
+               phase_ == Phase::lead_lost || phase_ == Phase::mission_text || phase_ == Phase::paused;
     }
 
     platform::Image picture() const override {
@@ -273,11 +279,11 @@ public:
         }
         data::Palette fading = palette_;
         const data::Palette* palette = &palette_;
-        if (fade_ < 15) {
+        if (const int fade = fade_shown(); fade < 15) {
             // The fade's step ($109480): colours 0-15 from the table of
             // darker copies after `$11A04C` (step 15 the flight palette,
             // each step below one less in every component).
-            const std::uint32_t at = 0x11A04C + std::uint32_t((15 - fade_) * 32);
+            const std::uint32_t at = 0x11A04C + std::uint32_t((15 - fade) * 32);
             for (std::uint32_t k = 0; k < 16; ++k) fading[k] = assets_.program.u16(at + 2 * k);
             palette = &fading;
         }
@@ -287,7 +293,9 @@ public:
             text_.draw(frame, margin_);
         } else {
             double t = 1;
-            if (smooth_ && flash_left_ == 0) t = frame_fraction_;
+            // (While the flight stands, the last step as it is.)
+            if (smooth_ && flash_left_ == 0 && phase_ != Phase::paused && phase_ != Phase::mission_text)
+                t = frame_fraction_;
             auto readings = read_cockpit(aircraft_);
             readings.zoom = zoom_ == 0x80 ? 1 : zoom_ == 0x40 ? 2 : 4; // ($1266C8)
             for (const auto& b : radar_.blips()) readings.contacts.push_back({b.x, b.y, b.colour, b.wide});
@@ -805,6 +813,7 @@ private:
         landed,       // $1031F4 / $103AA8: the qualifying landing's texts, then a new launch
         lead_lost,    // $103A4C: the practice's lead lost: block 72, then the main menu
         mission_text, // $1031F4: a mission's texts over the paused flight
+        paused,       // $102FE6 / $103B76 / $103BA0: the P key's pause
         descent,      // $102D58 with the outside camera's flight down (`$13AB9E` = 6)
         to_ready,     // $102D58: five frames in the cockpit
         ready,        // $102E4E / $102EDA: "READY FOR TAKEOFF", then a beep
@@ -1091,6 +1100,30 @@ private:
         write_pilot(content_, pilot_);
     }
 
+    // The P key ($10EDC2; raw key $19): the flight stands (`$13AA9E` =
+    // $FF), every sound stops ($1015F6) and the sound update with it
+    // (`$104AE6`), the screen dims to step 10 ($102FE6) and then shows
+    // block 38 ("- PAUSED -", $103B76). P again clears the texts
+    // ($103BA0: $103462), fades back to full and goes on with the flight
+    // or the descent from the map ($102D58 when `$13AB9E` is 6).
+    void toggle_pause() {
+        if (phase_ != Phase::paused) {
+            paused_from_ = phase_;
+            phase_ = Phase::paused;
+            pause_text_ = false;
+            sounds_.stop_all();
+            sounds_.set_active(false);
+            fade_target_ = 10;
+            chase_was_ = chase_;
+            cam_angles_was_ = cam_angles_;
+            return;
+        }
+        text_.clear();
+        fade_target_ = 15;
+        sounds_.set_active(true);
+        phase_ = paused_from_;
+    }
+
     void pause_for_texts() {
         flying_ = false;
         phase_ = Phase::mission_text;
@@ -1335,17 +1368,30 @@ private:
     // The vertical-blank server's fade ($109440) over this tick's blanks
     // (50 a second against the 15 Hz frame): towards the screen
     // procedure's target, a step down every second blank, up every third.
+    // Each blank's step is kept so smooth motion can show it at its
+    // moment within the tick.
     void step_fade() {
+        fade_start_ = fade_;
+        fade_count_ = 0;
         for (fade_blanks_ += 10; fade_blanks_ >= 3; fade_blanks_ -= 3) {
-            if (fade_ == fade_target_ || --fade_wait_ >= 0) continue;
-            if (fade_target_ < fade_) {
-                --fade_;
-                fade_wait_ = 1;
-            } else {
-                ++fade_;
-                fade_wait_ = 2;
+            if (fade_ != fade_target_ && --fade_wait_ < 0) {
+                if (fade_target_ < fade_) {
+                    --fade_;
+                    fade_wait_ = 1;
+                } else {
+                    ++fade_;
+                    fade_wait_ = 2;
+                }
             }
+            fade_at_[std::size_t(fade_count_++)] = fade_;
         }
+    }
+    // The fade step shown: with smooth motion the blank's within the last
+    // tick (`frame_fraction_`), else the tick's last.
+    int fade_shown() const {
+        if (!smooth_ || fade_count_ == 0 || phase_ == Phase::fade_in || phase_ == Phase::fade_out) return fade_;
+        const int done = int(frame_fraction_ * fade_count_);
+        return done == 0 ? fade_start_ : fade_at_[std::size_t(std::min(done, fade_count_) - 1)];
     }
 
     // The screen procedure of this frame.
@@ -1447,6 +1493,15 @@ private:
                 leave_flight();
                 front_.to_menu();
             }
+            break;
+        case Phase::paused:
+            // ($103B76: the text once the screen has dimmed.)
+            if (!pause_text_ && fade_ == fade_target_) {
+                text_.clear();
+                text_.queue(pause_text);
+                pause_text_ = true;
+            }
+            if (pause_text_ && !text_.done() && text_.tick(step_seconds())) sounds_.click();
             break;
         case Phase::mission_text:
             // ($102EFE: the flight goes on once they are typed; the wait
@@ -2650,8 +2705,12 @@ private:
     FlightMode mode_ = FlightMode::free_flight;
     Replay replay_{assets_.demo_controls, assets_.demo_keys};
     int fade_ = 15, fade_ticks_ = 0;    // $13AB90: the screen's fade step (15: full)
-    int fade_target_ = 15;              // $13AB91: the step the flight's fade goes to
+    int fade_target_ = 15;
+    Phase paused_from_ = Phase::flying; // the phase the P key's pause goes back to
+    bool pause_text_ = false;           // its text queued              // $13AB91: the step the flight's fade goes to
     int fade_wait_ = 0, fade_blanks_ = 0; // $13AB93: blanks to the next step; blanks owed (thirds)
+    int fade_start_ = 15, fade_count_ = 0; // the step before this tick's blanks, and their number
+    std::array<int, 4> fade_at_{};          // the step after each of them
     std::uint16_t replay_game_ = 0, replay_view_ = 0; // `$13AC86`, `$13AC88`: last frame's key events
     bool replay_ended_ = false;
     Autopilot autopilot_{assets_.program, tables_};

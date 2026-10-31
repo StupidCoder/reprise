@@ -1008,10 +1008,30 @@ Correction: this section once read the table *before* `$11A04C` and
 reported no change of the flight view's colours; the captures then were
 taken after the counter had run down. The port (2026-10-31): the target
 set in the flying phase, the server's steps over 10/3 blanks a tick.
-Also 10 is a target: while the P key's pause (`$10DD84`, raw key $19 →
-`$10EDC2`: `$13AA9E` = $FF) holds the flight, `$102FE6` dims the screen
-to step 10 and `$103B76` / `$103BA0` wait, then step 15 again (the
-pause is not rebuilt in the port).
+Also 10 is a target: the P key's pause (`$10DD84`, raw key $19 →
+`$10EDC2`; ignored while `$13AB9E` is negative) stops every sound
+(`$1015F6`), notes the system time (`$108E54`: the pause is left out of
+the flight time, `$13ABF4`-`$13ABFC`) and sets `$13AA9E` = $FF: the
+flight stands as for the missions' texts, the frame counter stands, the
+sound update is skipped (`$104AE6`). `$102FE6` (or `$102D92` in the
+descent from the map) dims the screen to step 10; `$103B76` waits for
+the fade and queues block 38 ("- PAUSED -", row $2B, column $10, colour
+9, a character every 6 frames, clicking); `$103BA0` waits while
+`$13AA9E` is negative. P again (`$10EDD4` → `$10EF68`: the flag
+toggled to 0, `$13ABA0` = $FE) clears the texts (`$103462`), turns the
+sound update on (`$13AA85`), sets step 15 and goes back to `$102EFE`, or
+`$102D58` when `$13AB9E` is 6. Checked on the original (2026-10-31):
+`$13AA9E` $FF, fade 10, the frame counter standing, the screen dimmed
+with "- PAUSED -"; the audio DMA bits off while paused and the engine's
+two channels on again after. Quirk not rebuilt: P during a mission's
+positive `$13AA9E` countdown toggles it to 0 as well. The port: phase
+`paused` (P in flight or in the descent), the picture at the last
+step's end while it stands (no smooth-motion interpolation, also for the
+missions' texts).
+
+Smooth motion and the fade (port, 2026-10-31): the flight's fade steps
+over the 10/3 blanks of a 15 Hz tick are kept, and with smooth motion
+each shows at its own moment within the tick; without it the tick's last.
 No code posts "AT MAXIMUM ALTITUDE" (record 8): the
 ceiling `$13A9EA` only limits the climb (`$106ABE`).
 
