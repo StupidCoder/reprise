@@ -94,6 +94,13 @@ public:
     void move_missiles(const Aircraft& player, const FlightRules& rules, Sounds& sounds, const Aircraft* locked = nullptr,
                        int locked_record = -1, const Autopilot* autopilot = nullptr);
     std::array<std::optional<Missile>, 3>& missiles() { return missiles_; }
+    // The missiles whose time ran out in the last move (`$11A3F8`: they go
+    // without asking for new scene lists), as they were last.
+    struct Ended {
+        int slot{};
+        Missile missile;
+    };
+    const std::vector<Ended>& ended() const { return ended_; }
     // $1072DC: the projectile slots, after the flight.
     // `hits`: the records' test ($11AE96's object part) before a round's
     // move; true when it hit one.
@@ -162,6 +169,7 @@ private:
     int flare_time_ = 0, chaff_time_ = 0; // $13AB3F, $13AB3E (missiles' decoys)
     std::array<std::optional<Shot>, 10> shots_{};
     std::optional<std::size_t> flare_slot_, chaff_slot_; // `$13AB7C`, `$13AB7D`
+    std::vector<Ended> ended_;
     std::array<std::optional<Missile>, 3> missiles_{};
 };
 

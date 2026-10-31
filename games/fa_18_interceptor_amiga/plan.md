@@ -208,6 +208,12 @@ app has none yet).
   $44/$48/$78; `$24` only at most 128 high, `$128`/`$12C` only above
   192). The demo's final approach now shows the threshold blocks as the
   original (frame 1880).
+- Done 2026-10-31: a record whose explosion ends (and a missile whose
+  time runs out) stays drawn, its plain model where it stopped, until
+  the scene lists are next built (`$11A3F8` asks for no rebuild; the
+  near pass does not look at the active bit). From the code; the
+  rebuild triggers are taken from the aircraft's place, not the camera's,
+  and the pictures were not compared frame by frame.
 - Done 2026-10-31: the ground's specks (`$11C1B4`: grey on the sea,
   black on the land, near a low camera; game.md "The ground's specks").
 - Fixed 2026-10-31: looking up or down from the cockpit drew the
@@ -256,10 +262,6 @@ app has none yet).
   cell) is passed to the polygon drawer and not followed.
 - No objects other than the carrier in free flight (as the original's
   free flight; others come with the modes, tasks 10-11).
-- A missile taken off when it hits still shows where it hit for some
-  frames in the original (demo_trail2, frames 556-564: the drawer's cell
-  lists are not rebuilt at once - hypothesis); the port draws only active
-  records.
 - The smoke slots' timers stop mattering below 0 (the original's word
   wraps after 32,768 frames, about 36 minutes, and would then show a
   column of whatever lies past the shape's lists: not reproduced).

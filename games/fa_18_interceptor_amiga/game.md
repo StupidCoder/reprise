@@ -664,6 +664,20 @@ low-altitude kind) is skipped above 14336 by the coarse passes
 10240 (`$111C84`) and the coarse passes leave its distance at 0
 (`$10FB36`).
 
+**Gone records still drawn** (2026-10-31): the lists are rebuilt only
+on request (`$13AB48`: bits 0, 1 and 3 the three passes): the camera's
+cell, quarter, heading eighth (not while looking down), 8192-unit height
+band or the 160 line changing (`$10F58E`), the look-down flag
+(`$1043F2`), view keys, a record changing fine cells (`$11A6B8`), a
+launch (`$1178C6`, $8C) and the removals `$11AA70` (a hit) and `$117E3C`
+($0C). The explosion's end (`$11A3F8`: the missiles, the cruise missile,
+aircraft on the ground or out of control) clears the record's active
+bit and asks for nothing, and neither the near pass's records
+(`$110006`) nor the snapshot list `$143C72` (active records not filed
+in a visited cell, `$11122C`) look at that bit: the record's model shows
+where it stopped until the next rebuild (`FreeFlight::
+leftovers_tick`, module.cpp).
+
 **Checked** (2026-10-31): the port's three lists equal the original's
 type by type, in order and place, on the start map (60, 27 and 4 + the
 carrier's record) and at demo frames 1840 (the first pass capped from

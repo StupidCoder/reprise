@@ -24,6 +24,7 @@
 #include "ui/vhs.hpp"
 #include <optional>
 #include <algorithm>
+#include <map>
 #include <cmath>
 #include <cstdio>
 #include <random>
@@ -681,8 +682,60 @@ public:
         ++ticks_;
     }
 
+    // $11A3F8: a record whose explosion ends (a missile whose time runs
+    // out too) goes without asking for new scene lists (`$13AB48`), and
+    // the near pass draws its list's records without looking whether they
+    // are still in use: the model stays where it stopped until the lists
+    // are next built - when the camera's cell, quarter, heading eighth or
+    // height band changes, or the view ($10F58E, `$1043F2`, the keys), when
+    // a record changes cells ($11A6B8), a missile is launched ($1178C6) or
+    // a record goes another way ($11AA70, $117E3C). (The camera's place
+    // taken from the aircraft.)
+    void leftovers_tick() {
+        const auto& a = aircraft_;
+        const std::int32_t height = -a.y;
+        const std::vector<std::int32_t> camera{a.x >> 22, a.z >> 22, (a.x >> 20) & 3, (a.z >> 20) & 3,
+                                               std::min(a.attitude.heading / 0xE10, 7), height >> 21,
+                                               height < 0xA000, outside_, look_, viewed_, above_};
+        bool rebuilt = camera != list_camera_;
+        list_camera_ = camera;
+        // Each record in use by its cell (the player's missiles as 100 +
+        // their slot); one that ended keeps no entry and asks for nothing.
+        std::map<int, std::array<std::int32_t, 2>> cells;
+        std::vector<Vehicle> ended;
+        for (const auto& o : others_.objects()) {
+            if (o.active()) {
+                cells[o.record] = {o.craft.x >> 22, o.craft.z >> 22};
+            } else if (std::find(others_.ended().begin(), others_.ended().end(), o.record) != others_.ended().end()) {
+                Vehicle v;
+                v.type = o.shape_type;
+                v.position = {o.craft.x / 256.0, o.craft.y / 256.0, o.craft.z / 256.0};
+                v.body = o.craft.body;
+                ended.push_back(v);
+                list_cells_.erase(o.record);
+            }
+        }
+        for (std::size_t k = 0; k < weapons_.missiles().size(); ++k) {
+            if (const auto& m = weapons_.missiles()[k]) cells[100 + int(k)] = {m->body.x >> 22, m->body.z >> 22};
+        }
+        for (const auto& e : weapons_.ended()) {
+            Vehicle v;
+            v.type = e.missile.type;
+            v.position = {e.missile.body.x / 256.0, e.missile.body.y / 256.0, e.missile.body.z / 256.0};
+            v.body = e.missile.body.body;
+            ended.push_back(v);
+            list_cells_.erase(100 + e.slot);
+        }
+        // A new record, one in another cell or one gone otherwise.
+        if (cells != list_cells_) rebuilt = true;
+        list_cells_ = std::move(cells);
+        if (rebuilt) leftovers_.clear();
+        else leftovers_.insert(leftovers_.end(), ended.begin(), ended.end());
+    }
+
     // The other records (not the carrier, which is drawn by itself).
     void add_objects(std::vector<Vehicle>& vehicles, double t) const {
+        vehicles.insert(vehicles.end(), leftovers_.begin(), leftovers_.end());
         const double back = smooth_ ? 1 - t : 0;
         for (const auto& o : others_.objects()) {
             if (!o.active() || (o.craft.type & 0xF0) == 0x20) continue; // (the carrier: carrier_vehicle)
@@ -1355,6 +1408,9 @@ private:
         }
         before_ = aircraft_;
         weapons_.reset();
+        leftovers_.clear();
+        list_camera_.clear();
+        list_cells_.clear();
         lead_ = {};
         pipper_.reset();
         pipper_next_.reset();
@@ -1870,6 +1926,7 @@ private:
         if (mode_ == FlightMode::practice) lead_tick();
         objects_tick();
         trail_tick();
+        leftovers_tick();
         radar_tick();
         if (events.took_off) airborne_ = true;
         mission_tick();
@@ -2704,6 +2761,9 @@ private:
     Sounds sounds_;
     Carrier carrier_;
     Weapons weapons_{assets_.program, tables_};
+    std::vector<Vehicle> leftovers_;       // records gone but still drawn (leftovers_tick)
+    std::vector<std::int32_t> list_camera_;                  // what the scene lists were last built from:
+    std::map<int, std::array<std::int32_t, 2>> list_cells_;  // the camera, the records' cells
     FlightMode mode_ = FlightMode::free_flight;
     Replay replay_{assets_.demo_controls, assets_.demo_keys};
     int fade_ = 15, fade_ticks_ = 0;    // $13AB90: the screen's fade step (15: full)

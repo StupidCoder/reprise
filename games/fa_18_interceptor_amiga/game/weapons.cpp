@@ -30,6 +30,7 @@ void Weapons::reset() {
     burst_hold_ = 0;
     flare_time_ = chaff_time_ = 0;
     shots_ = {};
+    ended_.clear();
     flare_slot_.reset(); // ($10F1BA)
     chaff_slot_.reset();
     missiles_ = {};
@@ -91,6 +92,7 @@ void Weapons::move_missiles(const Aircraft& player, const FlightRules& rules, So
                             int locked_record, const Autopilot* autopilot) {
     if (flare_time_ > 0) --flare_time_;
     if (chaff_time_ > 0) --chaff_time_;
+    ended_.clear();
     for (auto& slot : missiles_) {
         if (!slot) {
             // A launch asked for takes the first free record; the request
@@ -105,7 +107,10 @@ void Weapons::move_missiles(const Aircraft& player, const FlightRules& rules, So
             sounds.restart_after(8);
             slot = launched(player, stores_.selected, --left);
         }
-        if (!fly_missile(*slot, rules, tables_, locked, locked_record, autopilot)) slot.reset();
+        if (!fly_missile(*slot, rules, tables_, locked, locked_record, autopilot)) {
+            ended_.push_back({int(&slot - missiles_.data()), *slot});
+            slot.reset();
+        }
     }
 }
 

@@ -116,6 +116,10 @@ public:
     // $117C82: its fall and drift.
     void pod_step();
 
+    // The records whose explosion ended in the last step (`$11A3F8`: they
+    // go without asking for new scene lists).
+    const std::vector<int>& ended() const { return ended_; }
+
     // $1185BE ... the objective of mission 3-8 in a frame (`$13AA88` 0).
     // Missions 4 and 7 turn the view to record 4 on the way: the frame
     // before the outcome (`$13AA9E` at 1) the camera goes outside to it,
@@ -172,6 +176,7 @@ private:
     std::optional<WorldObject> pod_; // `$13ABB2`
     std::array<std::optional<Smoke>, 16> smoke_;
     Trail trail_;
+    std::vector<int> ended_;
 };
 
 } // namespace interceptor::game

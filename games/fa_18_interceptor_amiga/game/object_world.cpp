@@ -138,6 +138,7 @@ bool ObjectWorld::step_missile(WorldObject& o, const Frame& frame) {
     rules.flying = frame.flying;
     if (!Weapons::fly_missile(m, rules, tables_, nullptr, -1, &autopilot_, &homing)) {
         a.state &= ~0x0040; // (its time out)
+        ended_.push_back(o.record);
         return false;
     }
     keep(m);
@@ -245,6 +246,7 @@ void ObjectWorld::clear_near() {
 
 bool ObjectWorld::step(const Frame& frame) {
     bool lock_lost = false;
+    ended_.clear();
     if (outcome_wait_ == 0) {
         Records records{frame.player, frame.player_distance, &objects_};
         StepWorld world;
@@ -277,6 +279,7 @@ bool ObjectWorld::step(const Frame& frame) {
                     if (missile || (a.motion & flag::on_ground) || (a.state & 0x8000)) {
                         a.state &= ~(0x0040 | 0x4000 | 0x2000);
                         a.timer = 0x14;
+                        ended_.push_back(o.record);
                         continue;
                     }
                 }
