@@ -153,6 +153,15 @@ loop, audio device, timing, pause menu, notifications and presentation.
   frame. Recreate targets on resize/orientation/device reset and preserve host
   renderer state. Test pointer mapping after changes in aspect and orientation.
 
+Shared touch button artwork is selected with `TouchControl::icon` using
+`platform::ControlIcon`: `arrow_up`, `arrow_down`, `arrow_left`, `arrow_right`,
+`accelerator`, `brake`, `turbo`, `landing_gear`, or `camera`. For example, set
+`button.icon = platform::ControlIcon::brake` and keep `button.label = "Brake"`
+as a text fallback. These are presentation symbols, independent of game action
+IDs. The framework draws antialiased strokes at the overlay's native resolution
+and applies the same idle/pressed opacity as the existing icons. Use `none` for
+a text-only button; games should not bake these icons into their picture.
+
 ## 6. Filters, persistent saves and lifecycle are required
 
 Every game must support framework screen effects, including VHS, whether it
