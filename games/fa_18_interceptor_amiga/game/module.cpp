@@ -52,6 +52,49 @@ constexpr int bogey_text = 88;        // "YOUR VECTOR XXX FOR BOGEY" (mission 3,
 constexpr int carrier_place = 3;      // place 4 ($137CF6's $800E: record 14)
 constexpr int menu_palette = 0;
 
+// Smooth motion: an attitude part of the way (t) from one tick's matrix to
+// the next, turned about the axis between them rather than mixed entry by
+// entry (a quick roll would shrink a mixed matrix). Matrices are rows,
+// $4000 = 1.
+using Turn = std::array<double, 9>;
+Turn turn_between(const std::array<std::int16_t, 9>& from, const std::array<std::int16_t, 9>& to, double t) {
+    Turn a, b;
+    for (std::size_t i = 0; i < 9; ++i) {
+        a[i] = from[i] / 16384.0;
+        b[i] = to[i] / 16384.0;
+    }
+    if (t >= 1 || from == to) return b;
+    // r = a^T b, the turn from one to the other, as an axis and an angle.
+    Turn r{};
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j)
+            for (int k = 0; k < 3; ++k) r[std::size_t(3 * i + j)] += a[std::size_t(3 * k + i)] * b[std::size_t(3 * k + j)];
+    const double c = std::clamp((r[0] + r[4] + r[8] - 1) / 2, -1.0, 1.0);
+    const double angle = std::acos(c);
+    double axis[3] = {r[7] - r[5], r[2] - r[6], r[3] - r[1]};
+    const double length = std::sqrt(axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]);
+    if (length < 1e-9) return t < 0.5 ? a : b; // (none, or half a turn)
+    for (auto& v : axis) v /= length;
+    // Rodrigues' rotation by t of the angle, then a times it.
+    const double s = std::sin(angle * t), cs = std::cos(angle * t), u = 1 - cs;
+    const double x = axis[0], y = axis[1], z = axis[2];
+    const Turn part{cs + x * x * u,     x * y * u - z * s, x * z * u + y * s,
+                    y * x * u + z * s, cs + y * y * u,     y * z * u - x * s,
+                    z * x * u - y * s, z * y * u + x * s, cs + z * z * u};
+    Turn out{};
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j)
+            for (int k = 0; k < 3; ++k) out[std::size_t(3 * i + j)] += a[std::size_t(3 * i + k)] * part[std::size_t(3 * k + j)];
+    return out;
+}
+std::array<std::int16_t, 9> body_between(const std::array<std::int16_t, 9>& from, const std::array<std::int16_t, 9>& to,
+                                          double t) {
+    const auto m = turn_between(from, to, t);
+    std::array<std::int16_t, 9> out;
+    for (std::size_t i = 0; i < 9; ++i) out[i] = std::int16_t(std::lround(std::clamp(m[i] * 16384, -32768.0, 32767.0)));
+    return out;
+}
+
 // Keys of the C64-style matrix the host gives (GameInput::c64_keys).
 namespace key {
 constexpr int backspace = 0, return_key = 1, g = 26, b = 28, z = 12, minus = 43, period = 44, comma = 47,
@@ -257,7 +300,7 @@ public:
                 const auto mix = [t](double a, double b) { return a + (b - a) * t; };
                 self.position = {mix(before_.x, aircraft_.x) / 256.0, mix(before_.y, aircraft_.y) / 256.0,
                                  mix(before_.z, aircraft_.z) / 256.0};
-                self.body = aircraft_.body;
+                self.body = smooth_ ? body_between(before_.body, aircraft_.body, t) : aircraft_.body;
                 const int bottom = above_ ? 0xB3 : outside_bottom; // ($13AC74)
                 const auto view = outside_camera(t);
                 std::vector<Vehicle> vehicles{self, carrier_vehicle()};
@@ -291,7 +334,7 @@ public:
                 const auto mix = [t](double a, double b) { return a + (b - a) * t; };
                 v.position = {mix(before_.x, aircraft_.x) / 256.0, mix(before_.y, aircraft_.y) / 256.0,
                               mix(before_.z, aircraft_.z) / 256.0};
-                v.body = aircraft_.body;
+                v.body = smooth_ ? body_between(before_.body, aircraft_.body, t) : aircraft_.body;
                 self.push_back(v);
             }
             self.push_back(carrier_vehicle());
@@ -2462,6 +2505,7 @@ private:
             c.position = {(before_.x + (aircraft_.x - before_.x) * t) / 256.0, above_height_,
                           (before_.z + (aircraft_.z - before_.z) * t) / 256.0};
             c.matrix = {0xA8 / 256.0, 0, 0, 0, 0, 0xFC / 256.0, 0, -0x80 / 256.0, 0};
+            c.from_above = true;
             return c;
         }
         for (std::size_t i = 0; i < 3; ++i) c.position[i] = chase_was_[i] + (chase_[i] - chase_was_[i]) * t;
@@ -2492,12 +2536,8 @@ private:
     static Camera camera(const Aircraft& was, const Aircraft& now, double t, int look = 0, int zoom = 0x80) {
         Camera c;
         const auto mix = [t](double a, double b) { return a + (b - a) * t; };
-        std::array<double, 9> body{};
-        std::array<double, 9> view{};
-        for (std::size_t i = 0; i < 9; ++i) {
-            body[i] = mix(was.body[i], now.body[i]) / 16384.0;
-            view[i] = mix(was.view[i], now.view[i]) / 16384.0;
-        }
+        auto body = turn_between(was.body, now.body, t);
+        const auto view = turn_between(was.view, now.view, t);
         // The pilot's eye ($10F49E): (0, 5, 20) in the F/A-18, (0, 4, 18) in the F-16.
         const double up = now.type == 0x11 ? 5 : 4, ahead = now.type == 0x11 ? 20 : 18;
         const double eye[3] = {(ahead * view[2] + up * view[1]), (ahead * view[5] + up * view[4]),

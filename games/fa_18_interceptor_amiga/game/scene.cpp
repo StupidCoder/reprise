@@ -11,7 +11,7 @@ namespace {
 using Point = std::array<double, 3>;
 
 constexpr int sky = 5, land = 4, water = 6; // flight palette indices
-constexpr double near_plane = 4;
+constexpr double near_plane = 1.0 / 16;
 constexpr double far_ground = 400000;
 // The scene builder's window of cells around the camera ($1106B4: offsets
 // up to two or three cells): the coarse maps' cells are 65536 units, the
@@ -59,7 +59,41 @@ public:
         std::vector<Point> screen;
         screen.reserve(view.size());
         for (const auto& v : view) screen.push_back({centre_ - 160 * v[0] / v[2], 90 - 90 * v[1] / v[2], v[2]});
+        if (!depth_test) {
+            fill(screen, colour);
+            return;
+        }
         for (std::size_t i = 1; i + 1 < screen.size(); ++i) triangle(screen[0], screen[i], screen[i + 1], colour, depth_test);
+    }
+
+    // A polygon on the screen of any shape, filled row by row between its
+    // edges' crossings taken in pairs (the water's coastlines and some
+    // ground shapes are not convex; a fan of triangles would spill over
+    // their bays). A pixel is in when its centre is.
+    void fill(const std::vector<Point>& screen, int colour) {
+        double low = 1e30, high = -1e30;
+        for (const auto& p : screen) {
+            low = std::min(low, p[1]);
+            high = std::max(high, p[1]);
+        }
+        const int y0 = std::max(0, int(std::floor(low))), y1 = std::min(bottom_, int(std::ceil(high)));
+        std::vector<double> crossings;
+        for (int y = y0; y <= y1; ++y) {
+            const double py = y + 0.5;
+            crossings.clear();
+            for (std::size_t i = 0; i < screen.size(); ++i) {
+                const auto& u = screen[i];
+                const auto& v = screen[(i + 1) % screen.size()];
+                if ((u[1] <= py) == (v[1] <= py)) continue;
+                crossings.push_back(u[0] + (v[0] - u[0]) * (py - u[1]) / (v[1] - u[1]));
+            }
+            std::sort(crossings.begin(), crossings.end());
+            for (std::size_t k = 0; k + 1 < crossings.size(); k += 2) {
+                const int from = std::max(0, int(std::ceil(crossings[k] - 0.5)));
+                const int to = std::min(image_.width - 1, int(std::ceil(crossings[k + 1] - 0.5)) - 1);
+                for (int x = from; x <= to; ++x) plot(x, y, 0, colour, false);
+            }
+        }
     }
 
     void line(const Point& from, const Point& to, int colour) {
@@ -453,36 +487,87 @@ void Scene::draw(IndexedImage& image, int centre, int bottom, const Camera& came
                {eye[0] + far_ground, 0, eye[2] + far_ground}, {eye[0] - far_ground, 0, eye[2] + far_ground}},
               land, false);
     std::vector<Point> corners;
-    // $11F27C: above height $3F8 the coarse grid's cells around the camera
-    // first, then the fine grid's, in a window that shrinks with height.
-    const double height = eye[1] * 256; // (32-bit units, as the original compares)
-    const auto in = [](const std::vector<std::array<int, 2>>& window, int cx, int cz, const std::array<int, 2>& cell) {
-        for (const auto& o : window)
-            if (cell[0] == cx + o[0] && cell[1] == cz + o[1]) return true;
-        return false;
-    };
-    if (height > 0x3F8) {
-        const auto& coarse = world_.coarse_water;
-        const auto x32 = std::int64_t(eye[0] * 256), z32 = std::int64_t(eye[2] * 256);
-        const int cx = int(x32 >> 28) + data::CoarseWater::origin, cz = int(z32 >> 28) + data::CoarseWater::origin;
-        const int qx = 3 - int((x32 >> 26) & 3), qz = 3 - int((z32 >> 26) & 3);
-        const auto& window = coarse.windows[std::size_t(qz * 4 + qx)];
-        for (std::size_t i = 0; i < coarse.polygons.size(); ++i) {
-            if (!in(window, cx, cz, coarse.cell_of[i])) continue;
-            corners.clear();
-            for (const auto& p : coarse.polygons[i].points) corners.push_back({p[0], 0, p[1]});
-            r.polygon(corners, water, false);
-        }
-    }
-    const auto* water_window = height > 0x10000 ? &world_.window_5x5 : height > 0x9000 ? &world_.window_3x3 : nullptr;
-    const int fx = int(std::floor(eye[0] / world_.water.cell_size)), fz = int(std::floor(eye[2] / world_.water.cell_size));
-    for (std::size_t i = 0; i < world_.water.polygons.size(); ++i) {
-        const auto& polygon = world_.water.polygons[i];
-        if (polygon.min_height && eye[1] < *polygon.min_height) continue; // the rest only from that height up
-        if (water_window && !in(*water_window, fx, fz, world_.water.cell_of[i])) continue;
+    const auto paint = [&](const data::WaterPolygon& polygon, std::int32_t height) {
+        // (A threshold: the rest of the cell only from that height up.)
+        if (polygon.min_height && height < *polygon.min_height) return false;
         corners.clear();
         for (const auto& p : polygon.points) corners.push_back({p[0], 0, p[1]});
         r.polygon(corners, water, false);
+        return true;
+    };
+    // $11F27C: the camera's height (`$13AD68`, world units rounded up); at
+    // zoom 2 and 4 (`$13AACD` clear) as if twice and four times as high.
+    const int zoom = int(std::lround(256 * std::sqrt(camera.matrix[6] * camera.matrix[6] +
+                                                     camera.matrix[7] * camera.matrix[7] +
+                                                     camera.matrix[8] * camera.matrix[8])));
+    const int zoom_factor = zoom >= 0x80 ? 0x100 : 0x8000 / std::max(zoom, 2);
+    auto height = std::int32_t(std::ceil(eye[1]));
+    if (zoom < 0x80 && height <= 0x7FFF0) height = ((height >> 4) * zoom_factor) >> 4;
+    const auto x32 = std::int64_t(std::floor(eye[0] * 256)), z32 = std::int64_t(std::floor(eye[2] * 256));
+    // Above $3F8 the coarse grid's cells around the camera first.
+    if (height > 0x3F8) {
+        const auto& coarse = world_.coarse_water;
+        const int cx = int(x32 >> 28) + data::CoarseWater::origin, cz = int(z32 >> 28) + data::CoarseWater::origin;
+        const int qx = 3 - int((x32 >> 26) & 3), qz = 3 - int((z32 >> 26) & 3);
+        const auto& window = (height > 0x5000 ? coarse.windows : coarse.low_windows)[std::size_t(qz * 4 + qx)];
+        for (const auto& o : window) {
+            for (std::size_t i = 0; i < coarse.polygons.size(); ++i) {
+                if (coarse.cell_of[i][0] != cx + o[0] || coarse.cell_of[i][1] != cz + o[1]) continue;
+                if (!paint(coarse.polygons[i], height)) break;
+            }
+        }
+    }
+    // Then the fine grid's cells in the window for the height, the
+    // camera's quarter of its cell and its heading (data::WaterWindows).
+    const auto& grid = world_.water;
+    const auto& windows = world_.water_windows;
+    const int fx = int(x32 >> 24), fz = int(z32 >> 24);
+    const int quarter = (3 - int((x32 >> 22) & 3)) + 4 * (3 - int((z32 >> 22) & 3));
+    const double heading = std::atan2(-camera.matrix[6], camera.matrix[8]) * 180 / 3.14159265358979;
+    const int eighth = std::clamp(int(std::floor((heading < 0 ? heading + 360 : heading) / 45)), 0, 7);
+    static const data::WaterWindows::Window own_cell{{0, 0}}; // ($11F488)
+    const data::WaterWindows::Window* window;
+    if (height > 0x10000) {
+        window = &windows.wide;
+    } else if (height > 0x9000) {
+        window = &windows.middle;
+    } else {
+        bool own_only = false;
+        if (height <= 0x3A0) {
+            const auto& e = windows.own_only[height <= 0x10 ? 2 : height <= 0x160 ? 1 : 0][std::size_t(quarter)];
+            own_only = e[0] < 0 || std::find(e.begin(), e.end(), eighth) != e.end();
+        }
+        const int band = height <= 0x3000 ? 0 : height <= 0x4800 ? 1 : 2;
+        window = own_only ? &own_cell : &windows.low[std::size_t(band)][std::size_t(quarter)][std::size_t(eighth)];
+    }
+    const bool own_far = windows.own_cell_far(fx, fz, std::int32_t(std::ceil(eye[1])), quarter, eighth);
+    std::int64_t reach = windows.far_reach[std::size_t(std::clamp(height >> 8, 0, 17))];
+    if (zoom < 0x80) reach = (reach * zoom_factor) >> 8;
+    reach <<= 16;
+    for (const auto& o : *window) {
+        const int x = fx + o[0], z = fz + o[1];
+        if (x < 0 || z < 0 || x >= grid.cells || z >= grid.cells) continue;
+        const auto& cell = grid.by_cell[std::size_t(z * grid.cells + x)];
+        if (!cell.water) continue;
+        // The simpler version ($11F64A): the camera's own cell where the
+        // table says so, from $C80 down the others whose centre is beyond
+        // the reach along x (a distance with its low 16 bits zero counts
+        // as near: the original tests the word) or along z.
+        bool far = false;
+        if (!camera.from_above) {
+            if (o[0] == 0 && o[1] == 0) {
+                far = own_far;
+            } else if (height <= 0xC80) {
+                const std::int64_t dx = std::abs(-(x32 & 0xFFFFFF) + (std::int64_t(o[0]) << 24) + 0x800000);
+                const std::int64_t dz = std::abs(-(z32 & 0xFFFFFF) + (std::int64_t(o[1]) << 24) + 0x800000);
+                far = dx > reach ? (dx & 0xFFFF) != 0 : dz > reach;
+            }
+        }
+        const auto* polygons = far ? &grid.far_polygons : &grid.polygons;
+        const std::size_t first = far ? cell.far_first : cell.first, count = far ? cell.far_count : cell.count;
+        for (std::size_t i = first; i < first + count; ++i) {
+            if (!paint((*polygons)[i], height)) break;
+        }
     }
     // The scenery in the builder's window. Each object shows the level of
     // detail for its distance; each pass draws only the models meant for it

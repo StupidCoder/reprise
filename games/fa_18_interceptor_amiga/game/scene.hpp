@@ -32,6 +32,7 @@ struct IndexedImage {
 struct Camera {
     std::array<double, 3> position{}; // world units
     std::array<double, 9> matrix{};   // rows x, y, z of camera space (scaled)
+    bool from_above = false;          // the view from above ($13AA9D)
 };
 
 // A moving object to draw (the player's aircraft from outside): its type

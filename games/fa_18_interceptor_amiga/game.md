@@ -311,7 +311,12 @@ The flight view is a filled-polygon 3D renderer driven by the aircraft and
 object state, so a native renderer from game state can widen the field of
 view and draw at 120 Hz with the simulation ticking at the original's rate
 (state interpolation between ticks). The rules (flight model, AI, weapons)
-stay at the original tick: 15 Hz, see "Main loop and timing".
+stay at the original tick: 15 Hz, see "Main loop and timing". Attitudes
+(the player's body and view matrices, for the cockpit camera and the
+aircraft drawn from outside or when looking back) are interpolated by
+turning about the axis between the two ticks' matrices, so the aircraft
+and the camera turn together and a quick roll does not shrink the
+matrix.
 
 ## 3 Data formats
 
@@ -466,7 +471,9 @@ each object's lists in the order its tree gives from the camera, parts
 in list order, later parts over earlier ones; a depth buffer (depth
 linear in 1/z) settles only what is in front between different objects.
 Flat things (ground shapes, flag-2 models such as the airfields' paving)
-are painted first with no depth test, pass by pass and far to near
+are painted first with no depth test (filled row by row between edge
+crossings, so shapes with bays fill right; faces of standing objects
+are split into triangles), pass by pass and far to near
 within a pass (hypothesis: the original's lists run far to near), then
 the aircraft's shadows, then everything standing. Before this a depth
 buffer per face let coplanar ground shapes fight (the city streaked
@@ -615,25 +622,50 @@ cell corner, exactly (`listcheck.py`, `abscheck.py`).
 
 **Water** (`$11F27C`, colour 6 over land, which is the colour-4 ground):
 a fine grid at `$138160` (32 × 32 words, rows z, 64 bytes apart; one
-cell per coarse map cell) and a coarse one at `$137F9C` (8 × 8 words,
-row by row: cells of 2^20 world units, 2^28 in 32-bit units, the world's
-corner at cell (4, 4); points in 1/4096 of a cell, reaching past its
-edges; each cell's long points at its own polygons). `$11F27C` draws,
-when the camera is above height `$3F8` (32-bit units, the zoom applied
-below `$7FFF0`), first the coarse cells of a window around the camera's
-coarse cell (`$11E712`: 16 lists by the camera's quarter of its cell,
-indices into the offset pairs `$11E6E0`; four cells from `$11E812` below
-height `$5000`), then the fine grid's cells: above `$10000` the 5 × 5
-around the camera (`$11E8A2`), above `$9000` 3 × 3 (`$11E852`), lower
-lists by the heading (`$11F1BC`… with `$13AB40`, not rebuilt). A positive
-word is the offset of the cell's data from the grid base; data starting
-with a negative word means no water. Cell data: a long (a simpler
-version for far cells, `$11F6E0`; negative: none), then polygons `count,
-count × (x, z)` in 1/4096 of a cell (`$11F6CE`), until `$FFFF`; a word
-with bit 15 before a count is a height threshold (× 4): that polygon and
-the rest of the cell only from that height up (`$11F73C`). 1024 cells,
-the near versions draw the bay's coastline (`.analysis/fa_18_interceptor_amiga/work/terrain.png`, the
-viewer's world map).
+cell per coarse map cell, 2^24 in 32-bit units) and a coarse one at
+`$137F9C` (8 × 8 words, row by row: cells of 2^20 world units, 2^28 in
+32-bit units, the world's corner at cell (4, 4); points in 1/4096 of a
+cell, reaching past its edges; each cell's long points at its own
+polygons). A positive word is the offset of the cell's data from the
+grid base; data starting with a negative word means no water. Cell
+data: a long (another version of the cell, `$11F6E0`), then polygons
+`count, count × (x, z)` in 1/4096 of a cell (`$11F6CE`), until `$FFFF`;
+a word with bit 15 before a count is a height threshold (× 4): that
+polygon and the rest of the cell only from that height up (`$11F73C`).
+The polygons are not all convex (coastlines with bays).
+
+Which cells `$11F27C` draws (2026-10-31, from the code; data::WaterWindows):
+the height `h` is `-$13AD68`, the camera's height in **world units**
+(rounded up; read from recordings: -646 for a camera y of 165,172/256),
+times 128 / zoom when `$13AACD` is clear (zoom 2 or 4; bit 7 is set at
+zoom 1) and h ≤ $7FFF0. (Earlier notes here took these thresholds as
+32-bit units.) Above h $3F8 the coarse cells of a window around the
+camera's coarse cell first (`$11E712`: 16 lists by the camera's quarter
+of its cell, indices into the offset pairs `$11E6E0`; four cells from
+`$11E812` up to h $5000). Then the fine grid: above $10000 the 5 × 5
+cells around the camera (`$11E8A2`), above $9000 3 × 3 (`$11E852`).
+Lower, the camera's quarter of its cell (`$13AB40` = (3 - x quarter) +
+4 (3 - z quarter), quarters of 2^22 32-bit units, from the record's
+cell words +6, +8, `$10F63C`) and the heading's eighth (`$13AB44`,
+`$119A4C`: `$13AD7E` or the outside camera's `$13AD86` / $E10) pick a
+list: `$11EFBC` (4 bytes a list) up to $3000, `$11ECBC` (6) up to
+$4800, else `$11E8BC` (8), 8 lists per quarter. Up to h $3A0 a table of
+four bytes per quarter (`$11F1BC`; up to $160 `$11F1FC`, up to $10
+`$11F23C`) names the eighths that see only the camera's own cell (a
+negative first byte: every eighth; `$11F488` is the list with that cell
+alone, `$13AB8D` set). The other version of a cell is drawn: for the
+camera's own cell when `$13AB8C` is set (`$113138` on odd frames: the
+table `$113418` by cell z, cell x, a height at most or at least, the
+quarter and the eighth); up to h $C80 for another cell whose centre lies
+farther along x or z than `$11F5D8`[min(h >> 8, 17)] × 2^16 (32-bit
+units; the x distance counts as near when its low word is 0, as the
+original tests only the word); never in the view from above
+(`$13AA9D`). **Checked** against the original's pictures of the demo's
+final approach (frames 1840-1960) and climb (590-650): the land around
+the runway stays green and the bay shows where it does; the recorded
+`$13AB40`, `$13AB44`, `$13AB8C` and `$13AD68` equal the port's inputs.
+1024 cells; the near versions draw the bay's coastline
+(`.analysis/fa_18_interceptor_amiga/work/terrain.png`, the viewer's world map).
 
 **The roads** (`$1197E0`, run once by `$101628` as the game starts,
 2026-10-30): the program on the disk holds zeros for some of the ground
@@ -698,6 +730,13 @@ The camera is the fine cell corner minus `$13AD52` / 256 (`$13AD52`,
 points are scaled by 2^−(low nibble of model byte +6) (`$111E68`).
 One-sided faces are drawn only when (v1 − v0) × (v2 − v0) · v0 < 0 in
 camera space (`$112B1C`).
+Polygons are clipped against the four sides of the view (`$118C02`:
+|x| ≤ z and |y| ≤ z in camera space, after the precision shift
+`$14127C`), not against a near plane: parts of the aircraft's own shape
+a unit or two from the eye still show (the fuselage behind the cockpit
+when looking back, demo frames 140-185, checked against the original's
+pictures). The port clips at a depth of 1/16 and lets the picture's edges
+cut the rest.
 
 **Native view checked** (`viewcheck`, 12 frames of the demo,
 `.analysis/fa_18_interceptor_amiga/work/ref/views/sheet.png`): horizon, sky, land and water, the coastline,
@@ -2523,7 +2562,10 @@ Research files live in `.analysis/fa_18_interceptor_amiga/` (`harness/`,
   `--smoke` the ground hit, explosion and smoke slots: sm2-sm4),
   `trailcheck` (the trail's ring against `--mem 1450B8:50`), `effectshot`
   (the port's view of a recorded frame: camera `$13AD6C` / `$13AEC8`,
-  missiles, explosions, smoke),
+  missiles, explosions, smoke, the aircraft itself outside or looking
+  past the cockpit; recordings work/ref/demo_pics2.jsonl with the
+  original's pictures demopics2/ for the demo's look back and final
+  approach),
   `objectcheck` (missions' records stepped from each recorded frame),
   `areacheck` (the trigger areas: area1-3 equal in every frame),
   `missioncheck` (a mission's world in lockstep: m4a-m8c, "The missions'
@@ -2532,7 +2574,8 @@ Research files live in `.analysis/fa_18_interceptor_amiga/` (`harness/`,
   `hudcheck` (the head-up display for given readings against a
   `screen.py` colour dump: `wp/gun.idx` F/A-18, `f16b.idx` F-16, no pixel
   differs), `fly` (headless module run from the title,
-  pictures and `!wav`; keys: digits, `*` Return, `~` Tab (Esc), `^`
+  pictures, `!sub` four pictures between the step before and that one
+  (smooth motion), and `!wav`; keys: digits, `*` Return, `~` Tab (Esc), `^`
   Ctrl+Tab (Shift-Esc), `_` space, capitals the letter keys, `@ [ ] { }`
   the keypad's 0 4 6 8 2; touch: `?stick=X,Y` held until the next stick
   step, `?throttle=Y`, `?gear`, `?view`, `?tap=X,Y` in picture pixels - quote

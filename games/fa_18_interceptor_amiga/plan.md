@@ -207,8 +207,17 @@ app has none yet).
   original writes the record after a crash is not traced (the port
   writes it with the next mission's completion or the front end's).
 - The view's window of object cells is a square, not the original's
-  octant lists; the fine water grid's window below height $9000 (by
-  heading) draws all cells.
+  octant lists. (The water's cell windows follow the original since
+  2026-10-31.)
+- The water windows' quarter and heading are taken from the camera; the
+  original takes the cockpit's from the aircraft's cell words (+6, +8)
+  and its heading word `$13AD7E` (3,302 of 3,335 demo frames give the
+  same eighth; the rest lie on a 45-degree boundary). The water
+  routine's `-$20` (2 up to height $400, 1 up to $C80, for the camera's
+  cell) is passed to the polygon drawer and not followed.
+- The runway's markings during the demo's final approach (frames
+  1880-1900) differ from the original's (threshold blocks nearer):
+  not traced.
 - No objects other than the carrier in free flight (as the original's
   free flight; others come with the modes, tasks 10-11).
 - A missile taken off when it hits still shows where it hit for some

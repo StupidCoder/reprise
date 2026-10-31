@@ -1080,7 +1080,7 @@ int effect_shot(const std::filesystem::path& content, const std::filesystem::pat
     // the poke: "moved".)
     f.object = hex_field(text, text.find("\"moved\"") != std::string::npos ? "moved" : "obj");
     f.globals = hex_field(text, "glob");
-    const auto objs = hex_field(text, "objs");
+    const auto objs = text.find("\"objs\"") != std::string::npos ? hex_field(text, "objs") : std::vector<std::uint8_t>{};
     const auto smoke = text.find("\"smoke\"") != std::string::npos ? hex_field(text, "smoke") : std::vector<std::uint8_t>{};
     const auto player = aircraft_from(f);
     const Record g{f.globals};
@@ -1089,8 +1089,13 @@ int effect_shot(const std::filesystem::path& content, const std::filesystem::pat
     // (`$13AD6C`: the camera's place, 32-bit units.)
     for (std::size_t k = 0; k < 3; ++k) camera.position[k] = g.s32(0x13AD6C - 0x13A9E0 + 4 * int(k)) / 256.0;
     std::vector<game::Vehicle> vehicles;
-    if (g.u8(0x13AA75 - 0x13A9E0)) { // the outside view: the aircraft itself
+    // The outside view, or a look past the cockpit (`$13AA97` 4-8, 12,
+    // 13): the aircraft itself.
+    const int look = g.u8(0x13AA97 - 0x13A9E0);
+    const bool outside = g.u8(0x13AA75 - 0x13A9E0);
+    if (outside || (look >= 4 && look <= 8) || look >= 12) {
         game::Vehicle self;
+        self.shadow = outside;
         self.type = player.type == 0x10 ? 3 : 4;
         self.position = {player.x / 256.0, player.y / 256.0, player.z / 256.0};
         self.body = player.body;
@@ -2053,7 +2058,7 @@ int hud_check(const std::filesystem::path& content, const std::filesystem::path&
 int fly_script(const std::filesystem::path& content, const std::string& prefix, int argc, char** argv) {
     auto game = interceptor::game::start(content);
     std::map<int, std::string> steps;
-    std::vector<int> shots;
+    std::vector<int> shots, subshots; // `!sub`: four pictures between the step before and this one (smooth motion)
     bool wav = false;
     constexpr int rate = 44100;
     std::vector<float> sound, chunk;
@@ -2065,6 +2070,7 @@ int fly_script(const std::filesystem::path& content, const std::string& prefix, 
         const int tick = std::stoi(step.substr(0, colon));
         const std::string keys = step.substr(colon + 1);
         if (keys == "!png") shots.push_back(tick);
+        else if (keys == "!sub") subshots.push_back(tick);
         else if (keys == "!wav") wav = true;
         else steps[tick] = keys;
         last = std::max(last, tick);
@@ -2140,6 +2146,13 @@ int fly_script(const std::filesystem::path& content, const std::string& prefix, 
         for (const auto& [c, k] : letters) input.c64_keys[std::size_t(k)] = input.c64_keys[std::size_t(k)] || has(c);
         if (std::find(shots.begin(), shots.end(), tick) != shots.end()) {
             platform::save_png(game->picture(), prefix + std::to_string(tick) + ".png");
+        }
+        if (std::find(subshots.begin(), subshots.end(), tick) != subshots.end()) {
+            for (int k = 1; k <= 4; ++k) {
+                game->set_frame_fraction(k / 4.0);
+                platform::save_png(game->picture(), prefix + std::to_string(tick) + "_" + std::to_string(k) + ".png");
+            }
+            game->set_frame_fraction(1);
         }
         game->tick(input);
         if (wav) {

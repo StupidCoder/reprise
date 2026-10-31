@@ -88,7 +88,14 @@ void read_water_cell(const amiga::LoadedImage& m, std::uint32_t at, double x0, d
 constexpr std::uint32_t coarse_water_grid = 0x137F9C; // 8 x 8 words
 constexpr std::uint32_t water_offsets = 0x11E6E0;     // (x, z) byte pairs
 constexpr std::uint32_t coarse_windows = 0x11E712;    // 16 lists of 16 bytes
+constexpr std::uint32_t coarse_low_windows = 0x11E812; // 16 lists of 4 bytes
 constexpr std::uint32_t window_5x5 = 0x11E8A2, window_3x3 = 0x11E852;
+// The low windows by height band: 16 quarters x 8 eighths of 4, 6 or 8 bytes.
+constexpr std::uint32_t low_windows[3] = {0x11EFBC, 0x11ECBC, 0x11E8BC};
+constexpr int low_window_bytes[3] = {4, 6, 8};
+constexpr std::uint32_t own_only_tables[3] = {0x11F1BC, 0x11F1FC, 0x11F23C};
+constexpr std::uint32_t far_reach_table = 0x11F5D8;
+constexpr std::uint32_t own_far_table = 0x113418;
 
 // A window list: offset indices, the last with bit 7 (or $FF ends it).
 std::vector<std::array<int, 2>> read_window(const amiga::LoadedImage& m, std::uint32_t at) {
@@ -117,7 +124,73 @@ CoarseWater read_coarse_water(const amiga::LoadedImage& m) {
             w.cell_of.resize(w.polygons.size(), {x, z});
         }
     }
-    for (std::size_t k = 0; k < w.windows.size(); ++k) w.windows[k] = read_window(m, coarse_windows + std::uint32_t(16 * k));
+    for (std::size_t k = 0; k < w.windows.size(); ++k) {
+        w.windows[k] = read_window(m, coarse_windows + std::uint32_t(16 * k));
+        w.low_windows[k] = read_window(m, coarse_low_windows + std::uint32_t(4 * k));
+    }
+    return w;
+}
+
+// $113158 walks this table: a list of z cells (a negative word ends it)
+// and a word offset per entry to a list of x cells, likewise to the
+// cell's rules: a word (0: the height at most, else at least) and a long
+// height, then quarters - a byte and that quarter's eighths, each list
+// ended by a negative byte - with a negative byte at the end, padded to
+// a word; a negative word ends the rules.
+std::vector<WaterWindows::OwnFar> read_own_far(const amiga::LoadedImage& m) {
+    std::vector<WaterWindows::OwnFar> out;
+    const auto list = [&](std::uint32_t at) {
+        std::vector<std::pair<int, std::uint32_t>> entries;
+        std::uint32_t p = at;
+        while (m.s16(p) >= 0) p += 2;
+        const std::uint32_t offsets = p + 2;
+        for (std::uint32_t i = 0; at + 2 * i < p; ++i)
+            entries.push_back({m.s16(at + 2 * i), own_far_table + std::uint32_t(m.s16(offsets + 2 * i))});
+        return entries;
+    };
+    for (const auto& [z, xs] : list(own_far_table)) {
+        for (const auto& [x, at] : list(xs)) {
+            WaterWindows::OwnFar cell;
+            cell.x = x;
+            cell.z = z;
+            std::uint32_t p = at;
+            for (int guard = 0; guard < 64 && m.s16(p) >= 0; ++guard) {
+                WaterWindows::OwnFar::Rule rule;
+                rule.at_least = m.u16(p) != 0;
+                rule.height = m.s32(p + 2);
+                p += 6;
+                for (int q = m.s8(p++); q >= 0; q = m.s8(p++)) {
+                    std::vector<int> eighths;
+                    for (int e = m.s8(p++); e >= 0; e = m.s8(p++)) eighths.push_back(e);
+                    rule.quarters.push_back({q, eighths});
+                }
+                p = (p + 1) & ~1u;
+                cell.rules.push_back(std::move(rule));
+            }
+            out.push_back(std::move(cell));
+        }
+    }
+    return out;
+}
+
+WaterWindows read_water_windows(const amiga::LoadedImage& m) {
+    WaterWindows w;
+    w.wide = read_window(m, window_5x5);
+    w.middle = read_window(m, window_3x3);
+    for (int band = 0; band < 3; ++band) {
+        for (int quarter = 0; quarter < 16; ++quarter) {
+            for (int eighth = 0; eighth < 8; ++eighth) {
+                const auto at = low_windows[band] +
+                                std::uint32_t(low_window_bytes[band] * (8 * quarter + eighth));
+                w.low[std::size_t(band)][std::size_t(quarter)][std::size_t(eighth)] = read_window(m, at);
+            }
+            for (int k = 0; k < 4; ++k)
+                w.own_only[std::size_t(band)][std::size_t(quarter)][std::size_t(k)] =
+                    m.s8(own_only_tables[band] + std::uint32_t(4 * quarter + k));
+        }
+    }
+    for (std::size_t i = 0; i < w.far_reach.size(); ++i) w.far_reach[i] = m.u16(far_reach_table + std::uint32_t(2 * i));
+    w.own_far = read_own_far(m);
     return w;
 }
 
@@ -125,6 +198,7 @@ WaterGrid read_water(const amiga::LoadedImage& m) {
     WaterGrid grid;
     grid.cells = water_cells;
     grid.cell_size = 65536;
+    grid.by_cell.resize(std::size_t(water_cells * water_cells));
     for (int z = 0; z < water_cells; ++z) {
         for (int x = 0; x < water_cells; ++x) {
             const auto offset = m.s16(water_grid + std::uint32_t(z * water_row_bytes + 2 * x));
@@ -134,12 +208,16 @@ WaterGrid read_water(const amiga::LoadedImage& m) {
             // error trap in normal play; with $13AAA0 set its long ends it).
             if (m.s16(cell) < 0) continue;
             const double x0 = x * grid.cell_size, z0 = z * grid.cell_size;
-            const auto before = grid.polygons.size();
+            auto& c = grid.by_cell[std::size_t(z * water_cells + x)];
+            c.water = true;
+            c.first = grid.polygons.size();
             read_water_cell(m, cell + 4, x0, z0, grid.polygons);
+            c.count = grid.polygons.size() - c.first;
             grid.cell_of.resize(grid.polygons.size(), {x, z});
-            (void)before;
+            c.far_first = grid.far_polygons.size();
             const auto far = m.s32(cell);
             if (far > 0) read_water_cell(m, std::uint32_t(far), x0, z0, grid.far_polygons);
+            c.far_count = grid.far_polygons.size() - c.far_first;
         }
     }
     return grid;
@@ -188,6 +266,22 @@ bool inside(const std::vector<std::array<double, 2>>& points, double x, double z
 
 } // namespace
 
+// $113158: the first rule whose height test fails ends the search; one
+// that passes looks for the quarter, then the eighth.
+bool WaterWindows::own_cell_far(int x, int z, std::int32_t height, int quarter, int eighth) const {
+    for (const auto& cell : own_far) {
+        if (cell.x != x || cell.z != z) continue;
+        for (const auto& rule : cell.rules) {
+            if (rule.at_least ? height < rule.height : height > rule.height) return false;
+            for (const auto& [q, eighths] : rule.quarters) {
+                if (q == quarter && std::find(eighths.begin(), eighths.end(), eighth) != eighths.end()) return true;
+            }
+        }
+        return false;
+    }
+    return false;
+}
+
 // The water test ($11F83A, first part): inside any of the cell's polygons.
 bool World::over_water(double x, double z) const {
     for (const auto& polygon : water.polygons) {
@@ -224,8 +318,7 @@ World read_world(const amiga::LoadedImage& program) {
     world.near = read_map(program, map_near, false);
     world.water = read_water(program);
     world.coarse_water = read_coarse_water(program);
-    world.window_5x5 = read_window(program, window_5x5);
-    world.window_3x3 = read_window(program, window_3x3);
+    world.water_windows = read_water_windows(program);
     return world;
 }
 
