@@ -316,7 +316,11 @@ stay at the original tick: 15 Hz, see "Main loop and timing". Attitudes
 aircraft drawn from outside or when looking back) are interpolated by
 turning about the axis between the two ticks' matrices, so the aircraft
 and the camera turn together and a quick roll does not shrink the
-matrix.
+matrix. A cut of the outside camera (the view entered, a new place
+about the aircraft, a new distance or viewed record) is not eased from
+the old place: between the two steps the camera keeps its new place
+about the aircraft and moves with it (`cut_camera`), as the original
+puts the camera there at once ($11D9AC).
 
 ## 3 Data formats
 

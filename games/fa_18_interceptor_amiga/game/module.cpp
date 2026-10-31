@@ -2269,7 +2269,10 @@ private:
     }
 
     void chase_camera() {
-        if (!outside_) return;
+        if (!outside_) {
+            framing_.reset();
+            return;
+        }
         // ($11D83C: the camera stands while an outcome is awaited.)
         if (others_.waiting()) {
             chase_was_ = chase_;
@@ -2288,15 +2291,37 @@ private:
         chase_was_ = chase_;
         const auto target = chase_target();
         if (!chase_set_) {
-            chase_ = chase_was_ = target;
+            chase_ = target;
             chase_set_ = true;
             aim_camera(keep_aim_ ? 0x7D0 : -1);
             keep_aim_ = false;
+            cut_camera();
+            framing_ = std::array<int, 3>{position_, distance_, viewed_};
             return;
         }
         chase_ = target; // ($11D9AC: the camera takes its place at once)
         aim_camera(aim_now_ ? -1 : 0x7D0);
         aim_now_ = false;
+        // Smooth motion: a cut (a new place about the aircraft, a new
+        // distance or aircraft, the outside view just entered) is shown at
+        // once, not eased over the step from the old place.
+        const std::array<int, 3> framing{position_, distance_, viewed_};
+        if (framing_ != framing) cut_camera();
+        framing_ = framing;
+    }
+
+    // A cut: between the steps the camera keeps its new place about the
+    // viewed aircraft, moving with it as it is drawn (the player's place
+    // between the steps, another record back along its move), and its new
+    // angles.
+    void cut_camera() {
+        const auto& a = viewed();
+        std::array<double, 3> move{a.vx / 256.0, a.vy / 256.0, a.vz / 256.0};
+        if (viewed_ == 0) move = {(aircraft_.x - before_.x) / 256.0, (aircraft_.y - before_.y) / 256.0,
+                                  (aircraft_.z - before_.z) / 256.0};
+        else if (a.state & 0x0400) move = {}; // (blowing up it stands)
+        for (std::size_t i = 0; i < 3; ++i) chase_was_[i] = chase_[i] - move[i];
+        cam_angles_was_ = cam_angles_;
     }
 
     // The outside camera's flight down from the start map to the aircraft
@@ -2660,6 +2685,7 @@ private:
     int look_ = 0;                            // $13AA97: the cockpit's look direction
     Descent descent_;
     std::array<int, 2> cam_angles_{}, cam_angles_was_{}; // $13AD84, $13AD86
+    std::optional<std::array<int, 3>> framing_; // the outside camera's position, distance and record last step
     bool aim_now_ = false;
     int zoom_ = 0x80;                         // $13AD32
     double above_height_ = 0x3000000 / 256.0; // $13AF32 / $13A954
