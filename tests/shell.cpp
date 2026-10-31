@@ -422,6 +422,36 @@ int main(int argc, char** argv) {
                 check(different(b, dragged), "Dragging turns the model");
             }
 
+            // The same viewport gestures work on bitmaps and models, in both layouts.
+            for (int page : {1,4}) for (bool portrait : {false,true}) {
+                importing.set_canvas(portrait ? 640 : 960, portrait ? 1386 : 640);
+                importing.open_details(); importing.open_assets(page); importing.update({},40);
+                importing.update(click(portrait ? 580 : 880,portrait ? 1278 : 548),40);
+                const auto baseline=importing.draw(40);
+                const int cx=portrait ? 320 : 610, cy=portrait ? 750 : 340;
+                platform::Controls gesture;
+                gesture.ui_fingers={{1,float(cx-50),float(cy)},{2,float(cx+50),float(cy)}};
+                importing.update(gesture,40);
+                gesture.ui_fingers={{1,float(cx-100),float(cy+40)},{2,float(cx+100),float(cy+40)}};
+                importing.update(gesture,40);
+                const auto zoomed=importing.draw(40);
+                check(different(baseline,zoomed),"Pinch and two-finger pan change bitmap and model views");
+                importing.update({},40);
+                importing.update(click(portrait ? 580 : 880,portrait ? 1278 : 548),40);
+                const auto reset = importing.draw(40);
+                const int left=portrait?30:310, top=portrait?402:166;
+                const int width=portrait?580:604, height=portrait?838:358;
+                bool equal=true;
+                for(int yy=top;yy<top+height;++yy)
+                    equal &= std::memcmp(&baseline.pixels[yy*baseline.width+left],&reset.pixels[yy*reset.width+left],width*sizeof(platform::Color))==0;
+                check(equal,"Reset restores the fitted asset view");
+                if(portrait) {
+                    const auto pixel=baseline.pixels[1150*640+28];
+                    check(pixel.r==20 && pixel.g==30,"Portrait viewport uses the lower screen");
+                    if(argc==3) platform::save_png(zoomed,std::string(argv[2])+"/asset-portrait-"+std::to_string(page)+".png");
+                }
+            }
+
             std::cout << "Motion, continuous scrolling, moving-card hit testing, flash-free assets and saved preference checks passed.\n";
             return 0;
         }

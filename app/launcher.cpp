@@ -107,6 +107,8 @@ void Launcher::set_canvas(int width, int height) {
     const int logical_height = portrait ? std::clamp(int(640.0 * height / width), 800, 1600) : 640;
     const int logical_width = portrait ? 640 : std::max(640, int(640.0 * std::max(width, 1) / std::max(height, 1)));
     if (portrait_ == portrait && shelf_height_ == logical_height && shelf_width_ == logical_width) return;
+    dragging_ = false; asset_contacts_.clear();
+    asset_zoom_ = 1; asset_pan_x_ = asset_pan_y_ = 0;
     portrait_ = portrait;
     shelf_height_ = logical_height;
     shelf_width_ = logical_width;
@@ -548,7 +550,7 @@ void Launcher::draw_lessons(Image& im) const {
             guide ? "Available before import. Read the rules without starting a game."
                   : "Illustrated explanations and live experiments share this library.",
             308, (516 + dy), 13, theme().muted);
-    s::text(im, "Up / Down or scroll: choose     Enter or click: open     Esc: details", 24, (582 + dy), 14,
+    s::text(im, "Up / Down or scroll: choose     Enter or click: open     Esc: details", 24, (598 + dy), 14,
             theme().muted);
 }
 
@@ -602,7 +604,7 @@ void Launcher::draw_overview(Image &im) const {
             ? "Use Quick save in the pause menu to keep your progress after closing the app."
             : "Persistent saves are not available for this game yet.";
     s::wrap(im, help, (678 + extra_picture), 402, (234 + dx - extra_picture), 7, 16, save_preview_.error.empty() ? theme().muted : s::red);
-    s::text(im, "Up / Down: choose action     Enter: open     Esc: library", 24, (582 + dy), 14, theme().muted);
+    s::text(im, "Up / Down: choose action     Enter: open     Esc: library", 24, (598 + dy), 14, theme().muted);
 }
 void Launcher::draw_identity(Image &im) const {
     const auto &game = library_.games()[selected_];
@@ -685,12 +687,10 @@ void Launcher::draw_details(Image& im) const {
         }
     } else {
         const auto& preview = previews_[page_ - 1];
-        ui::rounded(im, 304, 160, (616 + dx), (370 + dy), 5, {20, 30, 34});
-        if (preview.model) {
-            ui::draw_model(im, 310, 166, (604 + dx), (358 + dy), *preview.model, model_yaw_, model_pitch_);
-            s::text(im, "Drag to turn", 316, (508 + dy), 13, theme().muted);
-        } else {
-            ui::picture(im, preview.image, 310, 166, (604 + dx), (358 + dy));
+        draw_asset(im, preview, 304,160,616+dx,370+dy);
+        if (!preview.sound) {
+            s::text(im, preview.model ? "Drag to turn / Shift-drag to pan" : "Drag to pan / Wheel to zoom", 310,540+dy,13,theme().muted);
+            button(im,"-",768+dx,538+dy,36,34); button(im,"+",812+dx,538+dy,36,34); button(im,"Reset",856+dx,538+dy,64,34);
         }
         if (preview.sound) {
             const bool playing = playback_ && playback_->preview == &preview;
@@ -707,9 +707,9 @@ void Launcher::draw_details(Image& im) const {
             s::text(im, playing ? "Playing - click to stop" : "Click to play", 316, (508 + dy), 13, theme().muted);
         }
     }
-    ui::rect(im, 24, (558 + dy), (912 + dx), 1, theme().line);
-    s::text(im, "Left / Right: pages     Up / Down: scroll files     Esc: details", 24, (582 + dy), 14, theme().muted);
-    s::right(im, std::to_string(page_ + 1) + " / " + std::to_string(pages), (934 + dx), (582 + dy), 14, theme().muted);
+    ui::rect(im, 24, (578 + dy), (912 + dx), 1, theme().line);
+    s::text(im, "Left / Right: pages     Up / Down: scroll files     Esc: details", 24, (598 + dy), 14, theme().muted);
+    s::right(im, std::to_string(page_ + 1) + " / " + std::to_string(pages), (934 + dx), (598 + dy), 14, theme().muted);
 }
 
 namespace {
@@ -916,66 +916,164 @@ void Launcher::stop_sound() {
     playback_.reset();
 }
 
-void Launcher::update_preview(const platform::Controls& raw, double now, Request request) {
-    auto in = raw;
-    if (portrait_) {
-        in.click = in.click && raw.mouse_y >= 320 && raw.mouse_y < shelf_height_ - 24;
-        // The preview panel is 592 x 350 in the portrait reading pane.
-        auto map = [&](int x, int y) { return std::array<int,2>{304 + (x - 24) * 616 / 592, 160 + (y - 396 + document_scroll_) * 370 / 350}; };
-        const auto p = map(in.mouse_x, in.mouse_y); in.mouse_x = p[0]; in.mouse_y = p[1];
-        if (in.ui_pointer) in.ui_pointer = map((*in.ui_pointer)[0], (*in.ui_pointer)[1]);
-    }
-    const Preview* shown = request == Request::none ? shown_preview() : nullptr;
-    const bool in_panel = in.click && in.mouse_x >= 304 && in.mouse_x < 920 + (portrait_ ? 0 : detail_width() - 960) && in.mouse_y >= 160 && in.mouse_y < 530 + (portrait_ ? 0 : detail_height() - 640);
-    // A sound plays only while its own page is shown.
-    if (playback_ && playback_->preview != shown) stop_sound();
-    if (shown && shown->sound && in_panel) {
-        if (playback_) stop_sound();
-        else playback_ = Playback{shown, 0};
-    }
+std::array<int, 4> Launcher::asset_bounds() const {
+    return portrait_ ? std::array<int, 4>{24, 396, 592, std::max(160, shelf_height_ - 536)}
+                     : std::array<int, 4>{304, 160, 616 + detail_width() - 960, 370 + detail_height() - 640};
+}
 
-    // The model view: a slow turn of its own, turned by dragging; a drag's
-    // speed carries on when released and eases back to the slow turn.
+void Launcher::draw_asset(Image &im, const Preview &preview, int x, int y, int w, int h) const {
+    ui::rounded(im, x, y, w, h, 7, {20, 30, 34});
+    x += 6;
+    y += 6;
+    w -= 12;
+    h -= 12;
+    if (preview.model) {
+        ui::draw_model(im, x, y, w, h, *preview.model, model_yaw_, model_pitch_, asset_zoom_, asset_pan_x_,
+                       asset_pan_y_);
+    } else if (preview.sound)
+        ui::picture(im, preview.image, x, y, w, h);
+    else if (preview.image.width > 0 && preview.image.height > 0) {
+        const auto &source = preview.image;
+        const double scale = std::min(double(w) / source.width, double(h) / source.height) * asset_zoom_;
+        const double left = (w - source.width * scale) / 2 + asset_pan_x_,
+                     top = (h - source.height * scale) / 2 + asset_pan_y_;
+        // Sample only inside the viewport, even for very large zoomed bitmaps.
+        for (int yy = 0; yy < h; ++yy)
+            for (int xx = 0; xx < w; ++xx) {
+                const int sx = int(std::floor((xx - left) / scale)), sy = int(std::floor((yy - top) / scale));
+                if (sx >= 0 && sy >= 0 && sx < source.width && sy < source.height)
+                    im.put(x + xx, y + yy, source.pixels[std::size_t(sy) * source.width + sx]);
+            }
+    }
+}
+
+void Launcher::update_preview(const platform::Controls &in, double now, Request request) {
+    const Preview *shown = request == Request::none ? shown_preview() : nullptr;
+    const auto [x, y, w, h] = asset_bounds();
+    auto inside = [&](double px, double py) { return px >= x && px < x + w && py >= y && py < y + h; };
+    if (playback_ && playback_->preview != shown)
+        stop_sound();
     const double dt = model_time_ < 0 ? 0 : std::clamp(now - model_time_, 0.0, 0.1);
     model_time_ = now;
-    if (!shown || !shown->model) {
-        model_preview_ = nullptr;
+    if (model_preview_ != shown) {
+        model_preview_ = shown;
+        asset_zoom_ = 1;
+        asset_pan_x_ = asset_pan_y_ = 0;
+        model_yaw_ = -.6;
+        model_pitch_ = .35;
+        spin_yaw_ = spin_pitch_ = 0;
+        dragging_ = false;
+        asset_contacts_.clear();
+    }
+    if (!shown || in.input_cancelled) {
+        dragging_ = false;
+        asset_contacts_.clear();
+        return;
+    }
+    if (shown->sound) {
+        if (in.click && inside(in.mouse_x, in.mouse_y)) {
+            if (playback_)
+                stop_sound();
+            else
+                playback_ = Playback{shown, 0};
+        }
+        return;
+    }
+    auto zoom = [&](double factor, double px, double py) {
+        const double next = std::clamp(asset_zoom_ * factor, .25, 12.0), ratio = next / asset_zoom_;
+        asset_pan_x_ = (asset_pan_x_ - (px - x - w / 2.0)) * ratio + (px - x - w / 2.0);
+        asset_pan_y_ = (asset_pan_y_ - (py - y - h / 2.0)) * ratio + (py - y - h / 2.0);
+        asset_zoom_ = next;
+    };
+    const int bar = y + h + 8;
+    if (hit(in, x + w - 64, bar, 64, 34)) {
+        asset_zoom_ = 1;
+        asset_pan_x_ = asset_pan_y_ = 0;
+        model_yaw_ = -.6;
+        model_pitch_ = .35;
+        spin_yaw_ = spin_pitch_ = 0;
+    }
+    if (hit(in, x + w - 108, bar, 36, 34))
+        zoom(1.25, x + w / 2.0, y + h / 2.0);
+    if (hit(in, x + w - 152, bar, 36, 34))
+        zoom(.8, x + w / 2.0, y + h / 2.0);
+    if (in.ui_pointer && inside((*in.ui_pointer)[0], (*in.ui_pointer)[1])) {
+        const double wheel = in.wheel_precise ? in.wheel_precise : in.wheel;
+        if (wheel)
+            zoom(std::exp(-wheel * .12), (*in.ui_pointer)[0], (*in.ui_pointer)[1]);
+    }
+    const auto &fingers = in.ui_fingers;
+    if (!fingers.empty()) {
+        if (asset_contacts_.empty() && !inside(fingers[0].x, fingers[0].y))
+            return;
+        if (fingers.size() == asset_contacts_.size() && fingers.size() <= 2 &&
+            fingers[0].id == asset_contacts_[0].id &&
+            (fingers.size() == 1 || fingers[1].id == asset_contacts_[1].id)) {
+            double dx = fingers[0].x - asset_contacts_[0].x, dy = fingers[0].y - asset_contacts_[0].y;
+            if (fingers.size() == 2) {
+                const double cx = (fingers[0].x + fingers[1].x) / 2, cy = (fingers[0].y + fingers[1].y) / 2;
+                const double ox = (asset_contacts_[0].x + asset_contacts_[1].x) / 2,
+                             oy = (asset_contacts_[0].y + asset_contacts_[1].y) / 2;
+                const double before = std::hypot(asset_contacts_[0].x - asset_contacts_[1].x,
+                                                 asset_contacts_[0].y - asset_contacts_[1].y);
+                const double after = std::hypot(fingers[0].x - fingers[1].x, fingers[0].y - fingers[1].y);
+                if (before > 4 && after > 4)
+                    zoom(after / before, ox, oy);
+                dx = cx - ox;
+                dy = cy - oy;
+            }
+            if (fingers.size() == 2 || !shown->model) {
+                asset_pan_x_ += dx;
+                asset_pan_y_ += dy;
+            } else {
+                model_yaw_ += dx * .012;
+                model_pitch_ = std::clamp(model_pitch_ + dy * .012, -1.45, 1.45);
+                if (dt > 0) {
+                    const double keep = std::exp(-dt / .05);
+                    spin_yaw_ = spin_yaw_ * keep + dx * .012 / dt * (1 - keep);
+                    spin_pitch_ = spin_pitch_ * keep + dy * .012 / dt * (1 - keep);
+                }
+            }
+        }
+        asset_contacts_ = fingers;
+        dragging_ = false;
+        if (fingers.size() > 1)
+            spin_yaw_ = spin_pitch_ = 0;
+        return;
+    }
+    if (!asset_contacts_.empty()) {
+        asset_contacts_.clear();
         dragging_ = false;
         return;
     }
-    const double idle_spin = reduced_motion_ ? 0.0 : 0.5; // radians per second
-    if (model_preview_ != shown) {
-        model_preview_ = shown;
-        model_yaw_ = -0.6; model_pitch_ = 0.35;
-        spin_yaw_ = idle_spin; spin_pitch_ = 0;
-        dragging_ = false;
-    }
-    constexpr double radians_per_pixel = 0.012;
-    constexpr double pitch_limit = 1.45;
-    if (in_panel) {
+    if (in.click && !in.mouse_is_touch && inside(in.mouse_x, in.mouse_y)) {
         dragging_ = true;
         drag_last_ = {in.mouse_x, in.mouse_y};
-        spin_yaw_ = spin_pitch_ = 0;
     }
     if (dragging_ && in.mouse_held && in.ui_pointer) {
         const double dx = (*in.ui_pointer)[0] - drag_last_[0], dy = (*in.ui_pointer)[1] - drag_last_[1];
         drag_last_ = *in.ui_pointer;
-        model_yaw_ += dx * radians_per_pixel;
-        model_pitch_ = std::clamp(model_pitch_ + dy * radians_per_pixel, -pitch_limit, pitch_limit);
-        if (dt > 0) {
-            // The release speed: the last few frames' motion, smoothed.
-            const double keep = std::exp(-dt / 0.05);
-            spin_yaw_ = spin_yaw_ * keep + dx * radians_per_pixel / dt * (1 - keep);
-            spin_pitch_ = spin_pitch_ * keep + dy * radians_per_pixel / dt * (1 - keep);
+        if (!shown->model || in.shift_held) {
+            asset_pan_x_ += dx;
+            asset_pan_y_ += dy;
+        } else {
+            model_yaw_ += dx * .012;
+            model_pitch_ = std::clamp(model_pitch_ + dy * .012, -1.45, 1.45);
+            if (dt > 0) {
+                const double keep = std::exp(-dt / .05);
+                spin_yaw_ = spin_yaw_ * keep + dx * .012 / dt * (1 - keep);
+                spin_pitch_ = spin_pitch_ * keep + dy * .012 / dt * (1 - keep);
+            }
         }
         return;
     }
     dragging_ = false;
-    const double ease = std::exp(-dt / 0.9); // inertia: about a second to settle
-    spin_yaw_ = idle_spin + (spin_yaw_ - idle_spin) * ease;
+    const double idle = reduced_motion_ ? 0 : .5;
+    const double ease = std::exp(-dt / .9);
+    spin_yaw_ = idle + (spin_yaw_ - idle) * ease;
     spin_pitch_ *= ease;
-    model_yaw_ = std::remainder(model_yaw_ + spin_yaw_ * dt, 2 * std::numbers::pi);
-    model_pitch_ = std::clamp(model_pitch_ + spin_pitch_ * dt, -pitch_limit, pitch_limit);
+    model_yaw_ = std::remainder(model_yaw_ + dt * spin_yaw_, 2 * std::numbers::pi);
+    model_pitch_ = std::clamp(model_pitch_ + dt * spin_pitch_, -1.45, 1.45);
 }
 
 void Launcher::preview_audio(std::span<float> stereo, int rate) {
@@ -1038,8 +1136,7 @@ Launcher::Request Launcher::update_portrait_details(const platform::Controls& ra
         if (hit(raw, 452, y + 156, 136, 42)) { in.click = true; in.mouse_x = confirm_x; in.mouse_y = dialog_button_y; }
         return update_confirm(in, now);
     }
-    const bool interactive_asset = documentation_ && !about_ && !lessons_ && page_ > 0 && shown_preview() &&
-        (shown_preview()->model || shown_preview()->sound);
+    const bool interactive_asset = documentation_ && !about_ && !lessons_ && page_ > 0 && shown_preview();
     if (!interactive_asset && raw.click && raw.mouse_y >= 320) {
         document_press_ = {raw.mouse_x, raw.mouse_y};
         document_drag_y_ = raw.mouse_y; document_dragged_ = false;
@@ -1058,7 +1155,8 @@ Launcher::Request Launcher::update_portrait_details(const platform::Controls& ra
             document_press_.reset();
         }
     }
-    document_scroll_ += raw.wheel * 64 + (int(raw.page_down) - int(raw.page_up)) * (shelf_height_ - 360);
+    if (!interactive_asset) document_scroll_ += raw.wheel * 64 + (int(raw.page_down) - int(raw.page_up)) * (shelf_height_ - 360);
+    else { document_scroll_ = 0; document_press_.reset(); }
     if ((!documentation_ || about_) && !doc_navigation_)
         document_scroll_ += (int(raw.nav_down) - int(raw.nav_up)) * 40;
     document_scroll_ = std::clamp(document_scroll_, 0, std::max(0, document_height_ - (shelf_height_ - 344)));
@@ -1180,11 +1278,14 @@ Image Launcher::draw_portrait_details() const {
             }
         } else {
             const auto& preview = previews_[page_ - 1];
-            ui::rounded(body, 24, y, 592, 350, 7, {20,30,34});
-            if (preview.model) ui::draw_model(body, 30, y + 6, 580, 338, *preview.model, model_yaw_, model_pitch_);
-            else ui::picture(body, preview.image, 30, y + 6, 580, 338);
-            y += 366;
-            if (preview.model) paragraph("Drag to turn", 17, theme().muted);
+            const int height=asset_bounds()[3];
+            draw_asset(body,preview,24,y,592,height);
+            y+=height+8;
+            if (!preview.sound) {
+                s::text(body,preview.model ? "Drag to turn / Pinch to zoom" : "Drag to pan / Pinch to zoom",32,y+8,15,theme().muted);
+                button(body,"-",464,y,36,34);button(body,"+",508,y,36,34);button(body,"Reset",552,y,64,34);
+                y+=42;
+            }
             if (preview.sound) paragraph(playback_ ? "Playing — tap to stop" : "Tap the waveform to play", 17, theme().muted);
             paragraph(std::to_string(page_ + 1) + " / " + std::to_string(previews_.size() + 1), 15, theme().muted);
         }

@@ -156,6 +156,8 @@ struct Controls {
     // The fingers touching the screen after this poll (touch screens; in the last game frame's
     // units), for games with gestures of several fingers such as a pinch.
     std::vector<Finger> fingers;
+    // Touch contacts in the same logical coordinates as ui_pointer.
+    std::vector<Finger> ui_fingers;
     // The device's accelerometer while a game asks for it (Host::set_motion_wanted): the
     // direction away from the earth in G (1 at rest), in the window's axes (x right, y up, z out
     // of the screen) whichever way the display is turned. Empty without one (desktops).

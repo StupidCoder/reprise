@@ -591,7 +591,11 @@ Controls Host::poll() {
             }
         }
     }
+    int touch_width = 1, touch_height = 1;
+    SDL_GetWindowSize(i.window, &touch_width, &touch_height);
     for (const auto& [id, at] : i.fingers) {
+        if (i.ui_shown && SDL_RenderCoordinatesFromWindow(i.renderer, at[0] * touch_width, at[1] * touch_height, &rx, &ry))
+            input.ui_fingers.push_back({std::uint64_t(id), rx, ry});
         if (const auto point = i.frame_point(at[0], at[1])) {
             input.fingers.push_back({std::uint64_t(id), (*point)[0], (*point)[1]});
         }

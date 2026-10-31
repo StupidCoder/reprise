@@ -61,7 +61,7 @@ platform::Color shade(platform::Color colour, float light) {
 
 } // namespace
 
-void draw_model(platform::Image& image, int x, int y, int w, int h, const Model& model, double yaw, double pitch) {
+void draw_model(platform::Image& image, int x, int y, int w, int h, const Model& model, double yaw, double pitch, double zoom, double pan_x, double pan_y) {
     if (model.points.empty() || w <= 0 || h <= 0) return;
     // Fit: centre of the bounding box, radius of the farthest point.
     std::array<float, 3> low{}, high{};
@@ -91,14 +91,14 @@ void draw_model(platform::Image& image, int x, int y, int w, int h, const Model&
     };
     // The camera sits 3 radii in front; the whole sphere fits the shorter side.
     constexpr float distance = 3.0f;
-    const float scale = float(std::min(w, h)) * 0.5f * std::sqrt(distance * distance - 1) * 0.95f;
+    const float scale = float(std::min(w, h)) * 0.5f * std::sqrt(distance * distance - 1) * 0.95f * float(zoom);
     std::vector<std::array<float, 3>> view;
     std::vector<Projected> screen;
     for (const auto& p : model.points) {
         const auto v = turn(p);
         const float depth = distance - v[2];
         view.push_back(v);
-        screen.push_back({float(w) / 2 + v[0] * scale / depth, float(h) / 2 - v[1] * scale / depth, depth});
+        screen.push_back({float(w) / 2 + float(pan_x) + v[0] * scale / depth, float(h) / 2 + float(pan_y) - v[1] * scale / depth, depth});
     }
 
     Viewport port{image, x, y, w, h, std::vector<float>(std::size_t(w) * std::size_t(h), std::numeric_limits<float>::max())};

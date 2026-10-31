@@ -27,6 +27,6 @@ struct Model {
 // Draws `model` into (x, y, w, h) of `image`, turned by `yaw` (about the
 // vertical axis) and then `pitch` (about the horizontal), in radians.
 // Faces are shaded by their angle to a light behind the viewer.
-void draw_model(platform::Image& image, int x, int y, int w, int h, const Model& model, double yaw, double pitch);
+void draw_model(platform::Image& image, int x, int y, int w, int h, const Model& model, double yaw, double pitch, double zoom = 1, double pan_x = 0, double pan_y = 0);
 
 } // namespace ui

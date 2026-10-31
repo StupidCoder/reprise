@@ -175,6 +175,10 @@ private:
     bool audio_cut_{};
     const Preview* model_preview_{}; // the model the angles below belong to
     double model_yaw_{}, model_pitch_{}, spin_yaw_{}, spin_pitch_{}, model_time_{-1};
+    double asset_zoom_{1}, asset_pan_x_{}, asset_pan_y_{};
+    std::vector<platform::Finger> asset_contacts_;
+    std::array<int, 4> asset_bounds() const;
+    void draw_asset(platform::Image&, const Preview&, int x, int y, int w, int h) const;
     bool dragging_{};
     std::array<int, 2> drag_last_{};
 };
