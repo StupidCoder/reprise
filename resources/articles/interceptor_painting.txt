@@ -1,0 +1,35 @@
+# Painting the Hornet
+
+A low-polygon aircraft can be harder to draw correctly than it looks. In an outside view, a wing must disappear into the fuselage while the tail remains visible beyond it. In an early Reprise rendering, these joins broke into jagged overlaps. The geometry was not simply missing: the renderer was asking the wrong question about which surface should win.
+
+!figure plane
+
+## A model is also a drawing recipe
+
+Interceptor stores points and polygon descriptions, but also a decision tree that selects polygon lists. Each list describes an ordered collection of drawing operations. The tree changes which lists are visited, and in which sequence, depending on the camera's relationship to the aircraft. The picture is built through that sequence: later paint can cover earlier paint.
+
+Use View to move between eight teaching viewpoints, alternately above and below the aircraft. Next layer restarts the build-up, then adds one list at a time on the right. The left-hand aircraft shows the complete walk. These are the imported Hornet's faces, with explanatory outlines and an orthographic camera, so they remain easy to inspect. They are not screenshots of the Amiga game: decorative lines and dots are omitted, and the outlines are added by the lesson.
+
+## Which side of the plane are you on?
+
+For the Hornet, the important decisions use three model points to define a plane. Their relative positions define a perpendicular direction, called a normal. Comparing that direction with the camera tells the tree which branch to follow. Move to the other side and the answer can change. The resulting list order is selected from the game's data rather than guessed by sorting faces by their average distance.
+
+!figure order
+
+The diagram shows the lists reached by the selected view. The numbers identify lists within this imported shape; they are not meaningful names such as left wing or cockpit. Blue entries have been included in the partial construction. One entry may paint several faces. This is why advancing a single layer can change more than one visible region of the aircraft.
+
+## A hidden face can stop a whole list
+
+There is another decision inside the list. Some faces are visible from only one side. When such a face is seen from behind, the original stops that polygon list, rather than merely skipping the face and continuing. Other faces can use different colours on their two sides. These rules matter together: the tree selects an order, and the individual drawing operations decide what that order actually paints.
+
+Try an above-aircraft view and the following below-aircraft view. Watch both the list sequence and the accumulating silhouette. There is no requirement that every step add an obvious new patch: a face can be hidden, overwritten, or part of a list that stops. A draw sequence is a recipe, not a promise that every ingredient remains visible in the final picture.
+
+## Why a depth buffer was not enough
+
+A conventional depth buffer decides visibility separately at each pixel, preferring the closest surface. That is useful, but it does not automatically reproduce artwork authored around ordered overpainting. Reprise previously let the aircraft's faces compete independently, producing unwanted joins between wings, stabilizers and body. The fix respects the imported order within each object. Its depth buffer now resolves visibility between different standing objects; flat ground surfaces use their own ordered passes.
+
+This distinction is important: it does not mean that the Amiga original secretly used Reprise's depth-buffer scheme. That is a modern implementation choice. The original evidence establishes the shape tree and list behaviour; Reprise uses those rules to recover the intended object appearance inside its portable renderer.
+
+## Evidence and scope
+
+The original Hornet's 21 transformed model points were checked against its running point cache. The ordering rules were reconstructed from the original program, and the recent renderer correction follows them. This lesson shares that ordering interpreter with the game, but simplifies projection and drawing for inspection. Other scenery uses additional plane and axis tests; some axis interpretations remain hypotheses and are not the subject of this Hornet experiment.

@@ -2549,3 +2549,15 @@ Research files live in `.analysis/fa_18_interceptor_amiga/` (`harness/`,
   ring), `demo_start` (the demo from the menu's 1 with the bogey), `m4a`-`m8c` (missions 4-8), `fc*.jsonl`, `sd2`, `cr5`, `td1-3`, `wpm`, `wpg`, `wpa`, flash
   timing `flash_cr4.txt`, message bitplanes `msg7.idx`/`msg8.idx`,
   reference screenshots.
+
+## 8 Reprise technical lessons (2026-10-31)
+
+The Documentation / Lessons browser now explains the Hornet's draw ordering,
+startup-built roads and player flight model. Detailed section-to-evidence links
+and laboratory limits: [technical lesson evidence](../../docs/articles/interceptor-technical.md).
+These are illustrated articles with small isolated experiments, not new claims
+of whole-game equivalence. The plane shares the game renderer's draw-order
+interpreter; road coordinates use `road_points`; flight comparisons call `fly`
+on fresh states. No save or pilot data is changed. The road-offset comment's
+“160 degrees” was corrected to about 110 degrees from atan2(241,-88), without
+changing the original integer arithmetic.

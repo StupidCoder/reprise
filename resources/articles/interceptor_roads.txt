@@ -1,0 +1,37 @@
+# The roads that start as zeros
+
+Imagine opening a game's scenery data and finding that several points of its roads are all at the origin. Drawing those coordinates literally will not reveal the city you remember. Interceptor expects a preparation step: before the flight begins, it calculates road points and places them into the model data that its drawing operations will later consume.
+
+This is a useful distinction when reconstructing a game. A file is not always a complete, ready-to-render scene. It can contain both the ingredients of a shape and space reserved for results. Missing-looking coordinates may be an instruction to investigate initialization, rather than evidence that the original artwork is damaged.
+
+!figure road
+
+## Two endpoints, three results
+
+A road record contains two stored endpoints, A and B, in the horizontal x/z plane, followed by three coordinate pairs to fill. The original startup routine follows a list of offsets to runs of these records. It knows where each run ends from its sentinel. The lesson reads the endpoints from your imported program and uses the same road-point builder as the game for the three results.
+
+Choose another Road to inspect a different record. Step 0 shows the stored A-to-B direction. Subsequent steps reveal the generated points and the offsets that produced them. The diagram preserves the relative geometry within that record and fits it to the panel. The inset enlarges the offsets around A, which can be tiny beside a whole segment. It is a top view, with x to the right and z upwards; it does not show the complete city's placement or the final road-surface polygon.
+
+## Give a direction a standard length
+
+The builder first takes the vector from A to B. A vector describes both direction and length; here the game wants the direction but a prescribed working length of 46. Its vector-scaling routine uses a table-assisted length estimate. This is the same family of arithmetic used elsewhere in the game's 3D work, not a modern floating-point normalization substituted by the lesson.
+
+That scaling is the key to understanding why the offsets do not simply grow with a longer road. The endpoints carry the segment's extent, while the normalized working vector supplies a consistent local construction. Integer rounding remains part of the result. A perfectly smooth geometric formula may come close and still fail to generate the original coordinates.
+
+## Turn the vector into corners
+
+Two combinations of the scaled vector use the coefficients -88 and 241, divided by 256 through integer shifts. They produce oppositely turned offsets. The first two generated points add those offsets to A; the third subtracts the first offset from B. Rather than guessing a generic perpendicular road strip, Reprise follows this recovered construction, including its rounding and signed-word results.
+
+!figure records
+
+The table is a direct before-and-after comparison for the chosen record. Its left column comes from the imported program, and its right column comes from the startup builder. The record and point totals are calculated from your import. The examined version produced 120 points, all of which the game agent compared successfully with the running original's memory. This is stronger evidence than a road that merely looks plausible from a distance.
+
+## Initialization and drawing are different jobs
+
+Once generated, the coordinates are used by the city blocks' parallelogram and line operations. Some drawing operations can derive another corner from an existing trio, so storing every final polygon vertex is unnecessary. The startup routine supplies the points those operations need; the renderer still has to interpret the drawing lists and put the results in the right order.
+
+The practical symptom was very visible: without the generated points, city blocks lost their roads. With the points supplied, a reconstructed city view matched a comparison made from the original camera. The road builder is not laying out a new random city. For a given imported program it deterministically prepares geometry that the existing scenery expects.
+
+## Evidence and scope
+
+The startup call, record layout, coefficients and all 120 generated points are documented in the game's research notes. This lesson invokes the reconstructed builder and displays real stored endpoints. The blue construction lines are explanatory additions, not original artwork. We can show what the mechanism does without claiming an undocumented reason the developer chose this representation, or a measured memory saving for the whole city.

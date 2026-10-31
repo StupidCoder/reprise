@@ -378,3 +378,24 @@ instances, per-file reuse, changed timestamps/sizes/manifests, missing assets,
 malformed receipts and an unwritable cache. It also demonstrates the deliberate
 limit: edits that preserve both size and timestamp cannot be detected by this
 optimization. Receipts can be removed to force a full checksum pass.
+
+### Interceptor technical lessons (2026-10-31)
+
+Three illustrated articles with isolated experiments: Hornet polygon-list order,
+startup-built road points and the player flight model. The ordering interpreter
+is shared with the renderer; the road builder and flight step are reused without
+altering gameplay or saves. Evidence map: `docs/articles/interceptor-technical.md`.
+
+Real imported-data checks passed at 960x640, 640x1138 and 1422x640: experiment
+selection, held-fire edge behaviour, fractional wheel, touch drag, page keys,
+end clamping and resize position. The eight Hornet viewpoints exercise four
+actual list orders. The imported roads contain 40 records and 120 generated
+points; all 120 stored coordinate pairs are zero. All three launcher entries,
+open-lesson resizing and touch return navigation passed. Rendered article
+figures and endings were inspected; polygon-list overflow, road magnification
+and time-axis label placement were corrected during review.
+
+Android ARM64 APK built and passed signature verification; the three packaged
+article files match their sources. Physical Android rendering remains a device
+follow-up. The original-runtime comparisons cited by the articles belong to
+the game agent's recorded research, not new runs claimed by these UI tests.

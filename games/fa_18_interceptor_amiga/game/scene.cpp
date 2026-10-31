@@ -1,3 +1,4 @@
+#include "fa_18_interceptor_amiga/game/draw_order.hpp"
 #include "fa_18_interceptor_amiga/game/scene.hpp"
 #include "fa_18_interceptor_amiga/game/attitude.hpp"
 #include "fa_18_interceptor_amiga/game/flight_tables.hpp"
@@ -209,7 +210,7 @@ data::BuiltPoints road_points(const amiga::LoadedImage& program) {
     // ground shapes' point blocks: a road's two ends A and B (x, z words;
     // x $FFFF ends the run), then three points it fills in: the corners of
     // the road's strip, from the direction A -> B made 46 long ($119CAE)
-    // and turned both ways by about 160 degrees (cos -88/256, sin 241/256):
+    // and turned both ways by about 110 degrees (cos -88/256, sin 241/256):
     // A + one turn, A + the other, B - the first.
     constexpr std::uint32_t table = 0x139B74;
     const auto tables = read_flight_tables(program);
@@ -279,41 +280,9 @@ namespace {
 template <class Place>
 void paint_shape(Raster& r, const data::Shape& shape, const Point& origin, const Place& place, const Point& eye,
                  bool depth) {
-    using Kind = data::DrawNode::Kind;
-    std::vector<int> order;
-    if (shape.tree.empty()) {
-        for (int i = 0; i < shape.lists; ++i) order.push_back(i);
-    } else {
-        int at = 0;
-        for (int guard = 0; at >= 0 && guard < 512; ++guard) {
-            const auto& node = shape.tree[std::size_t(at)];
-            switch (node.kind) {
-            case Kind::leaf:
-                order.insert(order.end(), node.lists.begin(), node.lists.end());
-                at = node.stop ? -1 : node.next;
-                break;
-            case Kind::facing:
-                at = r.faces_camera({place(node.points[0]), place(node.points[1]), place(node.points[2])}) ? node.first
-                                                                                                            : node.second;
-                break;
-            case Kind::plane: {
-                const auto& p = node.points[0];
-                const auto& n = node.points[1];
-                const double side = (origin[0] + p.x - eye[0]) * n.x + (origin[1] + p.y - eye[1]) * n.y +
-                                    (origin[2] + p.z - eye[2]) * n.z;
-                at = side < 0 ? node.first : node.second;
-                break;
-            }
-            case Kind::axis: {
-                const auto& p = node.points[0];
-                const double model = (node.axis == 0 ? p.x : node.axis == 1 ? p.y : p.z) * shape.scale;
-                const double camera = eye[std::size_t(node.axis)] - origin[std::size_t(node.axis)];
-                at = (camera < model) != node.invert ? node.second : node.first;
-                break;
-            }
-            }
-        }
-    }
+    const auto order = shape_draw_order(shape, [&](const auto& points) {
+        return r.faces_camera({place(points[0]), place(points[1]), place(points[2])});
+    }, origin, eye);
     // Each list's parts in their order.
     struct Part {
         int order;

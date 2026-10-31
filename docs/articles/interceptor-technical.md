@@ -1,0 +1,103 @@
+# F/A-18 Interceptor: technical lesson evidence
+
+Three responsive SDL articles with limited, reproducible experiments. Authored
+2026-10-31 from this repository's original-file research, not external game
+reverse engineering. No original assets are bundled with the articles.
+
+## Source and reconstruction boundary
+
+- User ADF: `FA-18 Interceptor (1988)(Electronic Arts)[cr A-Ha].adf`,
+  SHA-256 `e28e94698d68d0d2d3f009a67597a6bb70083e3ff2e4aea6c79369b76f93bfa2`.
+- Imported `program`, 331,232 bytes, SHA-256
+  `d7301e20958548f9b5f1ba744f8ff91fef476306c220eb886e7c90bac2802ffa`.
+- Existing research: `games/fa_18_interceptor_amiga/game.md`, sections 2–4 and 7;
+  renderer/road correction commit `0b7389c`. That agent's original execution
+  checks are attributed below; this lesson work does not claim to have rerun
+  every original capture.
+- Reader text: `resources/articles/interceptor_{painting,roads,flight}.txt`.
+  Implementation: `games/fa_18_interceptor_amiga/lessons/technical_lessons.*`.
+
+## Painting the Hornet
+
+| Reader subject / figure | Evidence and implementation |
+| --- | --- |
+| Points plus a draw recipe | Shape decoding in `data/shapes.*`; draw-list tree at `$112650`, face test `$112B1C`, polygon lists `$11284E` |
+| Camera chooses ordering | Hornet type 4; decoded `DrawNode` points/branches/leaves; `game/draw_order.hpp` extracted without changing branch logic from `Scene::paint_shape` |
+| One-sided face stops list | `$113836` and `Scene::paint_shape`; two-sided back colours retained |
+| Jagged overlap correction | `0b7389c`, `game.md` “The port's renderer”; ordering within objects, depth buffer between standing objects, separate flat passes |
+| `plane` | Actual imported type-4 polygon corners; shared order interpreter; one-sided list termination; orthographic teaching camera, added outlines, lines/dots deliberately omitted |
+| `order` | Actual reached polygon-list identifiers; dynamic panel shows every list, even ones with no visible faces |
+
+The lesson's dot-product face test uses model coordinates and the eye position;
+rigid camera rotation leaves its sign invariant. It is an explanatory projection,
+not a pixel-match claim. Eight viewpoints alternate above/below while orbiting.
+List IDs are decoder-local identifiers, not guesses at named aircraft parts.
+Existing research checked 21/21 Hornet transformed points against the running
+original (`harness/pointcheck.py`). Axis-based scenery tests have hypotheses in
+the research notes; this lesson stays with the Hornet's facing tree.
+
+## Roads that start as zeros
+
+| Reader subject / figure | Evidence and implementation |
+| --- | --- |
+| Startup, rather than damaged files | Original `$1197E0`, called by `$101628`; record-offset list `$139B74` |
+| Stored endpoints and results | 20-byte records: A/B x,z then three generated pairs; `game::road_points` |
+| Scaling and offsets | `$119CAE` / `$1108C4`, `scaled_vector`; length 46; coefficients -88 and ±241, shifts by eight |
+| `road` | Endpoints read from imported program, generated coordinates returned by the same builder as `Scene`; full-segment view plus magnified A-end inset |
+| `records` | Original coordinate pairs versus generated coordinate pairs, with counts computed from the import |
+| Consumers | City parallelogram opcode `$78` and line opcode `$12C`; `data/shapes.cpp` |
+
+Existing agent evidence: 120/120 generated points matched the running original;
+city comparisons used the original camera via `sceneshot` / `F18_CAMERA`.
+This turn independently reads 40 records / 120 points and confirms all 120 stored
+pairs are `(0,0)`. It does not call that a new original-runtime comparison.
+A code comment said “about 160 degrees”; the coefficient pair atan2(241,-88)
+is about 110 degrees. Corrected the comment only; construction arithmetic is
+unchanged. No claimed author intent, random-city generation, or whole-game
+compression saving. The drawn offset lines are annotations, not surface polygons.
+
+## Flight model
+
+| Reader subject / figure | Evidence and implementation |
+| --- | --- |
+| Digital input ramps and response | `$10DFD2`, `$10557C`, `read_controls`, `ramp_inputs`, `respond`; table `$1327B8` |
+| Attitude, bank turn | `$122526`, `$1226B8`, `attitude.cpp`; imported sine/arcsine and bank-turn tables |
+| Power, fuel and speed | `$105ED4`, `$106A32`, `run_engine`; gear, brake and afterburner rules |
+| Climb/sink | `$11AC14`, `$11ABC8`, `$11AB88`; `climb_and_sink`; 31 sink buckets, capped index |
+| Momentum/contact | `$106B0E`, `move` and its signed integer smoothing; gear/belly/deck heights and touchdown checks |
+| `response`, `sink` | Imported tables with explicitly internal units, discrete samples joined for readability |
+| `flight`, `bank` | Two isolated calls of the real `game::fly` system, 120 ticks each, 15 Hz; selected two-second input pulse versus neutral |
+
+Laboratory initial state: `start_at_place(...,0)` for F/A-18 defaults, then
+height `0x200000` (8192 world units), airborne flags, gear `0xE0`, zero attitude,
+rebuilt body/view matrices, engine speed and airspeed `0x1000` (4096 internal
+units), velocity `(0,0,16384)`, original starting fuel. Throttle preset 60 or
+120; no afterburner. Neutral/pull-up/right-roll for ticks 0–29, neutral thereafter.
+Each edit resets both runs. No module, save API, pilot record, world contacts,
+mission logic or random number generator is touched. Graph y scales fit both
+runs and are labelled; signed bank angle can wrap at half a turn.
+
+Original-flight evidence recorded by the game agent: `flightcheck` fc1 159/159,
+fc2 258/259, fc3 196/198, fc4 238/239, with listed mismatches on key-event ticks;
+F-16 f16a 328/328. Soft landings and water-contact coverage are narrower. The
+article does not treat the laboratory plots as original captures or claim that
+all aircraft physics has been proven identical.
+
+## Validation commands and scope
+
+- `interceptor_lesson_checks` verifies packaged titles, evidence sections and
+  figure references without game assets (also in GitHub's macOS checks).
+- `interceptor_lesson_checks <installed-content> <temporary-captures>` exercises
+  real-data pages at 960x640, 640x1138 and 1422x640, experiment selection, held-fire
+  edge handling, fractional wheel, touch drag, page keys and end/resize clamps.
+- `shell_checks --interceptor-lessons <installed-content>` checks all three
+  browser entries, resizing an open chapter and touch return to the browser.
+  Its temporary library links the supplied content; no original import is copied
+  or written, and the temporary validation cache is removed afterwards.
+- `./build-android.sh --jobs 6` checks portable compilation and APK packaging.
+  A built APK is not a physical-device rendering or performance test.
+
+Screenshots belong in temporary output, not the repository. Review includes
+all article endings, polygon-list overflow, road-inset label placement and graph
+axis alignment. Future changes to the underlying flight or geometry reconstruction
+must be checked against these explanations and their scope statements.

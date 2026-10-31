@@ -1,0 +1,41 @@
+# What makes the Hornet fly?
+
+Pull back and the nose rises, but the aircraft does not immediately travel along that new heading. Speed, turning, sink and the previous movement all matter. Interceptor creates this behaviour through several interacting rules and imported lookup tables. Understanding those connections is more revealing than calling it either a realistic simulator or a simple arcade model.
+
+The experiment below runs the actual reconstructed flight step on a fresh, isolated Hornet. It starts airborne, level, with the gear up, full starting fuel and a prescribed speed. Blue receives the selected input for two seconds and then releases it; grey remains neutral. Both run for eight seconds at fifteen ticks per second. Neither touches your aircraft, pilot record or saved state.
+
+!figure flight
+
+## A switch becomes a gradual response
+
+The original joystick directions are digital, but the aircraft does not jump instantly to its maximum turn rate. Pitch and rudder inputs ramp towards their limits in single steps; roll ramps in larger steps towards a larger limit. Those accumulated inputs select values from a response table. Further rules ease and decay angular rates, and ground handling changes the response again.
+
+!figure response
+
+This plot reads the player's response samples from your imported program. It shows the first twenty positive input magnitudes, covering the pitch input range; roll can reach farther into the table. The joined line helps reveal the shape of the data, but is not a claim that the original evaluates a continuous curve. Negative input uses the opposite sign. Reprise's optional analog stick changes the requested deflection while retaining the reconstructed response machinery.
+
+## Turning the body, then moving through space
+
+Pitch, heading and bank are related through the aircraft's orientation. The reconstruction rotates its body matrix using the angular rates and obtains the resulting angles through the imported trigonometric tables. Bank also contributes to turning, with rules that change as the aircraft approaches a steep pitch. Holding right is therefore more than moving the model sideways across the screen.
+
+!figure bank
+
+Choose Bank right and compare blue with neutral grey. The pulse ends after two seconds, yet the state already accumulated by the aircraft continues to matter. The vertical scale is calculated from both runs and labelled in signed degrees; changing input can change that scale. A wrap at the signed half-turn boundary is an angle representation change, not an instantaneous teleport of the aircraft.
+
+## Power, speed and sink feed each other
+
+Throttle changes the engine's speed model, but its result also depends on altitude and attitude, the gear, speed brake and afterburner state. Fuel is consumed, and exhaustion affects power. A climb-angle correction contributes to airspeed, while a separate imported table supplies sink according to an airspeed bucket. These relationships are game rules, not a numerical solution of airflow around every wing surface.
+
+!figure sink
+
+The sink chart displays the actual table values. Airspeed selects a bucket in steps of 128 internal units, with the index capped at the last entry. The values are labelled in table units rather than being presented as metres per second. The live experiment uses the rest of the flight system as well; this one chart alone cannot predict a complete trajectory.
+
+## Momentum and the ground
+
+The movement step aims velocity along the aircraft's forward direction and eases the old velocity towards it, approximately by a quarter of the difference, with integer rounding and special handling near zero. Sink modifies vertical motion. Ground contact then depends on gear or belly height, surface state and touchdown conditions. Nose direction and travel direction can consequently differ during a manoeuvre.
+
+Use the throttle button to compare settings of 60 and 120. Each choice resets both runs to the same initial airborne state; it does not resume an earlier experiment. These are laboratory inputs, not a replay captured from an Amiga. The lesson leaves out world collisions, missions, the carrier and the rest of the live game's orchestration so that the player's flight step is the focus.
+
+## Evidence and scope
+
+The reconstruction was checked tick by tick against recorded original flights, including takeoff, pulling up, rolls, throttle changes, braking and stalls. Several recordings match completely; others have documented mismatches on key-event ticks. Soft landings and some water-contact behaviour have narrower coverage. Reprise advances the simulation at the original's fifteen-step cap while drawing can run faster; a stock A500 often ran the same simulation more slowly. The plots show this reconstruction, not proof that every flight condition is already identical.

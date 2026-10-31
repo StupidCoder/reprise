@@ -328,6 +328,7 @@ target_compile_options(tower_of_babel_amiga PRIVATE ${PROJECT_WARNINGS})
 
 # --- fa_18_interceptor_amiga: F/A-18 Interceptor (Amiga) ----------------------
 add_library(fa_18_interceptor_amiga
+    games/fa_18_interceptor_amiga/lessons/technical_lessons.cpp
     games/fa_18_interceptor_amiga/entry.cpp
     games/fa_18_interceptor_amiga/data/assets.cpp
     games/fa_18_interceptor_amiga/data/preview.cpp
@@ -586,6 +587,10 @@ add_dependencies(reprise reprise_resources)
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(interceptor_lesson_checks tests/interceptor_lessons.cpp)
+    target_link_libraries(interceptor_lesson_checks PRIVATE fa_18_interceptor_amiga)
+    add_dependencies(interceptor_lesson_checks reprise_resources)
+    add_test(NAME interceptor_lessons COMMAND interceptor_lesson_checks)
     add_executable(library_cache_checks tests/library_cache.cpp app/library.cpp)
     target_link_libraries(library_cache_checks PRIVATE platform)
     target_compile_options(library_cache_checks PRIVATE ${PROJECT_WARNINGS})

@@ -1,5 +1,6 @@
 #include "app/launcher.hpp"
 #include "app/catalog.hpp"
+#include "fa_18_interceptor_amiga/lessons/technical_lessons.hpp"
 #include "stunt_car_racer_amiga/lessons/technical_article.hpp"
 #include "mindwalker_amiga/game/player_guide.hpp"
 #include "bruce_lee_c64/game/room_chapter.hpp"
@@ -41,6 +42,11 @@ constexpr LessonEntry marble_lessons[] = {
     {"Inside the black marble", "Follow imported routes, inspect patrol and chase decisions, and experiment with momentum.", "Decision diagram + live laboratory"},
     {"How Silly Race bends the rules", "Reverse the slope response, chase the critters and inspect the course-specific surprises.", "Illustrated explanation + live laboratory"},
 };
+constexpr LessonEntry interceptor_lessons[] = {
+    {"Painting the Hornet", "Walk the imported draw tree and build the aircraft one polygon list at a time.", "Illustrated article + experiment"},
+    {"The roads that start as zeros", "Follow stored endpoints into the road corners generated at startup.", "Illustrated article + experiment"},
+    {"What makes the Hornet fly?", "Explore input ramps, flight tables and motion with isolated physics runs.", "Illustrated article + experiment"},
+};
 constexpr LessonEntry stunt_lessons[] = {
     {"A world measured in angles", "How bearings, elevation and roll turn the imported road into a cockpit view.", "Illustrated article"},
     {"A car balanced on three springs", "Road sampling, suspension, grip and the forces behind a convincing landing.", "Illustrated article"},
@@ -63,6 +69,7 @@ std::span<const LessonEntry> lessons_for(const GameEntry& game) {
     if(game.id=="bruce_lee_c64") return lessons;
     if(game.id=="marble_madness_amiga") return marble_lessons;
     if(game.id=="stunt_car_racer_amiga") return stunt_lessons;
+    if(game.id=="fa_18_interceptor_amiga") return interceptor_lessons;
     return {};
 }
 constexpr const char* filters[] = {"All games", "Continue playing", "Commodore classics", "Sonic collection", "Layton collection"};
@@ -506,7 +513,9 @@ void Launcher::open_lesson(double now) {
     if(!library_.installed(selected_)) {show_error("Import your copy to open this lesson.",now);return;}
     try {
         const auto path=library_.content_directory(selected_);
-        if(library_.games()[selected_].id=="stunt_car_racer_amiga")
+        if(library_.games()[selected_].id=="fa_18_interceptor_amiga")
+            chapter_=std::make_unique<interceptor::lessons::TechnicalLesson>(path,lesson_selected_);
+        else if(library_.games()[selected_].id=="stunt_car_racer_amiga")
             chapter_=std::make_unique<stuntcar::lessons::TechnicalArticle>(path,lesson_selected_);
         else if(library_.games()[selected_].id=="marble_madness_amiga")
             chapter_=std::make_unique<marble_madness::game::MechanicsChapter>(path,lesson_selected_);

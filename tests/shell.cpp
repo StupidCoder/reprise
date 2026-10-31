@@ -1,6 +1,7 @@
 // Interaction checks against the real catalog, without importing or changing any
 // user data. A fake module isolates menu navigation from game rules.
 #include "app/catalog.hpp"
+#include "fa_18_interceptor_amiga/lessons/technical_lessons.hpp"
 #include "stunt_car_racer_amiga/lessons/technical_article.hpp"
 #include "mindwalker_amiga/game/player_guide.hpp"
 #include "marble_madness_amiga/game/mechanics_chapter.hpp"
@@ -44,6 +45,27 @@ platform::Controls click(int x, int y) {
 }
 int main(int argc, char** argv) {
     try {
+        if (argc == 3 && std::string(argv[1]) == "--interceptor-lessons") {
+            const auto root=std::filesystem::temp_directory_path() / ("reprise-interceptor-browser-"+std::to_string(SDL_GetTicksNS()));
+            std::filesystem::create_directories(root/"games");
+            std::filesystem::create_directory_symlink(std::filesystem::absolute(argv[2]),root/"games/fa_18_interceptor_amiga");
+            app::Library library(root,app::catalog());
+            const auto& games=library.games();
+            const auto found=std::find_if(games.begin(),games.end(),[](const auto& g){return g.id=="fa_18_interceptor_amiga";});
+            check(found!=games.end(),"Interceptor is catalogued");
+            app::Launcher browser(library);browser.select(std::size_t(found-games.begin()));browser.open_details();browser.open_lessons();
+            const auto same=[](const platform::Image& a,const platform::Image& b){return a.width==b.width&&a.height==b.height&&std::memcmp(a.pixels.data(),b.pixels.data(),a.pixels.size()*sizeof(platform::Color))==0;};
+            for(int chapter=0;chapter<3;++chapter){
+                browser.set_canvas(960,640);browser.update(click(450,210+chapter*106),0);
+                interceptor::lessons::TechnicalLesson expected(argv[2],chapter);
+                check(same(browser.draw(1),expected.draw()),"Browser opens selected Interceptor lesson");
+                browser.set_canvas(640,1138);expected.set_canvas(640,1138);
+                check(same(browser.draw(2),expected.draw()),"Open Interceptor lesson resizes");
+                browser.update(click(30,30),3);
+                check(!same(browser.draw(4),expected.draw()),"Touch back returns to lesson list");
+            }
+            std::filesystem::remove_all(root);std::cout<<"Interceptor lesson browser passed\n";return 0;
+        }
         if (argc == 3 && std::string(argv[1]) == "--stunt-lessons") {
             const auto root=std::filesystem::temp_directory_path()/
                 ("reprise-stunt-browser-"+std::to_string(SDL_GetTicksNS()));
