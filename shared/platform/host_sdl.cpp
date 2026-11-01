@@ -33,7 +33,7 @@ struct Host::Implementation {
     int game_width{}, game_height{}; // that frame's size in pixels
     bool game_draws_pointer{};       // the game shows its own pointer
     bool press_in_game{};            // a press began over the game frame (pointer events)
-    std::map<SDL_FingerID, std::array<float, 2>> fingers; // touching now (render coordinates)
+    std::map<SDL_FingerID, std::array<float, 2>> fingers; // touching now (normalized window coordinates)
     // The accelerometer (set_motion_wanted), closed while no game asks; whether the sensor
     // subsystem was started and none was found.
     SDL_Sensor* accelerometer{};
@@ -377,7 +377,8 @@ Controls Host::poll() {
             input.mouse_dy += event.motion.yrel;
         }
         if (event.type == SDL_EVENT_FINGER_DOWN || event.type == SDL_EVENT_FINGER_MOTION) {
-            SDL_ConvertEventToRenderCoordinates(i.renderer, &event);
+            // Keep normalized window positions until poll's final mapping. Converting
+            // here and scaling by window size again makes UI gestures miss their viewport.
             i.fingers[event.tfinger.fingerID] = {event.tfinger.x, event.tfinger.y};
         }
         if (event.type == SDL_EVENT_FINGER_UP || event.type == SDL_EVENT_FINGER_CANCELED) {
@@ -608,9 +609,10 @@ Controls Host::poll() {
     int touch_width = 1, touch_height = 1;
     SDL_GetWindowSize(i.window, &touch_width, &touch_height);
     for (const auto& [id, at] : i.fingers) {
-        if (i.ui_shown && SDL_RenderCoordinatesFromWindow(i.renderer, at[0] * touch_width, at[1] * touch_height, &rx, &ry))
-            input.ui_fingers.push_back({std::uint64_t(id), rx, ry});
-        if (const auto point = i.frame_point(at[0], at[1])) {
+        if (!SDL_RenderCoordinatesFromWindow(i.renderer, at[0] * touch_width, at[1] * touch_height, &rx, &ry))
+            continue;
+        if (i.ui_shown) input.ui_fingers.push_back({std::uint64_t(id), rx, ry});
+        if (const auto point = i.frame_point(rx, ry)) {
             input.fingers.push_back({std::uint64_t(id), (*point)[0], (*point)[1]});
         }
     }

@@ -688,3 +688,12 @@ if(NOT ANDROID)
     add_executable(captain_toad_module_probe EXCLUDE_FROM_ALL tools/captain_toad_module_probe.cpp)
     target_link_libraries(captain_toad_module_probe PRIVATE captain_toad_module ui)
 endif()
+
+if(BUILD_TESTING AND NOT ANDROID)
+    add_executable(host_touch_checks tests/host_touch.cpp)
+    target_link_libraries(host_touch_checks PRIVATE platform)
+    target_compile_options(host_touch_checks PRIVATE ${PROJECT_WARNINGS})
+    add_test(NAME host_touch_coordinates COMMAND host_touch_checks)
+    set_tests_properties(host_touch_coordinates PROPERTIES
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+endif()
