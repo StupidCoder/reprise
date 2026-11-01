@@ -60,14 +60,16 @@ class Module final : public app::GameModule {
         controls.left = input.left;
         controls.right = input.right;
         controls.fire = input.fire;
-        // Touch: steering bottom left, the accelerator bottom right. While
-        // the game waits for fire (PRESS FIRE after the crane, or at the
-        // end) the accelerator gives it, as there is no fire button.
+        // Touch: steering bottom left, the accelerator bottom right and the
+        // boost (fire, held with the accelerator) above it. While the game
+        // waits for fire (PRESS FIRE after the crane, or at the end) the
+        // accelerator gives it too.
         bool touch_accelerate = false;
         for (const auto& v : input.touch_controls) {
             if (v.id == "left") controls.left = controls.left || v.held;
             if (v.id == "right") controls.right = controls.right || v.held;
             if (v.id == "accelerate") touch_accelerate = v.held;
+            if (v.id == "boost") controls.fire = controls.fire || v.held;
         }
         if (touch_accelerate) {
             const auto& c = race_->player();
@@ -184,6 +186,7 @@ class Module final : public app::GameModule {
         };
         return {button("left", "LEFT", Icon::arrow_left, .02f, .70f, .15f, .26f),
                 button("right", "RIGHT", Icon::arrow_right, .19f, .70f, .15f, .26f),
+                button("boost", "BOOST", Icon::turbo, .81f, .40f, .17f, .19f),
                 button("accelerate", "GAS", Icon::accelerator, .81f, .62f, .17f, .34f)};
     }
 

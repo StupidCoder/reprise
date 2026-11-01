@@ -108,7 +108,8 @@ Next:
 - [ ] Sound effects (engine, impacts).
 - [x] Touch controls (phones and tablets without a gamepad): left and right
       bottom left, the accelerator bottom right (it also gives fire while
-      the game waits for it: PRESS FIRE). Not yet tried on a device.
+      the game waits for it: PRESS FIRE), the boost (fire, held with the
+      accelerator) above it. Not yet tried on a device.
 - [ ] Keyboard and gamepad controls; quick saves of real state;
       VHS/screen filter; cheats (e.g. no damage, practice any track).
 - [ ] Multiplayer (up to seven players taking turns, "Enter another
