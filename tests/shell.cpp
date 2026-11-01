@@ -161,7 +161,7 @@ int main(int argc, char** argv) {
                                    "spindizzy_worlds_amiga",
                                    "beach_volley_amiga", "spy_mouse_ios",
                                    "sonic_gg", "sonic2_gg", "triple_trouble_gg", "sonic_advance_gba",
-                                   "curious_village_ds", "pandoras_box_ds", "lost_future_ds", "spectres_call_ds", "miracle_mask_3ds", "azran_legacy_3ds"}) {
+                                   "curious_village_ds", "pandoras_box_ds", "lost_future_ds", "spectres_call_ds", "miracle_mask_3ds", "azran_legacy_3ds", "captain_toad_3ds"}) {
                 const auto& games = library.games();
                 const auto found = std::find_if(games.begin(), games.end(), [&](const auto& e) { return e.id == id; });
                 check(found != games.end(), "Article game is catalogued");

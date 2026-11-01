@@ -110,6 +110,8 @@ std::vector<GameEntry> catalog() {
     // App-owned editorial articles also load from Android's packaged assets.
     struct Article { const char* id; const char* title; const char* sources; };
     constexpr Article articles[] = {
+        {"captain_toad_3ds", "Small worlds, big discoveries",
+         "Shinya Hiratake and Koichi Hayashida interviews: GameSpot and Nintendo Life (2014), Miiverse (2015), Polygon via Nintendo Everything (2018); Nintendo."},
         {"bruce_lee_c64", "A fortress, a rival and an Atari inheritance",
          "Electronic Games, November 1984; Retro Gamer 145, 2015; Reprise's C64 research."},
         {"stunt_car_racer_amiga", "The jump that became a racing game",
@@ -280,6 +282,9 @@ std::vector<GameEntry> catalog() {
         game.collection = Collection::none;
         game.integration_pending = true;
         game.progress = "Coming to Reprise";
+        game.history_title = "Small worlds, big discoveries";
+        game.history = "Nintendo built the miniature-stage concept around a character who could not jump. Captain Toad's backpack made him a natural fit, and the 3DS adaptation later pursued the appeal of viewing these tiny worlds in stereoscopic depth.";
+        game.history_sources = "Hiratake and Hayashida interviews: Nintendo Life (2014), Polygon via Nintendo Everything (2018).";
         games.push_back(std::move(game));
     }
     // Apply articles after every collection and standalone game has been added.

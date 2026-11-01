@@ -231,3 +231,9 @@ The four handheld Sonic development stories have a separate
 All six Layton adventures now have seven-paragraph development stories. See
 [the paragraph-to-source map and evidence notes](layton-collection.md).
 This completes expanded development-story coverage for the current 24-game catalog.
+
+## Captain Toad: Treasure Tracker
+
+The pending 3DS title has a seven-paragraph story, **Small worlds, big discoveries**.
+See its [paragraph-to-source map and evidence limits](captain-toad.md).
+The article is available before importing or connecting the game engine.
