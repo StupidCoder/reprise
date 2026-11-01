@@ -61,15 +61,15 @@ class Module final : public app::GameModule {
         controls.right = input.right;
         controls.fire = input.fire;
         // Touch: steering bottom left, the accelerator bottom right and the
-        // boost (fire, held with the accelerator) above it. While the game
-        // waits for fire (PRESS FIRE after the crane, or at the end) the
-        // accelerator gives it too.
+        // boost above it (fire and the accelerator together, as both are
+        // hard to hold at once). While the game waits for fire (PRESS FIRE
+        // after the crane, or at the end) the accelerator gives it too.
         bool touch_accelerate = false;
         for (const auto& v : input.touch_controls) {
             if (v.id == "left") controls.left = controls.left || v.held;
             if (v.id == "right") controls.right = controls.right || v.held;
-            if (v.id == "accelerate") touch_accelerate = v.held;
-            if (v.id == "boost") controls.fire = controls.fire || v.held;
+            if (v.id == "accelerate") touch_accelerate = touch_accelerate || v.held;
+            if (v.id == "boost" && v.held) controls.fire = touch_accelerate = true;
         }
         if (touch_accelerate) {
             const auto& c = race_->player();
