@@ -17,3 +17,13 @@ SHA-256 of the shipped files (relative to the project root):
 # AAC decoder tables (Spy Mouse music)
 
 Spy Mouse's music is HE-AAC; its decoder (`games/spy_mouse_ios/src/media`) is written for Reprise, but the standard's code tables in `aac_tables.cpp` are derived from the Android Open Source Project's PacketVideo AAC decoder (platform/frameworks/base, tag android-4.0.4_r2.1, media/libstagefright/codecs/aacdec; Copyright (C) 1998-2009 PacketVideo), under the Apache License 2.0: `AOSP-AAC-tables.txt`.
+
+
+## Embedded 3DS reconstruction
+
+`games/captain_toad_3ds` incorporates the user's Diorama reconstruction at
+`0816c17a53afe613a0fea728872645c727120699`, under its MIT license
+(`Captain-Toad-engine-MIT.txt`). The source manifest pins the original files.
+No original game images or extracted assets are distributed with this code.
+
+- Captain Toad material compilation: glslang 16.6.0 (glslang.txt) and SPIRV-Cross vulkan-sdk-1.4.328.1 (SPIRV-Cross.txt), pinned source archives in games/captain_toad_3ds/CMakeLists.txt. Statically linked on macOS and Android.

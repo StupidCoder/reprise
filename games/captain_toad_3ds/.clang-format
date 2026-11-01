@@ -1,0 +1,27 @@
+# Code style for Diorama (based on the sibling BlueStreak project). Run clang-format on src/ after
+# editing; it changes layout only (the recovered arithmetic keeps its operation order).
+BasedOnStyle: LLVM
+IndentWidth: 4
+ColumnLimit: 120
+AccessModifierOffset: -4
+PointerAlignment: Left
+ReferenceAlignment: Left
+InsertBraces: true
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Never
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortLambdasOnASingleLine: Inline
+AllowShortCaseLabelsOnASingleLine: false
+AlwaysBreakTemplateDeclarations: Yes
+BreakBeforeTernaryOperators: true
+Cpp11BracedListStyle: true
+FixNamespaceComments: true
+NamespaceIndentation: None
+IncludeBlocks: Preserve
+SortIncludes: Never
+ReflowComments: false
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 1
+SpacesBeforeTrailingComments: 3
+IndentCaseLabels: false

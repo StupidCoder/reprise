@@ -1,3 +1,5 @@
+#include "captain_toad_3ds/reprise/import.hpp"
+#include "captain_toad_3ds/reprise/module.hpp"
 #include "app/catalog.hpp"
 #include <algorithm>
 #include "platform/resources.hpp"
@@ -270,8 +272,7 @@ std::vector<GameEntry> catalog() {
         }
         games.push_back(std::move(game));
     }
-    // Reserved identity for the upcoming Diorama integration. Keep this ID and cover
-    // when replacing the placeholder with the connected module's entry.
+    // Embedded opening scene; retain the stable shelf identity and editorial artwork.
     {
         GameEntry game;
         game.id = "captain_toad_3ds";
@@ -280,8 +281,12 @@ std::vector<GameEntry> catalog() {
         game.release_year = 2018;
         game.description = "Tiny worlds hide big adventures. Guide Captain Toad through miniature gardens, towers and twisting paths, looking around every corner for hidden treasure and a route to the star. With a heavy backpack and no jump to rely on, finding the way is a puzzle of its own.";
         game.collection = Collection::none;
-        game.integration_pending = true;
-        game.progress = "Coming to Reprise";
+        game.import_into = captain_toad::reprise::import_into;
+        game.largest_image = 536870912;
+        game.media = "the unencrypted European Nintendo 3DS cartridge image (CCI/3DS)";
+        game.start = captain_toad::reprise::opening;
+        game.saves_note = "Opening preview: progress is not saved yet. Each play starts at the opening.";
+        game.progress = "Playable opening scene. Course book and later courses are not connected yet. Move with arrows or the left stick; Z/A acts, X/B runs; I/J/K/L or the right stick turns the camera, Q/E or shoulders rotate it. Escape opens Reprise’s menu.";
         game.history_title = "Small worlds, big discoveries";
         game.history = "Nintendo built the miniature-stage concept around a character who could not jump. Captain Toad's backpack made him a natural fit, and the 3DS adaptation later pursued the appeal of viewing these tiny worlds in stereoscopic depth.";
         game.history_sources = "Hiratake and Hayashida interviews: Nintendo Life (2014), Polygon via Nintendo Everything (2018).";

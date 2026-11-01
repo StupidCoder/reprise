@@ -471,6 +471,10 @@ int run(const Options& options) {
                 }
                 input.motion = controls.motion;
                 input.analog_stick = controls.analog_stick;
+                input.camera_stick = controls.camera_stick;
+                input.face_x=controls.face_x;input.face_y=controls.face_y;
+                input.shoulder_left=controls.shoulder_left;input.shoulder_right=controls.shoulder_right;
+                input.trigger_left=controls.trigger_left;input.trigger_right=controls.trigger_right;
                 input.tilt = tilt;
                 if (!layout.empty() && controls.mouse_is_touch) {
                     input.pointer=false; input.mouse_button=false;

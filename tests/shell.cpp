@@ -843,7 +843,7 @@ int main(int argc, char** argv) {
             shell.select(i); const auto image = shell.draw(2);
             check(image.width == 960 && image.height == 640, "All cards must render in logical canvas");
             const auto& game=library.games()[i];
-            if (!game.integration_pending) check(game.release_year >= 1983 && game.release_year <= 2015, "Every release needs its platform year");
+            if (!game.integration_pending) check(game.release_year >= 1983 && game.release_year <= 2026, "Every release needs its platform year");
             if (!game.integration_pending) check(!game.description.empty() && !game.history.empty() && !game.history_sources.empty(), "Every game needs sourced editorial content");
             shell.open_details();
             const auto overview = shell.draw(2);

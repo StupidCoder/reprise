@@ -1,0 +1,37 @@
+{
+  "date": "2026-11-01",
+  "platform": "macOS Apple silicon",
+  "backends": [
+    "Metal/MSL",
+    "Vulkan/SPIR-V (MoltenVK)"
+  ],
+  "android": "NDK compile only; no physical-device rendering claim",
+  "probe_source_sha256": "b01b22234fec3ca152f062bbfa8a64eb0718d232b6909353f8fcb73d2c6977de",
+  "probe_binary_sha256": "0d12dc767296803072ace948d8f21d5e7447ac047e301239efc291650dcf7fb4",
+  "captures": {
+    "metal": {
+      "320-depth.png": "11154af4c126981dc1014e990942ea05095209e18579f9133b3795e0587897d3",
+      "320-stencil.png": "778a0efc7d9a34d34a4f73eeda7c7d6f42a320002815e0c4680c39bd0edbacff",
+      "517-depth.png": "7c1d002da34cb03e3578245ea00d8328c15ec490fa0dfe20baf0d8d39172eab9",
+      "517-stencil.png": "8ac7d5551b9facd9dbaf97390f222e19cc94e4ea00793a675f6e88f7b4903fcb",
+      "filtered-overlay.png": "fcfd917872a0e5d19e84f03f56eaec6b4c5281ecec7840b47c8541463e447ee4"
+    },
+    "vulkan": {
+      "320-depth.png": "11154af4c126981dc1014e990942ea05095209e18579f9133b3795e0587897d3",
+      "320-stencil.png": "778a0efc7d9a34d34a4f73eeda7c7d6f42a320002815e0c4680c39bd0edbacff",
+      "517-depth.png": "7c1d002da34cb03e3578245ea00d8328c15ec490fa0dfe20baf0d8d39172eab9",
+      "517-stencil.png": "8ac7d5551b9facd9dbaf97390f222e19cc94e4ea00793a675f6e88f7b4903fcb",
+      "filtered-overlay.png": "fcfd917872a0e5d19e84f03f56eaec6b4c5281ecec7840b47c8541463e447ee4"
+    }
+  },
+  "assertions": [
+    "sampled texture",
+    "depth occlusion",
+    "stencil restriction",
+    "repeated GPU submissions",
+    "target resize",
+    "raw capture",
+    "recovery after capture draw exception"
+  ],
+  "filter_regression": "screen_effect_check: native-resolution independence and adaptive rasters passed; four levels GPU/CPU worst mean 0.000; filter off before/after mean 0.000"
+}

@@ -59,6 +59,9 @@ struct GameInput {
     std::vector<platform::Finger> fingers{};
     // The device's accelerometer (Controls::motion) for a game that asks for it (wants_motion).
     std::optional<std::array<float, 3>> motion{};
+    // Console camera and face/shoulder controls, independent of legacy keyboard aliases.
+    std::optional<std::array<float, 2>> camera_stick{};
+    bool face_x{}, face_y{}, shoulder_left{}, shoulder_right{}, trigger_left{}, trigger_right{};
     std::optional<std::array<float, 2>> analog_stick{}; // physical stick, [-1,1], y down
     std::vector<platform::TouchValue> touch_controls{}; // named game-owned actions
     std::optional<std::array<float, 2>> tilt{}; // calibrated, smoothed, [-1,1], y down

@@ -175,7 +175,7 @@ struct Host::Implementation {
             texture = nullptr;
         }
         if (!texture) {
-            texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, width, height);
+            texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_TARGET, width, height);
             if (!texture) throw std::runtime_error(SDL_GetError());
             SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_NEAREST);
         }
@@ -506,6 +506,11 @@ Controls Host::poll() {
             input.ctrl_keys[std::size_t(m.key)] = input.ctrl_keys[std::size_t(m.key)] || k[m.scancode];
         }
     }
+    input.face_x = letters && k[SDL_SCANCODE_C];
+    input.face_y = letters && k[SDL_SCANCODE_V];
+    input.shoulder_left = letters && k[SDL_SCANCODE_Q];
+    input.shoulder_right = letters && k[SDL_SCANCODE_E];
+    if (letters) input.camera_stick = std::array<float,2>{float(k[SDL_SCANCODE_L])-float(k[SDL_SCANCODE_J]),float(k[SDL_SCANCODE_K])-float(k[SDL_SCANCODE_I])};
     if (i.gamepad) {
         auto button = [&](SDL_GamepadButton b) { return SDL_GetGamepadButton(i.gamepad, b); };
         const int x = SDL_GetGamepadAxis(i.gamepad, SDL_GAMEPAD_AXIS_LEFTX);
@@ -519,6 +524,15 @@ Controls Host::poll() {
         input.f7 |= button(SDL_GAMEPAD_BUTTON_START);
         input.button2 |= button(SDL_GAMEPAD_BUTTON_EAST);
         input.start |= button(SDL_GAMEPAD_BUTTON_START);
+        input.face_x |= button(SDL_GAMEPAD_BUTTON_WEST);
+        input.face_y |= button(SDL_GAMEPAD_BUTTON_NORTH);
+        input.shoulder_left |= button(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER);
+        input.shoulder_right |= button(SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER);
+        input.trigger_left |= SDL_GetGamepadAxis(i.gamepad,SDL_GAMEPAD_AXIS_LEFT_TRIGGER)>16000;
+        input.trigger_right |= SDL_GetGamepadAxis(i.gamepad,SDL_GAMEPAD_AXIS_RIGHT_TRIGGER)>16000;
+        const float rx=SDL_GetGamepadAxis(i.gamepad,SDL_GAMEPAD_AXIS_RIGHTX)/32767.f;
+        const float ry=SDL_GetGamepadAxis(i.gamepad,SDL_GAMEPAD_AXIS_RIGHTY)/32767.f;
+        if(std::hypot(rx,ry)>.15f)input.camera_stick=std::array<float,2>{std::clamp(rx,-1.f,1.f),std::clamp(ry,-1.f,1.f)};
         input.f3 |= button(SDL_GAMEPAD_BUTTON_NORTH);
         input.f5 |= button(SDL_GAMEPAD_BUTTON_WEST);
     }
@@ -688,7 +702,7 @@ void Host::present_game_gpu(int width, int height, double pixel_aspect,
         // picture shown (on the GPU, or once read back on the CPU), then note and overlay.
         if (!i.effect_source || i.effect_width != width || i.effect_height != height) {
             SDL_DestroyTexture(i.effect_source);
-            i.effect_source = SDL_CreateTexture(i.renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET,
+            i.effect_source = SDL_CreateTexture(i.renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_TARGET,
                                                 std::max(1, width), std::max(1, height));
             if (!i.effect_source) {
                 throw std::runtime_error(SDL_GetError());
@@ -765,7 +779,7 @@ void Host::present_game_gpu(int width, int height, double pixel_aspect,
     }
     if (!i.gpu_target || i.gpu_width != w || i.gpu_height != h) {
         SDL_DestroyTexture(i.gpu_target);
-        i.gpu_target = SDL_CreateTexture(i.renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, w, h);
+        i.gpu_target = SDL_CreateTexture(i.renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_TARGET, w, h);
         if (!i.gpu_target) {
             throw std::runtime_error(SDL_GetError());
         }
@@ -773,6 +787,8 @@ void Host::present_game_gpu(int width, int height, double pixel_aspect,
         i.gpu_width = w;
         i.gpu_height = h;
     }
+    // RGBA32 is a native GPU format: programmable games borrow the underlying texture.
+    // Packed RGBA8888 can create an SDL conversion wrapper with no exposed GPU texture.
     // The game draws first, into its own target; then the window is composed as for
     // present_game.
     SDL_SetRenderTarget(i.renderer, i.gpu_target);
@@ -788,27 +804,26 @@ void Host::present_game_gpu(int width, int height, double pixel_aspect,
 
 Image Host::capture(int width, int height, const std::function<void(const GpuFrame&)>& draw) {
     auto& i = *impl_;
-    SDL_Texture* texture = SDL_CreateTexture(i.renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, width, height);
+    SDL_Texture* texture = SDL_CreateTexture(i.renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_TARGET, width, height);
     if (!texture) {
         throw std::runtime_error(SDL_GetError());
     }
     SDL_Texture* previous = SDL_GetRenderTarget(i.renderer);
-    SDL_SetRenderTarget(i.renderer, texture);
-    draw(GpuFrame{i.renderer, texture, width, height});
-    SDL_SetRenderTarget(i.renderer, texture);
-    std::optional<Image> image;
-    std::string error;
+    // Drawing may fail too (shader compilation, lost device, invalid package). Always restore
+    // the host's target, so a failed screenshot cannot strand the renderer on a dead texture.
     try {
-        image = i.read_pixels();
-    } catch (const std::exception& e) {
-        error = e.what();
+        SDL_SetRenderTarget(i.renderer, texture);
+        draw(GpuFrame{i.renderer, texture, width, height});
+        SDL_SetRenderTarget(i.renderer, texture);
+        auto image = i.read_pixels();
+        SDL_SetRenderTarget(i.renderer, previous);
+        SDL_DestroyTexture(texture);
+        return image;
+    } catch (...) {
+        SDL_SetRenderTarget(i.renderer, previous);
+        SDL_DestroyTexture(texture);
+        throw;
     }
-    SDL_SetRenderTarget(i.renderer, previous);
-    SDL_DestroyTexture(texture);
-    if (!image) {
-        throw std::runtime_error(error);
-    }
-    return std::move(*image);
 }
 
 SDL_GPURenderState* Host::Implementation::shader_state(const FragmentShader& source) {

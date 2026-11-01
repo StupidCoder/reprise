@@ -18,5 +18,12 @@
     "commit": "0f644a33a62ef8a5278322e1fda7c67068b3c42d",
     "path": "games/sonic",
     "files": 416
+  },
+  {
+    "project": "Diorama",
+    "commit": "0816c17a53afe613a0fea728872645c727120699",
+    "path": "games/captain_toad_3ds",
+    "files": 148,
+    "status": "Opening imported and playable through Reprise SDL GPU; book/campaign and saves pending. Source project retained; physical Android and research exporter drift remain open."
   }
 ]

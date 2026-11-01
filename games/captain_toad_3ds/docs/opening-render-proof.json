@@ -1,0 +1,146 @@
+{
+  "source_commit": "0816c17a53afe613a0fea728872645c727120699",
+  "source_clock_harness": "#include \"platform/Host.hpp\"\n#include \"session/Session.hpp\"\n#include \"gpu/Device.hpp\"\n#include <filesystem>\nint main(){platform::Host host(\"Source clock comparison\",400,240,true);auto target=gpu::device().createTarget(400,240);gpu::device().bindTarget(target.get());session::Session scene(\"/private/tmp/reprise-captain-import-20261101/Opening\");std::filesystem::create_directories(\"/private/tmp/captain-source-clock\");scene.render(0,0,400,240);for(int i=0;i<=360;++i){if(i)scene.advance(1./60,{});if(i%120==0){scene.render(0,0,400,240);platform::Host::savePng(std::filesystem::path(\"/private/tmp/captain-source-clock\")/(std::to_string(i)+\".png\"),gpu::device().readPixels({0,0,400,240}));}}}\n",
+  "captures": [
+    {
+      "backend": "metal",
+      "frame": 0,
+      "sha256": "08245a4ccb801c84447a19ae1378abfe8bf2847c75b5816110e8cc3371745129"
+    },
+    {
+      "backend": "metal",
+      "frame": 120,
+      "sha256": "70d3d4c707f374d94146a1e6a0f607bbd226b600b75e97c547b986c4f75bf83d"
+    },
+    {
+      "backend": "metal",
+      "frame": 240,
+      "sha256": "8097518fcf7f1498a5d1ceae5f11bd89fe7f3ab45c6787e81fd42e8d0d4a46f3"
+    },
+    {
+      "backend": "metal",
+      "frame": 360,
+      "sha256": "e7c9e2911b29e24200ddc26f68d5c3e5b1ac0487d471bee6a7459c63ed474dde"
+    },
+    {
+      "backend": "vulkan",
+      "frame": 0,
+      "sha256": "08245a4ccb801c84447a19ae1378abfe8bf2847c75b5816110e8cc3371745129"
+    },
+    {
+      "backend": "vulkan",
+      "frame": 120,
+      "sha256": "70d3d4c707f374d94146a1e6a0f607bbd226b600b75e97c547b986c4f75bf83d"
+    },
+    {
+      "backend": "vulkan",
+      "frame": 240,
+      "sha256": "8097518fcf7f1498a5d1ceae5f11bd89fe7f3ab45c6787e81fd42e8d0d4a46f3"
+    },
+    {
+      "backend": "vulkan",
+      "frame": 360,
+      "sha256": "e7c9e2911b29e24200ddc26f68d5c3e5b1ac0487d471bee6a7459c63ed474dde"
+    },
+    {
+      "backend": "source-clock",
+      "frame": 0,
+      "sha256": "08245a4ccb801c84447a19ae1378abfe8bf2847c75b5816110e8cc3371745129"
+    },
+    {
+      "backend": "source-clock",
+      "frame": 120,
+      "sha256": "7794194c6b01016e0dd3a25bd0c20f5daec6a8cf71e04f213b3fb332dcb7f280"
+    },
+    {
+      "backend": "source-clock",
+      "frame": 240,
+      "sha256": "c96d118b81250e7ba68f084fd829637b27e4f4c84c92d01d083e59c58d932add"
+    },
+    {
+      "backend": "source-clock",
+      "frame": 360,
+      "sha256": "9b2abac679641cb64f91de2396b1c12ee7454f5ceaa01d3e9a6c41b07f294ea1"
+    }
+  ],
+  "limits": "Sampled opening frames only; source reconstruction is the integration oracle. Physical Android untested.",
+  "packages": {
+    "build-android/Reprise.apk": "37c167775761a8c892d9fa8fd5a22d9bc19eafc69d03a287eab9d683fdf6ce39"
+  },
+  "initial_capture_binaries": {
+    "captain_toad_scene_probe": "e8e1abed3085a6b6a3a9090cff6e2a7b2ab98b82d668af389c6074446c05492f",
+    "captain_toad_module_probe": "0c68bc00e9e90f6e414f20f0493f11fe5a78827dc1984e247115d45b6ceabd32",
+    "reprise": "663edcf67593a1adcdc9e0b9557caadc7c8aafc8b5c45fdedbd93475a532c7df"
+  },
+  "final_binaries": {
+    "captain_toad_module_probe": "2d4635935ddff6e713da445ade28ac837f2e7552f6a8a137260c576918489a6c",
+    "reprise": "b3bd3c958938abd2049cb8b66de8eea0276f23abad4cf941535c1faa703fc169"
+  },
+  "final_module_captures": [
+    {
+      "frame": "600",
+      "metal_sha256": "2bd69201523ec0c4766733b42d8ab8505ed7777a9415205978e0753c20f6c502",
+      "vulkan_sha256": "2bd69201523ec0c4766733b42d8ab8505ed7777a9415205978e0753c20f6c502",
+      "rgba_mean_absolute_difference": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "alpha_extrema": [
+        255,
+        255
+      ]
+    },
+    {
+      "frame": "720",
+      "metal_sha256": "0820645cefa30549eb13dda0a4356c1d14627a8ee003f33456e23e8b13e1c2d0",
+      "vulkan_sha256": "0820645cefa30549eb13dda0a4356c1d14627a8ee003f33456e23e8b13e1c2d0",
+      "rgba_mean_absolute_difference": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "alpha_extrema": [
+        255,
+        255
+      ]
+    },
+    {
+      "frame": "1200",
+      "metal_sha256": "d697010ec06ec21fb5fe932a416495aca53213cade380fb202bce2324f571a86",
+      "vulkan_sha256": "d697010ec06ec21fb5fe932a416495aca53213cade380fb202bce2324f571a86",
+      "rgba_mean_absolute_difference": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "alpha_extrema": [
+        255,
+        255
+      ]
+    },
+    {
+      "frame": "wide",
+      "metal_sha256": "55ee92ba9a71787b22a42e58c7c981b05f4acaaddecbcda18db7849990edc228",
+      "vulkan_sha256": "55ee92ba9a71787b22a42e58c7c981b05f4acaaddecbcda18db7849990edc228",
+      "rgba_mean_absolute_difference": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "alpha_extrema": [
+        255,
+        255
+      ]
+    }
+  ],
+  "shell_captures": {
+    "playing": "aba6108321553563782619dd3234ef2229987739b50b3c16614965e5c47ae444",
+    "paused": "da1c2bb3855c0c627df19d2a776cd98945a58a8e7c9dc8aa05557fc7ad72104f",
+    "resized": "1005ecac29f2223fc424a8f3b9861d634ea8d30d48bc0f9b7e5eb87434e58c58"
+  }
+}

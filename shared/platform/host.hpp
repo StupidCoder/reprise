@@ -170,6 +170,9 @@ struct Controls {
     bool command_held{}, option_held{}, control_held{}; // (GameInput::command, option, control)
     bool shift_held{}; // either Shift key (GameInput::shift)
     bool gamepad_connected{}, touch_available{}, input_cancelled{}, mouse_is_touch{};
+    // Console camera and face/shoulder controls, independent of legacy keyboard aliases.
+    std::optional<std::array<float, 2>> camera_stick{};
+    bool face_x{}, face_y{}, shoulder_left{}, shoulder_right{}, trigger_left{}, trigger_right{};
     std::optional<std::array<float, 2>> analog_stick;
     std::vector<TouchEvent> touch_events;
 };

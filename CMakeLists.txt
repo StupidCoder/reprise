@@ -480,6 +480,9 @@ target_include_directories(layton PUBLIC ${SOURCE_ROOT})
 target_link_libraries(layton PUBLIC platform ui PRIVATE picarat_embed)
 target_compile_options(layton PRIVATE ${PROJECT_WARNINGS})
 
+# --- captain_toad_3ds: embedded opening scene on the shared SDL GPU host ---
+add_subdirectory(games/captain_toad_3ds)
+
 # --- reprise: the launcher application -----------------------------------------
 set(REPRISE_SOURCES
     app/main.cpp
@@ -500,7 +503,7 @@ if(ANDROID)
 else()
     add_executable(reprise ${REPRISE_SOURCES})
 endif()
-target_link_libraries(reprise PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga spindizzy_worlds_amiga stunt_car_racer_amiga beach_volley_amiga spy_mouse_ios sonic layton ui)
+target_link_libraries(reprise PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga spindizzy_worlds_amiga stunt_car_racer_amiga beach_volley_amiga spy_mouse_ios sonic layton captain_toad_module captain_toad_import_adapter ui)
 target_compile_options(reprise PRIVATE ${PROJECT_WARNINGS})
 
 # --- tools ---------------------------------------------------------------------
@@ -607,7 +610,7 @@ if(BUILD_TESTING)
     games/bruce_lee_c64/game/room_chapter.cpp
     games/bruce_lee_c64/game/background_article.cpp
     app/launcher.cpp app/quick_save.cpp app/pause_menu.cpp)
-    target_link_libraries(shell_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga spindizzy_worlds_amiga stunt_car_racer_amiga beach_volley_amiga spy_mouse_ios sonic layton ui)
+    target_link_libraries(shell_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga spindizzy_worlds_amiga stunt_car_racer_amiga beach_volley_amiga spy_mouse_ios sonic layton captain_toad_module captain_toad_import_adapter ui)
     target_compile_options(shell_checks PRIVATE ${PROJECT_WARNINGS})
     add_dependencies(shell_checks reprise_resources)
     add_test(NAME shell_navigation COMMAND shell_checks)
@@ -633,7 +636,7 @@ target_compile_options(marble_madness_replay PRIVATE ${PROJECT_WARNINGS})
 
 if(BUILD_TESTING)
     add_executable(persistence_checks tests/persistence.cpp app/catalog.cpp app/quick_save.cpp app/saved_options.cpp)
-    target_link_libraries(persistence_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga spindizzy_worlds_amiga stunt_car_racer_amiga beach_volley_amiga spy_mouse_ios sonic layton ui)
+    target_link_libraries(persistence_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga spindizzy_worlds_amiga stunt_car_racer_amiga beach_volley_amiga spy_mouse_ios sonic layton captain_toad_module captain_toad_import_adapter ui)
     target_compile_options(persistence_checks PRIVATE ${PROJECT_WARNINGS})
     add_test(NAME persistent_saves COMMAND persistence_checks)
     # Spy Mouse through the module interface; skipped unless SPY_MOUSE_CONTENT and
@@ -661,4 +664,27 @@ if(BUILD_TESTING)
     target_include_directories(touch_controls_checks PRIVATE ${SOURCE_ROOT})
     target_compile_options(touch_controls_checks PRIVATE ${PROJECT_WARNINGS})
     add_test(NAME touch_and_tilt_controls COMMAND touch_controls_checks)
+endif()
+
+# Explicit graphical check; not part of headless CTest.
+if(NOT ANDROID)
+    add_executable(gpu_host_probe EXCLUDE_FROM_ALL tools/gpu_host_probe.cpp)
+    target_link_libraries(gpu_host_probe PRIVATE ui)
+endif()
+
+if(BUILD_TESTING AND NOT ANDROID)
+    add_executable(captain_toad_import_check tests/captain_toad_import.cpp)
+    target_link_libraries(captain_toad_import_check PRIVATE captain_toad_import_adapter)
+    add_test(NAME captain_toad_import COMMAND captain_toad_import_check)
+endif()
+
+if(NOT ANDROID)
+    add_executable(captain_toad_scene_probe EXCLUDE_FROM_ALL tools/captain_toad_scene_probe.cpp)
+    target_link_libraries(captain_toad_scene_probe PRIVATE captain_toad_session captain_toad_sdl platform)
+    target_include_directories(captain_toad_scene_probe PRIVATE shared games/captain_toad_3ds/src)
+endif()
+
+if(NOT ANDROID)
+    add_executable(captain_toad_module_probe EXCLUDE_FROM_ALL tools/captain_toad_module_probe.cpp)
+    target_link_libraries(captain_toad_module_probe PRIVATE captain_toad_module ui)
 endif()

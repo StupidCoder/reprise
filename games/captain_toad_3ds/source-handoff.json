@@ -1,0 +1,600 @@
+{
+  "source_project": "Diorama",
+  "source_commit": "0816c17a53afe613a0fea728872645c727120699",
+  "game_id": "captain_toad_3ds",
+  "transform": "Initial copy isolates namespaces; standalone host, shell, graphics backends and XR excluded. Subsequent Reprise importer hardening and host adaptation are tracked in plan.md and docs/integration-validation.md. Source hashes identify original files, not current modified files.",
+  "files": [
+    {
+      "path": "src/audio/AudioFormats.hpp",
+      "source_sha256": "38d4529c23592e63e1baf2a5c29950db365eb7eb3bc38528cf893adb553f997d"
+    },
+    {
+      "path": "src/audio/DspMixer.hpp",
+      "source_sha256": "f0acf34cb5ef2bf0ee6a1ed8d7232bb5b7be62a0a3b6fce35e9e7c233dbfa985"
+    },
+    {
+      "path": "src/audio/OpeningSound.hpp",
+      "source_sha256": "1143f205687327333ef7f7dd42b56468b6933aa9ba55cb84b1e5496e44575540"
+    },
+    {
+      "path": "src/audio/OpeningSoundKeeper.hpp",
+      "source_sha256": "b031164593ff7739decdbcfe11e6441b5d9f8bc57aa6e2b3da56e110dbea7104"
+    },
+    {
+      "path": "src/audio/SoundArchive.hpp",
+      "source_sha256": "ed014a5db7bffb41b0c2a10816c89b6b0986bd6f5275f563c9224bb7bbfef633"
+    },
+    {
+      "path": "src/audio/SoundScript.hpp",
+      "source_sha256": "ba66ad837e746f647fd96fc4b0983bc6519295a2bdf622042cd3558aa1ff94b6"
+    },
+    {
+      "path": "src/data/Package.hpp",
+      "source_sha256": "a6bbc82b8b1c866b751510e294d1722cce6a646ea5ebe64cb917d5553c488e72"
+    },
+    {
+      "path": "src/effects/EffectKeeper.hpp",
+      "source_sha256": "db34e29b86fc0ed5f834465ea4b853d38fecb40ca3e457185eea159797f989f2"
+    },
+    {
+      "path": "src/effects/Eft.hpp",
+      "source_sha256": "f71c5e25b787dd4d2c838d5c189456ec346eecc82a4013024f639af6808339e2"
+    },
+    {
+      "path": "src/effects/OpeningEffects.hpp",
+      "source_sha256": "b7863954ffdda8474f467bf052daf86c6aca9ffda342d7159fcb036a9d84826e"
+    },
+    {
+      "path": "src/game/ActorCollider.hpp",
+      "source_sha256": "b71d40bce278feda48b69afbf7e7303795aabd81e716984ea419431116643a00"
+    },
+    {
+      "path": "src/game/AnimFrame.hpp",
+      "source_sha256": "ccd82d5268ba646f3da5fce48c2325b0932e28afb9a00e1bff257a76a15e3562"
+    },
+    {
+      "path": "src/game/Bird.hpp",
+      "source_sha256": "db40c5a12b14aa0b36e981f44328967f334727164adb4ec049e8d83be2e9aabc"
+    },
+    {
+      "path": "src/game/Camera.hpp",
+      "source_sha256": "2416d6c62d5aa0c63bd7e60c1ef654612e5061a644312985f4435f884db77938"
+    },
+    {
+      "path": "src/game/Collision.hpp",
+      "source_sha256": "045d2f6e4596dc8a3618b9698435f89f5d5d020fef771684a14c1dfdb7553585"
+    },
+    {
+      "path": "src/game/Companion.hpp",
+      "source_sha256": "59261467cd03605d4a064de14890292adbe45fead70d5a90b0fe17de1b35e9f3"
+    },
+    {
+      "path": "src/game/Goal.hpp",
+      "source_sha256": "f856e93d205b2ea47763ee0d79143098b7aa774d43996190496ee4f1c8c2d6ed"
+    },
+    {
+      "path": "src/game/GrassWind.hpp",
+      "source_sha256": "7c39b8c2bd19bb0e58480a4313b2ead42323ddea134de9400f6cbdf518da144b"
+    },
+    {
+      "path": "src/game/Hermite.hpp",
+      "source_sha256": "4bb17551c2a127ca3365ec1bae2b48b83f403f60bc4367ea1a100da559860d44"
+    },
+    {
+      "path": "src/game/Kcl.hpp",
+      "source_sha256": "5d3f5c1b50636d0f6234b99255f099d1d9f3b5f86f8f70b15dd79f136fb6339f"
+    },
+    {
+      "path": "src/game/Math.hpp",
+      "source_sha256": "379d4c93c6e99ee75be98daacb7595b25d319c3327629f386a3db2b7ea4bdc6e"
+    },
+    {
+      "path": "src/game/Nerve.hpp",
+      "source_sha256": "f601731e90953dac5f49f7ce7d8e436518f7b5637b5b68321649347aa8e2e9cb"
+    },
+    {
+      "path": "src/game/Pad.hpp",
+      "source_sha256": "d22985ae7bf5033c653c44d749a46c8f0e91932bc68a09ad760e074509f22c71"
+    },
+    {
+      "path": "src/game/PlayerActions.hpp",
+      "source_sha256": "a786040f383e9f62a39de1ddfd7c09fab3f065eed4f9e515b2f031cae2b2c0b4"
+    },
+    {
+      "path": "src/game/PlayerAnim.hpp",
+      "source_sha256": "623a2136fbc40ecee32b755cdbae519ddbc1f653df31fa256dd4cda2e08d6137"
+    },
+    {
+      "path": "src/game/PlayerCarry.hpp",
+      "source_sha256": "e6d98f0b54e2507e12955a20ac8d81aa657a063ab984daa72b6d408f6ce9c988"
+    },
+    {
+      "path": "src/game/PlayerCollider.hpp",
+      "source_sha256": "5985390fb0c4fa3b48661e5c58b4425bd4c5df16457ce4525c3451805647addd"
+    },
+    {
+      "path": "src/game/PlayerGraph.inc",
+      "source_sha256": "ed952bad1610d322de4ff471d5da94953de85234cdc486717c250b84f28d0d77"
+    },
+    {
+      "path": "src/game/PlayerWalk.hpp",
+      "source_sha256": "d08706d1fc8f21b7cac8930186ac9670dc65730dd1a646efc7ea96776d7da66a"
+    },
+    {
+      "path": "src/game/PlayerWater.hpp",
+      "source_sha256": "be98e4c297c1ebe7e74e3cb8941cf27ed410508d151bd3eacff2445d535a6c3f"
+    },
+    {
+      "path": "src/game/Push.hpp",
+      "source_sha256": "84ce217887d60bb0c8188a31aba6f4f860f1e934b6eebc33bb64c241d3399efa"
+    },
+    {
+      "path": "src/game/Rail.hpp",
+      "source_sha256": "8aa5f9bae5d07dd57ffb075411fc9df4995e162078e6e9f2a9f35bef38a49909"
+    },
+    {
+      "path": "src/game/StageAssist.hpp",
+      "source_sha256": "aa5876157c00bae13b4816d69583914989a5b37a1c7a6683124fabbb7679bd8a"
+    },
+    {
+      "path": "src/game/StageBirds.hpp",
+      "source_sha256": "490d350b2b88d5e4a3823057179ef3b60a6805d6c2df7273f8bfea601ee45d80"
+    },
+    {
+      "path": "src/game/StageBlocks.hpp",
+      "source_sha256": "bb4f6e2d9896ed95665827245ada64316a9f14c4409151ad66bc040972330011"
+    },
+    {
+      "path": "src/game/StageDecor.hpp",
+      "source_sha256": "cd95d7bf5ebc0b180a329b8a91934de1481dbaae1184393c4a79fbe965840c26"
+    },
+    {
+      "path": "src/game/StageDoorKey.hpp",
+      "source_sha256": "9a059e66ec55174bc57e43dc1b7e6a3b570b3238e14e401ba66e26983e8fc866"
+    },
+    {
+      "path": "src/game/StageEnemies.hpp",
+      "source_sha256": "855b644c56b929e593b428b4f8bfc4709e1e5d11917e02190bd724407d4b97f8"
+    },
+    {
+      "path": "src/game/StageEnemyChase.hpp",
+      "source_sha256": "9a91e0f88d2d93fe35d1d97b2082934efaf4dcdd873d59cd17d7499daddcf32e"
+    },
+    {
+      "path": "src/game/StageGuide.hpp",
+      "source_sha256": "65e8f1a77fd457013a564b9050a8328b219f54b9d82efb6df4b2cad2194725f1"
+    },
+    {
+      "path": "src/game/StageItems.hpp",
+      "source_sha256": "b6a8a49dd29c364e7ca950f8d81236e3cfe2bd54dba14fb4471edaf187a9c33b"
+    },
+    {
+      "path": "src/game/StageKyoroHei.hpp",
+      "source_sha256": "20d4d18f937efa7cc0c35e18dd17f2a704b7b92a055aa1fd618fc7dd207fe0bd"
+    },
+    {
+      "path": "src/game/StageLadder.hpp",
+      "source_sha256": "6f8d00fbd03dbb4153f28f0046580b14d0df9e0c9a3afae09f1a5a533ae971eb"
+    },
+    {
+      "path": "src/game/StageMoking.hpp",
+      "source_sha256": "48dc97a5b966f16565e73b29721805be76cc237fec022aa42a780a7910632092"
+    },
+    {
+      "path": "src/game/StageNpc.hpp",
+      "source_sha256": "a24b401170ffe5728fed34b89eb667b21eda3c1c9c4de29c9cc94a7654e05956"
+    },
+    {
+      "path": "src/game/StageObjects.hpp",
+      "source_sha256": "e313f6899d9af1fbb7fa4282df6f10cf606dc8d1fab5a04c9a416c52459af278"
+    },
+    {
+      "path": "src/game/StagePowerUps.hpp",
+      "source_sha256": "97421b4b6cb275075710a9c8f3fa0df9af41fc22c98c680585bace81f1c16f5a"
+    },
+    {
+      "path": "src/game/StagePullOut.hpp",
+      "source_sha256": "bb97bfc743e523bfa082f4466809fc946b659382f7bdb26126f98a47766c9ce1"
+    },
+    {
+      "path": "src/game/StageRadish.hpp",
+      "source_sha256": "f1b471b3c13e67f4be6ccfd9217ca63488a75e434b34393cb50006777c5c9bba"
+    },
+    {
+      "path": "src/game/StageSign.hpp",
+      "source_sha256": "87e08128d09b924b127e7408500a28d5513fd5ec95fb272d48e8f0e0fc7d37cb"
+    },
+    {
+      "path": "src/game/StageStart.hpp",
+      "source_sha256": "4503e814d2b18c3ba32040a1b3e5b874894cd62aa171caa74cab344ff0456300"
+    },
+    {
+      "path": "src/game/StageSubActors.hpp",
+      "source_sha256": "7fd76509f0bec79faa0637e17eae80fb5762cfc63c9e8974fb8212e399c74db0"
+    },
+    {
+      "path": "src/game/StageSwitchParts.hpp",
+      "source_sha256": "5af504c8cf721d9d44d5c0f39d9c9ed482938415c99959e98cb413b22848af1c"
+    },
+    {
+      "path": "src/game/StageSwitches.hpp",
+      "source_sha256": "79e46f0f19d3be5e776ea32a3c2068097921d7bb58a0020913dcb0797b5f6e72"
+    },
+    {
+      "path": "src/game/VecLib.hpp",
+      "source_sha256": "23d3a4407922819e8db1a07463d7f818817add59d3eb5e46635bdd6078baf153"
+    },
+    {
+      "path": "src/gpu/Device.cpp",
+      "source_sha256": "1e3ca3394f692b97b82f1f2cd5321237a56c6a18ccabb83a8cc222bca2746ff2"
+    },
+    {
+      "path": "src/gpu/Device.hpp",
+      "source_sha256": "33f88129082f5ff2b5c39874e71b4ed166cfe4b0df54503b1993f5b6370cbbef"
+    },
+    {
+      "path": "src/gpu/Matrix.hpp",
+      "source_sha256": "371b666ecb92ac82925d7abc8bcbc0b247b183a3cda5c2219032c96c5fcc9e14"
+    },
+    {
+      "path": "src/gpu/VulkanShaders.cpp",
+      "source_sha256": "07bc2bbea764d08498753484a855fd915776f1de5cb7ccc75a8d3122adbea4f2"
+    },
+    {
+      "path": "src/gpu/VulkanShaders.hpp",
+      "source_sha256": "456860cd130fb0caaaf271d4804be7df3d0f32e328fcf5bdc8bd616cc3f65d44"
+    },
+    {
+      "path": "src/importer/Animation.cpp",
+      "source_sha256": "0d06f28ef7f7b8d5559fa1849eb7cf10c1a373ec6bd4dbcfc92a896710cdcff1"
+    },
+    {
+      "path": "src/importer/Animation.hpp",
+      "source_sha256": "aa09124f98f16550dbcae603cbba2cac04f95c667059386a4379cb3a72d54655"
+    },
+    {
+      "path": "src/importer/Archive.cpp",
+      "source_sha256": "f1ee02e6c664d223dd3758e0eba9d71674a5ca4a2cfd2ac4f7dc460b520f8c54"
+    },
+    {
+      "path": "src/importer/Archive.hpp",
+      "source_sha256": "8ad99bbdfe9a95e0f79a916dede00056f6ebb03f0130a042f6a7d635cacfd1dc"
+    },
+    {
+      "path": "src/importer/Bch.cpp",
+      "source_sha256": "7aa262e01ab814e322ce4ce7e9efc7a1b2163ce2fa60337248aa473c17d663bf"
+    },
+    {
+      "path": "src/importer/Bch.hpp",
+      "source_sha256": "47a524d8a88e7e30b8875229d9e3cc24c086e9c746d294f45e251d4856d28654"
+    },
+    {
+      "path": "src/importer/Binary.cpp",
+      "source_sha256": "9ca86cd3254699dafb8e99c72482bf495dec62e40be58ac60cd80e9ef671ce48"
+    },
+    {
+      "path": "src/importer/Binary.hpp",
+      "source_sha256": "1aee8f67fd3ea24e5cc44e9ff3ab72710f9b123263c0eadf60e29cb768caeff6"
+    },
+    {
+      "path": "src/importer/ExportCommon.cpp",
+      "source_sha256": "bd3a29fbac0709c381101a1ceee47ff827827c9997fd0ec1830ac248d3631c26"
+    },
+    {
+      "path": "src/importer/ExportCommon.hpp",
+      "source_sha256": "ecb3198a40c8aa967e9c17cf67f0bf182e240bf76d8fc8e0edd74009acbad341"
+    },
+    {
+      "path": "src/importer/Importer.cpp",
+      "source_sha256": "69af874639202c713c10dfcdec2affbe49857b60ece564201a3ac8f0a6264d27"
+    },
+    {
+      "path": "src/importer/Importer.hpp",
+      "source_sha256": "4cc0d358ee34683660acc866ce7d3dba754d2faa513c5beaf4b4e4547409a655"
+    },
+    {
+      "path": "src/importer/Inputs.cpp",
+      "source_sha256": "7e595ee66b7748e1e5c5e932a991a043dfd933e16c055eacd49001154c8333b2"
+    },
+    {
+      "path": "src/importer/Inputs.hpp",
+      "source_sha256": "4ad33ad216cb683a2a42c4eaa5390622af327bf9fb4f485a02788f2d92283de3"
+    },
+    {
+      "path": "src/importer/Json.cpp",
+      "source_sha256": "bee3106478be8d1bcc6e27f27dd6082658f11d3981a7d661121f14d976a75fdc"
+    },
+    {
+      "path": "src/importer/Json.hpp",
+      "source_sha256": "ed6967ede133374d052624957169701ac21d627299d1e1e0a98be999be3c5e3f"
+    },
+    {
+      "path": "src/importer/Layout.cpp",
+      "source_sha256": "2ad5a8684c950696f476966de8a7c895d4e421ba1aa0d2a5fde331076542c427"
+    },
+    {
+      "path": "src/importer/Layout.hpp",
+      "source_sha256": "e19d5b0da2745c56482f4f18dbeff857ea8c94c2f67c42387bf6fc04127cac4a"
+    },
+    {
+      "path": "src/importer/Message.cpp",
+      "source_sha256": "13679ede68ee3df6621bdd00df50f8241618cb6162ef92338c731fb59a5769d1"
+    },
+    {
+      "path": "src/importer/Message.hpp",
+      "source_sha256": "846d178ab7e4585cd32e0de6dccc95f10521193ceb0f5bfc61357f8c4c3b774b"
+    },
+    {
+      "path": "src/importer/ObservedConstants.hpp",
+      "source_sha256": "b78c167cdd45e7a8b355537a95ea16e58237bdf9c1661a071c42f51667d61ce9"
+    },
+    {
+      "path": "src/importer/RomDigests.inc",
+      "source_sha256": "b00d367dabc67117cb7b3e49b3ff16156c9285e7fa6761eb14206a8ea8751e62"
+    },
+    {
+      "path": "src/importer/RomImage.cpp",
+      "source_sha256": "6f0aa05e2dd52a2ab32afb79103bbb96d1de56fee172d779f214b837d5853f76"
+    },
+    {
+      "path": "src/importer/RomImage.hpp",
+      "source_sha256": "e740c1837fe61d8c2da7cc80e2871a071f2f711e08a9aa88abc880b6f9a4f10e"
+    },
+    {
+      "path": "src/importer/SceneExport.cpp",
+      "source_sha256": "0bdd4994b820b56ecfdd1e89c86f8abbd732be70df19d5579da1dedaa03d9e55"
+    },
+    {
+      "path": "src/importer/SceneExport.hpp",
+      "source_sha256": "057b2cfa0b7c90d1c57f20dea560639771c56be2eef43cd9ea664fe75d636e80"
+    },
+    {
+      "path": "src/importer/Shaders.cpp",
+      "source_sha256": "2c4a325f9d55c5548cc0de27acfae4cbcc6372a5075da730b57166b4caff4e04"
+    },
+    {
+      "path": "src/importer/Shaders.hpp",
+      "source_sha256": "709c1d75237e51f8e7ed899d8d941b24f7261891a72f18a4163b013363f4ee55"
+    },
+    {
+      "path": "src/importer/SoundExport.cpp",
+      "source_sha256": "fca68d34eda19a2160e9161fdeccda825f4953844a06d57727f97cbd63e9fbc3"
+    },
+    {
+      "path": "src/importer/SoundExport.hpp",
+      "source_sha256": "c6f63ba0384a332a771e2b12bce11c34f0e30a81ea9382f8a949e9c170ef9297"
+    },
+    {
+      "path": "src/importer/StageExport.cpp",
+      "source_sha256": "406bf6ca5df1b3e679bafe1ded178663a4155dcbc9fe0ce65868e38066f23a6f"
+    },
+    {
+      "path": "src/importer/StageExport.hpp",
+      "source_sha256": "f88cc5941e74c6f6fd85b93c1f87eed916ab1f96fc0dc87a8ec191727b878909"
+    },
+    {
+      "path": "src/importer/Stages.cpp",
+      "source_sha256": "dfdf626a29f4e9bd5105a210c9ee0943e960515b063c204dbf72335ac3edb957"
+    },
+    {
+      "path": "src/importer/Stages.hpp",
+      "source_sha256": "253021398d9acac52afd67d22571ab1817b76406e9e66a7ed17ea6184d425884"
+    },
+    {
+      "path": "src/importer/Texture.cpp",
+      "source_sha256": "79daa82f87377df2cebe8c260b6148cfa7dbbd10f4c30e907914c1577ec5a46a"
+    },
+    {
+      "path": "src/importer/Texture.hpp",
+      "source_sha256": "18669e34a09e315af19d997f7f4deef1ecd43ea63ce9966cc7cf8dbb5fe68419"
+    },
+    {
+      "path": "src/importer/UiExport.cpp",
+      "source_sha256": "5d9926d8243f7e080f50746744b89b020d4eb3f1d5968e86a4f8c11108f13ac5"
+    },
+    {
+      "path": "src/importer/UiExport.hpp",
+      "source_sha256": "4730f962aa38e997ced3fd92712bf8f80d685b920820364395fefa34706ae158"
+    },
+    {
+      "path": "src/platform/Image.hpp",
+      "source_sha256": "737b736c18068003773e972f1cdf991b5a50705a1c32b14a4189be631e3c6c84"
+    },
+    {
+      "path": "src/platform/Offscreen.hpp",
+      "source_sha256": "8eb8139f092d05e1c504870489f061e557ebdce6dc072dbbc04713a4e379db81"
+    },
+    {
+      "path": "src/platform/Sha256.cpp",
+      "source_sha256": "7575a300a90669f616f2bebb2620c5d88d45e6ffd3a88307e6b00e2a0549a4e8"
+    },
+    {
+      "path": "src/platform/Sha256.hpp",
+      "source_sha256": "076fc2d9e8b6951cc395721e781bfd770258a7cd70c9a6e4eecfe9e7d28d2a1b"
+    },
+    {
+      "path": "src/render/Bloom.hpp",
+      "source_sha256": "8896bbfe78a373a17e4781558c06cfb2a0a2504ebb73ebdd41a62ffde70fd631"
+    },
+    {
+      "path": "src/render/CameraMask.hpp",
+      "source_sha256": "7f3f58848d39d731c22cdb378c15a1e795b6ae4ebfbe0de0ac066850a308cca3"
+    },
+    {
+      "path": "src/render/CharacterAnimation.hpp",
+      "source_sha256": "6dbc3b2790da11fb2c5b9e2a01fbcd87a84eda014c975bc4ed8c361d5ea19928"
+    },
+    {
+      "path": "src/render/DropShadow.hpp",
+      "source_sha256": "1e2c9ae1edd3ed9d5ab516058c3cb489b87073146e759c5b58020a62acf8f060"
+    },
+    {
+      "path": "src/render/EftRenderer.hpp",
+      "source_sha256": "95a716679a956e818f000e24106b09c516013fa81ac7cc9eff3849dfe54c03a9"
+    },
+    {
+      "path": "src/render/GpuSkin.hpp",
+      "source_sha256": "9a36d51606f09a99d8c69218a5259caac57067ef232447a09ecee28edcefc487"
+    },
+    {
+      "path": "src/render/LayoutRenderer.hpp",
+      "source_sha256": "6175dcc3b4984a347dc652861f7fde14d4f65ad32f0058a5eb1eb4c0a9bd4d64"
+    },
+    {
+      "path": "src/render/LightService.hpp",
+      "source_sha256": "773cbad8e51b2a5740afc9e65665070555fd57e68dd2a7054a83b48b857647c9"
+    },
+    {
+      "path": "src/render/MaterialAnimation.hpp",
+      "source_sha256": "bbf52ae68c0875684f46aec5e84d3a177b056633d207c8e41ed9702cf4f6897d"
+    },
+    {
+      "path": "src/render/Parallel.hpp",
+      "source_sha256": "5bb598fd3633503d46271e53f818683fc13666af7b485c64f5b97b9a827304e2"
+    },
+    {
+      "path": "src/render/PicaShader.hpp",
+      "source_sha256": "1330659c47ab7330ee616676136149dd9ca9fc032bb07ae08985d5ce633dd455"
+    },
+    {
+      "path": "src/render/SceneTypes.hpp",
+      "source_sha256": "8b4f9570ba148a92f7d906e61ad1c39c49b665077140c2e171c456faacf9b1ff"
+    },
+    {
+      "path": "src/render/ShadowMap.hpp",
+      "source_sha256": "c61e93a6fc20064b740ce31b6120e6444dc89bd0849d26a933f3d04e7539cf44"
+    },
+    {
+      "path": "src/render/UiLayout.cpp",
+      "source_sha256": "fc3488771e8cee09917ecf7e388ac888c8b48c09e1cd8ae02815c5726b1b1420"
+    },
+    {
+      "path": "src/render/UiLayout.hpp",
+      "source_sha256": "6d9ff03907a10bb37ad132987d6d1a29be59f197b74b05a7c810334e865f663b"
+    },
+    {
+      "path": "src/session/CourseUi.cpp",
+      "source_sha256": "421927bce8a3c70c8970ecdc539fc2f183f733f1b2ce31a0e545161e6ca28e80"
+    },
+    {
+      "path": "src/session/CourseUi.hpp",
+      "source_sha256": "2acd76d8a8240b98dcabd989b6d29f3289efeced582d0af4a56297d9fcd25041"
+    },
+    {
+      "path": "src/session/FrontEnd.cpp",
+      "source_sha256": "3c3d3631653215409170a32bdf67de69b9fb5491cefbe8f59afcb04d9ccf4cf2"
+    },
+    {
+      "path": "src/session/FrontEnd.hpp",
+      "source_sha256": "07f58abe0503a537db5133e587908c8591c0a06711810d780d5df75bd71c4ca5"
+    },
+    {
+      "path": "src/session/OpeningGame.hpp",
+      "source_sha256": "52eebe3e70a807ecf928f777dc9062afe1d115a01fc2433c522680c9b7189de6"
+    },
+    {
+      "path": "src/session/PlayerRuntime.hpp",
+      "source_sha256": "be5bb62b409edd8c7033bfc9f9cc49403bb1c83dcd1697cf6091cd29f85d54ce"
+    },
+    {
+      "path": "src/session/Presentation.cpp",
+      "source_sha256": "61ee4dd073a8e7076f27275a4fd50a60687b69cc88705dac6c56334944f481e3"
+    },
+    {
+      "path": "src/session/Presentation.hpp",
+      "source_sha256": "99e45b105b11388d97d4ffea35a7c416261e9f40edd3926b2799a4c114404257"
+    },
+    {
+      "path": "src/session/Progress.hpp",
+      "source_sha256": "f6e26ec6b1bddc8f0b4b85d1b61318b25a3ae07700eb8a054c7ff0aabae320ca"
+    },
+    {
+      "path": "src/session/Session.cpp",
+      "source_sha256": "2b7dc802048e4e4bfea0e5655648bd7886a99dca86ad11cdd58cc7caaaf27259"
+    },
+    {
+      "path": "src/session/Session.hpp",
+      "source_sha256": "d09978408e31c69b6f8c50dffd874ff358a8abb78d0fb081213b0c35642d5ded"
+    },
+    {
+      "path": "src/session/SessionCourse.cpp",
+      "source_sha256": "5873721c68eec04eb9b9d4bccfd8395f6a9a789f13ddaa14c4639a1a85e92cf1"
+    },
+    {
+      "path": "src/session/SessionRender.cpp",
+      "source_sha256": "de48f158319a56515b300ca8750806562c612aa0f46d92b31d95f5f6be2540bd"
+    },
+    {
+      "path": "src/session/SessionResearch.cpp",
+      "source_sha256": "354ed4420679aa08f45da94cd65ab70faaf805048afb3571b6adf95faf9f97d3"
+    },
+    {
+      "path": "src/session/SessionShell.cpp",
+      "source_sha256": "1539aa24c02e97878570c2df5be377f6d466214aaf7a3d3126c01723529da668"
+    },
+    {
+      "path": "src/session/SessionSkin.cpp",
+      "source_sha256": "57b33267bb0fb8305ee573fa0206766c86e4871e737d1704d90f2d94a617d8e2"
+    },
+    {
+      "path": "src/session/SessionState.hpp",
+      "source_sha256": "ef65da5db882a4f1991248bd29dbb2bd409c8f408788276611244899b40e171d"
+    },
+    {
+      "path": "src/session/WalkPlanner.cpp",
+      "source_sha256": "e137e35845931003847d453c0a95822f096199373394953fdf85d8a0964c6b56"
+    },
+    {
+      "path": "src/session/WalkPlanner.hpp",
+      "source_sha256": "73e58db8533ec1a220cfdfd8cfac58f8fc9a1290efec206676dcb08d83e3a859"
+    },
+    {
+      "path": "src/session/book/BookActor.cpp",
+      "source_sha256": "507dc984d86f8eb1f7de2a3c3ae24bc62b5543e8f3cbf96abf4d0d67316ae924"
+    },
+    {
+      "path": "src/session/book/BookActor.hpp",
+      "source_sha256": "fc063b92151f9af8babe242a94c235c7b8487d8be5afb995aa38126c261d62a3"
+    },
+    {
+      "path": "src/session/book/BookBottom.cpp",
+      "source_sha256": "b01c8d429aa353d3ba0bb2b177662701c79e10dbb0004b6fc97bdc70bbc4eab4"
+    },
+    {
+      "path": "src/session/book/BookBottom.hpp",
+      "source_sha256": "efa5cc6e46b67413f858d1cdcb4ccd3f9e9be1099d847b80f038c0ddadbbf922"
+    },
+    {
+      "path": "src/session/book/BookPages.cpp",
+      "source_sha256": "cdf1a89ad11d3a6af983a4dd3dd84ef52b29bdac8efd53cdb4005ccc9269b97e"
+    },
+    {
+      "path": "src/session/book/BookPages.hpp",
+      "source_sha256": "be66c2f813d39b9e48cb61c053b371630d5deb92bcba0be949501431d671f1d6"
+    },
+    {
+      "path": "src/session/book/BookScene.cpp",
+      "source_sha256": "56cb708501cd353fb454ab1bc255b42931333b9762bc93dd9bbc310ae0a58ff0"
+    },
+    {
+      "path": "src/session/book/BookScene.hpp",
+      "source_sha256": "dec1ff81814944f48ed2c35331dadfb002ec728624407b3f66e3b9ef39a9a49c"
+    },
+    {
+      "path": "src/session/book/BookSound.cpp",
+      "source_sha256": "4fa21115f5120bf403145fe6a1ad074a332492a7f1c7c8b071ba5a6726196264"
+    },
+    {
+      "path": "src/session/book/BookSound.hpp",
+      "source_sha256": "b656693e5a25d8e45e9d0bae47e00fd6f429bacaab2e99cb7b8df2dd93ea8f35"
+    },
+    {
+      "path": "src/session/book/CourseBook.cpp",
+      "source_sha256": "9011e4eb222618fe27208909d191598a55eca526625eaa9e27309c50c119314d"
+    },
+    {
+      "path": "src/session/book/CourseBook.hpp",
+      "source_sha256": "f85d76c2f14c2dbcc164c7d3bcc06e46da9977a05cb4fe976136811f1060d691"
+    }
+  ]
+}

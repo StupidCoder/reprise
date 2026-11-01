@@ -125,8 +125,13 @@ port no longer reads; the message says so and asks for the 1.1.1 IPA. DoubleOChe
 are never changed.
 The save magic and game IDs remain compatible for the connected Joyport games.
 
-Diorama remains in its original project; later share its core between Reprise
-and an independent OpenXR target, preserving its graphics abstraction.
+Diorama is superseded by the `captain_toad_3ds` engine in Reprise. The pinned core,
+importer and session have been copied with isolated namespaces; the original project is
+retained until the handoff is validated. Scope is macOS and Android flat-screen play only;
+no OpenXR target is being integrated. The existing shelf card and artwork keep their ID.
+The catalog now imports and plays the opening through SDL GPU. Course-book/campaign flow
+and persistent saves remain pending; see the opening validation report for coverage.
+See `games/captain_toad_3ds/plan.md` and its validation report for completed checks and limits.
 
 ## Shared interfaces added for the puzzle adventures (2026-10-29)
 
