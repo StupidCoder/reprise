@@ -68,3 +68,11 @@ Source: exec-a45dd45e-b932-4d37-9282-0c6670ea6bb8.png.
 Original built-in image-generation screenprints: beach_volley_amiga.png and
 stunt_car_racer_amiga.png. Interpretive editorial art, not publisher artwork
 or verified game scenes. Full prompts: design/planned-covers/beach-and-stunt.md.
+
+## Captain Toad: Treasure Tracker — 2026-11-01
+
+Original built-in image-generation screenprint, `captain_toad_3ds.png`. A miniature
+sandstone garden with winding paths, hidden passages and a golden star. Editorial
+environment illustration, not a screenshot, verified level or publisher artwork.
+Full prompts and integration handoff: `design/planned-covers/captain-toad.md`.
+Source: exec-8d1082ce-4586-4ce1-8f67-991f31e8e223.png.

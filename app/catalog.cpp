@@ -268,6 +268,20 @@ std::vector<GameEntry> catalog() {
         }
         games.push_back(std::move(game));
     }
+    // Reserved identity for the upcoming Diorama integration. Keep this ID and cover
+    // when replacing the placeholder with the connected module's entry.
+    {
+        GameEntry game;
+        game.id = "captain_toad_3ds";
+        game.title = "Captain Toad: Treasure Tracker";
+        game.machine = Machine::nintendo_3ds;
+        game.release_year = 2018;
+        game.description = "Tiny worlds hide big adventures. Guide Captain Toad through miniature gardens, towers and twisting paths, looking around every corner for hidden treasure and a route to the star. With a heavy backpack and no jump to rely on, finding the way is a puzzle of its own.";
+        game.collection = Collection::none;
+        game.integration_pending = true;
+        game.progress = "Coming to Reprise";
+        games.push_back(std::move(game));
+    }
     // Apply articles after every collection and standalone game has been added.
     for (auto& game : games) for (const auto& article : articles) {
         if (game.id != article.id) continue;
