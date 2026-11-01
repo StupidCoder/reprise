@@ -33,6 +33,10 @@ struct Camera {
     std::array<double, 3> position{}; // world units
     std::array<double, 9> matrix{};   // rows x, y, z of camera space (scaled)
     bool from_above = false;          // the view from above ($13AA9D)
+    // Where the water is measured from ($11F35C): from the cockpit the
+    // viewed aircraft's own place (its record, not the pilot's eye),
+    // otherwise the camera's.
+    std::optional<std::array<double, 3>> water_from;
 };
 
 // A moving object to draw (the player's aircraft from outside): its type

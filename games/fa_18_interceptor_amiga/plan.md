@@ -194,6 +194,11 @@ app has none yet).
 
 ## Known bugs and differences in the port
 
+- Done 2026-11-01: the demo approach's water wedge (frame 1870): the
+  water now goes to the screen as the original's (measured from the
+  aircraft's record, whole-word camera space, the four-sided integer
+  clipper `$118C04`, inclusive fill); see game.md "How the water reaches
+  the screen".
 - Done 2026-10-31: the scene builder's own cell and slot lists
   (`$11005C`, game.md "Scene builder") in place of a square window:
   the port's lists equal the original's on the start map and at demo
@@ -236,12 +241,11 @@ app has none yet).
 - Not checked against pictures: $9C/$A0's quadrant faces and colours,
   the stadium (types 107/108). The bitplane mode is carried in decoding
   order, not drawing order.
-- Demo approach (frame 1870, 390 ft, just after the switch to the
-  cockpit): the port shows a wedge of water at the view's bottom left
-  that the original does not - the far version of the fine water cell
-  one west and one south (16, 16; polygon 291 of the far list), which
-  both choose by the reach; probably the original's polygon clipper
-  (`$118C02`) with corners behind the camera: not traced.
+- Water: the port draws the second polygon of fine cell (16, 16)'s other
+  version on the demo's approach (frames 1869-1871); the original's
+  clipper never sees it (cut away there, so no picture difference; why
+  not traced). The water's integer path keeps whole 16-unit steps, so at
+  120 Hz its edges near the eye move in steps, as the original's do.
 - The scene builder's lists are worked out every frame (the original
   rebuilds them on cell changes and keeps far objects' distances from
   the rebuild, `$10FB46`); the moving records are not filed into the

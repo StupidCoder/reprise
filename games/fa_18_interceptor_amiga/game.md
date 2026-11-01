@@ -746,6 +746,44 @@ the runway stays green and the bay shows where it does; the recorded
 1024 cells; the near versions draw the bay's coastline
 (`.analysis/fa_18_interceptor_amiga/work/terrain.png`, the viewer's world map).
 
+**How the water reaches the screen** (`$11F6E6` ... `$11F7C2`, then the
+clipper `$118C04` and the blitter fill `$124B48`; 2026-11-01). The
+water is measured from the viewed aircraft's own place (its record,
+`$13B474` + `$13ABCE` + $14; `$13AF2E` in the outside view, which is
+also `$13AD6C` there), not from the pilot's eye: 20 units ahead and 5 up
+is a whole step at these sizes. Everything is in words: the place from
+the cell's corner and the height in steps of 2^12 32-bit units (16 world
+units; the height + $1000 first, so rounded) in the fine grid, 2^16 in
+the coarse one; the corner's own steps added (16-bit); camera space =
+(x m00 + z m02) >> 8 plus the height's part (−h m01) >> 8, taken down
+apart, for each row of `$13AEC8`; then shifted left (`-$20(a6)`): 1 from
+h $C80 down, 2 for the camera's own cell from h $400 down, 0 in the
+coarse grid, still in 16 bits. The clipper's input shift `$14127C` is 0.
+The clipper (`$118C02`; the water enters at `$118C04`, after its nop)
+runs four passes, y ≤ z, −y ≤ z, x ≤ z, −x ≤ z, Sutherland-Hodgman on
+words: a crossing is p + (c − p) k / den (k = p.z ∓ p.axis, den =
+(p.z − c.z) ± (c.axis − p.axis)), each quotient rounded to the nearest
+(a remainder at least |den| / 2 moves it one away from zero, also from
+0 for a negative remainder), a `divs` that overflows keeping the product
+(its high word then counts as the remainder); the crossing's z = ± its
+axis value. No near plane: a polygon reaching behind the eye is cut by
+the four sides only and can come out crossing itself; the fill of the
+edge lines (exclusive-or lines, inclusive fill) then leaves only parts
+of it, such as the wedge of water at the picture's bottom left on the
+demo's approach (frames 1860-1880). Columns 319 − (160 + 160 x / z),
+rows 179 − (90 + 90 y / z), the quotients cut toward zero and kept in
+0-319 / 0-179 (`$119290`). **Checked**: a Python model of the clipper
+(`.analysis/fa_18_interceptor_amiga/harness/clipmodel.py`) gives all 34 polygons' screen corners captured at the
+clipper around demo frame 1870 (`harness/clipcap.py`: breakpoints `$118C04` in,
+`$1192C4` out); the port's words for the recorded states 1869-1871 equal
+the captured inputs (6 of 7 polygons; the port draws a second polygon of
+cell (16, 16)'s other version that the original does not reach - cut
+away in these frames). Against the demo's pictures (each picture shows
+the state logged one frame earlier): water pixels that differ dropped in
+28 of 29 frames (e.g. frame 1860: 2490 to 171, 1920: 1876 to 295; frame
+195, looking back, 1055 to 1115); what is left is mostly the original's
+HUD over the water and single pixels along the coast.
+
 **The roads** (`$1197E0`, run once by `$101628` as the game starts,
 2026-10-30): the program on the disk holds zeros for some of the ground
 shapes' points; the game builds them. A list of word offsets from

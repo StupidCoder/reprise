@@ -1093,6 +1093,7 @@ int effect_shot(const std::filesystem::path& content, const std::filesystem::pat
     // 13): the aircraft itself.
     const int look = g.u8(0x13AA97 - 0x13A9E0);
     const bool outside = g.u8(0x13AA75 - 0x13A9E0);
+    if (!outside) camera.water_from = std::array<double, 3>{player.x / 256.0, player.y / 256.0, player.z / 256.0};
     if (outside || (look >= 4 && look <= 8) || look >= 12) {
         game::Vehicle self;
         self.shadow = outside;

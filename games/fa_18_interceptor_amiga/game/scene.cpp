@@ -15,6 +15,60 @@ constexpr int sky = 5, land = 4, water = 6; // flight palette indices
 constexpr double near_plane = 1.0 / 16;
 constexpr double far_ground = 400000;
 
+// The original's clipper ($118C04) on camera-space words: one pass for each
+// side of the view (y <= z, -y <= z, x <= z, -x <= z, in that order), each
+// keeping the corners inside and putting a new one where an edge crosses
+// the side, the crossing rounded to the nearest word. All in 16 bits as the
+// 68000 does it: a division that overflows leaves the product (the high
+// word counts as its remainder). Corners behind the eye are cut by these
+// sides alone, with no near plane, so a polygon reaching behind the camera
+// can come out crossing itself (which the even-odd fill shows as the water
+// at the picture's edge from a low camera).
+using Words = std::array<std::int16_t, 3>;
+
+std::int16_t word(std::int64_t v) { return std::int16_t(std::uint16_t(v)); }
+
+// (`num` / `den`) rounded to the nearest, `half` = |den| / 2.
+std::int16_t rounded_quotient(std::int32_t num, std::int16_t den, int half) {
+    std::int32_t q = num / den, r = num % den;
+    if (q > 32767 || q < -32768) {
+        q = word(num);
+        r = word(num >> 16);
+    }
+    if (half <= std::abs(int(word(r)))) q = word(q) < 0 ? q - 1 : q + 1;
+    return word(q);
+}
+
+std::vector<Words> clip_side(const std::vector<Words>& in, int axis, int sign) {
+    const int other = 1 - axis;
+    const auto inside = [&](const Words& p) { return word(sign * p[std::size_t(axis)]) <= p[2]; };
+    const auto cut = [&](const Words& c, const Words& p) {
+        const auto a = std::size_t(axis), o = std::size_t(other);
+        const std::int16_t da = word(c[a] - p[a]);
+        const std::int16_t den = word(word(p[2] - c[2]) + sign * da);
+        const std::int16_t k = word(p[2] - sign * p[a]);
+        Words q{};
+        if (den == 0) return q; // (the original reports an error and goes on)
+        const int half = std::abs(int(den)) >> 1;
+        q[a] = word(rounded_quotient(da * k, den, half) + p[a]);
+        q[o] = word(rounded_quotient(word(c[o] - p[o]) * k, den, half) + p[o]);
+        q[2] = word(sign * q[a]);
+        return q;
+    };
+    std::vector<Words> out;
+    for (std::size_t i = 0; i < in.size(); ++i) {
+        if (i > 0 && inside(in[i]) != inside(in[i - 1])) out.push_back(cut(in[i], in[i - 1]));
+        if (inside(in[i])) out.push_back(in[i]);
+    }
+    if (in.size() > 1 && inside(in.back()) != inside(in.front())) out.push_back(cut(in.back(), in.front()));
+    return out;
+}
+
+std::vector<Words> clip_to_view(std::vector<Words> corners) {
+    for (const auto& [axis, sign] : {std::pair{1, 1}, {1, -1}, {0, 1}, {0, -1}}) corners = clip_side(corners, axis, sign);
+    return corners;
+}
+
 class Raster {
 public:
     Raster(IndexedImage& image, int centre, int bottom, const Camera& camera)
@@ -51,6 +105,31 @@ public:
         std::vector<Point> view;
         view.reserve(world.size());
         for (const auto& p : world) view.push_back(to_camera(p));
+        polygon_in_view(std::move(view), colour, depth_test);
+    }
+
+    // A flat polygon in camera-space words, clipped and placed on the
+    // screen as the original does ($118C04: columns 159 - 160 x / z, rows
+    // 89 - 90 y / z, the quotients cut toward zero and kept in the view;
+    // its fill shows them a row lower, as the pictures do). Wider pictures
+    // (widescreen) narrow x before the clip by the extra width, so the
+    // sides fall at the picture's edges.
+    void camera_polygon(std::vector<Words> view, int colour) {
+        const double reach = half_width() / 160;
+        if (reach > 1)
+            for (auto& v : view) v[0] = word(std::lround(v[0] / reach));
+        view = clip_to_view(std::move(view));
+        if (view.size() < 3) return;
+        std::vector<Point> screen;
+        for (const auto& v : view) {
+            if (v[2] <= 0) return;
+            const int x = std::clamp(160 * v[0] / v[2], -160, 159), y = std::clamp(90 * v[1] / v[2], -90, 89);
+            screen.push_back({centre_ - x * reach, 90.5 - y, 0});
+        }
+        fill_rows(screen, [&](int px, int py) { plot(px, py, 0, colour, false); }, true);
+    }
+
+    void polygon_in_view(std::vector<Point> view, int colour, bool depth_test) {
         clip_near(view);
         if (view.size() < 3) return;
         std::vector<Point> screen;
@@ -82,7 +161,7 @@ public:
         fill_rows(screen, [&](int x, int y) { clear_plane(x, y); });
     }
 
-    template <typename Put> void fill_rows(const std::vector<Point>& screen, Put put) {
+    template <typename Put> void fill_rows(const std::vector<Point>& screen, Put put, bool inclusive = false) {
         double low = 1e30, high = -1e30;
         for (const auto& p : screen) {
             low = std::min(low, p[1]);
@@ -101,8 +180,11 @@ public:
             }
             std::sort(crossings.begin(), crossings.end());
             for (std::size_t k = 0; k + 1 < crossings.size(); k += 2) {
-                const int from = std::max(0, int(std::ceil(crossings[k] - 0.5)));
-                const int to = std::min(image_.width - 1, int(std::ceil(crossings[k + 1] - 0.5)) - 1);
+                // (Inclusive: both edges' own pixels too, as the blitter's
+                // fill of the edge lines, `$124B48`.)
+                const int from = std::max(0, int(inclusive ? std::lround(crossings[k]) : std::ceil(crossings[k] - 0.5)));
+                const int to = std::min(image_.width - 1, inclusive ? int(std::lround(crossings[k + 1]))
+                                                                    : int(std::ceil(crossings[k + 1] - 0.5)) - 1);
                 for (int x = from; x <= to; ++x) put(x, y);
             }
         }
@@ -718,13 +800,41 @@ void Scene::draw(IndexedImage& image, int centre, int bottom, const Camera& came
     r.polygon({{eye[0] - far_ground, 0, eye[2] - far_ground}, {eye[0] + far_ground, 0, eye[2] - far_ground},
                {eye[0] + far_ground, 0, eye[2] + far_ground}, {eye[0] - far_ground, 0, eye[2] + far_ground}},
               land, false);
+    // The water's corners go to camera space in whole words ($11F6E6):
+    // the camera's place from the cell's corner and its height in steps of
+    // `step` world units (16 in the fine grid, 256 in the coarse one; the
+    // fine height rounded, the rest down), the corners' own steps added,
+    // times the view matrix's words over 256 (the height's part taken down
+    // apart), then shifted left by `shift` in 16 bits. Close to the eye
+    // these steps shape what the clipper ($118C04) keeps: the water at the
+    // picture's edge from a low camera (demo frame 1870).
+    std::array<int, 9> m{};
+    for (std::size_t i = 0; i < 9; ++i) m[i] = int(std::lround(camera.matrix[i] * 256));
+    const auto& from = camera.water_from ? *camera.water_from : eye;
+    const auto y32 = std::int64_t(std::floor(from[1] * 256));
+    const auto x32 = std::int64_t(std::floor(from[0] * 256)), z32 = std::int64_t(std::floor(from[2] * 256));
     std::vector<Point> corners;
-    const auto paint = [&](const data::WaterPolygon& polygon, std::int32_t height) {
+    std::vector<Words> water_corners;
+    const auto paint = [&](const data::WaterPolygon& polygon, std::int32_t height, double x0, double z0, bool fine,
+                           int shift) {
         // (A threshold: the rest of the cell only from that height up.)
         if (polygon.min_height && height < *polygon.min_height) return false;
-        corners.clear();
-        for (const auto& p : polygon.points) corners.push_back({p[0], 0, p[1]});
-        r.polygon(corners, water, false);
+        const int bits = fine ? 12 : 16;
+        const double step = fine ? 16 : 256;
+        const std::int16_t cx = word((std::int64_t(x0) * 256 - x32) >> bits);
+        const std::int16_t cz = word((std::int64_t(z0) * 256 - z32) >> bits);
+        const std::int16_t up = word(-((fine ? y32 + 0x1000 : y32) >> bits));
+        const int lift[3] = {(up * m[1]) >> 8, (up * m[4]) >> 8, (up * m[7]) >> 8};
+        water_corners.clear();
+        for (const auto& p : polygon.points) {
+            const std::int16_t x = word(cx + std::lround((p[0] - x0) / step));
+            const std::int16_t z = word(cz + std::lround((p[1] - z0) / step));
+            Words v;
+            for (std::size_t k = 0; k < 3; ++k)
+                v[k] = word(word(((x * m[3 * k] + z * m[3 * k + 2]) >> 8) + lift[k]) << shift);
+            water_corners.push_back(v);
+        }
+        r.camera_polygon(water_corners, water);
         return true;
     };
     // $11F27C: the camera's height (`$13AD68`, world units rounded up); at
@@ -735,7 +845,6 @@ void Scene::draw(IndexedImage& image, int centre, int bottom, const Camera& came
     const int zoom_factor = zoom >= 0x80 ? 0x100 : 0x8000 / std::max(zoom, 2);
     auto height = std::int32_t(std::ceil(eye[1]));
     if (zoom < 0x80 && height <= 0x7FFF0) height = ((height >> 4) * zoom_factor) >> 4;
-    const auto x32 = std::int64_t(std::floor(eye[0] * 256)), z32 = std::int64_t(std::floor(eye[2] * 256));
     // Above $3F8 the coarse grid's cells around the camera first.
     if (height > 0x3F8) {
         const auto& coarse = world_.coarse_water;
@@ -745,7 +854,9 @@ void Scene::draw(IndexedImage& image, int centre, int bottom, const Camera& came
         for (const auto& o : window) {
             for (std::size_t i = 0; i < coarse.polygons.size(); ++i) {
                 if (coarse.cell_of[i][0] != cx + o[0] || coarse.cell_of[i][1] != cz + o[1]) continue;
-                if (!paint(coarse.polygons[i], height)) break;
+                if (!paint(coarse.polygons[i], height, (cx + o[0] - data::CoarseWater::origin) * data::CoarseWater::cell_size,
+                           (cz + o[1] - data::CoarseWater::origin) * data::CoarseWater::cell_size, false, 0))
+                    break;
             }
         }
     }
@@ -797,8 +908,12 @@ void Scene::draw(IndexedImage& image, int centre, int bottom, const Camera& came
         }
         const auto* polygons = far ? &grid.far_polygons : &grid.polygons;
         const std::size_t first = far ? cell.far_first : cell.first, count = far ? cell.far_count : cell.count;
+        // The shift ($11F518): from $C80 down 1, in the camera's own cell
+        // from $400 down 2.
+        int shift = 0;
+        if (!camera.from_above && height <= 0xC80) shift = o[0] == 0 && o[1] == 0 && height <= 0x400 ? 2 : 1;
         for (std::size_t i = first; i < first + count; ++i) {
-            if (!paint((*polygons)[i], height)) break;
+            if (!paint((*polygons)[i], height, x * grid.cell_size, z * grid.cell_size, true, shift)) break;
         }
     }
     // The scenery in the builder's window. Each object shows the level of

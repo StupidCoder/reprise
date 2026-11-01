@@ -2759,8 +2759,8 @@ private:
         const double up = now.type == 0x11 ? 5 : 4, ahead = now.type == 0x11 ? 20 : 18;
         const double eye[3] = {(ahead * view[2] + up * view[1]), (ahead * view[5] + up * view[4]),
                                (ahead * view[8] + up * view[7])};
-        c.position = {mix(was.x, now.x) / 256.0 + eye[0], mix(was.y, now.y) / 256.0 + eye[1],
-                      mix(was.z, now.z) / 256.0 + eye[2]};
+        c.water_from = std::array<double, 3>{mix(was.x, now.x) / 256.0, mix(was.y, now.y) / 256.0, mix(was.z, now.z) / 256.0};
+        c.position = {(*c.water_from)[0] + eye[0], (*c.water_from)[1] + eye[1], (*c.water_from)[2] + eye[2]};
         // The look direction ($122340): the view turned about the
         // aircraft's own up axis by the heading of `$12249A` (80 a degree,
         // clockwise: 1 is 28.2 degrees right of the nose ... 11 as far left).
