@@ -25,6 +25,7 @@ void exportUi(Inputs& in, const std::string& archive, const std::filesystem::pat
 
 std::filesystem::path uiDirectory(const std::filesystem::path& dataDirectory, const std::string& archive);
 // Builds the UI package unless it is ready; returns its directory.
-std::filesystem::path buildUi(const std::filesystem::path& dataDirectory, const std::string& archive);
+std::filesystem::path buildUi(const std::filesystem::path& dataDirectory, const std::filesystem::path& cacheDirectory,
+                              const std::string& archive);
 
 }   // namespace captain_toad

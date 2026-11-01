@@ -4,7 +4,7 @@ Stable game ID: `captain_toad_3ds`. Diorama is the superseded source project, no
 
 ## Current state
 
-The shelf and artwork already exist. The core/importer/session source is embedded from the pinned source in source-handoff.json. The source project remains untouched. The catalog now connects the streamed importer and an opening-scene module. The course book and campaign are still pending.
+The shelf and artwork already exist. The core/importer/session source is embedded from the pinned source in source-handoff.json. The source project remains untouched. The catalog connects the streamed importer, opening, course book and first four reconstructed courses. Scene-entry checkpoints are integrated with Reprise Continue. See the campaign validation report for tested paths and remaining gaps.
 
 ## Ordered acceptance gates
 
@@ -56,3 +56,17 @@ Continue. Also validate Android suspend/resume and real touchscreen/gamepad
 behavior on physical hardware. Exact-moment saves remain out of scope.
 No source project retirement or full research-handoff completion is claimed:
 the older research exporters have 178 existing differences to resolve.
+
+## Campaign/checkpoint integration (2026-11-01)
+
+Book/course/pause/clear/miss orchestration is connected, with direct selection of
+the four supported courses. Generated packages now use a separate Library cache;
+imports remain unchanged. Versioned scene-entry checkpoints use Reprise's save
+generations, content checks and Continue. Display/control preferences survive
+loads. Later courses stop explicitly instead of entering incomplete gameplay.
+
+See [campaign-validation.md](docs/campaign-validation.md) for smoke-test coverage,
+durable-save failure checks and small unresolved restart-render differences.
+Next acceptance work: fixed-input opening-to-book and complete course-clear/miss
+playthroughs, touch-specific puzzles, physical Android lifecycle/input/audio,
+mod identity, original progress adoption and remaining source research drift.

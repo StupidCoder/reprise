@@ -28,7 +28,8 @@ namespace captain_toad::session {
 
 class CourseUi {
 public:
-    CourseUi(const std::filesystem::path& dataDirectory, const captain_toad::CourseEntry& course, int courseNumber);
+    CourseUi(const std::filesystem::path& dataDirectory, const std::filesystem::path& cacheDirectory,
+             const captain_toad::CourseEntry& course, int courseNumber);
     ~CourseUi();
 
     enum class Result { None, Resume, Exit, Cleared, Restart };

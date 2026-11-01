@@ -44,7 +44,8 @@ std::vector<CourseEntry> courseList(const std::filesystem::path& dataDirectory);
 std::filesystem::path stageDirectory(const std::filesystem::path& dataDirectory, const std::string& stage);
 bool stageReady(const std::filesystem::path& dataDirectory, const std::string& stage);
 // Builds the stage's package unless it is ready; returns its directory.
-std::filesystem::path buildStage(const std::filesystem::path& dataDirectory, const std::string& stage,
+std::filesystem::path buildStage(const std::filesystem::path& dataDirectory,
+                                 const std::filesystem::path& cacheDirectory, const std::string& stage,
                                  const std::function<void(double, const std::string&)>& progress = {});
 
 }   // namespace captain_toad

@@ -25,11 +25,11 @@ const char* const kButtons[2] = {"ParButton0", "ParButton1"};
 
 }   // namespace
 
-CourseUi::CourseUi(const std::filesystem::path& dataDirectory, const captain_toad::CourseEntry& course,
-                   int courseNumber)
+CourseUi::CourseUi(const std::filesystem::path& dataDirectory, const std::filesystem::path& cacheDirectory,
+                   const captain_toad::CourseEntry& course, int courseNumber)
     : season_("Season" + std::to_string(std::min(course.season, 3))) {
-    ui_ = std::make_unique<captain_toad::ui::Package>(captain_toad::buildUi(dataDirectory, "Gameplay"));
-    wipes_ = std::make_unique<captain_toad::ui::Package>(captain_toad::buildUi(dataDirectory, "Wipes"));
+    ui_ = std::make_unique<captain_toad::ui::Package>(captain_toad::buildUi(dataDirectory, cacheDirectory, "Gameplay"));
+    wipes_ = std::make_unique<captain_toad::ui::Package>(captain_toad::buildUi(dataDirectory, cacheDirectory, "Wipes"));
     // The texts set up front: the course's number and name on the pause screen.
     stageNumber_ = number(courseNumber);
     stageName_ = ui_->message("StageName", course.stage);

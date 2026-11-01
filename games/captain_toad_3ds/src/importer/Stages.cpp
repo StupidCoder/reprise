@@ -89,11 +89,11 @@ bool stageReady(const fs::path& dataDirectory, const std::string& stage) {
     return s.str().find("\"stage_schema\": " + std::to_string(kStageSchema) + ",") != std::string::npos;
 }
 
-fs::path buildStage(const fs::path& dataDirectory, const std::string& stage,
+fs::path buildStage(const fs::path& dataDirectory, const fs::path& cacheDirectory, const std::string& stage,
                     const std::function<void(double, const std::string&)>& progress) {
-    const fs::path target = stageDirectory(dataDirectory, stage);
-    if (!stageReady(dataDirectory, stage)) {
-        const fs::path staging = dataDirectory / "Stages" / (".build-" + std::to_string(getpid()));
+    const fs::path target = stageDirectory(cacheDirectory, stage);
+    if (!stageReady(cacheDirectory, stage)) {
+        const fs::path staging = cacheDirectory / "Stages" / (".build-" + std::to_string(getpid()));
         fs::remove_all(staging);
         try {
             Inputs in(romDirectory(dataDirectory));
@@ -110,7 +110,7 @@ fs::path buildStage(const fs::path& dataDirectory, const std::string& stage,
     constexpr size_t kKeep = 6;
     fs::last_write_time(target, fs::file_time_type::clock::now());
     std::vector<std::pair<fs::file_time_type, fs::path>> built;
-    for (const auto& d : fs::directory_iterator(dataDirectory / "Stages")) {
+    for (const auto& d : fs::directory_iterator(cacheDirectory / "Stages")) {
         if (d.is_directory() && d.path().filename().string()[0] != '.') {
             built.emplace_back(d.last_write_time(), d.path());
         }

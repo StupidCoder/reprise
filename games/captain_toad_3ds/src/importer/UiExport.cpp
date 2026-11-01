@@ -275,8 +275,8 @@ fs::path uiDirectory(const fs::path& dataDirectory, const std::string& archive) 
     return dataDirectory / "Ui" / archive;
 }
 
-fs::path buildUi(const fs::path& dataDirectory, const std::string& archive) {
-    const fs::path target = uiDirectory(dataDirectory, archive);
+fs::path buildUi(const fs::path& dataDirectory, const fs::path& cacheDirectory, const std::string& archive) {
+    const fs::path target = uiDirectory(cacheDirectory, archive);
     {
         std::ifstream f(target / "ui.json");
         std::stringstream s;
@@ -285,7 +285,7 @@ fs::path buildUi(const fs::path& dataDirectory, const std::string& archive) {
             return target;
         }
     }
-    const fs::path staging = dataDirectory / "Ui" / (".build-" + std::to_string(getpid()));
+    const fs::path staging = cacheDirectory / "Ui" / (".build-" + std::to_string(getpid()));
     fs::remove_all(staging);
     try {
         Inputs in(romDirectory(dataDirectory));

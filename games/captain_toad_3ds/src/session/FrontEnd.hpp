@@ -45,7 +45,8 @@ class FrontEnd {
 public:
     // `afterOpening`: the book follows the opening's title logo, through the opening wipe (the
     // cover on black, the curtain sliding in) as in the original's first start.
-    FrontEnd(const std::filesystem::path& dataDirectory, Progress& progress, bool afterOpening = false);
+    FrontEnd(const std::filesystem::path& dataDirectory, const std::filesystem::path& cacheDirectory,
+             Progress& progress, bool afterOpening = false);
     ~FrontEnd();
 
     // Advances the 30 Hz scene by `seconds` of real time.

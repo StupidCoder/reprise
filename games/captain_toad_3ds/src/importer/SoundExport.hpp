@@ -21,6 +21,7 @@ constexpr int kFrontEndSoundSchema = 2;
 
 void exportFrontEndSound(Inputs& in, const std::filesystem::path& out);
 // Builds the package unless it is ready; returns its directory.
-std::filesystem::path buildFrontEndSound(const std::filesystem::path& dataDirectory);
+std::filesystem::path buildFrontEndSound(const std::filesystem::path& dataDirectory,
+                                         const std::filesystem::path& cacheDirectory);
 
 }   // namespace captain_toad

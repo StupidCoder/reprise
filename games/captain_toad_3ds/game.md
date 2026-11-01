@@ -8,11 +8,11 @@ The source importer supports the unencrypted European CCI with program ID `00040
 
 ## Preserved contracts
 
-The session consumes 60 Hz input frames and advances gameplay on alternating frames (30 Hz). Recovered arithmetic retains `-ffp-contract=off`. DSP mixing uses 268111856 / 8192 Hz. Gameplay, script/layout/animation data, shader generation, collision and audio remain game-owned. Reprise owns the window, input devices, timing, audio output, presentation and library. Persistent saves remain pending.
+The session consumes 60 Hz input frames and advances gameplay on alternating frames (30 Hz). Recovered arithmetic retains `-ffp-contract=off`. DSP mixing uses 268111856 / 8192 Hz. Gameplay, script/layout/animation data, shader generation, collision and audio remain game-owned. Reprise owns the window, input devices, timing, audio output, presentation and library. Scene-entry checkpoints now persist through Reprise; see the campaign validation report for their scope.
 
 ## Evidence and uncertainty
 
-Source comments cite original routines and local evidence. The source README reports opening, course-book and first-four-course coverage; later courses are incomplete. The opening has now been checked through Reprise; the course-book and course reports have not yet been rerun there. The original local `.analysis` archive is retained externally, not copied or represented by a checkout-dependent symlink. Curated reproducible evidence references remain an integration deliverable.
+Source comments cite original routines and local evidence. The source README reports opening, course-book and first-four-course coverage; later courses are incomplete. The opening, book and first four course smoke paths have been checked through Reprise; complete course playthrough comparisons remain pending. The original local `.analysis` archive is retained externally, not copied or represented by a checkout-dependent symlink. Curated reproducible evidence references remain an integration deliverable.
 
 ## Randomness and enhancements
 
@@ -43,3 +43,17 @@ presentation settings. The book and later courses remain unavailable.
 
 Validation: docs/opening-validation.md. These are integration checks against
 the pinned source reconstruction, not new claims of whole-ROM equivalence.
+
+## Campaign adapter update (2026-11-01)
+
+The opening-only description above records the earlier milestone. The book and
+first four courses are now connected. Generated data and materials live in the
+Library cache under captain_toad_3ds/eu-00040000001cb200-v1; checkpoint values live
+in Reprise save generations. Saves restart the current scene, including its
+campaign values at entry, rather than reproducing an arbitrary mid-course moment.
+Start opens the original course pause; Escape opens the Reprise menu. Direct
+course selection is an explicit enhancement in Options → Cheats. The original
+StageList still governs normal campaign progression. Later courses are blocked.
+
+See [campaign validation](docs/campaign-validation.md). Small localized restart
+render differences remain unresolved; no full-course fidelity claim is made.

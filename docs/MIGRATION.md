@@ -129,8 +129,9 @@ Diorama is superseded by the `captain_toad_3ds` engine in Reprise. The pinned co
 importer and session have been copied with isolated namespaces; the original project is
 retained until the handoff is validated. Scope is macOS and Android flat-screen play only;
 no OpenXR target is being integrated. The existing shelf card and artwork keep their ID.
-The catalog now imports and plays the opening through SDL GPU. Course-book/campaign flow
-and persistent saves remain pending; see the opening validation report for coverage.
+The catalog imports and plays the opening, book and first four reconstructed courses through
+SDL GPU. Scene-entry checkpoints use Reprise Continue; see the campaign validation report
+for smoke-test coverage, restart-render differences and untested full playthroughs.
 See `games/captain_toad_3ds/plan.md` and its validation report for completed checks and limits.
 
 ## Shared interfaces added for the puzzle adventures (2026-10-29)

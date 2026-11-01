@@ -285,8 +285,10 @@ std::vector<GameEntry> catalog() {
         game.largest_image = 536870912;
         game.media = "the unencrypted European Nintendo 3DS cartridge image (CCI/3DS)";
         game.start = captain_toad::reprise::opening;
-        game.saves_note = "Opening preview: progress is not saved yet. Each play starts at the opening.";
-        game.progress = "Playable opening scene. Course book and later courses are not connected yet. Move with arrows or the left stick; Z/A acts, X/B runs; I/J/K/L or the right stick turns the camera, Q/E or shoulders rotate it. Escape opens Reprise’s menu.";
+        game.continue_note = "Restarts the saved scene at its beginning, with campaign progress from that checkpoint.";
+        game.features = {GameFeature::widescreen, GameFeature::high_framerate, GameFeature::cheats};
+        game.saves_note = "Quick saves keep a scene-entry checkpoint and campaign progress. Continue restarts the opening, course book or current course; it does not restore the exact moment.";
+        game.progress = "Opening, course book and first four reconstructed courses are connected. Later courses are unavailable. Move with arrows or the left stick; Z/A acts, X/B runs; I/J/K/L or the right stick turns the camera, Q/E or shoulders rotate it. Start opens the course menu; Escape opens Reprise’s menu. Direct course selection is in Options → Cheats.";
         game.history_title = "Small worlds, big discoveries";
         game.history = "Nintendo built the miniature-stage concept around a character who could not jump. Captain Toad's backpack made him a natural fit, and the 3DS adaptation later pursued the appeal of viewing these tiny worlds in stereoscopic depth.";
         game.history_sources = "Hiratake and Hayashida interviews: Nintendo Life (2014), Polygon via Nintendo Everything (2018).";

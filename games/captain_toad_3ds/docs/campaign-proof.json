@@ -1,0 +1,98 @@
+{
+  "date": "2026-11-01",
+  "opening_commit": "493530f",
+  "source_commit": "0816c17a53afe613a0fea728872645c727120699",
+  "build_base_commit": "53b7f1c",
+  "checkpoint_schema": 1,
+  "rom_sha256": "e72f516e11c38be6fc2252e1e768247916f492740d3fef395dfcfe71e01eb4cb",
+  "imported_files_compared": 4210,
+  "imported_file_differences": 0,
+  "ctest_passed": 15,
+  "metal_vulkan_book_flow": {
+    "initial": {
+      "mean_absolute_rgba": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "changed_pixels": 0
+    },
+    "played": {
+      "mean_absolute_rgba": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "changed_pixels": 0
+    },
+    "checkpoint": {
+      "mean_absolute_rgba": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "changed_pixels": 0
+    },
+    "restored": {
+      "mean_absolute_rgba": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "changed_pixels": 0
+    }
+  },
+  "binaries": {
+    "build/reprise": "f0dd5c00c4c011e6d57ac06011788eefd311e3edc522ba8a986ca258a09c7a97",
+    "build/captain_toad_flow_probe": "9f068cf654c4f9cbbc311107ef008aa0bd4f822b259ec649761dea9e2e6dbe9f",
+    "build-android/Reprise.apk": "8031fb8cae091fd8f166fac1f69d2c65a7d8bd6b5cdd0b32d771caf485870139"
+  },
+  "captures": {
+    "captain-flow-book/Book-checkpoint.png": "3dde4fcda1695559e7ea35a3fb310b5b5b6857d453d26535d5214817fe36463b",
+    "captain-flow-book/Book-initial.png": "3dde4fcda1695559e7ea35a3fb310b5b5b6857d453d26535d5214817fe36463b",
+    "captain-flow-book/Book-pause.png": "8f7dd43e85751aaf2d8b2bf6c4d7d979f881435893686ca6d018176ea166963c",
+    "captain-flow-book/Book-played.png": "a8c25d506c72111a99709465ad35590b5a33e69ac888edfa0e6004e003a46260",
+    "captain-flow-pullup/PullUpStage-checkpoint.png": "6f7cba069c095dbbc5c47127c2f6b06ca29f2ec3fc547882197ea958dfd93cdd",
+    "captain-flow-pullup/PullUpStage-initial.png": "bf2ad4c91ec2a8479d42a0146b6a503cd8a40618a683b72fba3150c54dfe90cd",
+    "captain-flow-pullup/PullUpStage-pause.png": "e7c28de545012584307c6ea38492cbbee8c54f562602907b675b0086a9378751",
+    "captain-flow-pullup/PullUpStage-played.png": "e7c28de545012584307c6ea38492cbbee8c54f562602907b675b0086a9378751",
+    "captain-flow-pullup/durable-continue.png": "bf2ad4c91ec2a8479d42a0146b6a503cd8a40618a683b72fba3150c54dfe90cd",
+    "captain-flow-pullup/durable-save.png": "0dc67c532f7b3ee6dff8d231f63203fcfb2ed01666689d0d910a4630f8f84f8c",
+    "captain-flow-ruins/RevolverRuinsStage-checkpoint.png": "2d9dee8595f34963da5b81faa71818812bc0830ba771bc0c1ef538bad25e4c24",
+    "captain-flow-ruins/RevolverRuinsStage-initial.png": "bde1ec51e48a6bb69f43696966ff5f8f9767875b8987b5773603b79267e916b2",
+    "captain-flow-ruins/RevolverRuinsStage-pause.png": "77a9755f7a9140ca92954592994f7b1f5680df548d52c9cdab7093a51518168f",
+    "captain-flow-ruins/RevolverRuinsStage-played.png": "c9b032875d9758daa019c8b3b697095cfb5bc836ebdc6e2d188ee001f50cfbce",
+    "captain-flow-ruins/RevolverRuinsStage-restored.png": "9489bd1183a026126b71d3c24e1cea593ddd5438109d049e9b5b3c23e15323e4",
+    "captain-flow-touch/TouchPuzzleMiniStage-checkpoint.png": "543430b2d9866d0bf6107d77589e1afdea2dcdf7b057edc0809fc229fd7a1693",
+    "captain-flow-touch/TouchPuzzleMiniStage-initial.png": "543430b2d9866d0bf6107d77589e1afdea2dcdf7b057edc0809fc229fd7a1693",
+    "captain-flow-touch/TouchPuzzleMiniStage-pause.png": "3589ab2805db1e889f78ed9a3a4f43703f8455fac49053e1872b157122498a8b",
+    "captain-flow-touch/TouchPuzzleMiniStage-played.png": "470b8c6742ac899122f1621cb677767803a9865e30c5b9271fc303581479e466",
+    "captain-flow-touch/TouchPuzzleMiniStage-restored.png": "543430b2d9866d0bf6107d77589e1afdea2dcdf7b057edc0809fc229fd7a1693",
+    "captain-flow-fresh/FreshRuinsStage-checkpoint.png": "b5fbe9743ab80f7ab2ed5aee40e58ac51c2e1dd79887954a63f98b882b16f4eb",
+    "captain-flow-fresh/FreshRuinsStage-initial.png": "b5fbe9743ab80f7ab2ed5aee40e58ac51c2e1dd79887954a63f98b882b16f4eb",
+    "captain-flow-fresh/FreshRuinsStage-pause.png": "6a47ec467fcc321bb6f7e55b2fca323318a8cbfcb05707138473a6f621a99180",
+    "captain-flow-fresh/FreshRuinsStage-played.png": "7fac4e02e9bec4db9db2001d93e4a47570f67f46657dde6ddbbece6e94ebcf75",
+    "captain-flow-fresh/FreshRuinsStage-restored.png": "b5fbe9743ab80f7ab2ed5aee40e58ac51c2e1dd79887954a63f98b882b16f4eb",
+    "captain-flow-navigation-final/BookFlow-checkpoint.png": "5c8bf111838ff5f669f362173002f2cc0d550b51c9956decb58f15df81f281f6",
+    "captain-flow-navigation-final/BookFlow-initial.png": "3dde4fcda1695559e7ea35a3fb310b5b5b6857d453d26535d5214817fe36463b",
+    "captain-flow-navigation-final/BookFlow-pause.png": "802e5ae2d4da4fd2eb59ee6e8118e9c445b95efbbb33d58dd77e96dda87b0184",
+    "captain-flow-navigation-final/BookFlow-played.png": "b93f85511ef556e6f3f577642809980b709cb86c0558760c2026f7b928ab929d",
+    "captain-flow-navigation-final/BookFlow-restored.png": "3dde4fcda1695559e7ea35a3fb310b5b5b6857d453d26535d5214817fe36463b",
+    "captain-flow-navigation-vulkan/BookFlow-checkpoint.png": "5c8bf111838ff5f669f362173002f2cc0d550b51c9956decb58f15df81f281f6",
+    "captain-flow-navigation-vulkan/BookFlow-initial.png": "3dde4fcda1695559e7ea35a3fb310b5b5b6857d453d26535d5214817fe36463b",
+    "captain-flow-navigation-vulkan/BookFlow-pause.png": "802e5ae2d4da4fd2eb59ee6e8118e9c445b95efbbb33d58dd77e96dda87b0184",
+    "captain-flow-navigation-vulkan/BookFlow-played.png": "b93f85511ef556e6f3f577642809980b709cb86c0558760c2026f7b928ab929d",
+    "captain-flow-navigation-vulkan/BookFlow-restored.png": "3dde4fcda1695559e7ea35a3fb310b5b5b6857d453d26535d5214817fe36463b",
+    "captain-flow-selection-final/FreshRuinsStage-checkpoint.png": "b5fbe9743ab80f7ab2ed5aee40e58ac51c2e1dd79887954a63f98b882b16f4eb",
+    "captain-flow-selection-final/FreshRuinsStage-initial.png": "b5fbe9743ab80f7ab2ed5aee40e58ac51c2e1dd79887954a63f98b882b16f4eb",
+    "captain-flow-selection-final/FreshRuinsStage-pause.png": "6a47ec467fcc321bb6f7e55b2fca323318a8cbfcb05707138473a6f621a99180",
+    "captain-flow-selection-final/FreshRuinsStage-played.png": "977258de267f02f0c7a21d879e50c48aff317722242ebc477fa67053d3cab1c7",
+    "captain-flow-selection-final/FreshRuinsStage-restored.png": "b5fbe9743ab80f7ab2ed5aee40e58ac51c2e1dd79887954a63f98b882b16f4eb",
+    "captain-campaign-continue.png": "22a980a67b3b1e25cc2bdd249d24c292389f3ddd8d512985a850659468d126a4",
+    "captain-campaign-host-pause.png": "b7276a20b01fec9fbef7e5d5b46bde4d9ea282c61a7fb1b50cdd4b69360c7952"
+  }
+}

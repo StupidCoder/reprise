@@ -81,8 +81,8 @@ void exportFrontEndSound(Inputs& in, const fs::path& out) {
     writeFile(out / "sedb.json", json::dump(sedb, 1));
 }
 
-fs::path buildFrontEndSound(const fs::path& dataDirectory) {
-    const fs::path target = dataDirectory / "Sound" / "FrontEnd";
+fs::path buildFrontEndSound(const fs::path& dataDirectory, const fs::path& cacheDirectory) {
+    const fs::path target = cacheDirectory / "Sound" / "FrontEnd";
     {
         std::ifstream f(target / "sedb.json");
         std::stringstream s;
@@ -91,7 +91,7 @@ fs::path buildFrontEndSound(const fs::path& dataDirectory) {
             return target;
         }
     }
-    const fs::path staging = dataDirectory / "Sound" / (".build-" + std::to_string(getpid()));
+    const fs::path staging = cacheDirectory / "Sound" / (".build-" + std::to_string(getpid()));
     fs::remove_all(staging);
     try {
         Inputs in(romDirectory(dataDirectory));

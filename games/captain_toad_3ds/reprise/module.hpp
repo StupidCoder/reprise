@@ -1,4 +1,5 @@
-// Opening-scene module factory; the Reprise host owns presentation and input.
+// Campaign factory: starts at the opening unless restored from a checkpoint.
+// Reprise owns presentation and input.
 #pragma once
 #include "app/game_module.hpp"
 #include <filesystem>

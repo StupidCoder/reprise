@@ -75,13 +75,15 @@ ScreenRects ScreenRects::fit(int x, int y, int w, int h, bool withBottom) {
     return r;
 }
 
-FrontEnd::FrontEnd(const std::filesystem::path& dataDirectory, Progress& progress, bool afterOpening)
+FrontEnd::FrontEnd(const std::filesystem::path& dataDirectory, const std::filesystem::path& cacheDirectory,
+                   Progress& progress, bool afterOpening)
     : dataDirectory_(dataDirectory), progress_(progress) {
     courses_ = captain_toad::courseList(dataDirectory);
-    book_ = std::make_unique<captain_toad::ui::Package>(captain_toad::buildUi(dataDirectory, "CourseSelection"));
-    wipes_ = std::make_unique<captain_toad::ui::Package>(captain_toad::buildUi(dataDirectory, "Wipes"));
+    book_ = std::make_unique<captain_toad::ui::Package>(
+        captain_toad::buildUi(dataDirectory, cacheDirectory, "CourseSelection"));
+    wipes_ = std::make_unique<captain_toad::ui::Package>(captain_toad::buildUi(dataDirectory, cacheDirectory, "Wipes"));
     if (!std::getenv("DIORAMA_NO_SOUND")) {
-        sound_ = std::make_unique<book::Sound>(captain_toad::buildFrontEndSound(dataDirectory));
+        sound_ = std::make_unique<book::Sound>(captain_toad::buildFrontEndSound(dataDirectory, cacheDirectory));
         if (const char* out = std::getenv("DIORAMA_SOUND_OUT")) {
             soundOut_ = fopen(out, "wb");
         }
