@@ -76,3 +76,10 @@ sandstone garden with winding paths, hidden passages and a golden star. Editoria
 environment illustration, not a screenshot, verified level or publisher artwork.
 Full prompts and integration handoff: `design/planned-covers/captain-toad.md`.
 Source: exec-8d1082ce-4586-4ce1-8f67-991f31e8e223.png.
+
+## Astro Bot Rescue Mission — 2026-11-02
+
+Original built-in image-generation screenprint, `astro_bot_ps4.png`. A friendly
+robot on a cosmic platforming rescue adventure; interpretive art, not publisher
+box art, a screenshot or a verified reconstructed level. Prompt and handoff:
+`design/planned-covers/astro-bot.md`. Source: exec-2426cb4a-0ee1-4544-904b-8aff25459e7a.png.

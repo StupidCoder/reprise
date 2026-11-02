@@ -237,3 +237,8 @@ This completes expanded development-story coverage for the current 24-game catal
 The pending 3DS title has a seven-paragraph story, **Small worlds, big discoveries**.
 See its [paragraph-to-source map and evidence limits](captain-toad.md).
 The article is available before importing or connecting the game engine.
+
+## Astro Bot Rescue Mission
+
+The pending PS4 title has a seven-paragraph development story. See its
+[paragraph-to-source map and evidence limits](astro-bot.md).

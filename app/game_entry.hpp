@@ -21,7 +21,7 @@ namespace app {
 // A phase and its measured fraction (negative when work cannot be measured).
 using ImportProgress = std::function<void(const std::string&, double)>;
 
-enum class Machine { c64, amiga, game_gear, nintendo_ds, nintendo_3ds, ios, game_boy_advance };
+enum class Machine { c64, amiga, game_gear, nintendo_ds, nintendo_3ds, ios, game_boy_advance, playstation_4 };
 
 // A file the importer extracted from the user's image, to be installed in
 // the game's content folder.

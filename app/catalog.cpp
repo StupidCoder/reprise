@@ -112,6 +112,8 @@ std::vector<GameEntry> catalog() {
     // App-owned editorial articles also load from Android's packaged assets.
     struct Article { const char* id; const char* title; const char* sources; };
     constexpr Article articles[] = {
+        {"astro_bot_ps4", "A small hero, a shared adventure",
+         "Nicolas Doucet: PlayStation Blog interviews and development accounts (2018–2019)."},
         {"captain_toad_3ds", "Small worlds, big discoveries",
          "Shinya Hiratake and Koichi Hayashida interviews: GameSpot and Nintendo Life (2014), Miiverse (2015), Polygon via Nintendo Everything (2018); Nintendo."},
         {"bruce_lee_c64", "A fortress, a rival and an Atari inheritance",
@@ -294,6 +296,22 @@ std::vector<GameEntry> catalog() {
         game.history_sources = "Hiratake and Hayashida interviews: Nintendo Life (2014), Polygon via Nintendo Everything (2018).";
         games.push_back(std::move(game));
     }
+    // Reserved for the Beacon handoff; preserve this identity when connecting the engine.
+    {
+        GameEntry game;
+        game.id = "astro_bot_ps4";
+        game.title = "Astro Bot Rescue Mission";
+        game.machine = Machine::playstation_4;
+        game.release_year = 2018;
+        game.description = "A little robot has a very big rescue ahead. Guide Astro across dizzying platforms, through lush worlds and past towering bosses to find his scattered crew. Search every corner, lend a helping hand and bring your tiny companions home.";
+        game.collection = Collection::none;
+        game.integration_pending = true;
+        game.progress = "Coming to Reprise";
+        game.history_title = "A small hero, a shared adventure";
+        game.history = "Asobi Team expanded The Playroom VR's Robot Rescue mini-game into a full adventure, exploring how the player and a small platforming hero could share the same world.";
+        game.history_sources = "Nicolas Doucet, PlayStation Blog (2018).";
+        games.push_back(std::move(game));
+    }
     // Apply articles after every collection and standalone game has been added.
     for (auto& game : games) for (const auto& article : articles) {
         if (game.id != article.id) continue;
@@ -345,6 +363,7 @@ const char* machine_name(Machine machine) {
     case Machine::nintendo_3ds: return "Nintendo 3DS";
     case Machine::ios: return "iOS";
     case Machine::game_boy_advance: return "Game Boy Advance";
+    case Machine::playstation_4: return "PlayStation 4";
     }
     return "";
 }
