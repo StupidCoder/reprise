@@ -1,0 +1,9 @@
+[21/72] Linking CXX static library games/astro_bot_ps4/libbeacon_data.a
+[39/72] Linking CXX static library games/astro_bot_ps4/libbeacon_anim.a
+[48/72] Linking CXX static library games/astro_bot_ps4/libbeacon_physics.a
+[63/72] Linking C static library games/astro_bot_ps4/libbeacon_atrac9.a
+[70/72] Linking CXX static library games/astro_bot_ps4/libbeacon_game.a
+[72/72] Linking CXX static library games/astro_bot_ps4/libbeacon_audio.a
+Verified using v2 scheme (APK Signature Scheme v2): true
+Verified using v3 scheme (APK Signature Scheme v3): true
+Built REPRISE/build-android/Reprise.apk (103.6 MiB)

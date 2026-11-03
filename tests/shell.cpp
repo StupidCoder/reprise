@@ -23,6 +23,7 @@
 #include <set>
 #include <cstring>
 #include <fstream>
+#include <chrono>
 
 void check(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
@@ -44,8 +45,60 @@ struct Module : app::GameModule {
 platform::Controls click(int x, int y) {
     platform::Controls in; in.click = true; in.mouse_x = x; in.mouse_y = y; return in;
 }
+// Shared animation controls must stay independent of any game's file formats.
+void animation_controls_check() {
+    struct State {std::size_t clip{};double time{};int loads{};};
+    struct Player : ui::AnimatedModel {
+        std::shared_ptr<State> state;
+        ui::Model mesh;
+        std::vector<ui::ModelClip> list{{"Bind pose",0,30},{"walk",1,30}};
+        explicit Player(std::shared_ptr<State> s):state(std::move(s)){++state->loads;}
+        const std::vector<ui::ModelClip>& clips() const override{return list;}
+        void select(std::size_t i) override{state->clip=i;}
+        void pose(double t) override{state->time=t;}
+        const ui::Model& model() const override{return mesh;}
+    };
+    auto state=std::make_shared<State>();
+    app::GameEntry entry;entry.id="astro_bot_ps4";entry.title="Animation fixture";
+    entry.import=[](auto){return app::ImportResult{{{"fixture.bin",{1}}},"fixture"};};
+    entry.previews=[state](const auto&){
+        app::Preview p{"Character",platform::Image(0,0)};
+        p.animated_model=[state]{return std::make_unique<Player>(state);};
+        return std::vector<app::Preview>{p};
+    };
+    const auto root=std::filesystem::temp_directory_path()/("reprise-animation-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(root);
+    struct Cleanup{std::filesystem::path path;~Cleanup(){std::error_code ignored;std::filesystem::remove_all(path,ignored);}} cleanup{root};
+    const auto input=root/"source.bin";{std::ofstream out(input);out<<"fixture";}
+    app::Library library(root,{entry});check(library.import(input,0).ok,"Animation fixture import");
+    app::Launcher viewer(library);viewer.select(0);viewer.open_details(1);viewer.update({},1);
+    check(state->loads==1 && state->clip==0,"Animation loads lazily once");
+    platform::Controls next;next.page_down=true;viewer.update(next,1.1);
+    check(state->clip==1,"Shoulder/Page Down selects animation");
+    platform::Controls play;play.accept=true;viewer.update(play,1.2);viewer.update({},1.3);
+    check(state->time>.09,"Play advances animation");
+    viewer.update(play,1.4);const double paused=state->time;viewer.update({},1.5);
+    check(state->time==paused,"Pause freezes animation");
+    viewer.update(click(480,460),1.6);
+    check(std::abs(state->time-paused-1.0/30)<1e-6,"Frame step uses the clip rate");
+    viewer.update(click(612,500),1.7);
+    check(std::abs(state->time-.5)<1e-6,"Landscape timeline scrubs to its position");
+    const auto frozen=state->time;viewer.draw(1.7);viewer.draw(1.8);
+    check(state->time==frozen,"Drawing does not advance animation");
+    viewer.update(click(540,460),1.81); // 1x -> 2x
+    viewer.update(play,1.91);
+    check(std::abs(state->time-.7)<1e-6,"Playback speed controls elapsed clip time");
+    viewer.update(click(650,460),2.01); // loop off, now near the endpoint
+    viewer.update({},2.11);viewer.update({},2.21);
+    check(std::abs(state->time-1)<1e-6,"Non-looping playback stops at the last frame");
+    viewer.set_canvas(640,1138);viewer.update({},3);
+    viewer.update(click(468,971),3.1);
+    check(std::abs(state->time-.75)<1e-6 && state->loads==1,"Portrait timeline mapping survives resize");
+}
+
 int main(int argc, char** argv) {
     try {
+        animation_controls_check();
         // Capability discovery must be cheap and must never start an engine.
         {
             const auto entries = app::catalog();
@@ -63,6 +116,21 @@ int main(int argc, char** argv) {
                 }
             }
         }
+        if (argc == 4 && std::string(argv[1]) == "--beacon-viewer") {
+            app::Library library(argv[2],app::catalog());
+            const auto& entries=library.games();
+            const auto it=std::find_if(entries.begin(),entries.end(),[](const auto& e){return e.id=="astro_bot_ps4";});
+            check(it!=entries.end(),"Missing Beacon entry");
+            const auto index=std::size_t(it-entries.begin());
+            check(library.installed(index),"Missing Beacon import");
+            std::filesystem::create_directories(argv[3]);
+            app::Launcher viewer(library); viewer.select(index); viewer.open_details(1); viewer.update({},1);
+            platform::save_png(viewer.draw(2),std::filesystem::path(argv[3])/"landscape.png");
+            viewer.set_canvas(640,1138); viewer.update({},3);
+            platform::save_png(viewer.draw(4),std::filesystem::path(argv[3])/"portrait.png");
+            std::cout<<"Beacon catalog index "<<index<<'\n';
+            return 0;
+        }
         if (argc == 3 && std::string(argv[1]) == "--features") {
             auto entries = app::catalog();
             auto& fixture = entries.front();
@@ -75,7 +143,7 @@ int main(int argc, char** argv) {
             fixture.integration_pending = true;
             check(app::feature_badges(fixture).empty(), "Planned games must not advertise unimplemented capabilities");
             fixture.integration_pending = false;
-            const auto root = std::filesystem::temp_directory_path() / ("reprise-features-" + std::to_string(SDL_GetTicksNS()));
+            const auto root = std::filesystem::temp_directory_path() / ("reprise-features-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
             app::Library library(root, std::move(entries));
             app::Launcher shell(library); shell.select(0); shell.open_details();
             std::filesystem::create_directories(argv[2]);
@@ -93,7 +161,7 @@ int main(int argc, char** argv) {
             return 0;
         }
         if (argc == 3 && std::string(argv[1]) == "--interceptor-lessons") {
-            const auto root=std::filesystem::temp_directory_path() / ("reprise-interceptor-browser-"+std::to_string(SDL_GetTicksNS()));
+            const auto root=std::filesystem::temp_directory_path() / ("reprise-interceptor-browser-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
             std::filesystem::create_directories(root/"games");
             std::filesystem::create_directory_symlink(std::filesystem::absolute(argv[2]),root/"games/fa_18_interceptor_amiga");
             app::Library library(root,app::catalog());
@@ -118,7 +186,7 @@ int main(int argc, char** argv) {
         }
         if (argc == 3 && std::string(argv[1]) == "--stunt-lessons") {
             const auto root=std::filesystem::temp_directory_path()/
-                ("reprise-stunt-browser-"+std::to_string(SDL_GetTicksNS()));
+                ("reprise-stunt-browser-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
             app::Library library(root,app::catalog());
             const auto& games=library.games();
             const auto it=std::find_if(games.begin(),games.end(),[](const auto& g){return g.id=="stunt_car_racer_amiga";});
@@ -212,7 +280,7 @@ int main(int argc, char** argv) {
             return 0;
         }
         if (argc >= 2 && std::string(argv[1]) == "--import-progress") {
-            const auto root = std::filesystem::temp_directory_path() / ("reprise-import-" + std::to_string(SDL_GetTicksNS()));
+            const auto root = std::filesystem::temp_directory_path() / ("reprise-import-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
             struct Cleanup { std::filesystem::path path; ~Cleanup() { std::filesystem::remove_all(path); } } cleanup{root};
             std::filesystem::create_directories(root);
             const auto source = root / "image.bin";
@@ -256,7 +324,7 @@ int main(int argc, char** argv) {
             return 0;
         }
         if (argc >= 2 && std::string(argv[1]) == "--motion") {
-            const auto root = std::filesystem::temp_directory_path() / ("joyport-motion-" + std::to_string(SDL_GetTicksNS()));
+            const auto root = std::filesystem::temp_directory_path() / ("joyport-motion-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
             struct Cleanup { std::filesystem::path path; ~Cleanup() { std::filesystem::remove_all(path); } } cleanup{root};
             app::Library library(root, app::catalog());
             app::Launcher shell(library);
@@ -332,7 +400,8 @@ int main(int argc, char** argv) {
                 app::ImportResult result; result.release = "Generated motion fixture";
                 result.files.push_back({"fixture.bin", {1, 2, 3}}); return result;
             };
-            entries[0].previews = [](const std::filesystem::path&) {
+            int music_loads=0;
+            entries[0].previews = [&](const std::filesystem::path&) {
                 platform::Image a(160, 100), b(160, 100);
                 ui::fill(a, ui::shelf::cobalt); ui::fill(b, ui::shelf::green);
                 // A sound (a square wave) and a model (a cube) for the viewer's players.
@@ -346,6 +415,9 @@ int main(int argc, char** argv) {
                 std::vector<app::Preview> result{{"First asset", std::move(a)}, {"Second asset", std::move(b)}};
                 result.push_back({"A sound", platform::Image(160, 100), app::PreviewSound::signed8(wave, 8000)});
                 result.push_back({"A model", platform::Image(1, 1), std::nullopt, cube});
+                app::Preview music{"Lazy stereo",platform::Image(0,0)};
+                music.load_sound=[&] {++music_loads; return app::PreviewSound{{.5f,-.25f,.25f,-.5f},8000,2};};
+                result.push_back(std::move(music));
                 return result;
             };
             entries[0].start = [](const std::filesystem::path&) { return std::make_unique<MotionGame>(); };
@@ -415,6 +487,19 @@ int main(int argc, char** argv) {
                 wide.preview_audio(samples,48000);
                 check(std::any_of(samples.begin(),samples.end(),[](float v){return v != 0;}),
                       "Expanded waveform panel remains interactive at the right edge");
+                check(music_loads==0,"Unselected music is not decoded");
+                wide.open_assets(5); wide.update({},4.1);
+                check(music_loads==1,"Selected music decodes once");
+                wide.draw(4.2); wide.draw(4.3);
+                check(music_loads==1,"Drawing does not decode music");
+                platform::Controls play_music; play_music.accept=true;
+                wide.update(play_music,4.4);
+                std::vector<float> stereo_music(6);
+                wide.preview_audio(stereo_music,8000);
+                check(std::abs(stereo_music[0]-.3f)<.0001f && std::abs(stereo_music[1]+.15f)<.0001f && stereo_music[4]==0,
+                      "Lazy music preserves stereo and stops at frame end");
+                wide.open_assets(4);wide.update({},4.5);wide.open_assets(5);wide.update({},4.6);
+                check(music_loads==2,"Leaving a music preview releases decoded audio");
                 wide.open_details(); wide.update(click(50,510),5); wide.draw(6);
                 wide.update(click(700,375),7);
                 check(fixture.installed(0) && wide.update(click(50,390),8) == app::Launcher::Request::play,
@@ -734,7 +819,7 @@ int main(int argc, char** argv) {
             marble_madness::game::Random again;
             check(again.next(0x100)==marble_madness::game::Random().next(0x100),"Marble fixed seed repeats");
         }
-        const auto root = std::filesystem::temp_directory_path() / ("joyport-shell-test-" + std::to_string(SDL_GetTicksNS()));
+        const auto root = std::filesystem::temp_directory_path() / ("joyport-shell-test-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
         app::Library library(root, app::catalog()); // read-only, deliberately nonexistent
         {
             app::Launcher guide(library);

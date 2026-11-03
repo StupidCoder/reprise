@@ -1,0 +1,17 @@
+[
+  {
+    "wave": 0,
+    "bytes": 672560,
+    "wav_sha256": "01943851c78eff892cc71851a575c3a423406c6f471eec992235c9a67cfbb40d"
+  },
+  {
+    "wave": 2,
+    "bytes": 408452,
+    "wav_sha256": "2f1bbf35e35c738d673b40c01b451d3d0b66487dfe5f7a45fd7a38900d08bcea"
+  },
+  {
+    "wave": 7,
+    "bytes": 384540,
+    "wav_sha256": "2f0d0700ce65125e6d132fc64878a64fb15809dac4a9762c118b1e2ed49b142f"
+  }
+]

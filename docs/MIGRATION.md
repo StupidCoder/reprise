@@ -161,3 +161,21 @@ Introduced while connecting games/layton (details: games/layton/docs/reprise.md)
   `Controls::motion` / `GameInput::motion` (the accelerometer in the window's axes, opened only while
   such a game runs; Android), and `GameModule::save_picture` (the quick save's picture; default
   `picture()`).
+
+## Beacon partial handoff (2026-11-02)
+
+The portable core from clean commit `89f52f6c105a2a57a56a9786cb27ca5768d5f4d1`
+is copied into `games/astro_bot_ps4`, with isolated `beacon` namespaces and
+per-file source hashes. Data, animation, physics, game rules and audio decoding
+are built by Reprise; standalone window/render/audio/video services are excluded.
+The existing catalog identity remains pending, without import/start or save
+claims. Beacon remains the working standalone project and is not superseded.
+See the engine's plan.md, game.md and docs/integration-validation.md.
+
+### Beacon asset viewer (2026-11-02)
+
+The `astro_bot_ps4` catalog entry now imports a bounded `.beacon` character bundle
+and supplies lazy animated textured previews. The normal details page offers
+View assets, clip selection, transport, speed, loop and scrubbing controls.
+Game code/executables are excluded from the bundle. Gameplay and direct PKG/PFS
+import remain pending; see `games/astro_bot_ps4/docs/asset-viewer.md`.

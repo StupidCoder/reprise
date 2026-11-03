@@ -229,6 +229,7 @@ void Launcher::open_details(std::size_t page) {
     details_error_.clear();
     stop_sound();
     model_preview_ = nullptr;
+    animated_model_.reset();
     previews_.clear();
     const auto& game = library_.games()[selected_];
     if (library_.installed(selected_) && game.previews) {
@@ -261,7 +262,7 @@ void Launcher::refresh_save() {
     continue_saved_at_[selected_] = save_preview_.saved_at;
     if (filter_ == 1) { reveal_selection(); scroll_from_ = first_row_; scroll_start_ = -10; }
 }
-void Launcher::close_details() { details_ = false; confirm_remove_ = false; stop_sound(); previews_.clear(); }
+void Launcher::close_details() { details_ = false; confirm_remove_ = false; stop_sound(); previews_.clear(); animated_model_.reset(); model_preview_=nullptr; }
 void Launcher::activate() {
     open_details();
 }
@@ -301,6 +302,7 @@ Launcher::Request Launcher::update_input(const platform::Controls& in, double no
                     return Request::choose_image;
                 if (entry.start)
                     return Request::play;
+                if (entry.previews) { open_assets(previews_.empty() ? 0 : 1); doc_navigation_=false; }
             }
             if (action == 1 && save_preview_.available && library_.installed(selected_) && entry.start)
                 return Request::continue_game;
@@ -568,7 +570,7 @@ void Launcher::draw_overview(Image &im) const {
              15, theme().muted);
     draw_identity(im);
     if (importable(game))
-        button(im, installed ? "Start" : "Import", 24, 374, 114, 40, detail_focus_ == 0);
+        button(im, installed ? (game.start ? "Start" : "View assets") : "Import", 24, 374, 114, 40, detail_focus_ == 0);
     else {
         button(im, "Start", 24, 374, 114, 40);
         ui::blend_rect(im, 24, 374, 114, 40, theme().paper, 150);
@@ -691,23 +693,15 @@ void Launcher::draw_details(Image& im) const {
         }
     } else {
         const auto& preview = previews_[page_ - 1];
-        draw_asset(im, preview, 304,160,616+dx,370+dy);
-        if (!preview.sound) {
-            s::text(im, preview.model ? "Drag to turn / Shift-drag to pan" : "Drag to pan / Wheel to zoom", 310,540+dy,13,theme().muted);
+        const auto bounds = asset_bounds();
+        draw_asset(im, preview, bounds[0],bounds[1],bounds[2],bounds[3]);
+        if (preview.animated_model) draw_animation_controls(im,bounds[0],bounds[1]+bounds[3]+8,bounds[2]);
+        if (!preview.sound && !preview.load_sound) {
+            s::text(im, (preview.model || preview.animated_model) ? "Drag to turn / Shift-drag to pan" : "Drag to pan / Wheel to zoom", 310,540+dy,13,theme().muted);
             button(im,"-",768+dx,538+dy,36,34); button(im,"+",812+dx,538+dy,36,34); button(im,"Reset",856+dx,538+dy,64,34);
         }
-        if (preview.sound) {
+        if (preview.sound || preview.load_sound) {
             const bool playing = playback_ && playback_->preview == &preview;
-            if (playing && !preview.sound->samples.empty()) {
-                // The playhead, across the waveform as ui::picture placed it.
-                double scale = std::min((604.0 + dx) / preview.image.width, (358.0 + dy) / preview.image.height);
-                if (scale >= 1) scale = std::floor(scale);
-                const int dw = std::max(1, int(preview.image.width * scale));
-                const int dh = std::max(1, int(preview.image.height * scale));
-                const int left = 310 + ((604 + dx) - dw) / 2, top = 166 + ((358 + dy) - dh) / 2;
-                const double done = playback_->position / double(preview.sound->samples.size());
-                ui::rect(im, left + int(done * (dw - 1)), top, 2, dh, {255, 214, 120});
-            }
             s::text(im, playing ? "Playing - click to stop" : "Click to play", 316, (508 + dy), 13, theme().muted);
         }
     }
@@ -921,8 +915,9 @@ void Launcher::stop_sound() {
 }
 
 std::array<int, 4> Launcher::asset_bounds() const {
-    return portrait_ ? std::array<int, 4>{24, 396, 592, std::max(160, shelf_height_ - 536)}
-                     : std::array<int, 4>{304, 160, 616 + detail_width() - 960, 370 + detail_height() - 640};
+    const int controls = shown_preview() && shown_preview()->animated_model ? 130 : 0;
+    return portrait_ ? std::array<int, 4>{24, 396, 592, std::max(100, shelf_height_ - 536 - controls)}
+                     : std::array<int, 4>{304, 160, 616 + detail_width() - 960, 370 + detail_height() - 640 - controls};
 }
 
 void Launcher::draw_asset(Image &im, const Preview &preview, int x, int y, int w, int h) const {
@@ -931,11 +926,28 @@ void Launcher::draw_asset(Image &im, const Preview &preview, int x, int y, int w
     y += 6;
     w -= 12;
     h -= 12;
-    if (preview.model) {
+    if (preview.animated_model && animated_model_) {
+        ui::draw_model(im,x,y,w,h,animated_model_->model(),model_yaw_,model_pitch_,asset_zoom_,asset_pan_x_,asset_pan_y_);
+    } else if (preview.animated_model && !animation_error_.empty()) {
+        s::wrap(im,animation_error_,x+12,y+12,w-24,7,16,s::red);
+    } else if (preview.model) {
         ui::draw_model(im, x, y, w, h, *preview.model, model_yaw_, model_pitch_, asset_zoom_, asset_pan_x_,
                        asset_pan_y_);
-    } else if (preview.sound)
+    } else if (preview.load_sound && !preview.sound) {
+        s::wrap(im,animation_error_,x+12,y+12,w-24,7,16,s::red);
+    } else if (preview.sound) {
         ui::picture(im, preview.image, x, y, w, h);
+        if(preview.load_sound) {
+            const auto& sound=*preview.sound;
+            auto clock=[](double seconds) {const int n=int(seconds);return std::to_string(n/60)+":"+(n%60<10?"0":"")+std::to_string(n%60);};
+            const double position=playback_ && playback_->preview==&preview ? playback_->position : 0;
+            s::text(im,clock(position/sound.rate)+" / "+clock(sound.frames()/sound.rate)+(sound.channels==2 ? "  Stereo" : "  Mono"),x+10,y+10,16,{220,232,234});
+        }
+        if(playback_ && playback_->preview==&preview && preview.sound->frames()) {
+            const double done=playback_->position/preview.sound->frames();
+            ui::rect(im,x+int(done*(w-1)),y,2,h,{255,214,120});
+        }
+    }
     else if (preview.image.width > 0 && preview.image.height > 0) {
         const auto &source = preview.image;
         const double scale = std::min(double(w) / source.width, double(h) / source.height) * asset_zoom_;
@@ -960,7 +972,40 @@ void Launcher::update_preview(const platform::Controls &in, double now, Request 
     const double dt = model_time_ < 0 ? 0 : std::clamp(now - model_time_, 0.0, 0.1);
     model_time_ = now;
     if (model_preview_ != shown) {
+        for(auto& preview:previews_) if(preview.load_sound && &preview!=shown) {
+            preview.sound.reset(); preview.image=Image(0,0);
+        }
         model_preview_ = shown;
+        animated_model_.reset(); animation_error_.clear(); animation_clip_=0; animation_time_=0;
+        animation_speed_=2; animation_loop_=true; animation_playing_=false;
+        if (shown && shown->animated_model) {
+            try {
+                animated_model_=shown->animated_model();
+                const auto& clips=animated_model_->clips();
+                std::size_t initial=0;
+                for (std::size_t i=1;i<clips.size();++i) if (clips[i].name=="idle") {initial=i;break;}
+                select_animation(initial);
+                animation_playing_=initial>0 && !reduced_motion_;
+            } catch (const std::exception& e) { animation_error_=e.what(); }
+        }
+        if(shown && shown->load_sound) {
+            auto& preview=previews_[page_-1];
+            try {
+                preview.sound=preview.load_sound();
+                const auto& sound=*preview.sound;
+                if((sound.channels!=1 && sound.channels!=2) || !std::isfinite(sound.rate) || sound.rate<=0 || !sound.frames())
+                    throw std::runtime_error("Invalid preview audio");
+                preview.image=Image(600,240);
+                for(auto& pixel:preview.image.pixels) pixel={20,30,34};
+                for(int column=0;column<600;++column) {
+                    float peak=0;
+                    for(std::size_t frame=column*sound.frames()/600;frame<(column+1)*sound.frames()/600;++frame)
+                        for(unsigned ch=0;ch<sound.channels;++ch) peak=std::max(peak,std::abs(sound.samples[frame*sound.channels+ch]));
+                    const int height=std::max(1,int(std::min(peak,1.f)*110));
+                    ui::rect(preview.image,column,120-height,1,height*2,{111,195,206});
+                }
+            } catch(const std::exception& e) {preview.sound.reset();animation_error_=e.what();}
+        }
         asset_zoom_ = 1;
         asset_pan_x_ = asset_pan_y_ = 0;
         model_yaw_ = -.6;
@@ -975,7 +1020,7 @@ void Launcher::update_preview(const platform::Controls &in, double now, Request 
         return;
     }
     if (shown->sound) {
-        if (in.click && inside(in.mouse_x, in.mouse_y)) {
+        if ((in.click && inside(in.mouse_x, in.mouse_y)) || in.accept) {
             if (playback_)
                 stop_sound();
             else
@@ -989,7 +1034,40 @@ void Launcher::update_preview(const platform::Controls &in, double now, Request 
         asset_pan_y_ = (asset_pan_y_ - (py - y - h / 2.0)) * ratio + (py - y - h / 2.0);
         asset_zoom_ = next;
     };
-    const int bar = y + h + 8;
+    const int animation_bar = y+h+8;
+    if (animated_model_) {
+        const auto& clips=animated_model_->clips();
+        if (!clips.empty()) {
+            if (hit(in,x,animation_bar,44,36) || in.page_up) select_animation((animation_clip_+clips.size()-1)%clips.size());
+            if (hit(in,x+w-44,animation_bar,44,36) || in.page_down) select_animation((animation_clip_+1)%clips.size());
+            const auto& clip=clips[animation_clip_];
+            const int row=animation_bar+40;
+            if((hit(in,x,row,96,36) || in.accept) && animation_error_.empty()) animation_playing_=!animation_playing_;
+            if(hit(in,x+104,row,44,36) || hit(in,x+156,row,44,36)) {
+                animation_playing_=false;
+                animation_time_=std::clamp(animation_time_+(hit(in,x+104,row,44,36)?-1:1)/clip.sample_rate,0.0,clip.duration);
+            }
+            if(hit(in,x+208,row,90,36)) animation_speed_=(animation_speed_+1)%4;
+            if(hit(in,x+306,row,100,36)) animation_loop_=!animation_loop_;
+            const int timeline=animation_bar+83;
+            const bool scrub=hit(in,x,timeline,w,24) ||
+                (in.mouse_held && in.ui_pointer && (*in.ui_pointer)[0]>=x && (*in.ui_pointer)[0]<x+w && (*in.ui_pointer)[1]>=timeline && (*in.ui_pointer)[1]<timeline+24);
+            if(scrub) {
+                const double pointer=in.ui_pointer ? (*in.ui_pointer)[0] : in.mouse_x;
+                animation_time_=std::clamp((pointer-x)/w,0.0,1.0)*clip.duration; animation_playing_=false;
+            }
+            constexpr double speeds[]{.25,.5,1,2};
+            if(animation_playing_ && animation_error_.empty() && clip.duration>0) {
+                animation_time_+=dt*speeds[animation_speed_];
+                if(animation_time_>=clip.duration) {
+                    if(animation_loop_) animation_time_=std::fmod(animation_time_,clip.duration);
+                    else {animation_time_=clip.duration;animation_playing_=false;}
+                }
+            }
+            try {animated_model_->pose(animation_time_);} catch(const std::exception& e) {animation_error_=e.what();animation_playing_=false;}
+        }
+    }
+    const int bar = animation_bar + (shown->animated_model ? 130 : 0);
     if (hit(in, x + w - 64, bar, 64, 34)) {
         asset_zoom_ = 1;
         asset_pan_x_ = asset_pan_y_ = 0;
@@ -1026,7 +1104,7 @@ void Launcher::update_preview(const platform::Controls &in, double now, Request 
                 dx = cx - ox;
                 dy = cy - oy;
             }
-            if (fingers.size() == 2 || !shown->model) {
+            if (fingers.size() == 2 || !(shown->model || shown->animated_model)) {
                 asset_pan_x_ += dx;
                 asset_pan_y_ += dy;
             } else {
@@ -1057,7 +1135,7 @@ void Launcher::update_preview(const platform::Controls &in, double now, Request 
     if (dragging_ && in.mouse_held && in.ui_pointer) {
         const double dx = (*in.ui_pointer)[0] - drag_last_[0], dy = (*in.ui_pointer)[1] - drag_last_[1];
         drag_last_ = *in.ui_pointer;
-        if (!shown->model || in.shift_held) {
+        if (!(shown->model || shown->animated_model) || in.shift_held) {
             asset_pan_x_ += dx;
             asset_pan_y_ += dy;
         } else {
@@ -1080,6 +1158,36 @@ void Launcher::update_preview(const platform::Controls &in, double now, Request 
     model_pitch_ = std::clamp(model_pitch_ + dt * spin_pitch_, -1.45, 1.45);
 }
 
+void Launcher::select_animation(std::size_t index) {
+    if (!animated_model_ || index>=animated_model_->clips().size()) return;
+    animation_clip_=index; animation_time_=0; animation_error_.clear();
+    try { animated_model_->select(index); animated_model_->pose(0); }
+    catch(const std::exception& e) {
+        animation_error_=e.what(); animation_playing_=false;
+        animated_model_->select(0); animated_model_->pose(0);
+    }
+}
+
+void Launcher::draw_animation_controls(Image& im,int x,int y,int w) const {
+    if(!animated_model_ || animated_model_->clips().empty()) {
+        s::clipped(im,animation_error_.empty() ? "No animation available" : animation_error_,x,y,w,15,s::red); return;
+    }
+    const auto& clip=animated_model_->clips()[animation_clip_];
+    button(im,"<",x,y,44,36); button(im,">",x+w-44,y,44,36);
+    s::clipped(im,clip.name+"  ("+std::to_string(animation_clip_+1)+"/"+std::to_string(animated_model_->clips().size())+")",x+54,y+8,w-108,16,theme().ink);
+    button(im,animation_playing_ ? "Pause" : "Play",x,y+40,96,36);
+    button(im,"-1f",x+104,y+40,44,36); button(im,"+1f",x+156,y+40,44,36);
+    constexpr const char* rates[]{"0.25x","0.5x","1x","2x"};
+    button(im,rates[animation_speed_],x+208,y+40,90,36);
+    button(im,animation_loop_ ? "Loop: on" : "Loop: off",x+306,y+40,100,36);
+    const auto frame=std::llround(animation_time_*clip.sample_rate), last=std::llround(clip.duration*clip.sample_rate);
+    s::clipped(im,std::to_string(frame)+" / "+std::to_string(last)+" frames",x+416,y+50,w-416,13,theme().muted);
+    ui::rounded(im,x,y+90,w,8,4,theme().line);
+    const int progress=clip.duration>0 ? int(std::clamp(animation_time_/clip.duration,0.0,1.0)*(w-8)) : 0;
+    ui::rounded(im,x+progress,y+83,8,22,3,theme().ink);
+    s::clipped(im,animation_error_.empty() ? "Clip: Page Up/Down or shoulders · Enter/A: play/pause" : animation_error_,x,y+110,w,12,animation_error_.empty()?theme().muted:s::red);
+}
+
 void Launcher::preview_audio(std::span<float> stereo, int rate) {
     std::fill(stereo.begin(), stereo.end(), 0.0f);
     if (!playback_ || !playback_->preview->sound) return;
@@ -1087,12 +1195,13 @@ void Launcher::preview_audio(std::span<float> stereo, int rate) {
     const double step = sound.rate / rate;
     for (std::size_t i = 0; i + 1 < stereo.size(); i += 2) {
         const auto at = std::size_t(playback_->position);
-        if (at >= sound.samples.size()) {
+        if (at >= sound.frames()) {
             playback_.reset(); // played to its end
             return;
         }
         // Nearest sample, as Paula plays them (no smoothing between samples).
-        stereo[i] = stereo[i + 1] = sound.samples[at] * 0.6f;
+        stereo[i] = sound.samples[at*sound.channels] * 0.6f;
+        stereo[i+1] = sound.samples[at*sound.channels+(sound.channels==2 ? 1 : 0)] * 0.6f;
         playback_->position += step;
     }
 }
@@ -1216,7 +1325,7 @@ Image Launcher::draw_portrait_details() const {
         button(im, "Development", 224, 258, 184, 44, about_);
         if (!lessons_for(game).empty()) button(im, game.id == "mindwalker_amiga" ? "How to play" : "Lessons", 424, 258, 192, 44, lessons_);
     } else {
-        button(im, installed ? "Start" : "Import", 24, 258, 184, 44, detail_focus_ == 0 && importable(game));
+        button(im, installed ? (game.start ? "Start" : "View assets") : "Import", 24, 258, 184, 44, detail_focus_ == 0 && importable(game));
         if (!importable(game)) ui::blend_rect(im, 24, 258, 184, 44, theme().paper, 170);
         button(im, "Continue", 224, 258, 184, 44, detail_focus_ == 1 && save_preview_.available);
         if (!save_preview_.available) ui::blend_rect(im, 224, 258, 184, 44, theme().paper, 170);
@@ -1287,12 +1396,13 @@ Image Launcher::draw_portrait_details() const {
             const int height=asset_bounds()[3];
             draw_asset(body,preview,24,y,592,height);
             y+=height+8;
-            if (!preview.sound) {
-                s::text(body,preview.model ? "Drag to turn / Pinch to zoom" : "Drag to pan / Pinch to zoom",32,y+8,15,theme().muted);
+            if(preview.animated_model) {draw_animation_controls(body,24,y,592); y+=130;}
+            if (!preview.sound && !preview.load_sound) {
+                s::text(body,(preview.model || preview.animated_model) ? "Drag to turn / Pinch to zoom" : "Drag to pan / Pinch to zoom",32,y+8,15,theme().muted);
                 button(body,"-",464,y,36,34);button(body,"+",508,y,36,34);button(body,"Reset",552,y,64,34);
                 y+=42;
             }
-            if (preview.sound) paragraph(playback_ ? "Playing — tap to stop" : "Tap the waveform to play", 17, theme().muted);
+            if (preview.sound || preview.load_sound) paragraph(playback_ ? "Playing — tap to stop" : "Tap the waveform to play", 17, theme().muted);
             paragraph(std::to_string(page_ + 1) + " / " + std::to_string(previews_.size() + 1), 15, theme().muted);
         }
     }

@@ -249,6 +249,7 @@ int run(const Options& options) {
             else if (options.documentation_preview == "lessons") launcher.open_lessons();
             else launcher.open_assets();
         }
+        launcher.update({}, 1.0); // Resolve lazy asset sessions before a headless capture.
         platform::save_png(launcher.draw(1.0), *options.preview);
         return 0;
     }

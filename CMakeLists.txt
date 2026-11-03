@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(Reprise VERSION 0.2.0 LANGUAGES CXX)
+project(Reprise VERSION 0.2.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -503,7 +503,7 @@ if(ANDROID)
 else()
     add_executable(reprise ${REPRISE_SOURCES})
 endif()
-target_link_libraries(reprise PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga spindizzy_worlds_amiga stunt_car_racer_amiga beach_volley_amiga spy_mouse_ios sonic layton captain_toad_module captain_toad_import_adapter ui)
+target_link_libraries(reprise PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga spindizzy_worlds_amiga stunt_car_racer_amiga beach_volley_amiga spy_mouse_ios sonic layton captain_toad_module captain_toad_import_adapter beacon_assets ui)
 target_compile_options(reprise PRIVATE ${PROJECT_WARNINGS})
 
 # --- tools ---------------------------------------------------------------------
@@ -596,6 +596,10 @@ add_custom_target(reprise_resources ALL
 add_dependencies(reprise reprise_resources)
 
 include(CTest)
+# Beacon portable core; launcher import/play adapters remain pending.
+add_subdirectory(games/astro_bot_ps4)
+# Keep the pending core compiling in target-only Android builds too.
+add_dependencies(reprise beacon_game beacon_audio)
 if(BUILD_TESTING)
     add_executable(interceptor_lesson_checks tests/interceptor_lessons.cpp)
     target_link_libraries(interceptor_lesson_checks PRIVATE fa_18_interceptor_amiga)
@@ -610,7 +614,7 @@ if(BUILD_TESTING)
     games/bruce_lee_c64/game/room_chapter.cpp
     games/bruce_lee_c64/game/background_article.cpp
     app/launcher.cpp app/quick_save.cpp app/pause_menu.cpp)
-    target_link_libraries(shell_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga spindizzy_worlds_amiga stunt_car_racer_amiga beach_volley_amiga spy_mouse_ios sonic layton captain_toad_module captain_toad_import_adapter ui)
+    target_link_libraries(shell_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga spindizzy_worlds_amiga stunt_car_racer_amiga beach_volley_amiga spy_mouse_ios sonic layton captain_toad_module captain_toad_import_adapter beacon_assets ui)
     target_compile_options(shell_checks PRIVATE ${PROJECT_WARNINGS})
     add_dependencies(shell_checks reprise_resources)
     add_test(NAME shell_navigation COMMAND shell_checks)
@@ -636,7 +640,7 @@ target_compile_options(marble_madness_replay PRIVATE ${PROJECT_WARNINGS})
 
 if(BUILD_TESTING)
     add_executable(persistence_checks tests/persistence.cpp app/catalog.cpp app/quick_save.cpp app/saved_options.cpp)
-    target_link_libraries(persistence_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga spindizzy_worlds_amiga stunt_car_racer_amiga beach_volley_amiga spy_mouse_ios sonic layton captain_toad_module captain_toad_import_adapter ui)
+    target_link_libraries(persistence_checks PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga spindizzy_worlds_amiga stunt_car_racer_amiga beach_volley_amiga spy_mouse_ios sonic layton captain_toad_module captain_toad_import_adapter beacon_assets ui)
     target_compile_options(persistence_checks PRIVATE ${PROJECT_WARNINGS})
     add_test(NAME persistent_saves COMMAND persistence_checks)
     # Spy Mouse through the module interface; skipped unless SPY_MOUSE_CONTENT and

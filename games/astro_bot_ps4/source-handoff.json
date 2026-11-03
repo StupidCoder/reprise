@@ -1,0 +1,669 @@
+{
+  "source_project": "Beacon",
+  "source_commit": "89f52f6c105a2a57a56a9786cb27ca5768d5f4d1",
+  "source_worktree_clean": true,
+  "game_id": "astro_bot_ps4",
+  "transform": "Portable data, math, animation, audio, physics and rules copied with namespaces nested under beacon. Four verification tools retained. Standalone app, renderer, platform, video and ImGui excluded. Source hashes refer to the unmodified Beacon files. Curated research copied to docs/research; bulky evidence stays in Beacon.",
+  "files": [
+    {
+      "path": "src/anim/Pose.cpp",
+      "source_sha256": "8c34eb0637029367305c2735465ab6e3d45265cf0ce5eb9c21b807b02c97617b"
+    },
+    {
+      "path": "src/anim/Pose.hpp",
+      "source_sha256": "f47e7472359bf9244e8956d8cbc5f3474c715f08c83a79bc72dd8c39800dfc10"
+    },
+    {
+      "path": "src/audio/MusicCatalog.cpp",
+      "source_sha256": "d5f0e17ede8a282bd56b41c2edcca4be31110ddf4231a57e4233e610125c2673"
+    },
+    {
+      "path": "src/audio/MusicCatalog.hpp",
+      "source_sha256": "a320542d81b10adb7ff677c086288d1c644c1d84cacbaea9e3964c3065ca75ac"
+    },
+    {
+      "path": "src/audio/WaveDecoder.cpp",
+      "source_sha256": "77522effcc3a139f073f27a28d3189ffa6c27f5dd1bb8f1237eb12e64bcca923"
+    },
+    {
+      "path": "src/audio/WaveDecoder.hpp",
+      "source_sha256": "d37266f0a1ea2a3de7ab3904a6f9e1cdc9d68645dc6a8142b540552525d743dd"
+    },
+    {
+      "path": "src/data/Animation.cpp",
+      "source_sha256": "f3dbf8c04691fefab9e26f7c3be27c753fcd463c00031350c9b7839a07d17da4"
+    },
+    {
+      "path": "src/data/Animation.hpp",
+      "source_sha256": "b909e9abfaeff37ab85fb718598334008d3d423db5d0d853b266f472c5c2bbb3"
+    },
+    {
+      "path": "src/data/Bytes.cpp",
+      "source_sha256": "2328cd1dd1cd3aff770a2ac5eb6f43f192b7442fe9fee2381b64d4a6f8111d45"
+    },
+    {
+      "path": "src/data/Bytes.hpp",
+      "source_sha256": "6adaf3dd3f58a3f7ba85abd692515a74a5d2137218e2450cddceeb3edd86ae2c"
+    },
+    {
+      "path": "src/data/CollisionMesh.cpp",
+      "source_sha256": "070c6776a5dc07d85f01efe4b726a69312121995c510d925407197fbe34e3e3c"
+    },
+    {
+      "path": "src/data/CollisionMesh.hpp",
+      "source_sha256": "43972a05db0c0eec9f701128164efc04ec113d6471f34a4784c1d433fa37cba4"
+    },
+    {
+      "path": "src/data/GameFiles.cpp",
+      "source_sha256": "758d4610afafc0d5e5c740f16f8628fa0c703f4c1e45acb122245f9cadd44563"
+    },
+    {
+      "path": "src/data/GameFiles.hpp",
+      "source_sha256": "409cde2265ce9aa911ace17b9065f16a7ba7f9856817e92bf4c2d1dea2afcf2d"
+    },
+    {
+      "path": "src/data/Gnf.cpp",
+      "source_sha256": "8780ab1561c4c44c8fdc2142211fdcf52e3919afc958e3a1bf3a1d69f6431587"
+    },
+    {
+      "path": "src/data/Gnf.hpp",
+      "source_sha256": "17268b8917f4b2ee58b46fc51f08473d72381ab260b7dbd9545f07dcc6f098fe"
+    },
+    {
+      "path": "src/data/Hash.hpp",
+      "source_sha256": "eb01fa13829793a304c535a2104bf0d96f5d22ea2b1cc806522949a378a1d86a"
+    },
+    {
+      "path": "src/data/Jxm.cpp",
+      "source_sha256": "0ad93ce5b18e68fb67ac0bb51c1c3e51e562f1fab4c86a9ebf314c59da6b9ba6"
+    },
+    {
+      "path": "src/data/Jxm.hpp",
+      "source_sha256": "d0277f71860c7659d0f2c1673e91dc685ef469ab0e79c47917f92f5287ea0e82"
+    },
+    {
+      "path": "src/data/Model.cpp",
+      "source_sha256": "0eaeefb1fd3353a6aa40658afddde15395e600e4c6f24f583cb003d464e2402e"
+    },
+    {
+      "path": "src/data/Model.hpp",
+      "source_sha256": "6e7fc1af8bfb997c395c280b9580fb21a4c7e1e6b9d6c6944a2ce976537352c4"
+    },
+    {
+      "path": "src/data/ObjectDefinition.cpp",
+      "source_sha256": "813dc675ca490980c4fa00ed253ccf0a87dabc5bba6cb0cbd07e5a420c0bbba7"
+    },
+    {
+      "path": "src/data/ObjectDefinition.hpp",
+      "source_sha256": "b5d45df9f3a15fe40ea774deb04ad6f4372e3289839c8a4d4467611b39ca260d"
+    },
+    {
+      "path": "src/data/PhysicsFile.cpp",
+      "source_sha256": "d1a1c5005f5ff8b4a025b4e4dfd3f9beccdd73e81c3b7a05fd1fd350cd33a92a"
+    },
+    {
+      "path": "src/data/PhysicsFile.hpp",
+      "source_sha256": "e8de5737551881b2eb430532740153a4f6b1ce044bf4b460d81e03a017f07f2f"
+    },
+    {
+      "path": "src/data/ResourceArchive.cpp",
+      "source_sha256": "1606bd57586be756579e7cb874156b94d5ee6c81019d5add2d743298bb404bc4"
+    },
+    {
+      "path": "src/data/ResourceArchive.hpp",
+      "source_sha256": "dd8c19367bdd1eeb0c5008993249a547aaee515d7cd50bc605e6ba33be9f7e1e"
+    },
+    {
+      "path": "src/data/Skeleton.cpp",
+      "source_sha256": "f5ba35206a73e4d17b490e2bca65caae73e3a3e92d633b8df65c3099aa6c5116"
+    },
+    {
+      "path": "src/data/Skeleton.hpp",
+      "source_sha256": "d9a4aaa0423a386a8532308d5237b0e2f1189a9ebc351231cd822ce5e9dd1ff0"
+    },
+    {
+      "path": "src/data/SoundBank.cpp",
+      "source_sha256": "83afd33707450fa44997a4db0ff78c3857a3c9c1b95d41c3e9a669743ba67726"
+    },
+    {
+      "path": "src/data/SoundBank.hpp",
+      "source_sha256": "d136d71f151a652740f92748772a6599f7cb5ea6ce8d6ca99aba3185575b06aa"
+    },
+    {
+      "path": "src/data/Xml.cpp",
+      "source_sha256": "72474f571b892555a21c5b3e3c9695f6bb8b8427a37d7a088f826157884951e9"
+    },
+    {
+      "path": "src/data/Xml.hpp",
+      "source_sha256": "361b57987ab3144c43fc27be3b2ad85843bee4df896821b913b9c7903c1036ba"
+    },
+    {
+      "path": "src/game/DynamicGrass.cpp",
+      "source_sha256": "e86e78640cbf8173dfedb45cc9f077b7445752c1e7c71215218b61b512c0d497"
+    },
+    {
+      "path": "src/game/DynamicGrass.hpp",
+      "source_sha256": "4bfe50e04d4f7831009d6e0ff019d9823bf6d4d3ee2ea5b55421b3375fe9dff1"
+    },
+    {
+      "path": "src/game/GoalBalloon.cpp",
+      "source_sha256": "63177a8df334fec06d6acb341ee11887056cdeb4cfe8ed15e62e47312f78460a"
+    },
+    {
+      "path": "src/game/GoalBalloon.hpp",
+      "source_sha256": "0797ed0ce7a654900258a8cdb57b8b1e824e0a8c8de7e4aff437e733cc3eda4c"
+    },
+    {
+      "path": "src/game/Hero.cpp",
+      "source_sha256": "eefaee990d6ce64bdcf94af6f20630df2571dfef1068e8a8b35f4c8241e78f21"
+    },
+    {
+      "path": "src/game/Hero.hpp",
+      "source_sha256": "3dfcc67de1c50271c0b98ccd6315b5b61ec6dceb9c8484aa1cf2790053511749"
+    },
+    {
+      "path": "src/game/HeroClips.cpp",
+      "source_sha256": "0a33b668292354cc8c45e0a9a8dc850c2578ecba71f4a15fe7653ff481f2ec89"
+    },
+    {
+      "path": "src/game/HeroClips.hpp",
+      "source_sha256": "22d95b53078fc65f2b97bcd03b348b265f42274ff4518d2a9269082d87f72e22"
+    },
+    {
+      "path": "src/game/HeroTuning.cpp",
+      "source_sha256": "2833dd6fad314ba15a64d7cd01648f28dd52f238a6f78eef8cba036ee5cc422a"
+    },
+    {
+      "path": "src/game/HeroTuning.hpp",
+      "source_sha256": "a43ab117bcf41445a31d1b94f2941f23ca98b9f912a600495d5e32ee231d7336"
+    },
+    {
+      "path": "src/game/LevelCollision.cpp",
+      "source_sha256": "3fad9e7117017b7f139be87d249d85756b99cb736b93b88356036e160d28e881"
+    },
+    {
+      "path": "src/game/LevelCollision.hpp",
+      "source_sha256": "9bd797fe62cf297cd786841af3886aa24e13df9dec5b1e19ef01a9e75406881e"
+    },
+    {
+      "path": "src/game/LevelDocument.cpp",
+      "source_sha256": "7ba056ab7ce206a31a12ba403870905f7304edba0fd38c934e7c7f51a03990b8"
+    },
+    {
+      "path": "src/game/LevelDocument.hpp",
+      "source_sha256": "ab36d1685a7f53b6507f5981f25844f313799e01b3d071d2d4861d81b501f05f"
+    },
+    {
+      "path": "src/game/LevelMusic.cpp",
+      "source_sha256": "e0fbf4c97a6c68745a9d37bdd04c3aeb93739306bfab2c079783e1de6279d184"
+    },
+    {
+      "path": "src/game/LevelMusic.hpp",
+      "source_sha256": "50ffe9f22f778edc0c9f3651fb6a03127396c32f6405f022befa43a9f2746ced"
+    },
+    {
+      "path": "src/game/LevelRuntime.cpp",
+      "source_sha256": "822cb0aead1a34ce580ec35b45df4df0fb37dc1bc02ea315d52afc125842aada"
+    },
+    {
+      "path": "src/game/LevelRuntime.hpp",
+      "source_sha256": "84759fad923ede207eeb0486624e81188094e61f6a9c896670394b79d392464c"
+    },
+    {
+      "path": "src/game/LevelSchema.cpp",
+      "source_sha256": "486550f51f959c0ab358adc9c7b1e3278022740301234a88008206c6e8dc1cd5"
+    },
+    {
+      "path": "src/game/LevelSchema.hpp",
+      "source_sha256": "ab15274970f67d2dbb9ed1c89bf8256b04271ca80f7a1ec1fc8cac1fe98cf5f1"
+    },
+    {
+      "path": "src/game/LostBot.cpp",
+      "source_sha256": "ad0ab2b4dfe5d2a0d6e99d0605fabfeccdfc7407691e015b828da02963d38dbc"
+    },
+    {
+      "path": "src/game/LostBot.hpp",
+      "source_sha256": "a3a9deceb93b5cefecd61bbef84b1149cce089ce0f72f24005d5479dd8047140"
+    },
+    {
+      "path": "src/game/MiniBlock.cpp",
+      "source_sha256": "50fb37d0878219d04aefda906868ee66ed2aea97a59361e8d7f3242c38e36ddc"
+    },
+    {
+      "path": "src/game/MiniBlock.hpp",
+      "source_sha256": "8013b38e7f4e56c65c913e2dea15db885a4e031643895309cd50ee318f531e4c"
+    },
+    {
+      "path": "src/game/MoviePrompt.cpp",
+      "source_sha256": "be72592062d46910df712f592f8c84c19fabbcbd50a48901f2509499ff0c16aa"
+    },
+    {
+      "path": "src/game/MoviePrompt.hpp",
+      "source_sha256": "077ce7c69735ae26644184ebbb3f6c1375300969c9275394fd2086e63f3da111"
+    },
+    {
+      "path": "src/game/PadStick.cpp",
+      "source_sha256": "465a4d4d908f31ff2b9763dedb54ffc511ff77a2823b218d492d9cbb2aa017bd"
+    },
+    {
+      "path": "src/game/PadStick.hpp",
+      "source_sha256": "56751ea465d4b213d0f1dadb8e1fefe31de3d6855dccd7cb5115945f1e16e8f4"
+    },
+    {
+      "path": "src/game/PlayerRig.cpp",
+      "source_sha256": "b863449b30501ca396cc6de1b5ccd939e35b4cbdc5bb1105da3699494fb48525"
+    },
+    {
+      "path": "src/game/PlayerRig.hpp",
+      "source_sha256": "9b477fe34a6c19571e6f510282301614a896c4a8862a9c66a30faa14a872d5aa"
+    },
+    {
+      "path": "src/game/PublicScreen.cpp",
+      "source_sha256": "a727e597cbf4c735f628df0eebc3871d4b6e470779bbfdcacdc6ee06fa84cc67"
+    },
+    {
+      "path": "src/game/PublicScreen.hpp",
+      "source_sha256": "bf027a53c66fe32d895a6a32be208e564b3a0ec421d5c839908b44b4614f5fa2"
+    },
+    {
+      "path": "src/game/Respawn.cpp",
+      "source_sha256": "9204705e66a457097f3e0572510314b89f947fa63abd32fa5912fa7c703869ad"
+    },
+    {
+      "path": "src/game/Respawn.hpp",
+      "source_sha256": "799ec5d009a28d0195998e2208e16217b0572ea7d0364c762399a6a8e7b0a35f"
+    },
+    {
+      "path": "src/game/SceneLighting.cpp",
+      "source_sha256": "a0c065af1b4c27baf50804902b76335a9fba17d438b44de9cc625cef80e80c7e"
+    },
+    {
+      "path": "src/game/SceneLighting.hpp",
+      "source_sha256": "6d638971ee18db07b57f6b248ff5b069102413edbbb5cafd2e6398e1a806a430"
+    },
+    {
+      "path": "src/game/TreasureBox.cpp",
+      "source_sha256": "3c622e17ab2f7e18e08dcabd86ea9236385f80dd59e3ed49d841a3c914115e9a"
+    },
+    {
+      "path": "src/game/TreasureBox.hpp",
+      "source_sha256": "6a7d1ce55d544b5e58574cb428b09ceb789bd4c444e7aefea9f7d1c06577044c"
+    },
+    {
+      "path": "src/game/ai/Behavior.hpp",
+      "source_sha256": "4cbd527f549d74c9882514451ea7089fa3783638b3abe8f5afa7fd7c7edc89a7"
+    },
+    {
+      "path": "src/game/enemy/BasicEnemy.cpp",
+      "source_sha256": "1345b335a5a3d15992d4b4997af85c9cc198703776f9ceb0abb679e9fa82365e"
+    },
+    {
+      "path": "src/game/enemy/BasicEnemy.hpp",
+      "source_sha256": "23b66390a94e7786c6189b2bcef14d2a25317feddd52d475b08b5565fdb47aae"
+    },
+    {
+      "path": "src/game/enemy/EnemySystem.cpp",
+      "source_sha256": "ea8caaefe2bcb422af7e2f8140eb1fb4be5d4a6de42d6508c96a90e4fc889944"
+    },
+    {
+      "path": "src/game/enemy/EnemySystem.hpp",
+      "source_sha256": "9ed3b9ceb78627eff29b507076f8769f002e502eb470995d8869f30f19909d1b"
+    },
+    {
+      "path": "src/game/enemy/EnemyTuning.cpp",
+      "source_sha256": "b59454f63bcddc79f49b2374d8b3ec0493a07d3fb13db7ec9254ee44f2b1c16c"
+    },
+    {
+      "path": "src/game/enemy/EnemyTuning.hpp",
+      "source_sha256": "91b3b9315c85fe1bed5cb34b1a63d0e548291f833fa99267ec4d4107040e9466"
+    },
+    {
+      "path": "src/game/enemy/Spitter.cpp",
+      "source_sha256": "8823f2dfc95ccfbf1d013cf97da70d0ed9b853a6dcd42e9f1140ab71cd81eedd"
+    },
+    {
+      "path": "src/game/enemy/Spitter.hpp",
+      "source_sha256": "37b76c6e995ccfe6f81cccc2e77a60187ba09bbaa5944873945ab8bc0fce87f8"
+    },
+    {
+      "path": "src/math/Transform.hpp",
+      "source_sha256": "313b51a86541da5c010416f5db87c272f96e106422136e0fdfda255e44bb01b3"
+    },
+    {
+      "path": "src/math/Vector.hpp",
+      "source_sha256": "1dd223e4927735146b5885d18155298843953f496ba126fd09f9caea59849c52"
+    },
+    {
+      "path": "src/physics/CollisionWorld.cpp",
+      "source_sha256": "caf8810522388ca2c87bc0d3009215c0fba5a13d795d6f6b5d42e34a230228cf"
+    },
+    {
+      "path": "src/physics/CollisionWorld.hpp",
+      "source_sha256": "54073c84bbb3624a46265fb2bca1ea3f67d10cb621981f5c12325bd40d57d0b0"
+    },
+    {
+      "path": "src/physics/PhysicsWorld.cpp",
+      "source_sha256": "357fd4a30df41f22e9283f35baf40e3a30d3b199a0ef946253589d9e3fb9dec7"
+    },
+    {
+      "path": "src/physics/PhysicsWorld.hpp",
+      "source_sha256": "07ee76e53456e93a743cc996112aa7cfacfbc5c358108a5ee6acc3d740182e2c"
+    },
+    {
+      "path": "src/physics/Surface.hpp",
+      "source_sha256": "893030617d00d798b19936830255ef72cff1ad35b0beebf67b1124834ea0cdf1"
+    },
+    {
+      "path": "src/physics/rigid/ContactCache.cpp",
+      "source_sha256": "f6b68dab9303f0f69bfa663807ad8e8f8e1bde718c0991dbabbfd8921f936bea"
+    },
+    {
+      "path": "src/physics/rigid/ContactCache.hpp",
+      "source_sha256": "802338fcf0b70cf0668c6703d4eefb91cd04c2c6d58ff2b5e16259ac1b8f750e"
+    },
+    {
+      "path": "src/physics/rigid/ContactManifold.cpp",
+      "source_sha256": "af360f7a9bc6236a06a4a69f6ea8dd5f216d8689a1214413e845adc25a41b9b8"
+    },
+    {
+      "path": "src/physics/rigid/ContactManifold.hpp",
+      "source_sha256": "2b676f28ac1d921f8a92ba6dd5d64ff0173dff9800bcaf4bf693e8ceb80d9aeb"
+    },
+    {
+      "path": "src/physics/rigid/ContactSolver.cpp",
+      "source_sha256": "8a491b79b9ae39f6c289795e3b1d9e7ab2eb802db062731cc7510f0196d4d025"
+    },
+    {
+      "path": "src/physics/rigid/ContactSolver.hpp",
+      "source_sha256": "870459589e2a8595ff3b52ecccc2f0127a43f93b917f3d54b78dd84f3e260833"
+    },
+    {
+      "path": "src/physics/rigid/ConvexSolver.cpp",
+      "source_sha256": "497708745a9fc20eefdaac36b4851aa3730917674785e8ba1d92572483f6e1ff"
+    },
+    {
+      "path": "src/physics/rigid/ConvexSolver.hpp",
+      "source_sha256": "c5ca361be3b57cc5f80d5c9dbebab525912e53b48f68733db49a706e92f2aa3c"
+    },
+    {
+      "path": "src/physics/rigid/MeshBuilder.cpp",
+      "source_sha256": "8a73e68e36b74c48485648f71f49a0eb1e64e9bc87af9c04cb93d6235dcc941a"
+    },
+    {
+      "path": "src/physics/rigid/MeshBuilder.hpp",
+      "source_sha256": "155c1337869ae04083bacb4ff39f05dd163c8fecd95b39611992d89eda7ad45a"
+    },
+    {
+      "path": "src/physics/rigid/MeshContacts.cpp",
+      "source_sha256": "65fc131273ccb836d86fd5da9ae1c8524c092dbddd90899ab0f9d22970497cd7"
+    },
+    {
+      "path": "src/physics/rigid/MeshContacts.hpp",
+      "source_sha256": "bee8898d259937b99a20ee3ad4c92f758193ec8b9a70cf65987765b4a9891a20"
+    },
+    {
+      "path": "src/physics/rigid/MeshTree.hpp",
+      "source_sha256": "c550165a713a4fbb3a79692e08e928c963ef55d0b2d00a1f1f78f5b38c3a46fa"
+    },
+    {
+      "path": "src/physics/rigid/PrimitiveContacts.cpp",
+      "source_sha256": "401ed09ddb288744c3f4879aff0e596c037adf4724872630e2aea718753cbe1b"
+    },
+    {
+      "path": "src/physics/rigid/PrimitiveContacts.hpp",
+      "source_sha256": "d319b546c3414b4121a1348e9a6f75458784db6283b8076c082bd76ce992821a"
+    },
+    {
+      "path": "src/physics/rigid/RigidBody.cpp",
+      "source_sha256": "7aff4d0d96f98f14723a1a9329980ae4e8f9f3c3e7ca2b786a8c14089ee5c027"
+    },
+    {
+      "path": "src/physics/rigid/RigidBody.hpp",
+      "source_sha256": "7356212cb05546622bf7d56db047768a30fa4c7d10893c72866cd40688dfd8b8"
+    },
+    {
+      "path": "src/physics/rigid/RigidWorld.cpp",
+      "source_sha256": "c5afeb5d00d54060efb6f423b371e88a694e2f2f1b1cfac3db8d69f9839e9319"
+    },
+    {
+      "path": "src/physics/rigid/RigidWorld.hpp",
+      "source_sha256": "1410009543afcfdd58b14b68ce4d349cabc7048f743f0454e1b7a341468bf41d"
+    },
+    {
+      "path": "src/physics/rigid/ShapeCasts.cpp",
+      "source_sha256": "666ae1b108bf87901b8b0e91d38df5670cbcabe5e3d112287b11acc6a95b2688"
+    },
+    {
+      "path": "src/physics/rigid/ShapeCasts.hpp",
+      "source_sha256": "dfbdf8279ffdeb84278e31c4d6d3726358b5c48b550e6d51a18a6559583e41ae"
+    },
+    {
+      "path": "src/physics/rigid/SweptContacts.cpp",
+      "source_sha256": "b57b146025046de48decd2c9150b3253a5e64472d760ef439dab5ab27e5bd26b"
+    },
+    {
+      "path": "src/physics/rigid/SweptContacts.hpp",
+      "source_sha256": "fb0f0096957602386307f273dd1e0b6f460b78ce84f03ac9b3d668050abf2769"
+    },
+    {
+      "path": "src/third_party/atrac9/LICENSE",
+      "source_sha256": "cdb280ff931233bdefef0dfdd1d884217d97cb24a96530a41ce7848790df86f7"
+    },
+    {
+      "path": "src/third_party/atrac9/VERSION.txt",
+      "source_sha256": "0e4cc122c14155a18b4dae83e2aba54f260814fc931edcc9a0ebfd85755c90d5"
+    },
+    {
+      "path": "src/third_party/atrac9/band_extension.c",
+      "source_sha256": "ea1399808408c0a99b0bb0f38ed109b620e75bf26732fd2e366ec770b834450f"
+    },
+    {
+      "path": "src/third_party/atrac9/band_extension.h",
+      "source_sha256": "4d6387c9961d766c79b81e15face475143789abca0d86c58bfa7d847c51c98c7"
+    },
+    {
+      "path": "src/third_party/atrac9/bit_allocation.c",
+      "source_sha256": "3dffdd6493edde271747d373be698c731fcce6624a4d5c4bf6b595ef196de30b"
+    },
+    {
+      "path": "src/third_party/atrac9/bit_allocation.h",
+      "source_sha256": "94205c1505913d76399bfa95ea0db7bde13fab74246c27319f3ef9e37140cb5c"
+    },
+    {
+      "path": "src/third_party/atrac9/bit_reader.c",
+      "source_sha256": "b716ebc4cef20cf7694c68a43a99e5d0d6133e89f0bfb01229204597bbfb2bc6"
+    },
+    {
+      "path": "src/third_party/atrac9/bit_reader.h",
+      "source_sha256": "697d696eed5762747dad473b5539674d78e27c5762113a2e2e9dc8854997863d"
+    },
+    {
+      "path": "src/third_party/atrac9/decinit.c",
+      "source_sha256": "6108b141b191874ad5fb69f64b44fb5ef12eb36afeba217b2caa2a4068cd3ba9"
+    },
+    {
+      "path": "src/third_party/atrac9/decinit.h",
+      "source_sha256": "b17a53246a1ebe463efab34d4feb1c13080daa8f4bcfbce482f7c1750db0c58d"
+    },
+    {
+      "path": "src/third_party/atrac9/decoder.c",
+      "source_sha256": "03bff54414e026ce060c434c7ac0b13f15c373c2ee85e1ccaabe28f310f3ef9d"
+    },
+    {
+      "path": "src/third_party/atrac9/decoder.h",
+      "source_sha256": "22c555fb2bd99e6818a5b45edd557fb2cd8e852912968910ddc6350215e187bd"
+    },
+    {
+      "path": "src/third_party/atrac9/error_codes.h",
+      "source_sha256": "e3087375041c0c20e378e41a768c6919ef90a1f6160299a58b00933987cf0543"
+    },
+    {
+      "path": "src/third_party/atrac9/huffCodes.c",
+      "source_sha256": "188a84b46f6e94aa07a96e2c2561b4b2f7cabb2c6fc9cdba2e34b4d3203cb1e6"
+    },
+    {
+      "path": "src/third_party/atrac9/huffCodes.h",
+      "source_sha256": "d30ec8a6d53ae9c648b5ff031aab807dd37cc72abf91211ca2700b5d2b52259a"
+    },
+    {
+      "path": "src/third_party/atrac9/imdct.c",
+      "source_sha256": "a839aa973654118d76a96064e91648b17e2b5b4dbae893047eaca0423c9880dc"
+    },
+    {
+      "path": "src/third_party/atrac9/imdct.h",
+      "source_sha256": "1a55459c18a63f5c9c260975367b36083948c04e547ec24f1260d4a7b905da5e"
+    },
+    {
+      "path": "src/third_party/atrac9/libatrac9.c",
+      "source_sha256": "08fbd008c5d4f3082f8fa0d1652cbf09f2511d5e45c940b26769913e6bd696de"
+    },
+    {
+      "path": "src/third_party/atrac9/libatrac9.h",
+      "source_sha256": "f02795c8ad43cc56ee946f04097760394584c6c905a35643a14d6036913cc51a"
+    },
+    {
+      "path": "src/third_party/atrac9/quantization.c",
+      "source_sha256": "2f83cc8274c045b91abee05f2b3d6a1a3537556689a74fa9b824be684ced82ed"
+    },
+    {
+      "path": "src/third_party/atrac9/quantization.h",
+      "source_sha256": "9153e52c8351527d5792334dda5a5e6693ee17c34a0697a999b06d45b07ad5e9"
+    },
+    {
+      "path": "src/third_party/atrac9/scale_factors.c",
+      "source_sha256": "3d43cd1b4bbce34a9f71220e6b79744cb2acae7ec44fb2ce2eda04d533817ad8"
+    },
+    {
+      "path": "src/third_party/atrac9/scale_factors.h",
+      "source_sha256": "d8357a279602cdf607f5c89bdbd78bb342b582ef590a09f9d45775cd7ac3133e"
+    },
+    {
+      "path": "src/third_party/atrac9/structures.h",
+      "source_sha256": "364e55d1ca3daef90f597c10894d27ac7afe0ad94420a8113bbaa16dc32f2be9"
+    },
+    {
+      "path": "src/third_party/atrac9/tables.c",
+      "source_sha256": "a94d19943f441ead78af4bab4c6375c2a51384d6155f57a69f2d9cbcaf40daf6"
+    },
+    {
+      "path": "src/third_party/atrac9/tables.h",
+      "source_sha256": "52982516af04b9fd6772d62eef56d91969bd18f9bfa1b5d134f0dcd39139264a"
+    },
+    {
+      "path": "src/third_party/atrac9/unpack.c",
+      "source_sha256": "9e8d012b2a6dd25334e49e6fa12e07a7476afbad976ad43e2ef7ff2d6f91003a"
+    },
+    {
+      "path": "src/third_party/atrac9/unpack.h",
+      "source_sha256": "ec3c1ff8ad0c02d47d148b8eb9d05ba4cfcddc22f4042b729887e9e70dad5bf3"
+    },
+    {
+      "path": "src/third_party/atrac9/utility.c",
+      "source_sha256": "e927d12ffcf6fb291c8a6114915074092dd58a0d6a19596bc4f23a4274f73f0c"
+    },
+    {
+      "path": "src/third_party/atrac9/utility.h",
+      "source_sha256": "228994d11e06ba2a9f2e54b1d82b49d25ef404071008bf72f4a2c91c8933e242"
+    },
+    {
+      "path": "src/third_party/hevag_coefs.h",
+      "source_sha256": "43acd1402bac3cfac1adc02c9a3f9fed991c61e7c8ed93fbe9780f023eb3fcbc"
+    },
+    {
+      "path": "src/tools/AnimTool.cpp",
+      "source_sha256": "14e0b47e4dbc1b54d62261866c61da148d3f27e0eeb65026a98a1bbb0d391fab"
+    },
+    {
+      "path": "src/tools/ModelTool.cpp",
+      "source_sha256": "32efb0996cebecee03869d1f4d592041af7f939d698ead07d8ddd9a863542d40"
+    },
+    {
+      "path": "src/tools/PhysicsTool.cpp",
+      "source_sha256": "1449c6db28bdf5fc9c67665d964d5ef4a90ca46ea740cd8d38bf42edcd26c909"
+    },
+    {
+      "path": "src/tools/SoundTool.cpp",
+      "source_sha256": "1d5b084ed61e8701288843abf961379aae3c4bcf75870d63ad5c30c132f3cf3a"
+    },
+    {
+      "path": ".analysis/docs/animation.md",
+      "destination": "docs/research/animation.md",
+      "source_sha256": "b71832f01b66ad74d3efe4c509a7d6c5ca58c657c9a19f5a9320b7fbda9906a5"
+    },
+    {
+      "path": ".analysis/docs/backlog.md",
+      "destination": "docs/research/backlog.md",
+      "source_sha256": "d3d078f86124c30ad32cbc12edd3a24035eca048ad94f31fdd2bc917712ab0e3"
+    },
+    {
+      "path": ".analysis/docs/collision.md",
+      "destination": "docs/research/collision.md",
+      "source_sha256": "84fbadc5c856a90e814a2f2f8fef921945fe0fcd76541ba46eac31b191ba60ff"
+    },
+    {
+      "path": ".analysis/docs/enemies.md",
+      "destination": "docs/research/enemies.md",
+      "source_sha256": "06c6c9879f4b587ac22acd0e533f44b141cf47dad59025d0c4a4a2f824e6804b"
+    },
+    {
+      "path": ".analysis/docs/formats.md",
+      "destination": "docs/research/formats.md",
+      "source_sha256": "668dc0f738974d502b6a9220005bdb8ef7a250e65f106a6541dddef4d5ccf0b5"
+    },
+    {
+      "path": ".analysis/docs/ghidra.md",
+      "destination": "docs/research/ghidra.md",
+      "source_sha256": "24bda83179f1af86e5dc400bd4bef93ea046a38e4aed0bafe3b6d4c65b4e8b15"
+    },
+    {
+      "path": ".analysis/docs/harness.md",
+      "destination": "docs/research/harness.md",
+      "source_sha256": "330a5474ce19d418b1ed4cb628e7fe8703a16f3e92bd577f857a212e88e08f6a"
+    },
+    {
+      "path": ".analysis/docs/hero.md",
+      "destination": "docs/research/hero.md",
+      "source_sha256": "0cf7d07fef405f3362efc08d802943195c8a5ae13bf072cbb14411ff41b7c3c9"
+    },
+    {
+      "path": ".analysis/docs/levels.md",
+      "destination": "docs/research/levels.md",
+      "source_sha256": "e44a4fe0a9483237c9aef7a59f14a6da1a5d8d602f28fe118244aa12e6714e7b"
+    },
+    {
+      "path": ".analysis/docs/objects.md",
+      "destination": "docs/research/objects.md",
+      "source_sha256": "746192a0106dd096c2142dee6dc523fa4d152f7cfae58e2db263ea9ebb8d48b2"
+    },
+    {
+      "path": ".analysis/docs/physics.md",
+      "destination": "docs/research/physics.md",
+      "source_sha256": "1e583f2ae93128aa48a20624e7c935adc8c39ec098a0a4d982a468a89463a815"
+    },
+    {
+      "path": ".analysis/docs/probe.md",
+      "destination": "docs/research/probe.md",
+      "source_sha256": "0d6b869cb3cce776ea9ee79f1711a98617d70f60c6104d4d7a52b224a0afc190"
+    },
+    {
+      "path": ".analysis/docs/rendering.md",
+      "destination": "docs/research/rendering.md",
+      "source_sha256": "65a38bf03308e92847828f494d3d8eb48731bee7849394cd0eeb4298766daeb7"
+    },
+    {
+      "path": ".analysis/docs/sound.md",
+      "destination": "docs/research/sound.md",
+      "source_sha256": "f9f48dbfcefc7a8217582311041f9130d10b6c3b61b3036a0e8c0c6c91a05d23"
+    },
+    {
+      "path": "src/tools/LevelTool.cpp",
+      "destination": "src/tools/HeroProbe.cpp",
+      "source_sha256": "484190789e921b712558ebe831b4836c2585b10c47ff0ed85fb15f0777eea8a0",
+      "transform": "Extract Context, hideHiddenCollision and heroTest, with minimal includes and an argument-checking main."
+    },
+    {
+      "path": "src/third_party/bcdec.h",
+      "source_sha256": "134520764d96f70a27db814173616c89ad85db95fbd3328417c7a8c77e7ca189"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "source_commit": "89f52f6c105a2a57a56a9786cb27ca5768d5f4d1",
+  "bundle_sha256": "951db81dfb37098f6e677fb6039186bd8fb9036cbfa68bfbb7897cc9b1a6de14",
+  "payload_bytes": 535464348,
+  "files": 2246,
+  "visible_models": 144,
+  "tested_clips": "Hero and crew idle; other models loaded in bind pose. Full animation-catalog coverage not claimed.",
+  "binaries": {
+    "build/games/astro_bot_ps4/beacon_assets_check": "5313bbda636ba497291134fe0d9f26c27b694557230b492fc78076322f19f9ee",
+    "build/games/astro_bot_ps4/beacon_asset_list": "dc7a89dbdf24e3539ba0e761bcd9e26adb335d5a1de1b61c9965e549706952d6",
+    "build/shell_checks": "037fff20159096083aa2a73a771b305989f022a5b17ec95d6acec61597f5855d"
+  },
+  "game_id": "astro_bot_ps4",
+  "source_media": "CUSA12392.v1.04.pkg; metadata APP_VER 01.03"
+}

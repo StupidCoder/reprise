@@ -1,0 +1,3 @@
+skeletons 1465, clips 11787 (paired 5765, joint count mismatch 2, no skeleton by name 6020)
+largest rotation key norm error 5.96e-08
+failed 12: anim: bit-packed animation channels are not supported yet (e.g. GAME_DIR/data/multi_platformer/anim/mup_inflate_enemy_eye_anim_disappear.anim)

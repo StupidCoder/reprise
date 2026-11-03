@@ -6,6 +6,9 @@
 #include "platform/image.hpp"
 #include <array>
 #include <vector>
+#include <memory>
+#include <string>
+#include <optional>
 
 namespace ui {
 
@@ -15,13 +18,30 @@ struct Model {
     struct Face {
         std::vector<int> corners; // indices into points, in order around the face
         platform::Color colour;
+        std::vector<std::array<float, 2>> uv;
+        int texture{-1};
+        float alpha_threshold{};
+        bool unlit{};
     };
     struct Line {
         int from{}, to{};
         platform::Color colour;
     };
     std::vector<Face> faces; // convex polygons; both sides are drawn
+    std::vector<std::shared_ptr<const platform::Image>> textures;
+    std::optional<std::array<float, 6>> fit_bounds; // fixed framing across animated poses
     std::vector<Line> lines; // drawn over faces they lie in front of
+};
+
+// A lazy viewer session. Engines decode and pose their own imported formats.
+struct ModelClip { std::string name; double duration{}, sample_rate{30}; };
+class AnimatedModel {
+public:
+    virtual ~AnimatedModel() = default;
+    virtual const std::vector<ModelClip>& clips() const = 0;
+    virtual void select(std::size_t clip) = 0; // throws with a useful unsupported-clip error
+    virtual void pose(double seconds) = 0;
+    virtual const Model& model() const = 0;
 };
 
 // Draws `model` into (x, y, w, h) of `image`, turned by `yaw` (about the

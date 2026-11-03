@@ -1,0 +1,116 @@
+Asset-free import and texture checks passed
+253 character previews
+mup_hero: 20234 vertices, 14596 faces, 279 clips
+render 5.31275 ms
+mup_arbot: 12094 vertices, 9942 faces, 327 clips
+render 6.06675 ms
+Music: intro_seq1_kira: 2177408 frames, 1 channels, 48000 Hz
+Music: intro_seq5_Bots_vo_1900_tv: 1060800 frames, 1 channels, 48000 Hz
+Music: mup_beach_samba_bgm: 2618732 frames, 2 channels, 48000 Hz
+Music: mup_bird_boss_battle_bgm [bgm_battle_lose]: 101472 frames, 2 channels, 48000 Hz
+Music: mup_bird_boss_battle_bgm [bgm_battle_start]: 6378361 frames, 2 channels, 48000 Hz
+Music: mup_bird_boss_battle_bgm [bgm_battle_win]: 372707 frames, 2 channels, 48000 Hz
+Music: mup_bird_boss_battle_bgm_tv [bgm_battle_lose]: 101472 frames, 2 channels, 48000 Hz
+Music: mup_bird_boss_battle_bgm_tv [bgm_battle_start]: 6378361 frames, 2 channels, 48000 Hz
+Music: mup_bird_boss_intro_bgm [intro]: 3524341 frames, 2 channels, 48000 Hz
+Music: mup_breakable_credit_bgm: 9904391 frames, 2 channels, 48000 Hz
+Music: mup_breakable_credit_bgm_tv: 9904391 frames, 2 channels, 48000 Hz
+Music: mup_cave_graveyard_bgm [graveyard_chest]: 9673762 frames, 2 channels, 48000 Hz
+Music: mup_cave_graveyard_bgm [graveyard_intro]: 2230179 frames, 2 channels, 48000 Hz
+Music: mup_cave_indy_cave1_bgm: 5927609 frames, 2 channels, 48000 Hz
+Music: mup_cave_indy_cave2_transition_escape: 1875778 frames, 2 channels, 48000 Hz
+Music: mup_cave_traps_bgm: 5927812 frames, 2 channels, 48000 Hz
+Music: mup_challenge_bgm [challenge_goal]: 252000 frames, 2 channels, 48000 Hz
+Music: mup_challenge_result_lose_bgm: 344235 frames, 2 channels, 48000 Hz
+Music: mup_challenge_result_lose_bgm_tv: 344235 frames, 2 channels, 48000 Hz
+Music: mup_city_construction_bgm: 7175665 frames, 2 channels, 48000 Hz
+Music: mup_city_night_funfair_bgm: 7222973 frames, 2 channels, 48000 Hz
+Music: mup_city_rooftop_bgm_vox: 7175666 frames, 1 channels, 48000 Hz
+Music: mup_collection_room_bgm [room_city]: 7024285 frames, 2 channels, 48000 Hz
+Music: mup_collection_room_bgm [room_default]: 8055882 frames, 2 channels, 48000 Hz
+Music: mup_collection_room_bgm [room_fire]: 8057529 frames, 2 channels, 48000 Hz
+Music: mup_collection_room_bgm_tv [room_cave]: 5565824 frames, 2 channels, 48000 Hz
+Music: mup_collection_room_bgm_tv [room_city]: 7024285 frames, 2 channels, 48000 Hz
+Music: mup_demo_menu_bgm [planet_boss]: 5538463 frames, 2 channels, 48000 Hz
+Music: mup_demo_menu_bgm [planet_normal]: 5538463 frames, 2 channels, 48000 Hz
+Music: mup_demo_menu_bgm [planet_normal]: 5538463 frames, 2 channels, 48000 Hz
+Music: mup_demo_menu_bgm_tv [planet_boss]: 5538463 frames, 2 channels, 48000 Hz
+Music: mup_demo_menu_bgm_tv [planet_normal]: 5538463 frames, 2 channels, 48000 Hz
+Music: mup_demo_menu_bgm_tv [planet_normal]: 5538463 frames, 2 channels, 48000 Hz
+Music: mup_final_boss_battle_bgm [bgm_battle_lose]: 99840 frames, 2 channels, 48000 Hz
+Music: mup_final_boss_battle_bgm [bgm_battle_start]: 6497602 frames, 2 channels, 48000 Hz
+Music: mup_final_boss_battle_bgm [bgm_battle_win]: 368372 frames, 2 channels, 48000 Hz
+Music: mup_final_boss_battle_quick_bgm: 6497602 frames, 2 channels, 48000 Hz
+Music: mup_final_boss_intro_bgm [intro]: 2579194 frames, 2 channels, 48000 Hz
+Music: mup_fire_traps_bgm: 5480642 frames, 2 channels, 48000 Hz
+Music: mup_fire_volcano_bgm: 5480642 frames, 2 channels, 48000 Hz
+Music: mup_forest_beanstalk_bgm: 5577463 frames, 2 channels, 48000 Hz
+Music: mup_forest_ninja_bgm: 95798 frames, 2 channels, 48000 Hz
+Music: mup_forest_ninja_bgm: 11973544 frames, 2 channels, 48000 Hz
+Music: mup_goal_balloon_challenge_bgm: 1704961 frames, 2 channels, 48000 Hz
+Music: mup_goal_balloon_result_bgm: 2713266 frames, 2 channels, 48000 Hz
+Music: mup_goal_battle_bgm: 3600000 frames, 2 channels, 48000 Hz
+Music: mup_into_the_whale_bgm: 7092001 frames, 2 channels, 48000 Hz
+Music: mup_intro_bgm: 2261252 frames, 1 channels, 48000 Hz
+Music: mup_intro_party1_bgm: 2106624 frames, 1 channels, 48000 Hz
+Music: mup_intro_party1_bgm_tv: 953280 frames, 1 channels, 48000 Hz
+Music: mup_mine_cart_bgm: 3532822 frames, 2 channels, 48000 Hz
+Music: mup_mine_cart_bgm [minecart_goal]: 384001 frames, 2 channels, 48000 Hz
+Music: mup_mine_cart_bgm [minecart_goal]: 5577463 frames, 2 channels, 48000 Hz
+Music: mup_mine_cart_intro_bgm [minecart_intro_start]: 5577463 frames, 2 channels, 48000 Hz
+Music: mup_octopus_boss_battle_bgm: 6505557 frames, 2 channels, 48000 Hz
+Music: mup_octopus_boss_battle_bgm [bgm_battle_lose]: 101544 frames, 2 channels, 48000 Hz
+Music: mup_octopus_boss_battle_bgm [bgm_battle_win]: 528352 frames, 2 channels, 48000 Hz
+Music: mup_octopus_boss_battle_bgm_tv [bgm_battle_lose]: 101544 frames, 2 channels, 48000 Hz
+Music: mup_octopus_boss_intro_bgm [intro]: 2711443 frames, 2 channels, 48000 Hz
+Music: mup_outro_ma: 3807824 frames, 2 channels, 48000 Hz
+Music: mup_outro_ma: 2300478 frames, 2 channels, 48000 Hz
+Music: mup_outro_party1_bgm: 501540 frames, 2 channels, 48000 Hz
+Music: mup_outro_party2_bgm: 454144 frames, 2 channels, 48000 Hz
+Music: mup_outro_party3_bgm: 442752 frames, 2 channels, 48000 Hz
+Music: mup_pause_menu_bgm: 5538463 frames, 2 channels, 48000 Hz
+Music: mup_rock_canyon_bgm: 5310201 frames, 2 channels, 48000 Hz
+Music: mup_rope_boss_battle_bgm: 6429893 frames, 2 channels, 48000 Hz
+Music: mup_rope_boss_battle_bgm [bgm_battle_lose]: 101472 frames, 2 channels, 48000 Hz
+Music: mup_rope_boss_battle_bgm [bgm_battle_win]: 401862 frames, 2 channels, 48000 Hz
+Music: mup_rope_boss_battle_bgm_tv: 6429893 frames, 2 channels, 48000 Hz
+Music: mup_rope_boss_intro_bgm [intro]: 2177241 frames, 2 channels, 48000 Hz
+Music: mup_rope_boss_intro_bgm_tv [intro]: 2177241 frames, 2 channels, 48000 Hz
+Music: mup_shark_boss_battle_bgm [bgm_battle_lose]: 96000 frames, 2 channels, 48000 Hz
+Music: mup_shark_boss_battle_bgm [bgm_battle_start]: 5659201 frames, 2 channels, 48000 Hz
+Music: mup_shark_boss_battle_bgm [bgm_battle_win]: 538307 frames, 2 channels, 48000 Hz
+Music: mup_shark_boss_intro_bgm: 1602355 frames, 2 channels, 48000 Hz
+Music: mup_sky_giant_bgm: 5782501 frames, 2 channels, 48000 Hz
+Music: mup_sky_heaven_bgm [bgm_heaven]: 5782501 frames, 2 channels, 48000 Hz
+Music: mup_spider_boss_battle_bgm [bgm_battle_lose]: 101376 frames, 2 channels, 48000 Hz
+Music: mup_spider_boss_battle_bgm [bgm_battle_start]: 6403872 frames, 2 channels, 48000 Hz
+Music: mup_spider_boss_battle_bgm [bgm_battle_win]: 406589 frames, 2 channels, 48000 Hz
+Music: mup_spider_boss_intro_bgm [intro]: 2439937 frames, 2 channels, 48000 Hz
+Music: mup_title_screen_bgm: 3041542 frames, 2 channels, 48000 Hz
+Music: mup_unbreakable_credit_bgm: 8003077 frames, 2 channels, 48000 Hz
+Music: mup_unbreakable_credit_bgm_tv: 8003077 frames, 2 channels, 48000 Hz
+Music: mup_underwater_bgm [underwater_battle]: 7177037 frames, 2 channels, 48000 Hz
+Music: mup_underwater_bgm [underwater_start]: 1772532 frames, 2 channels, 48000 Hz
+Music: mup_whale_approach_bgm: 7092001 frames, 2 channels, 48000 Hz
+Music: outro_seq1_HMD_Exp_SFX_7350: 527465 frames, 2 channels, 48000 Hz
+Music: outro_seq1_HMD_Whoosh_0: 551527 frames, 1 channels, 48000 Hz
+Music: outro_seq1_HMD_recover_SFX_15060: 575046 frames, 2 channels, 48000 Hz
+Music: outro_seq1_Mother_SFX_14950: 662979 frames, 1 channels, 48000 Hz
+Music: outro_seq1_Mother_Vo_10445: 867363 frames, 1 channels, 48000 Hz
+Music: outro_seq1_Mother_Whoosh_9350: 912380 frames, 1 channels, 48000 Hz
+Music: outro_seq2_Bots_Vo_0: 1439744 frames, 1 channels, 48000 Hz
+Music: outro_seq2_Mother_SFX_0: 1285830 frames, 1 channels, 48000 Hz
+Music: outro_seq2_Mother_Vo_1240: 1373620 frames, 1 channels, 48000 Hz
+Music: outro_seq5_HIT_Bots_kira_SFX_1500: 672126 frames, 2 channels, 48000 Hz
+Music: outro_seq5_Mother_Vo_1000: 551514 frames, 1 channels, 48000 Hz
+Music: room_caves: 5565824 frames, 2 channels, 48000 Hz
+Music: room_crane: 7222973 frames, 2 channels, 48000 Hz
+Music: room_forest: 10055532 frames, 2 channels, 48000 Hz
+Music: room_sky: 8591078 frames, 2 channels, 48000 Hz
+Music: room_underwater: 11830704 frames, 2 channels, 48000 Hz
+Music: intro_bgm #0: 5449966 frames, 2 channels, 48000 Hz
+Music: intro_bgm #1: 973773 frames, 2 channels, 48000 Hz
+Music: intro_bgm #11: 520010 frames, 1 channels, 48000 Hz
+Music: intro_bgm #12: 557429 frames, 1 channels, 48000 Hz
+Music: intro_bgm #4: 593040 frames, 1 channels, 48000 Hz
+Model loading failures: 0

@@ -1,0 +1,7 @@
+Asset-free import and texture checks passed
+144 character previews
+mup_hero: 20234 vertices, 14596 faces, 279 clips
+render 4.73946 ms
+mup_arbot: 12094 vertices, 9942 faces, 327 clips
+render 6.01254 ms
+Model loading failures: 0

@@ -1,3 +1,5 @@
+#include "astro_bot_ps4/reprise/import.hpp"
+#include "astro_bot_ps4/reprise/viewer.hpp"
 #include "captain_toad_3ds/reprise/import.hpp"
 #include "captain_toad_3ds/reprise/module.hpp"
 #include "app/catalog.hpp"
@@ -296,7 +298,7 @@ std::vector<GameEntry> catalog() {
         game.history_sources = "Hiratake and Hayashida interviews: Nintendo Life (2014), Polygon via Nintendo Everything (2018).";
         games.push_back(std::move(game));
     }
-    // Reserved for the Beacon handoff; preserve this identity when connecting the engine.
+    // Beacon core is compiled; import and host gameplay adapters remain pending.
     {
         GameEntry game;
         game.id = "astro_bot_ps4";
@@ -305,8 +307,11 @@ std::vector<GameEntry> catalog() {
         game.release_year = 2018;
         game.description = "A little robot has a very big rescue ahead. Guide Astro across dizzying platforms, through lush worlds and past towering bosses to find his scattered crew. Search every corner, lend a helping hand and bring your tiny companions home.";
         game.collection = Collection::none;
-        game.integration_pending = true;
-        game.progress = "Coming to Reprise";
+        game.import_into = beacon::reprise::import_assets;
+        game.previews = beacon::reprise::previews;
+        game.largest_image = 2ull << 30;
+        game.media = "a .beacon asset bundle exported from your extracted CUSA12392 game folder";
+        game.progress = "Character and music asset viewer available. Import a .beacon bundle, then open Game details → Assets to rotate characters and select, play, pause or scrub their original animations, or listen to original music tracks. Gameplay and direct PS4 package import are not connected yet.";
         game.history_title = "A small hero, a shared adventure";
         game.history = "Asobi Team expanded The Playroom VR's Robot Rescue mini-game into a full adventure, exploring how the player and a small platforming hero could share the same world.";
         game.history_sources = "Nicolas Doucet, PlayStation Blog (2018).";

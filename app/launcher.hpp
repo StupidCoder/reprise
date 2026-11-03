@@ -179,6 +179,14 @@ private:
     std::vector<platform::Finger> asset_contacts_;
     std::array<int, 4> asset_bounds() const;
     void draw_asset(platform::Image&, const Preview&, int x, int y, int w, int h) const;
+    std::unique_ptr<ui::AnimatedModel> animated_model_;
+    std::size_t animation_clip_{};
+    double animation_time_{};
+    int animation_speed_{2};
+    bool animation_playing_{}, animation_loop_{true};
+    std::string animation_error_;
+    void select_animation(std::size_t);
+    void draw_animation_controls(platform::Image&, int x, int y, int w) const;
     bool dragging_{};
     std::array<int, 2> drag_last_{};
 };

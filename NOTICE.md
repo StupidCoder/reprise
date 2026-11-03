@@ -41,3 +41,11 @@ provenance recorded in `resources/covers/PROVENANCE.md`.
 
 User-supplied game images and extracted game assets remain the property of their
 rights holders and are not licensed by this project. No trademark rights are granted.
+
+## Beacon core handoff
+
+The user's Beacon source copied into `games/astro_bot_ps4` did not have a
+selected license at the pinned source commit. This handoff does not assign it
+Reprise's MIT license. Its third-party LibAtrac9 decoder (MIT) and HE-VAG
+coefficient table (vgmstream permission notice) retain their own notices, also
+in `resources/licenses/LibAtrac9.txt` and `HE-VAG-coefficients.txt`.

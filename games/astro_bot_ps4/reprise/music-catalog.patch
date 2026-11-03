@@ -1,0 +1,29 @@
+--- src/audio/MusicCatalog.hpp
++++ src/audio/MusicCatalog.hpp
+@@ -30,6 +30,8 @@
+ class MusicCatalog {
+ public:
+     void scan(const data::GameFiles& files, double minSeconds = 10, double minNamedSeconds = 1.5);
++    // Data-only Reprise imports do not contain an executable.
++    void scan(const std::vector<std::filesystem::path>& paths, double minSeconds = 10, double minNamedSeconds = 1.5);
+     const std::vector<MusicTrack>& tracks() const { return tracks_; }
+     // Sound names of a bank (without "_tv" variants).
+     const std::vector<std::string>& bankNames(const std::string& bank) const;
+--- src/audio/MusicCatalog.cpp
++++ src/audio/MusicCatalog.cpp
+@@ -13,10 +13,14 @@
+ }   // namespace
+ 
+ void MusicCatalog::scan(const data::GameFiles& files, double minSeconds, double minNamedSeconds) {
++    scan(files.list(".sxd"), minSeconds, minNamedSeconds);
++}
++
++void MusicCatalog::scan(const std::vector<std::filesystem::path>& paths, double minSeconds, double minNamedSeconds) {
+     banks_.clear();
+     tracks_.clear();
+     levelRules_.clear();
+-    for (const auto& path : files.list(".sxd")) {
++    for (const auto& path : paths) {
+         std::string stem = path.stem().string();
+         if (!endsWith(stem, "_bgm")) {
+             continue;

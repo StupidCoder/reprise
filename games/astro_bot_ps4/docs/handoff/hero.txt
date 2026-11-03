@@ -1,0 +1,8 @@
+settle                 pos (0.000 0.024 1.825) speed 0.000 apex +0.000 grounded 1 states: Land@3 Idle@49
+tap jump               pos (0.000 0.024 1.825) speed 0.000 apex +0.232 grounded 1 states: Jump@0 Fall@14 Land@27 Idle@73
+held jump              pos (0.000 0.024 1.825) speed 0.000 apex +0.405 grounded 1 states: Jump@0 Fall@25 Land@43 Idle@89
+walk forward 1 s       pos (0.000 0.019 2.808) speed 1.000 apex +0.000 grounded 1 states: Walk@0
+release 0.5 s          pos (0.000 0.019 2.904) speed 0.000 apex +0.000 grounded 1 states: Idle@12
+jump                   pos (0.000 0.322 2.904) speed 0.000 apex +0.303 grounded 0 states: Jump@0
+hover (press, hold)    pos (0.000 0.019 2.904) speed 0.000 apex +0.103 grounded 1 states: Hover@0 Land@60 Idle@106
+after hover            pos (0.000 0.019 2.904) speed 0.000 apex +0.000 grounded 1 states:

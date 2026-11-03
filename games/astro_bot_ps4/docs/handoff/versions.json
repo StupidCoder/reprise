@@ -1,0 +1,19 @@
+{
+  "date": "2026-11-02",
+  "reprise_base_commit": "d0833868363b668cb8efdc0ee9b6f963ff60da2e",
+  "reprise_changes": "uncommitted core handoff; no commit requested",
+  "source_commit": "89f52f6c105a2a57a56a9786cb27ca5768d5f4d1",
+  "binaries": {
+    "build/games/astro_bot_ps4/beacon_hero_probe": "e5b2d9a75989ccb445bee91b46c3bb111a85d223034510d234b8e4a3117f7256",
+    "build/games/astro_bot_ps4/beacon_core_check": "86b30cf532a3a0bb380a581740f161f2f197b8cf75cfc92710045c92b2accbda",
+    "build/games/astro_bot_ps4/beacon_model_check": "86ad2a2eabd9ae3884e3b8371ca4e9295be7f3f6c300211557bd2df82d302eeb",
+    "build/games/astro_bot_ps4/beacon_anim_check": "5046078cd37babcfe590f2befadb31120f8f6fb942336bae973089282921c8d6",
+    "build/games/astro_bot_ps4/beacon_sound_check": "0face235c4cfc38f25bd3f3a0b2725d6bfca31df444bce0b803478293d49aaec",
+    "BEACON/build/beacon-level": "fee3b6df0280432769063339d124045251c25bad1c1bb38cdb2f778c0d9756fc",
+    "BEACON/build/beacon-model": "3941f4582f5648ba35a3dc8fcbcf0a50c7df2f0097bb155f6c9ed9e45a7b2128",
+    "BEACON/build/beacon-anim": "2191e82518156e3bd9c1addfe1ea9e03286b5fc9f82f04ef8692cbfc92464d11",
+    "BEACON/build/beacon-sound": "08441ec5172754e1652be522744f30785ba078eae2db43f765f07117d4b67d53"
+  },
+  "compiler": "Apple clang version 17.0.0 (clang-1700.6.4.2)",
+  "audio_bank_sha256": "8c47476fc95a7bc048ad0a7242bd6efb4bab8d851102a3e98717f5a203c0efdf"
+}

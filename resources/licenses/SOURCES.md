@@ -27,3 +27,17 @@ Spy Mouse's music is HE-AAC; its decoder (`games/spy_mouse_ios/src/media`) is wr
 No original game images or extracted assets are distributed with this code.
 
 - Captain Toad material compilation: glslang 16.6.0 (glslang.txt) and SPIRV-Cross vulkan-sdk-1.4.328.1 (SPIRV-Cross.txt), pinned source archives in games/captain_toad_3ds/CMakeLists.txt. Statically linked on macOS and Android.
+
+## Beacon portable core
+
+Source: the user's Beacon project, commit
+`89f52f6c105a2a57a56a9786cb27ca5768d5f4d1`; per-file hashes in
+`games/astro_bot_ps4/source-handoff.json`. Beacon's own code had no selected
+license. No game data or GPL AstroQuest code is included.
+
+- LibAtrac9: https://github.com/Thealexbarney/LibAtrac9, commit
+  `efca2e3af35562a09a9bb6deed90e45b4b824dc4`, MIT (`LibAtrac9.txt`).
+- HE-VAG coefficients: vgmstream `src/coding/psv_decoder.c`, provenance and
+  permission notice retained in the source header and `HE-VAG-coefficients.txt`.
+
+- Beacon character texture previews: bcdec, preserved from Beacon’s pinned source (`src/third_party/bcdec.h`), MIT alternative (`bcdec.txt`).

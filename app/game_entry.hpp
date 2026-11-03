@@ -62,11 +62,13 @@ struct LegacyCopy {
     std::vector<std::string> notes;
 };
 
-// A sound for the viewer to play when its preview is clicked: mono samples
+// A sound for the viewer to play when its preview is clicked: interleaved samples
 // in -1..1 at their own rate (the viewer resamples).
 struct PreviewSound {
     std::vector<float> samples;
     double rate{};
+    unsigned channels{1}; // mono or stereo
+    std::size_t frames() const { return channels ? samples.size()/channels : 0; }
 
     // From the 8-bit signed samples Paula and most 8-bit sound chips play.
     static PreviewSound signed8(std::span<const std::int8_t> samples, double rate) {
@@ -85,6 +87,9 @@ struct Preview {
     platform::Image image;
     std::optional<PreviewSound> sound{};
     std::shared_ptr<const ui::Model> model{};
+    std::function<std::unique_ptr<ui::AnimatedModel>()> animated_model{};
+    // Decoded only while selected; released when leaving this preview.
+    std::function<PreviewSound()> load_sound{};
 };
 
 // Supported enhancements, independent of the current option values. Quick saves

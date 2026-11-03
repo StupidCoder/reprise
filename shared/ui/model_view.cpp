@@ -20,12 +20,21 @@ struct Viewport {
         auto& d = depth[std::size_t(y) * std::size_t(w) + std::size_t(x)];
         if (z >= d) return;
         d = z;
+        if (colour.a < 255 && x0+x >= 0 && y0+y >= 0 && x0+x < image.width && y0+y < image.height) {
+            const auto back = image.pixels[std::size_t(y0+y) * image.width + x0+x];
+            const int a = colour.a;
+            colour = {std::uint8_t((colour.r*a + back.r*(255-a))/255),
+                      std::uint8_t((colour.g*a + back.g*(255-a))/255),
+                      std::uint8_t((colour.b*a + back.b*(255-a))/255), 255};
+        }
         image.put(x0 + x, y0 + y, colour);
     }
 
     // Fills a triangle with depth interpolated linearly in screen space
     // (good enough for flat faces viewed from a distance).
-    void triangle(Projected a, Projected b, Projected c, platform::Color colour) {
+    void triangle(Projected a, Projected b, Projected c, platform::Color colour,
+                  const platform::Image* texture = nullptr,
+                  std::array<std::array<float, 2>, 3> uv = {}, float alpha_threshold = 0) {
         const float area = (b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y);
         if (std::abs(area) < 1e-6f) return;
         const int left = std::max(0, int(std::floor(std::min({a.x, b.x, c.x}))));
@@ -39,7 +48,20 @@ struct Viewport {
                 const float wb = ((c.x - sx) * (a.y - sy) - (a.x - sx) * (c.y - sy)) / area;
                 const float wc = 1 - wa - wb;
                 if (wa < 0 || wb < 0 || wc < 0) continue;
-                plot(px, py, wa * a.z + wb * b.z + wc * c.z, colour);
+                auto pixel = colour;
+                const float inverse_depth = wa / a.z + wb / b.z + wc / c.z;
+                if (texture && texture->width > 0 && texture->height > 0) {
+                    const float u = (wa * uv[0][0] / a.z + wb * uv[1][0] / b.z + wc * uv[2][0] / c.z) / inverse_depth;
+                    const float v = (wa * uv[0][1] / a.z + wb * uv[1][1] / b.z + wc * uv[2][1] / c.z) / inverse_depth;
+                    if (!std::isfinite(u) || !std::isfinite(v)) continue;
+                    const int tx = std::min(texture->width - 1, int((u - std::floor(u)) * texture->width));
+                    const int ty = std::min(texture->height - 1, int((v - std::floor(v)) * texture->height));
+                    const auto texel = texture->pixels[std::size_t(ty) * texture->width + tx];
+                    pixel = {std::uint8_t(int(colour.r) * texel.r / 255), std::uint8_t(int(colour.g) * texel.g / 255),
+                             std::uint8_t(int(colour.b) * texel.b / 255), std::uint8_t(int(colour.a) * texel.a / 255)};
+                }
+                if (pixel.a < std::max(1, int(alpha_threshold * 255))) continue;
+                plot(px, py, 1 / inverse_depth, pixel);
             }
         }
     }
@@ -75,11 +97,14 @@ void draw_model(platform::Image& image, int x, int y, int w, int h, const Model&
             high[axis] = std::max(high[axis], p[axis]);
         }
     }
+    if (model.fit_bounds) for (int i=0;i<3;++i) { low[i]=(*model.fit_bounds)[i]; high[i]=(*model.fit_bounds)[i+3]; }
     const std::array<float, 3> centre{(low[0] + high[0]) / 2, (low[1] + high[1]) / 2, (low[2] + high[2]) / 2};
     float radius = 1e-6f;
     for (const auto& p : model.points) {
         radius = std::max(radius, std::hypot(p[0] - centre[0], p[1] - centre[1], p[2] - centre[2]));
     }
+
+    if (model.fit_bounds) radius = std::max(1e-6f, std::hypot(high[0]-low[0], high[1]-low[1], high[2]-low[2]) * .5f);
 
     const float cy = float(std::cos(yaw)), sy = float(std::sin(yaw));
     const float cp = float(std::cos(pitch)), sp = float(std::sin(pitch));
@@ -116,10 +141,16 @@ void draw_model(platform::Image& image, int x, int y, int w, int h, const Model&
         }
         const float length = std::hypot(n[0], n[1], n[2]);
         const float facing = length > 0 ? std::abs(n[2]) / length : 1.0f; // light from the viewer, both sides
-        const auto colour = shade(face.colour, 0.55f + 0.45f * facing);
+        const auto colour = shade(face.colour, face.unlit ? 1.0f : 0.55f + 0.45f * facing);
         const auto& first = screen[std::size_t(face.corners[0])];
         for (std::size_t i = 1; i + 1 < face.corners.size(); ++i) {
-            port.triangle(first, screen[std::size_t(face.corners[i])], screen[std::size_t(face.corners[i + 1])], colour);
+            const auto b = screen[std::size_t(face.corners[i])], c = screen[std::size_t(face.corners[i + 1])];
+            if (first.z <= .05f || b.z <= .05f || c.z <= .05f ||
+                !std::isfinite(first.x) || !std::isfinite(first.y) || !std::isfinite(b.x) || !std::isfinite(b.y) || !std::isfinite(c.x) || !std::isfinite(c.y)) continue;
+            const auto* texture = face.texture >= 0 && std::size_t(face.texture) < model.textures.size() ? model.textures[face.texture].get() : nullptr;
+            std::array<std::array<float, 2>, 3> uv{};
+            if (face.uv.size() == face.corners.size()) uv = {face.uv[0], face.uv[i], face.uv[i+1]};
+            port.triangle(first, b, c, colour, texture, uv, face.alpha_threshold);
         }
     }
     for (const auto& line : model.lines) {
