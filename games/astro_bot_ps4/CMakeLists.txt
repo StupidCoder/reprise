@@ -85,13 +85,26 @@ if(BUILD_TESTING AND NOT ANDROID)
     add_test(NAME beacon_core COMMAND beacon_core_check)
 endif()
 
-add_library(beacon_assets STATIC reprise/import.cpp reprise/viewer.cpp)
+# Portable cryptography for the package envelope, never game execution.
+include(FetchContent)
+set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
+set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(beacon_mbedtls
+    GIT_REPOSITORY https://github.com/Mbed-TLS/mbedtls.git
+    GIT_TAG c765c831e5c2a0971410692f92f7a81d6ec65ec2
+    GIT_SUBMODULES framework)
+FetchContent_MakeAvailable(beacon_mbedtls)
+find_package(ZLIB REQUIRED)
+add_library(beacon_assets STATIC reprise/import.cpp reprise/package.cpp reprise/viewer.cpp)
 target_include_directories(beacon_assets PRIVATE src ${PROJECT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/shared)
-target_link_libraries(beacon_assets PUBLIC beacon_anim beacon_audio platform)
+target_link_libraries(beacon_assets PUBLIC beacon_anim beacon_audio platform PRIVATE mbedcrypto ZLIB::ZLIB)
 if(BUILD_TESTING AND NOT ANDROID)
     add_executable(beacon_assets_check tests/assets.cpp ${PROJECT_SOURCE_DIR}/app/library.cpp)
     target_link_libraries(beacon_assets_check PRIVATE beacon_assets ui)
     add_test(NAME beacon_assets COMMAND beacon_assets_check)
+    add_executable(beacon_package_check tests/package.cpp ${PROJECT_SOURCE_DIR}/app/library.cpp)
+    target_link_libraries(beacon_package_check PRIVATE beacon_assets)
 endif()
 
 if(NOT ANDROID)

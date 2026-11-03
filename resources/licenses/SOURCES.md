@@ -41,3 +41,5 @@ license. No game data or GPL AstroQuest code is included.
   permission notice retained in the source header and `HE-VAG-coefficients.txt`.
 
 - Beacon character texture previews: bcdec, preserved from Beacon’s pinned source (`src/third_party/bcdec.h`), MIT alternative (`bcdec.txt`).
+
+- Astro Bot PKG import uses Mbed TLS 3.6.4, commit `c765c831e5c2a0971410692f92f7a81d6ec65ec2`, from https://github.com/Mbed-TLS/mbedtls (Apache-2.0 alternative; `Mbed-TLS.txt`). Its framework submodule is pinned by that commit. zlib uses the existing platform dependency. Public fake-package RSA numeric parameters were verified against https://github.com/maxton/LibOrbisPkg at `643477263b2644e0803e0f58b8726ea4e3f3b7d4`; no library code is included or linked.

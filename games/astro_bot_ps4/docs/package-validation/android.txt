@@ -1,0 +1,14 @@
+[96/98] Building CXX object games/astro_bot_ps4/CMakeFiles/beacon_assets.dir/reprise/viewer.cpp.o
+[97/98] Linking CXX static library games/astro_bot_ps4/libbeacon_assets.a
+[98/98] Linking CXX shared library libmain.so
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+Verifies
+Verified using v1 scheme (JAR signing): false
+Verified using v2 scheme (APK Signature Scheme v2): true
+Verified using v3 scheme (APK Signature Scheme v3): true
+Verified using v3.1 scheme (APK Signature Scheme v3.1): false
+Verified using v4 scheme (APK Signature Scheme v4): false
+Verified for SourceStamp: false
+Number of signers: 1
+Built /Users/dennis/Development/Reprise/build-android/Reprise.apk (104.5 MiB)

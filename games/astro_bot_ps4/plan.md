@@ -7,7 +7,8 @@ another agent. Keep the existing catalog identity and do not regenerate artwork.
 
 Portable core copied with per-file provenance, isolated namespaces and explicit
 CMake targets: data, animation, physics, gameplay and portable audio decoding.
-The catalog now imports .beacon character and music bundles through Library staging and
+The catalog now imports CUSA12392.v1.04.pkg directly, plus legacy .beacon
+character and music bundles, through Library staging and
 opens an animated textured asset viewer. The exporter discovers base-texture
 dependencies from decoded models, including textures outside the character folder.
 144 models with visible geometry are available; meshless skeletal/effect files
@@ -17,11 +18,9 @@ Beacon is retained and is not superseded by this partial handoff.
 
 ## Next slices and acceptance criteria
 
-1. Import: port the observed package/PFS extraction semantics into a bounded,
-   portable importer using FileSource and Library staging/progress. Recognize the
-   exact content/revision; test wrong media, truncation, invalid paths, damaged
-   archives and extraction limits. The character-only export/import format is implemented; full-game imports remain open. Do not silently depend on
-   the source project's extracted directory or require eboot code for gameplay.
+1. Import: package/PFS extraction for the character/music viewer is implemented;
+   see `docs/package-import.md`. Expand the selected data as gameplay consumers
+   arrive. Other releases and arbitrary modified packages remain unsupported.
 2. Session: extract scene orchestration from Beacon's LevelScene into a headless
    session with fixed ticks, owned state and host GameInput. Preserve update order
    for hero, physics, objects, enemies, rescues and moving collision. Replay the

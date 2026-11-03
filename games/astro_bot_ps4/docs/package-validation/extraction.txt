@@ -1,0 +1,2 @@
+2267 assets match the existing extraction byte-for-byte; 33.745 seconds including comparison
+Damaged full-size package rejected; existing installation preserved

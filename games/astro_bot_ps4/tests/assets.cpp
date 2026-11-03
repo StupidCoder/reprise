@@ -26,6 +26,11 @@ int main(int argc,char** argv) {
             require(failed && not_this==other,"Importer rejection category is wrong");
         };
         reject(std::vector<std::uint8_t>(20),true);
+        std::vector<std::uint8_t> pkg(4096);pkg[0]=0x7f;pkg[1]='C';pkg[2]='N';pkg[3]='T';
+        reject(pkg,true); // another title
+        const std::string id="EP9000-CUSA12392_00-PLATFORMERVR00EU";
+        std::copy(id.begin(),id.end(),pkg.begin()+0x40);reject(pkg,false); // recognised, truncated release
+
         const std::string magic("BEACON-ASSETS-1\n\0",16);
         std::vector<std::uint8_t> header(magic.begin(),magic.end()); header.resize(20);
         reject(header,false); // zero count

@@ -1,4 +1,5 @@
 #include "import.hpp"
+#include "package.hpp"
 #include "platform/sha256.hpp"
 #include <algorithm>
 #include <array>
@@ -56,7 +57,7 @@ std::string import_assets(platform::FileSource& file, const std::filesystem::pat
             file.read(0x40,id);
             if(std::string_view(reinterpret_cast<const char*>(id.data()),std::string_view("EP9000-CUSA12392_00-PLATFORMERVR00EU").size())!="EP9000-CUSA12392_00-PLATFORMERVR00EU")
                 throw app::NotThisGame("Not this game's package");
-            throw std::runtime_error("Direct PS4 package import is not connected yet. Export Beacon's extracted game folder with export_assets.py, then import the .beacon file.");
+            return import_package(file,folder,progress);
         }
         throw app::NotThisGame("Not a Beacon asset bundle.");
     }

@@ -49,3 +49,8 @@ selected license at the pinned source commit. This handoff does not assign it
 Reprise's MIT license. Its third-party LibAtrac9 decoder (MIT) and HE-VAG
 coefficient table (vgmstream permission notice) retain their own notices, also
 in `resources/licenses/LibAtrac9.txt` and `HE-VAG-coefficients.txt`.
+
+Astro Bot's package importer uses Mbed TLS 3.6.4 under its Apache-2.0 option
+(see `resources/licenses/Mbed-TLS.txt`) and the existing zlib dependency.
+Public fake-package numeric RSA parameters are attributed in
+`games/astro_bot_ps4/reprise/package_keys.hpp`; no LibOrbisPkg code is linked.

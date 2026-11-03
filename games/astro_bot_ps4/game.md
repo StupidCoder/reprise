@@ -15,7 +15,7 @@ SHA-256 `028c88e1dd07efcebd085d5a91ed9e4ab7b3d192d7ce4f0cc94958b568e807e2`.
 Content ID: `EP9000-CUSA12392_00-PLATFORMERVR00EU`. The package filename/user
 version is 1.04; the observed metadata reports APP_VER 01.03. Preserve that
 qualification in release detection. These identities come from Beacon's
-`.analysis/evidence/hashes.txt` and `docs/probe.md`, not a new package extraction.
+`.analysis/evidence/hashes.txt` and `docs/probe.md`, the original package probe; direct extraction is now checked in `docs/package-import.md`.
 The extracted executable hash is
 `95ed2d85c176398cabab0ef2b565c2713fd536dcdb7cb8ba0b8c5bedc5831500`.
 
@@ -55,20 +55,21 @@ is introduced by this handoff. Source comments mark inferred ranges and rules.
 
 ## Integration requirements still open
 
-The character viewer imports a versioned .beacon bundle of original model,
-texture, skeleton and clip files plus release metadata. It samples original clips,
+The viewer imports the supplied PKG directly, or a legacy .beacon bundle,
+selecting original model, texture, skeleton, clip and music files plus release
+metadata. It samples original clips,
 builds skinning palettes and applies authored facial UV channels. The shared
 viewer renders base textures and material tint with simple lighting; it does not
 reproduce the original PBR renderer, particles, shadows, glow or transparency
 ordering. Frames use fixed bind-pose bounds and follow root motion to keep the
 model centered. Unsupported animations report an error and show bind pose.
 
-Direct package/PFS extraction, full-game data imports, host gameplay/render/audio
+Full-game data imports, host gameplay/render/audio
 adapters, portable movie decoding, quick saves, gameplay touch controls and
 mod/save compatibility remain open. No gameplay feature badges or persistent-save
-allowlist entry are enabled. After bundle import the viewer only reads Reprise's
+allowlist entry are enabled. After import the viewer only reads Reprise's
 installed content, with no dependency on Beacon or the export file.
-See `docs/asset-viewer.md` for the envelope, controls and measured coverage.
+See `docs/asset-viewer.md` and `docs/package-import.md` for controls, formats and coverage.
 
 Lesson candidates: authored object links and visibility, collision support-point
 rounding, variable-height jump states, compressed skeletal animation and portable

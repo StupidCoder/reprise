@@ -179,3 +179,12 @@ and supplies lazy animated textured previews. The normal details page offers
 View assets, clip selection, transport, speed, loop and scrubbing controls.
 Game code/executables are excluded from the bundle. Gameplay and direct PKG/PFS
 import remain pending; see `games/astro_bot_ps4/docs/asset-viewer.md`.
+
+### Beacon package import (2026-11-03)
+
+The catalog accepts the supplied `CUSA12392.v1.04.pkg` directly. A portable
+FileSource reader verifies the exact release and extracts the viewer's original
+character/music assets through PKG, encrypted PFS and compressed PFSC layers.
+Legacy `.beacon` bundles remain compatible. No export tool, Beacon folder or
+user key file is required at runtime. Gameplay remains pending; see
+`games/astro_bot_ps4/docs/package-import.md`.

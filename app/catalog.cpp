@@ -309,9 +309,9 @@ std::vector<GameEntry> catalog() {
         game.collection = Collection::none;
         game.import_into = beacon::reprise::import_assets;
         game.previews = beacon::reprise::previews;
-        game.largest_image = 2ull << 30;
-        game.media = "a .beacon asset bundle exported from your extracted CUSA12392 game folder";
-        game.progress = "Character and music asset viewer available. Import a .beacon bundle, then open Game details → Assets to rotate characters and select, play, pause or scrub their original animations, or listen to original music tracks. Gameplay and direct PS4 package import are not connected yet.";
+        game.largest_image = 8ull << 30;
+        game.media = "CUSA12392.v1.04.pkg from your copy of Astro Bot Rescue Mission";
+        game.progress = "Character and music asset viewer available. Import CUSA12392.v1.04.pkg, then open Game details → Assets to rotate characters and select, play, pause or scrub their original animations, or listen to original music tracks. Gameplay is not connected yet.";
         game.history_title = "A small hero, a shared adventure";
         game.history = "Asobi Team expanded The Playroom VR's Robot Rescue mini-game into a full adventure, exploring how the player and a small platforming hero could share the same world.";
         game.history_sources = "Nicolas Doucet, PlayStation Blog (2018).";

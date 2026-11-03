@@ -1,28 +1,20 @@
 # Character and music import and viewer
 
 This slice makes original assets viewable inside Reprise's game details. It does
-not enable gameplay or direct PS4 PKG import. The source Beacon project and the
+not enable gameplay. Direct PKG import is now available (see `package-import.md`). The source Beacon project and the
 separate title-card work are unchanged.
 
 ## Use
 
-Build Reprise, then export the already-extracted game folder once:
+Choose Import on the game's details page and select `CUSA12392.v1.04.pkg`, or
+drop it onto Reprise. Once installed, choose **View assets**, or Documentation →
+Assets. Reprise extracts the needed character/music assets directly from that
+package. No intermediate export is required.
 
-```sh
-./build.sh
-python3 games/astro_bot_ps4/tools/export_assets.py /path/to/Beacon/.tools/game/CUSA12392 characters.beacon
-```
-
-The exporter uses `build/games/astro_bot_ps4/beacon_asset_list` to discover texture
-dependencies from the original model material tables. Override its location with
-`--dependency-tool`. Python is only an export-time convenience; the Reprise
-importer/viewer is portable C++ and does not require Python, source executables,
-keys, Beacon, or the exported bundle after installation.
-
-Choose Import on the game's details page, or drop `characters.beacon` onto
-Reprise. Once installed, choose **View assets**, or Documentation → Assets.
-The supplied copy has already been exported and installed in the user's normal
-Reprise library during validation; other games' installs and progress were preserved.
+The previous `.beacon` export format remains supported. For research workflows,
+`tools/export_assets.py EXTRACTED_GAME OUTPUT.beacon` exports it using the native
+`build/games/astro_bot_ps4/beacon_asset_list` dependency helper. Normal package
+imports need neither tool nor the Beacon folder.
 
 - Top page arrows / directional navigation: choose an asset. Astro and the crew bot come first, then music, then the remaining models.
 - Music: click/tap the waveform or press Enter/gamepad A to play or stop. Tracks play once; switching pages stops playback.
