@@ -189,7 +189,8 @@ int run(const Options& options) {
     if (options.import_image) {
         const auto outcome = library.import(*options.import_image, std::nullopt);
         std::printf("%s\n", outcome.message.c_str());
-        if (outcome.ok && !outcome.waiting) {
+        for (const auto& detail : outcome.details) std::printf("%s\n", detail.c_str());
+        if (outcome.ok && !outcome.waiting && outcome.game) {
             std::printf("Installed in %s\n",
                         library.content_directory(*outcome.game).string().c_str());
         }

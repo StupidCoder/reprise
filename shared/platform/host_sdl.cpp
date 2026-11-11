@@ -1080,7 +1080,7 @@ void Host::choose_image() {
         state->result.reset();
     }
     auto* context = new std::shared_ptr<Implementation::Dialog>(state);
-    static const SDL_DialogFileFilter filters[] = {{"Game images", "tap;t64;d64;prg;adf;ipa;nds;cci;beacon;pkg"},
+    static const SDL_DialogFileFilter filters[] = {{"Game images", "zip;tap;t64;d64;g64;prg;adf;ipa;nds;cci;3ds;gg;gba;beacon;pkg"},
                                                    {"All files", "*"}};
     SDL_ShowOpenFileDialog(
         [](void* userdata, const char* const* paths, int) {

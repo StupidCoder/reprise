@@ -433,3 +433,24 @@ One desktop measurement on the user's actual 183,637-file library: full scan
 phase). This is a local measurement, not an Android startup-time claim. The
 Android build and signing completed: build-android/Reprise.apk, 86.3 MiB. A
 physical-device timing remains to be measured.
+
+## ZIP collection imports — 2026-11-11
+
+- Desktop ZIP regression suite passes: stored/deflate, ZIP64 records and entry
+  fields, chunked expansion, partial success, out-of-order multi-disk assembly,
+  macOS metadata, safe numbered extraction paths, CRC failure, size limit,
+  truncated directory, direct and ZIP-wrapped IPA, and temporary-file cleanup.
+- Existing library-cache, shell navigation/motion and import-progress checks pass.
+- All six user-supplied ZIPs in images were imported into an isolated temporary
+  library, then the test library was removed. Commodore: 13 games (including all
+  three Cannon Fodder disks); Sonic: four games; Spy Mouse: one; Captain Toad:
+  one; Layton: six; Astro Bot: one. All 26 supported games installed.
+- Sonic Rush, Sonic Advance 2 and Sonic Advance 3 were reported as unsupported,
+  without interrupting the remaining collection. No engine support is added
+  by the archive reader.
+- The real Astro Bot archive exercises ZIP64 and a 7.49 GB package, streamed
+  with bounded buffers. Only one raw image is held on disk at a time. Original
+  archives, the user's regular library and save states were not changed.
+- Full Android build and APK signing verification passed; the test APK is
+  `build-android/Reprise.apk` (104.5 MiB). No physical Android device run
+  was performed.

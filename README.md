@@ -118,9 +118,21 @@ See [validation notes](docs/VALIDATION.md) for the exact scope.
 
 ## Using the library
 
-Choose **Import game** and select a supported image. Multi-disk games require
-all required disks. Reprise identifies accepted releases and installs decoded
-content in its own writable data directory. Keep your original images separately.
+Choose **Import game** and select a supported image or a ZIP containing one or
+more game images. Folders inside ZIPs are supported, and macOS metadata is ignored.
+Multi-disk games can include all their disks in one archive, in any order.
+Reprise processes each image separately and reports files it could not import
+without abandoning the rest of the collection. ZIPs do not add support for games
+or image revisions that the individual importers do not recognise.
+
+Stored and deflate-compressed ZIP/ZIP64 archives are supported; encrypted and
+split archives must be unpacked first. Large archives are streamed to a temporary
+file one image at a time, so allow space for that image as well as the installed
+assets. Originals are kept intact. The full per-file result is recorded in
+`last-import.txt` in Reprise's data directory (and printed by `--import`).
+This imports original game images, not save-state backups or arbitrary asset folders.
+Reprise installs decoded content in its own writable data directory. Keep your
+original images separately.
 
 Choose a card, then **Start** or **Continue**. **Documentation** opens assets,
 development notes and available lessons or guides. Arrow keys/gamepad navigate;

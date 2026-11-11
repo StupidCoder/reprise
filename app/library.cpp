@@ -1,4 +1,7 @@
 #include "app/library.hpp"
+#include "platform/zip_archive.hpp"
+#include <fstream>
+#include <cctype>
 #include "platform/files.hpp"
 #include "platform/file_source.hpp"
 #include "platform/sha256.hpp"
@@ -260,6 +263,63 @@ void Library::write_verified(const fs::path& target, const ImportResult& result,
 }
 
 Library::Outcome Library::import(const fs::path& image, std::optional<std::size_t> preferred,
+                                 const ImportProgress& progress) {
+    try {
+        if(progress)progress("Opening game image or archive",-1);
+        platform::FileSource source(image);
+        if(!platform::ZipArchive::signature(source))return import_image(image,preferred,progress);
+        platform::ZipArchive zip(source);
+        // An IPA is itself a ZIP; its own importer must see the complete package.
+        for(const auto& e:zip.entries())if(e.name.starts_with("Payload/"))return import_image(image,preferred,progress);
+        std::vector<const platform::ZipArchive::Entry*> candidates;
+        for(const auto& e:zip.entries()) {
+            if(e.name.empty() || e.name.back()=='/')continue;
+            bool metadata=false;std::string name=e.name;std::replace(name.begin(),name.end(),'\\','/');
+            std::stringstream parts(name);std::string part;
+            while(std::getline(parts,part,'/'))if(part=="__MACOSX" || part==".DS_Store" || part.starts_with("._"))metadata=true;
+            if(metadata)continue;
+            auto ext=fs::path(name).extension().string();
+            std::transform(ext.begin(),ext.end(),ext.begin(),[](unsigned char c){return char(std::tolower(c));});
+            const std::set<std::string> extensions{".tap",".t64",".d64",".g64",".prg",".adf",".ipa",".nds",".cci",".3ds",".gg",".gba",".pkg",".beacon"};
+            if(extensions.contains(ext))candidates.push_back(&e);
+        }
+        if(candidates.empty())return {false,std::nullopt,"No supported game-image files were found in this ZIP."};
+        std::uint64_t limit=0;for(const auto& game:games_)if(importable(game))limit=std::max<std::uint64_t>(limit,game.largest_image);
+        const auto temp=root_/"archive-import"/std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+        fs::create_directories(temp);
+        struct Cleanup {fs::path path;~Cleanup(){std::error_code ec;fs::remove_all(path,ec);}} cleanup{temp};
+        Outcome result;std::set<std::size_t> installed,waiting;std::size_t failed=0;
+        for(std::size_t i=0;i<candidates.size();++i) {
+            const auto& entry=*candidates[i];
+            // Archive paths never become output paths: extract to a private numbered file.
+            const auto target=temp/(std::to_string(i)+fs::path(entry.name).extension().string());
+            const auto label="File "+std::to_string(i+1)+" of "+std::to_string(candidates.size())+": "+fs::path(entry.name).filename().string();
+            Outcome one;
+            try {
+                if(progress)progress("Unpacking "+label,0);
+                zip.extract(entry,target,limit,[&](double fraction){if(progress)progress("Unpacking "+label,fraction);});
+                one=import_image(target,preferred,[&](const std::string& phase,double fraction){if(progress)progress(label+" — "+phase,fraction);});
+            } catch(const std::exception& e){one={false,std::nullopt,e.what()};}
+            std::error_code ignored;fs::remove(target,ignored);
+            result.details.push_back(entry.name+": "+one.message);
+            if(one.ok && one.game) {
+                if(one.waiting)waiting.insert(*one.game);
+                else {installed.insert(*one.game);waiting.erase(*one.game);result.game=one.game;}
+            } else ++failed;
+        }
+        result.ok=!installed.empty() || !waiting.empty();
+        result.waiting=installed.empty() && !waiting.empty();
+        if(!result.game && !waiting.empty())result.game=*waiting.begin();
+        result.message=std::to_string(installed.size())+" game(s) imported from ZIP.";
+        if(!waiting.empty())result.message+=" "+std::to_string(waiting.size())+" game(s) still need more disks.";
+        if(failed)result.message+=" "+std::to_string(failed)+" file(s) could not be imported.";
+        // Keep the full per-file result available after the small launcher notification fades.
+        std::ofstream report(root_/"last-import.txt");for(const auto& line:result.details)report<<line<<'\n';
+        return result;
+    } catch(const std::exception& e){return {false,std::nullopt,std::string("Archive import failed: ")+e.what()};}
+}
+
+Library::Outcome Library::import_image(const fs::path& image, std::optional<std::size_t> preferred,
                                  const ImportProgress& progress) {
     if (progress) progress("Identifying game image", -1);
     // Each importer has its own size limit (GameEntry::largest_image); only those that accept

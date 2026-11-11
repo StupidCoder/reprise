@@ -47,9 +47,12 @@ public:
         std::optional<std::size_t> game; // the game the image was installed for
         std::string message;             // for the user
         bool waiting{};                  // a disk was kept; more disks are needed
+        std::vector<std::string> details{}; // per-file archive results
     };
 
-    // Imports an image. The preferred game (the one selected in the
+    // Imports an image or a ZIP of game images (one temporary image at a time).
+    // Partial archive success returns ok with per-file details and a summary.
+    // The preferred game (the one selected in the
     // launcher) is tried first, then every other importable game, so a
     // dropped image lands with the game it belongs to.
     Outcome import(const std::filesystem::path& image, std::optional<std::size_t> preferred,
@@ -66,6 +69,7 @@ public:
     std::vector<std::string> adopt_legacy();
 
 private:
+    Outcome import_image(const std::filesystem::path&, std::optional<std::size_t>, const ImportProgress&);
     struct Install {
         std::string release;
         bool needs_verification{};

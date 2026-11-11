@@ -12,6 +12,7 @@ if(ANDROID)
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 endif()
 find_package(SDL3 3.4 CONFIG REQUIRED)
+find_package(ZLIB REQUIRED)
 
 if(MSVC)
     set(PROJECT_WARNINGS /W4)
@@ -28,9 +29,10 @@ add_library(platform
     shared/platform/sha256.cpp
     shared/platform/resources.cpp
     shared/platform/type.cpp
-    shared/platform/file_source.cpp)
+    shared/platform/file_source.cpp
+    shared/platform/zip_archive.cpp)
 target_include_directories(platform PUBLIC ${SOURCE_ROOT})
-target_link_libraries(platform PUBLIC SDL3::SDL3)
+target_link_libraries(platform PUBLIC SDL3::SDL3 ZLIB::ZLIB)
 target_compile_options(platform PRIVATE ${PROJECT_WARNINGS})
 
 # --- ui: the launcher's drawing kit and shared picture filters --------------------------------------------
@@ -706,4 +708,11 @@ if(BUILD_TESTING AND NOT ANDROID)
     add_test(NAME host_touch_coordinates COMMAND host_touch_checks)
     set_tests_properties(host_touch_coordinates PROPERTIES
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+endif()
+
+if(BUILD_TESTING AND NOT ANDROID)
+    add_executable(zip_import_checks tests/zip_import.cpp app/library.cpp)
+    target_link_libraries(zip_import_checks PRIVATE platform)
+    target_compile_options(zip_import_checks PRIVATE ${PROJECT_WARNINGS})
+    add_test(NAME zip_collection_import COMMAND zip_import_checks)
 endif()
