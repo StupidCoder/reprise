@@ -3,6 +3,7 @@
 #include "sound/a1_sound.hpp"
 #include "story/a1_story.hpp"
 #include "system/a1_ui.hpp"
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 

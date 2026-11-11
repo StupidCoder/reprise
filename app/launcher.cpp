@@ -1240,6 +1240,19 @@ Image Launcher::draw(double now) const {
     return result;
 }
 
+Image Launcher::draw_surface(double now, bool omit_cover) const {
+    draw_time_ = now;
+    omit_cover_ = omit_cover;
+    try {
+        Image result = draw_scene(now);
+        omit_cover_ = false;
+        return result;
+    } catch (...) {
+        omit_cover_ = false;
+        throw;
+    }
+}
+
 Launcher::Request Launcher::update_portrait_details(const platform::Controls& raw, double now) {
     auto in = raw;
     if (confirm_remove_) {

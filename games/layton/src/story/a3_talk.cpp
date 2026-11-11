@@ -2,6 +2,7 @@
 #include "story/a3_talk.hpp"
 #include "sound/a3_sound.hpp"
 #include "story/a3_story.hpp"
+#include <algorithm>
 #include <cstdio>
 
 namespace picarat::adventure3 {
@@ -223,7 +224,7 @@ bool TalkWindow::onStep(lscr::Scene& scene, lscr::Object& message, const Message
         if (a < 0 || b < 0) {
             return true;
         }
-        char prefix[16];
+        char prefix[24];
         std::snprintf(prefix, sizeof prefix, "%02d_%02d_", a, b);
         for (const auto& seq : o->animation->sequences) {
             if (seq.name.rfind(prefix, 0) == 0) {

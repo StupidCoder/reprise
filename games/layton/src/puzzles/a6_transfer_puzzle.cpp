@@ -12,6 +12,7 @@
 // 0x3c9cfc), which takes 1001..1020 and passes the rest to Fit's 0x29dae0.
 #include "puzzles/a6_fit_puzzle.hpp"
 #include <cstdio>
+#include <utility>
 
 namespace picarat::adventure5::fit {
 namespace {

@@ -19,6 +19,7 @@
 // different design (pixel collisions, free sliding); this engine matches
 // its unused overlay 29 instead, so it is reconstructed here on its own.
 #include "puzzles/a1_engines.hpp"
+#include <cmath>
 
 namespace picarat::adventure1 {
 

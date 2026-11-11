@@ -1,0 +1,10 @@
+MESA: warning: util_gpuvis: Failed to initialize tracing.
+MESA: warning: util_gpuvis: Failed to initialize tracing.
+Gameplay started spy_mouse_ios (Start), step 17.000 ms
+Gameplay smoke spy_mouse_ios frames=120 image=960x640
+Gameplay smoke spy_mouse_ios frames=240 image=960x640
+Gameplay smoke spy_mouse_ios frames=360 image=960x640
+Gameplay smoke spy_mouse_ios frames=480 image=960x640
+Gameplay pause menu
+Gameplay returned to details
+Gameplay smoke passed: render, tick, audio submission, pause, return

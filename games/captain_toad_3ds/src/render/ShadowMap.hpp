@@ -16,6 +16,7 @@
 // keeps the nearest of both, as one pass would.
 // =============================================================================================
 #pragma once
+#include <cmath>
 #include "gpu/Device.hpp"
 #include "render/SceneTypes.hpp"
 #include <array>

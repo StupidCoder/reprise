@@ -17,6 +17,7 @@
 // adventure's own.
 #include "puzzles/a1_engines.hpp"
 #include "puzzles/judgment.hpp"
+#include <algorithm>
 
 namespace picarat::adventure1 {
 

@@ -2407,7 +2407,7 @@ void installServices(gss::Machine& m, Services& s) {
         const int a = c.integer(1), b = c.integer(2);
         const Animation::Sequence* found = nullptr;
         if (o->animation.resource() && a >= 0 && b >= 0) {
-            char prefix[16];
+            char prefix[24];
             std::snprintf(prefix, sizeof prefix, "%02d_%02d_", a, b);
             for (const auto& q : o->animation.resource()->animation->sequences) {
                 if (q.name.rfind(prefix, 0) == 0) {

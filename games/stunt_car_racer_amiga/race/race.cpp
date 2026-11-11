@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "stunt_car_racer_amiga/race/race.hpp"
 #include "stunt_car_racer_amiga/data/cockpit.hpp"
 #include "stunt_car_racer_amiga/race/physics.hpp"

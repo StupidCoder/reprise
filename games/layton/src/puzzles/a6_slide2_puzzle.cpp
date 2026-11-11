@@ -1117,7 +1117,7 @@ std::string Slide2Puzzle::describe() const {
     for (int y = 0; y < down_; ++y) {
         for (int x = 0; x < across_; ++x) {
             const int i = carAt(x, y);
-            char cell[8];
+            char cell[16];
             if (i >= 0) {
                 std::snprintf(cell, sizeof cell, " %c%d ",
                               cars_[std::size_t(i)].kind == 1 ? 'E' : 'W', i);

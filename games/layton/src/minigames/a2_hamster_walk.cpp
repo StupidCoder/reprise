@@ -9,6 +9,7 @@
 #include "graphics/nds3d/fx.hpp"
 #include "minigames/a2_hamster_game.hpp"
 #include "puzzles/judgment.hpp"
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>

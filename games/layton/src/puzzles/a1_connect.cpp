@@ -16,6 +16,7 @@
 // The second adventure carries this engine unused (overlay 35, similar
 // code); its puzzles never play it, so this file is the first adventure's.
 #include "puzzles/a1_engines.hpp"
+#include <algorithm>
 #include <cmath>
 
 namespace picarat::adventure1 {

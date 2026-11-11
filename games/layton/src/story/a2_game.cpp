@@ -101,6 +101,7 @@ const char* Game::sceneName(SceneKind scene) {
     case SceneKind::Bonus:
         return "Bonus";
     }
+    throw std::invalid_argument("Invalid scene kind");
 }
 
 // Naming the hamster (story scene 37) reuses the name-entry screen

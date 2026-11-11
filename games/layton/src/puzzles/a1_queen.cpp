@@ -13,6 +13,7 @@
 // squares) are shown until the stylus touches the screen again; nothing
 // counts as a wrong answer. "Restart" returns the queens to the tray.
 #include "puzzles/a1_engines.hpp"
+#include <algorithm>
 
 namespace picarat::adventure1 {
 

@@ -6,6 +6,7 @@
 // point by truncation (fx::fromFloat); frame counts become time (x 4096).
 #include "sound/a3_sound.hpp"
 #include "system/a3_lscr_scene.hpp"
+#include <algorithm>
 #include <cstdio>
 #include <stdexcept>
 

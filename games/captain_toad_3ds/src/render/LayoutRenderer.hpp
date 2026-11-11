@@ -20,6 +20,7 @@
 // white = (black.rgb, white.a) (the traced order; its cause in the text writer is not recovered).
 // =============================================================================================
 #pragma once
+#include <cstring>
 #include "data/Package.hpp"
 #include "gpu/Device.hpp"
 #include "gpu/Matrix.hpp"

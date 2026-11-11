@@ -1,6 +1,7 @@
 // The third adventure's special puzzle engines. See a3_engines.hpp.
 #include "puzzles/a3_engines.hpp"
 #include "sound/a3_sound.hpp"
+#include <algorithm>
 #include <cmath>
 #include <optional>
 #include <tuple>

@@ -5,10 +5,13 @@
 // arithmetic, truncating conversions) so lines end where the game's do.
 #include "puzzles/a4_line.hpp"
 #include "puzzles/a4_loop_kit.hpp"
+#include <algorithm>
 #include <cmath>
 
 // Each float operation rounds on its own, as the game's soft-float calls do.
+#if defined(__clang__)
 #pragma STDC FP_CONTRACT OFF
+#endif // GCC uses the target-wide -ffp-contract=off.
 
 namespace picarat::adventure4 {
 

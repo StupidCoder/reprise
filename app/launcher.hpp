@@ -35,6 +35,11 @@ public:
     std::size_t selected() const { return selected_; }
 
     platform::Image draw(double now) const;
+    // External presentation owns the cover's spatial transition; retain the
+    // same details layout and handlers without the desktop page transition.
+    platform::Image draw_surface(double now, bool omit_cover = false) const;
+    bool details_open() const { return details_; }
+    static constexpr std::array<int, 4> landscape_cover_rect{24, 106, 240, 158};
     void set_canvas(int width, int height);
 
     // The asset viewer's sound, if one is playing: fills `stereo` (interleaved

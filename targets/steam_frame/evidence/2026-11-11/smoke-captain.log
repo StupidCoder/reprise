@@ -1,0 +1,8 @@
+MESA: warning: util_gpuvis: Failed to initialize tracing.
+MESA: warning: util_gpuvis: Failed to initialize tracing.
+Gameplay started captain_toad_3ds (Start), step 16.667 ms
+Gameplay smoke captain_toad_3ds frames=120 image=960x640
+Gameplay smoke captain_toad_3ds frames=240 image=960x640
+Gameplay pause menu
+Gameplay returned to details
+Gameplay smoke passed: render, tick, audio submission, pause, return

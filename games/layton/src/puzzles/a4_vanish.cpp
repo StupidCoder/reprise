@@ -1,6 +1,7 @@
 // The jump-and-vanish loop (overlay 26). See a4_vanish.hpp.
 #include "puzzles/a4_vanish.hpp"
 #include "puzzles/a4_loop_kit.hpp"
+#include <algorithm>
 #include <cstdio>
 
 namespace picarat::adventure4 {

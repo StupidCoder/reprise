@@ -18,6 +18,7 @@
 // and the drawing.
 #include "puzzles/a1_engines.hpp"
 #include "puzzles/line_puzzle.hpp"
+#include <cmath>
 
 namespace picarat::adventure1 {
 

@@ -165,7 +165,7 @@ Library loadLibrary(const std::filesystem::path& pack) {
         std::sort(weekly.begin(), weekly.end(),
                   [](const PuzzleRow* a, const PuzzleRow* b) { return a->order < b->order; });
         for (std::size_t i = 0; i < weekly.size(); ++i) {
-            char label[8];
+            char label[24];
             std::snprintf(label, sizeof label, "W%02zu", i + 1);
             weekly[i]->number = label;
         }

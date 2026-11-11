@@ -9,6 +9,8 @@
 #include "sound/a1_sound.hpp"
 #include "story/a1_story.hpp"
 #include "system/a1_script.hpp"
+#include <algorithm>
+#include <cstring>
 
 namespace picarat::adventure1 {
 

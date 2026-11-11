@@ -1,0 +1,361 @@
+XR extension XR_KHR_vulkan_enable v10
+XR extension XR_KHR_vulkan_enable2 v4
+XR extension XR_KHR_opengl_enable v12
+XR extension XR_KHR_convert_timespec_time v1
+XR extension XR_KHR_opengl_es_enable v10
+XR extension XR_MNDX_egl_enable v2
+XR extension XR_KHR_binding_modification v1
+XR extension XR_KHR_composition_layer_cylinder v4
+XR extension XR_KHR_composition_layer_depth v6
+XR extension XR_KHR_locate_spaces v1
+XR extension XR_KHR_visibility_mask v2
+XR extension XR_EXT_active_action_set_priority v1
+XR extension XR_EXT_dpad_binding v1
+XR extension XR_EXT_eye_gaze_interaction v2
+XR extension XR_EXT_frame_composition_report v4
+XR extension XR_EXT_hand_interaction v2
+XR extension XR_EXT_hand_tracking v4
+XR extension XR_EXT_hand_tracking_data_source v1
+XR extension XR_EXT_hand_joints_motion_range v1
+XR extension XR_EXT_hp_mixed_reality_controller v1
+XR extension XR_EXT_local_floor v1
+XR extension XR_EXT_palm_pose v3
+XR extension XR_EXT_uuid v1
+XR extension XR_EXT_user_presence v1
+XR extension XR_EXT_view_configuration_views_change v1
+XR extension XR_EXT_render_model v1
+XR extension XR_EXT_interaction_render_model v1
+XR extension XR_EXT_interaction_profile_battery_state_display v1
+XR extension XR_EXT_stationary_reference_space v1
+XR extension XR_FB_display_refresh_rate v1
+XR extension XR_HTC_vive_cosmos_controller_interaction v1
+XR extension XR_HTC_vive_focus3_controller_interaction v2
+XR extension XR_HTC_vive_wrist_tracker_interaction v1
+XR extension XR_MND_headless v3
+XR extension XR_VALVE_analog_threshold v2
+XR extension XR_META_performance_metrics v2
+XR extension XR_VALVE_timing_utils v1
+XR extension XR_META_recommended_layer_resolution v1
+XR extension XR_FB_composition_layer_image_layout v1
+XR extension XR_FB_swapchain_update_state v3
+XR extension XR_FB_foveation v1
+XR extension XR_FB_foveation_vulkan v1
+XR extension XR_FB_foveation_configuration v1
+XR extension XR_META_foveation_eye_tracked v1
+XR extension XR_META_vulkan_swapchain_create_info v1
+XR extension XR_FB_space_warp v2
+XR extension XR_EXT_frame_synthesis v1
+XR extension XR_HTCX_vive_tracker_interaction v3
+XR extension XR_KHR_generic_controller v1
+XR extension XR_VALVE_frame_controller_interaction v1
+XR extension XR_VALVE_app_space_delta_pose v1
+XR extension XR_EXT_debug_utils v5
+XR runtime SteamVR/OpenXR 2.19.1
+XR max layers 16, max swapchain 8192x8192
+MESA: warning: util_gpuvis: Failed to initialize tracing.
+[Gamescope WSI] Application info:
+  pApplicationName: Reprise Steam Frame Probe
+  applicationVersion: 0
+  pEngineName: (null)
+  engineVersion: 0
+  apiVersion: 4194304
+[Gamescope WSI] Executable name: reprise-frame-probe
+ATTENTION: default value of option vk_wsi_force_swapchain_to_current_extent overridden by environment.
+[Gamescope WSI] Application info:
+  pApplicationName: steamvr_vrclient_interop
+  applicationVersion: 1
+  pEngineName: (null)
+  engineVersion: 1
+  apiVersion: 4194304
+Vulkan device Turnip Adreno (TM) 750, API 1.0
+[Gamescope WSI] Forcing on VK_EXT_swapchain_maintenance1.
+Swapchain VkFormat 43, queue family 0
+Eye 0: 1728x1728, 3 images
+Eye 1: 1728x1728, 3 images
+Room floor enabled: charcoal tiles, amber seams, radial fade
+Live landscape launcher enabled; shared Library/Launcher services
+Catalog ring loaded: 26 real cards; cached 4096x2464 atlas
+Session state 1
+Session state 2
+Stereo frame 1, predicted period 13.89 ms, submit wall time 11.29 ms
+Session state 3
+Frame render-and-fences n=1 mean=10.702 p95=10.702 max=10.702 ms
+Frame xrEndFrame n=1 mean=0.583 p95=0.583 max=0.583 ms
+Frame waits=600 skipped=599 state=3
+Frame waits=1200 skipped=1199 state=3
+Frame waits=1800 skipped=1799 state=3
+Frame waits=2400 skipped=2399 state=3
+Frame waits=3000 skipped=2999 state=3
+Frame waits=3600 skipped=3599 state=3
+Frame waits=4200 skipped=4199 state=3
+Frame waits=4800 skipped=4799 state=3
+Frame waits=5400 skipped=5399 state=3
+Frame waits=6000 skipped=5999 state=3
+Frame waits=6600 skipped=6599 state=3
+Frame waits=7200 skipped=7199 state=3
+Frame waits=7800 skipped=7799 state=3
+Frame waits=8400 skipped=8399 state=3
+Frame waits=9000 skipped=8999 state=3
+Frame waits=9600 skipped=9599 state=3
+Frame waits=10200 skipped=10199 state=3
+Frame waits=10800 skipped=10799 state=3
+Frame waits=11400 skipped=11399 state=3
+Frame waits=12000 skipped=11999 state=3
+Frame waits=12600 skipped=12599 state=3
+Frame waits=13200 skipped=13199 state=3
+Frame waits=13800 skipped=13799 state=3
+Frame waits=14400 skipped=14399 state=3
+Frame waits=15000 skipped=14999 state=3
+Frame waits=15600 skipped=15599 state=3
+Frame waits=16200 skipped=16199 state=3
+Frame waits=16800 skipped=16799 state=3
+Frame waits=17400 skipped=17399 state=3
+Frame waits=18000 skipped=17999 state=3
+Frame waits=18600 skipped=18599 state=3
+Session state 4
+Session state 5
+Ring anchored at eye height 0.000; forward 0.000 radians
+Hand left profile /interaction_profiles/valve/frame_controller_valve
+Hand right profile /interaction_profiles/valve/frame_controller_valve
+Hand left profile /interaction_profiles/valve/frame_controller_valve
+Hand right profile /interaction_profiles/valve/frame_controller_valve
+Reference space change pending; clearing controller input
+Reference space change pending; clearing controller input
+Frame render-and-fences n=189 mean=10.565 p95=12.212 max=14.585 ms
+Frame xrEndFrame n=189 mean=0.321 p95=0.619 max=1.244 ms
+Frame waits=19200 skipped=19010 state=5
+Left aim tracked
+Right aim tracked
+Stereo frame 600, predicted period 13.89 ms, submit wall time 10.47 ms
+Ring focus cannon_fodder_amiga
+Right trigger pressed (1.00)
+Opening live details cannon_fodder_amiga
+Frame render-and-fences n=600 mean=10.630 p95=12.258 max=40.680 ms
+Frame xrEndFrame n=600 mean=0.287 p95=0.565 max=1.700 ms
+Frame waits=19800 skipped=19010 state=5
+Closing live details
+Ring focus cannon_fodder_amiga
+Ring focus none
+Ring focus cannon_fodder_amiga
+Right trigger pressed (0.77)
+Opening live details cannon_fodder_amiga
+Closing live details
+Ring focus rock_n_roll_amiga
+Ring focus none
+Ring focus tower_of_babel_amiga
+Ring focus none
+Right trigger pressed (0.71)
+Ring focus tower_of_babel_amiga
+Right trigger pressed (0.95)
+Opening live details tower_of_babel_amiga
+Stereo frame 1200, predicted period 13.89 ms, submit wall time 11.23 ms
+Closing live details
+Frame render-and-fences n=600 mean=12.148 p95=17.053 max=86.405 ms
+Frame xrEndFrame n=600 mean=0.221 p95=0.482 max=0.681 ms
+Frame waits=20400 skipped=19010 state=5
+Ring focus rock_n_roll_amiga
+Ring focus none
+Ring focus curious_village_ds
+Right trigger pressed (1.00)
+Opening live details curious_village_ds
+Stereo frame 1800, predicted period 13.89 ms, submit wall time 14.27 ms
+Frame render-and-fences n=600 mean=11.859 p95=15.302 max=21.394 ms
+Frame xrEndFrame n=600 mean=0.202 p95=0.411 max=0.747 ms
+Frame waits=21000 skipped=19010 state=5
+Right trigger pressed (0.76)
+Right trigger pressed (0.91)
+Stereo frame 2400, predicted period 13.89 ms, submit wall time 13.90 ms
+Right trigger pressed (0.66)
+Right trigger pressed (0.80)
+Right trigger pressed (0.69)
+Right trigger pressed (0.96)
+Frame render-and-fences n=600 mean=11.958 p95=14.744 max=22.707 ms
+Frame xrEndFrame n=600 mean=0.204 p95=0.382 max=0.583 ms
+Frame waits=21600 skipped=19010 state=5
+Right trigger pressed (0.68)
+Right trigger pressed (0.85)
+Stereo frame 3000, predicted period 13.89 ms, submit wall time 17.86 ms
+Frame render-and-fences n=600 mean=12.787 p95=15.822 max=56.218 ms
+Frame xrEndFrame n=600 mean=0.213 p95=0.378 max=0.624 ms
+Frame waits=22200 skipped=19010 state=5
+Closing live details
+Ring focus curious_village_ds
+Ring focus triple_trouble_gg
+Ring focus none
+Ring focus curious_village_ds
+Right trigger pressed (0.92)
+Opening live details curious_village_ds
+Closing live details
+Stereo frame 3600, predicted period 13.89 ms, submit wall time 15.73 ms
+Ring focus pandoras_box_ds
+Ring focus none
+Ring focus lost_future_ds
+Ring focus none
+Frame render-and-fences n=600 mean=12.018 p95=15.604 max=30.346 ms
+Frame xrEndFrame n=600 mean=0.231 p95=0.461 max=0.680 ms
+Frame waits=22800 skipped=19010 state=5
+Ring focus captain_toad_3ds
+Right trigger pressed (0.68)
+Opening live details captain_toad_3ds
+Right trigger pressed (0.70)
+Right trigger pressed (0.79)
+Stereo frame 4200, predicted period 13.89 ms, submit wall time 11.49 ms
+Right trigger pressed (0.74)
+Right trigger pressed (0.81)
+Right trigger pressed (0.81)
+Right trigger pressed (1.00)
+Right trigger pressed (0.71)
+Right trigger pressed (0.99)
+Right trigger pressed (0.77)
+Frame render-and-fences n=600 mean=12.044 p95=14.807 max=80.524 ms
+Frame xrEndFrame n=600 mean=0.212 p95=0.408 max=0.655 ms
+Frame waits=23400 skipped=19010 state=5
+Closing live details
+Right trigger pressed (1.00)
+Ring focus bruce_lee_c64
+Ring focus none
+Ring focus bruce_lee_c64
+Ring focus none
+Ring focus bruce_lee_c64
+Right trigger pressed (0.79)
+Opening live details bruce_lee_c64
+Right trigger pressed (0.91)
+Right trigger pressed (0.92)
+Right trigger pressed (0.69)
+Right trigger pressed (0.83)
+Stereo frame 4800, predicted period 13.89 ms, submit wall time 12.13 ms
+Right trigger pressed (0.94)
+Right trigger pressed (0.88)
+Right trigger pressed (0.73)
+Right trigger pressed (0.68)
+Right trigger pressed (0.84)
+Frame render-and-fences n=600 mean=12.348 p95=15.528 max=80.508 ms
+Frame xrEndFrame n=600 mean=0.231 p95=0.427 max=1.400 ms
+Frame waits=24000 skipped=19010 state=5
+Stereo frame 5400, predicted period 13.89 ms, submit wall time 14.57 ms
+Frame render-and-fences n=600 mean=12.682 p95=15.464 max=17.955 ms
+Frame xrEndFrame n=600 mean=0.224 p95=0.412 max=0.659 ms
+Frame waits=24600 skipped=19010 state=5
+Closing live details
+Ring focus bruce_lee_c64
+Ring focus none
+Stereo frame 6000, predicted period 13.89 ms, submit wall time 11.21 ms
+Ring focus stunt_car_racer_amiga
+Right trigger pressed (0.78)
+Opening live details stunt_car_racer_amiga
+Frame render-and-fences n=600 mean=11.346 p95=14.545 max=37.170 ms
+Frame xrEndFrame n=600 mean=0.242 p95=0.496 max=1.016 ms
+Frame waits=25200 skipped=19010 state=5
+Closing live details
+Ring focus spy_mouse_ios
+Ring focus none
+Ring focus spindizzy_worlds_amiga
+Ring focus none
+Ring focus rock_n_roll_amiga
+Ring focus none
+Left aim lost
+Right aim lost
+Session state 4
+Session state 3
+Frame render-and-fences n=242 mean=11.901 p95=14.353 max=71.919 ms
+Frame xrEndFrame n=242 mean=0.287 p95=0.540 max=0.695 ms
+Frame waits=25800 skipped=19368 state=3
+Frame waits=26400 skipped=19968 state=3
+Frame waits=27000 skipped=20568 state=3
+Frame waits=27600 skipped=21168 state=3
+Frame waits=28200 skipped=21768 state=3
+Frame waits=28800 skipped=22368 state=3
+Frame waits=29400 skipped=22968 state=3
+Frame waits=30000 skipped=23568 state=3
+Frame waits=30600 skipped=24168 state=3
+Frame waits=31200 skipped=24768 state=3
+Frame waits=31800 skipped=25368 state=3
+Frame waits=32400 skipped=25968 state=3
+Frame waits=33000 skipped=26568 state=3
+Frame waits=33600 skipped=27168 state=3
+Frame waits=34200 skipped=27768 state=3
+Frame waits=34800 skipped=28368 state=3
+Frame waits=35400 skipped=28968 state=3
+Frame waits=36000 skipped=29568 state=3
+Frame waits=36600 skipped=30168 state=3
+Frame waits=37200 skipped=30768 state=3
+Frame waits=37800 skipped=31368 state=3
+Frame waits=38400 skipped=31968 state=3
+Frame waits=39000 skipped=32568 state=3
+Frame waits=39600 skipped=33168 state=3
+Frame waits=40200 skipped=33768 state=3
+Frame waits=40800 skipped=34368 state=3
+Frame waits=41400 skipped=34968 state=3
+Frame waits=42000 skipped=35568 state=3
+Frame waits=42600 skipped=36168 state=3
+Frame waits=43200 skipped=36768 state=3
+Frame waits=43800 skipped=37368 state=3
+Frame waits=44400 skipped=37968 state=3
+Frame waits=45000 skipped=38568 state=3
+Frame waits=45600 skipped=39168 state=3
+Frame waits=46200 skipped=39768 state=3
+Frame waits=46800 skipped=40368 state=3
+Frame waits=47400 skipped=40968 state=3
+Frame waits=48000 skipped=41568 state=3
+Frame waits=48600 skipped=42168 state=3
+Frame waits=49200 skipped=42768 state=3
+Frame waits=49800 skipped=43368 state=3
+Frame waits=50400 skipped=43968 state=3
+Frame waits=51000 skipped=44568 state=3
+Frame waits=51600 skipped=45168 state=3
+Frame waits=52200 skipped=45768 state=3
+Frame waits=52800 skipped=46368 state=3
+Frame waits=53400 skipped=46968 state=3
+Frame waits=54000 skipped=47568 state=3
+Frame waits=54600 skipped=48168 state=3
+Frame waits=55200 skipped=48768 state=3
+Frame waits=55800 skipped=49368 state=3
+Frame waits=56400 skipped=49968 state=3
+Frame waits=57000 skipped=50568 state=3
+Frame waits=57600 skipped=51168 state=3
+Frame waits=58200 skipped=51768 state=3
+Frame waits=58800 skipped=52368 state=3
+Frame waits=59400 skipped=52968 state=3
+Frame waits=60000 skipped=53568 state=3
+Frame waits=60600 skipped=54168 state=3
+Frame waits=61200 skipped=54768 state=3
+Frame waits=61800 skipped=55368 state=3
+Frame waits=62400 skipped=55968 state=3
+Frame waits=63000 skipped=56568 state=3
+Frame waits=63600 skipped=57168 state=3
+Frame waits=64200 skipped=57768 state=3
+Frame waits=64800 skipped=58368 state=3
+Frame waits=65400 skipped=58968 state=3
+Frame waits=66000 skipped=59568 state=3
+Frame waits=66600 skipped=60168 state=3
+Frame waits=67200 skipped=60768 state=3
+Frame waits=67800 skipped=61368 state=3
+Frame waits=68400 skipped=61968 state=3
+Frame waits=69000 skipped=62568 state=3
+Frame waits=69600 skipped=63168 state=3
+Frame waits=70200 skipped=63768 state=3
+Frame waits=70800 skipped=64368 state=3
+Frame waits=71400 skipped=64968 state=3
+Frame waits=72000 skipped=65568 state=3
+Frame waits=72600 skipped=66168 state=3
+Frame waits=73200 skipped=66768 state=3
+Frame waits=73800 skipped=67368 state=3
+Frame waits=74400 skipped=67968 state=3
+Frame waits=75000 skipped=68568 state=3
+Frame waits=75600 skipped=69168 state=3
+Frame waits=76200 skipped=69768 state=3
+Frame waits=76800 skipped=70368 state=3
+Frame waits=77400 skipped=70968 state=3
+Frame waits=78000 skipped=71568 state=3
+Frame waits=78600 skipped=72168 state=3
+Frame waits=79200 skipped=72768 state=3
+Frame waits=79800 skipped=73368 state=3
+Frame waits=80400 skipped=73968 state=3
+Frame waits=81000 skipped=74568 state=3
+Frame waits=81600 skipped=75168 state=3
+Frame waits=82200 skipped=75768 state=3
+Frame waits=82800 skipped=76368 state=3
+Frame waits=83400 skipped=76968 state=3
+Frame waits=84000 skipped=77568 state=3
+Frame waits=84600 skipped=78168 state=3
+Frame waits=85200 skipped=78768 state=3

@@ -139,3 +139,8 @@ Next:
 - No sounds.
 - The crack's paint test reads the cockpit picture; anything else the
   original has drawn on the roof rows is not considered (nothing observed).
+
+## Technical lessons (2026-10-30)
+
+- [x] Illustrated angular-camera and three-support suspension articles, with imported road diagrams and portable SDL reading layouts.
+- [ ] After the playable reconstruction, add the opponent-driving lesson; resolve state ownership and validate decisions before presenting AI behaviour. See [lesson evidence](../../docs/articles/stunt-car-racer-technical.md).

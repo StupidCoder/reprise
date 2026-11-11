@@ -1,0 +1,123 @@
+XR extension XR_KHR_vulkan_enable v10
+XR extension XR_KHR_vulkan_enable2 v4
+XR extension XR_KHR_opengl_enable v12
+XR extension XR_KHR_convert_timespec_time v1
+XR extension XR_KHR_opengl_es_enable v10
+XR extension XR_MNDX_egl_enable v2
+XR extension XR_KHR_binding_modification v1
+XR extension XR_KHR_composition_layer_cylinder v4
+XR extension XR_KHR_composition_layer_depth v6
+XR extension XR_KHR_locate_spaces v1
+XR extension XR_KHR_visibility_mask v2
+XR extension XR_EXT_active_action_set_priority v1
+XR extension XR_EXT_dpad_binding v1
+XR extension XR_EXT_eye_gaze_interaction v2
+XR extension XR_EXT_frame_composition_report v4
+XR extension XR_EXT_hand_interaction v2
+XR extension XR_EXT_hand_tracking v4
+XR extension XR_EXT_hand_tracking_data_source v1
+XR extension XR_EXT_hand_joints_motion_range v1
+XR extension XR_EXT_hp_mixed_reality_controller v1
+XR extension XR_EXT_local_floor v1
+XR extension XR_EXT_palm_pose v3
+XR extension XR_EXT_uuid v1
+XR extension XR_EXT_user_presence v1
+XR extension XR_EXT_view_configuration_views_change v1
+XR extension XR_EXT_render_model v1
+XR extension XR_EXT_interaction_render_model v1
+XR extension XR_EXT_interaction_profile_battery_state_display v1
+XR extension XR_EXT_stationary_reference_space v1
+XR extension XR_FB_display_refresh_rate v1
+XR extension XR_HTC_vive_cosmos_controller_interaction v1
+XR extension XR_HTC_vive_focus3_controller_interaction v2
+XR extension XR_HTC_vive_wrist_tracker_interaction v1
+XR extension XR_MND_headless v3
+XR extension XR_VALVE_analog_threshold v2
+XR extension XR_META_performance_metrics v2
+XR extension XR_VALVE_timing_utils v1
+XR extension XR_META_recommended_layer_resolution v1
+XR extension XR_FB_composition_layer_image_layout v1
+XR extension XR_FB_swapchain_update_state v3
+XR extension XR_FB_foveation v1
+XR extension XR_FB_foveation_vulkan v1
+XR extension XR_FB_foveation_configuration v1
+XR extension XR_META_foveation_eye_tracked v1
+XR extension XR_META_vulkan_swapchain_create_info v1
+XR extension XR_FB_space_warp v2
+XR extension XR_EXT_frame_synthesis v1
+XR extension XR_HTCX_vive_tracker_interaction v3
+XR extension XR_KHR_generic_controller v1
+XR extension XR_VALVE_frame_controller_interaction v1
+XR extension XR_VALVE_app_space_delta_pose v1
+XR extension XR_EXT_debug_utils v5
+XR runtime SteamVR/OpenXR 2.19.1
+MESA: warning: util_gpuvis: Failed to initialize tracing.
+[Gamescope WSI] Application info:
+  pApplicationName: Reprise Steam Frame Probe
+  applicationVersion: 0
+  pEngineName: (null)
+  engineVersion: 0
+  apiVersion: 4194304
+[Gamescope WSI] Executable name: reprise-frame-probe
+ATTENTION: default value of option vk_wsi_force_swapchain_to_current_extent overridden by environment.
+[Gamescope WSI] Application info:
+  pApplicationName: steamvr_vrclient_interop
+  applicationVersion: 1
+  pEngineName: (null)
+  engineVersion: 1
+  apiVersion: 4194304
+Vulkan device Turnip Adreno (TM) 750, API 1.0
+[Gamescope WSI] Forcing on VK_EXT_swapchain_maintenance1.
+Swapchain VkFormat 43, queue family 0
+Eye 0: 1728x1728, 3 images
+Eye 1: 1728x1728, 3 images
+Session state 1
+Session state 2
+Stereo frame 1, predicted period 13.89 ms, submit wall time 90.52 ms
+Session state 3
+Session state 4
+Session state 5
+Hand left profile /interaction_profiles/valve/frame_controller_valve
+Hand right profile /interaction_profiles/valve/frame_controller_valve
+Hand left profile /interaction_profiles/valve/frame_controller_valve
+Hand right profile /interaction_profiles/valve/frame_controller_valve
+Session state 4
+Stereo frame 600, predicted period 13.89 ms, submit wall time 12.01 ms
+Stereo frame 1200, predicted period 13.89 ms, submit wall time 12.60 ms
+Stereo frame 1800, predicted period 13.89 ms, submit wall time 9.77 ms
+Stereo frame 2400, predicted period 13.89 ms, submit wall time 10.49 ms
+Stereo frame 3000, predicted period 13.89 ms, submit wall time 10.83 ms
+Stereo frame 3600, predicted period 13.89 ms, submit wall time 11.49 ms
+Stereo frame 4200, predicted period 13.89 ms, submit wall time 10.97 ms
+Stereo frame 4800, predicted period 13.89 ms, submit wall time 10.17 ms
+Session state 5
+Left aim tracked
+Right aim tracked
+Stereo frame 5400, predicted period 13.89 ms, submit wall time 10.95 ms
+Right trigger pressed (1.00)
+Left trigger pressed (0.68)
+Right trigger pressed (0.77)
+Left trigger pressed (1.00)
+Right trigger pressed (0.80)
+Left trigger pressed (0.88)
+Right trigger pressed (0.73)
+Left trigger pressed (1.00)
+Right trigger pressed (0.68)
+Left trigger pressed (0.84)
+Right trigger pressed (0.98)
+Left trigger pressed (0.94)
+Right trigger pressed (1.00)
+Right trigger pressed (0.92)
+Right trigger pressed (1.00)
+Left trigger pressed (1.00)
+Right trigger pressed (1.00)
+Right trigger pressed (0.89)
+Left trigger pressed (0.74)
+Right trigger pressed (1.00)
+Left trigger pressed (1.00)
+Right trigger pressed (1.00)
+Right trigger pressed (1.00)
+Left trigger pressed (0.83)
+Stereo frame 6000, predicted period 13.89 ms, submit wall time 12.10 ms
+Session state 4
+Session state 3

@@ -1,0 +1,213 @@
+DIAGNOSTIC: run game bridge while unfocused; timings may exclude visible scene/compositor load
+XR extension XR_KHR_vulkan_enable v10
+XR extension XR_KHR_vulkan_enable2 v4
+XR extension XR_KHR_opengl_enable v12
+XR extension XR_KHR_convert_timespec_time v1
+XR extension XR_KHR_opengl_es_enable v10
+XR extension XR_MNDX_egl_enable v2
+XR extension XR_KHR_binding_modification v1
+XR extension XR_KHR_composition_layer_cylinder v4
+XR extension XR_KHR_composition_layer_depth v6
+XR extension XR_KHR_locate_spaces v1
+XR extension XR_KHR_visibility_mask v2
+XR extension XR_EXT_active_action_set_priority v1
+XR extension XR_EXT_dpad_binding v1
+XR extension XR_EXT_eye_gaze_interaction v2
+XR extension XR_EXT_frame_composition_report v4
+XR extension XR_EXT_hand_interaction v2
+XR extension XR_EXT_hand_tracking v4
+XR extension XR_EXT_hand_tracking_data_source v1
+XR extension XR_EXT_hand_joints_motion_range v1
+XR extension XR_EXT_hp_mixed_reality_controller v1
+XR extension XR_EXT_local_floor v1
+XR extension XR_EXT_palm_pose v3
+XR extension XR_EXT_uuid v1
+XR extension XR_EXT_user_presence v1
+XR extension XR_EXT_view_configuration_views_change v1
+XR extension XR_EXT_render_model v1
+XR extension XR_EXT_interaction_render_model v1
+XR extension XR_EXT_interaction_profile_battery_state_display v1
+XR extension XR_EXT_stationary_reference_space v1
+XR extension XR_FB_display_refresh_rate v1
+XR extension XR_HTC_vive_cosmos_controller_interaction v1
+XR extension XR_HTC_vive_focus3_controller_interaction v2
+XR extension XR_HTC_vive_wrist_tracker_interaction v1
+XR extension XR_MND_headless v3
+XR extension XR_VALVE_analog_threshold v2
+XR extension XR_META_performance_metrics v2
+XR extension XR_VALVE_timing_utils v1
+XR extension XR_META_recommended_layer_resolution v1
+XR extension XR_FB_composition_layer_image_layout v1
+XR extension XR_FB_swapchain_update_state v3
+XR extension XR_FB_foveation v1
+XR extension XR_FB_foveation_vulkan v1
+XR extension XR_FB_foveation_configuration v1
+XR extension XR_META_foveation_eye_tracked v1
+XR extension XR_META_vulkan_swapchain_create_info v1
+XR extension XR_FB_space_warp v2
+XR extension XR_EXT_frame_synthesis v1
+XR extension XR_HTCX_vive_tracker_interaction v3
+XR extension XR_KHR_generic_controller v1
+XR extension XR_VALVE_frame_controller_interaction v1
+XR extension XR_VALVE_app_space_delta_pose v1
+XR extension XR_EXT_debug_utils v5
+XR runtime SteamVR/OpenXR 2.19.1
+XR max layers 16, max swapchain 8192x8192
+MESA: warning: util_gpuvis: Failed to initialize tracing.
+[Gamescope WSI] Application info:
+  pApplicationName: Reprise Steam Frame Probe
+  applicationVersion: 0
+  pEngineName: (null)
+  engineVersion: 0
+  apiVersion: 4194304
+[Gamescope WSI] Executable name: reprise-frame-probe
+ATTENTION: default value of option vk_wsi_force_swapchain_to_current_extent overridden by environment.
+[Gamescope WSI] Application info:
+  pApplicationName: steamvr_vrclient_interop
+  applicationVersion: 1
+  pEngineName: (null)
+  engineVersion: 1
+  apiVersion: 4194304
+Vulkan device Turnip Adreno (TM) 750, API 1.0
+[Gamescope WSI] Forcing on VK_EXT_swapchain_maintenance1.
+Swapchain VkFormat 43, queue family 0
+Eye 0: 1728x1728, 3 images
+Eye 1: 1728x1728, 3 images
+Room floor enabled: charcoal tiles, amber seams, radial fade
+Catalog ring loaded: 26 real cards; cached 4096x2464 atlas
+ATTENTION: default value of option vk_wsi_force_swapchain_to_current_extent overridden by environment.
+[Gamescope WSI] Application info:
+  pApplicationName: (null)
+  applicationVersion: 0
+  pEngineName: SDLGPU
+  engineVersion: 3004018
+  apiVersion: 4194304
+ATTENTION: default value of option vk_wsi_force_swapchain_to_current_extent overridden by environment.
+[Gamescope WSI] Application info:
+  pApplicationName: (null)
+  applicationVersion: 0
+  pEngineName: SDLGPU
+  engineVersion: 3004018
+  apiVersion: 4194304
+[Gamescope WSI] Forcing on VK_EXT_swapchain_maintenance1.
+SDL 3004018 renderer=gpu GPU=Turnip Adreno (TM) 750 driver=vulkan
+SDL target GPU pointer=yes native VkImage=0; separate-device readback bridge
+Spy Mouse module loaded; simulation step 17.000 ms; no input/audio/save UI in this diagnostic
+Session state 1
+Session state 2
+Ring anchored at eye height 0.000; forward 0.000 radians
+Bridge RGBA sample hash frame=1 985eb287bd1d01a5
+Stereo frame 1, predicted period 13.89 ms, submit wall time 16.27 ms
+Session state 3
+Bridge RGBA sample hash frame=300 98768ece5905a768
+Bridge draw-readback-convert n=300 mean=2.764 p95=5.199 max=20.305 ms
+Bridge copy-upload-wait n=300 mean=7.823 p95=9.380 max=10.740 ms
+Bridge XR-image-ownership-wait n=300 mean=0.012 p95=0.019 max=0.078 ms
+Bridge Vulkan-upload-fence n=300 mean=7.653 p95=9.254 max=10.570 ms
+Bridge total n=300 mean=10.670 p95=11.490 max=33.371 ms
+Bridge frames=300 game ticks=301
+Frame render-and-fences n=1 mean=15.659 p95=15.659 max=15.659 ms
+Frame xrEndFrame n=1 mean=0.608 p95=0.608 max=0.608 ms
+Frame waits=600 skipped=599 state=3
+Session state 4
+Session state 5
+Hand left profile /interaction_profiles/valve/frame_controller_valve
+Hand right profile /interaction_profiles/valve/frame_controller_valve
+Hand left profile /interaction_profiles/valve/frame_controller_valve
+Hand right profile /interaction_profiles/valve/frame_controller_valve
+Bridge RGBA sample hash frame=600 c1f406b9be779ae8
+Bridge draw-readback-convert n=300 mean=2.330 p95=3.801 max=6.591 ms
+Bridge copy-upload-wait n=300 mean=7.677 p95=9.326 max=10.263 ms
+Bridge XR-image-ownership-wait n=300 mean=0.018 p95=0.021 max=1.123 ms
+Bridge Vulkan-upload-fence n=300 mean=7.474 p95=9.166 max=10.131 ms
+Bridge total n=300 mean=10.045 p95=11.459 max=11.931 ms
+Bridge frames=600 game ticks=601
+Session state 4
+Reference space change pending; clearing controller input
+Reference space change pending; clearing controller input
+Reference space change pending; clearing controller input
+Session state 3
+Bridge RGBA sample hash frame=900 eace1cd4fcd0b295
+Bridge draw-readback-convert n=300 mean=1.957 p95=3.409 max=4.844 ms
+Bridge copy-upload-wait n=300 mean=1.719 p95=9.254 max=9.807 ms
+Bridge XR-image-ownership-wait n=300 mean=0.011 p95=0.017 max=0.341 ms
+Bridge Vulkan-upload-fence n=300 mean=1.580 p95=9.124 max=9.705 ms
+Bridge total n=300 mean=3.715 p95=10.902 max=11.304 ms
+Bridge frames=900 game ticks=904
+Frame render-and-fences n=357 mean=11.535 p95=14.785 max=18.342 ms
+Frame xrEndFrame n=357 mean=0.224 p95=0.458 max=1.147 ms
+Frame waits=1200 skipped=842 state=3
+Session state 4
+Stereo frame 600, predicted period 13.89 ms, submit wall time 13.89 ms
+Bridge RGBA sample hash frame=1200 679f654d9a52ad0b
+Bridge draw-readback-convert n=300 mean=1.903 p95=3.297 max=3.953 ms
+Bridge copy-upload-wait n=300 mean=3.011 p95=9.627 max=10.419 ms
+Bridge XR-image-ownership-wait n=300 mean=0.010 p95=0.018 max=0.085 ms
+Bridge Vulkan-upload-fence n=300 mean=2.863 p95=9.491 max=10.318 ms
+Bridge total n=300 mean=4.952 p95=11.249 max=11.930 ms
+Bridge frames=1200 game ticks=1206
+Session state 5
+Right aim tracked
+Ring focus azran_legacy_3ds
+Ring focus none
+Ring focus miracle_mask_3ds
+Ring focus none
+Ring focus spectres_call_ds
+Ring focus lost_future_ds
+Ring focus none
+Ring focus pandoras_box_ds
+Ring focus none
+Ring focus curious_village_ds
+Ring focus none
+Ring focus pandoras_box_ds
+Ring focus none
+Frame render-and-fences n=599 mean=11.764 p95=14.921 max=19.892 ms
+Frame xrEndFrame n=599 mean=0.229 p95=0.458 max=1.389 ms
+Frame waits=1800 skipped=843 state=5
+Ring focus captain_toad_3ds
+Ring focus astro_bot_ps4
+Ring focus fort_apocalypse_c64
+Ring focus none
+Ring focus bruce_lee_c64
+Ring focus none
+Ring focus wizball_c64
+Bridge RGBA sample hash frame=1500 e1ba44c4bde3e8bb
+Bridge draw-readback-convert n=300 mean=2.071 p95=3.464 max=4.811 ms
+Bridge copy-upload-wait n=300 mean=0.711 p95=1.019 max=1.607 ms
+Bridge XR-image-ownership-wait n=300 mean=0.011 p95=0.020 max=0.084 ms
+Bridge Vulkan-upload-fence n=300 mean=0.561 p95=0.840 max=0.959 ms
+Bridge total n=300 mean=2.823 p95=4.408 max=5.850 ms
+Bridge frames=1500 game ticks=1506
+Ring focus none
+Ring focus bruce_lee_c64
+Ring focus none
+Ring focus fort_apocalypse_c64
+Ring focus none
+Ring focus astro_bot_ps4
+Ring focus none
+Ring focus astro_bot_ps4
+Ring focus none
+Right trigger pressed (1.00)
+Ring focus astro_bot_ps4
+Ring focus none
+Ring focus fort_apocalypse_c64
+Ring focus none
+Ring focus bruce_lee_c64
+Ring focus none
+Stereo frame 1200, predicted period 13.89 ms, submit wall time 13.99 ms
+Ring focus mindwalker_amiga
+Orderly exit requested
+Right aim lost
+Ring focus none
+Session state 4
+Session state 3
+Session state 6
+Session state 1
+Session state 8
+XR exit after 1309 stereo frames
+Bridge draw-readback-convert n=259 mean=1.993 p95=3.408 max=3.828 ms
+Bridge copy-upload-wait n=259 mean=0.699 p95=0.962 max=1.338 ms
+Bridge XR-image-ownership-wait n=259 mean=0.011 p95=0.019 max=0.149 ms
+Bridge Vulkan-upload-fence n=259 mean=0.554 p95=0.825 max=1.023 ms
+Bridge total n=259 mean=2.734 p95=4.375 max=5.071 ms
+Bridge frames=1759 game ticks=1765

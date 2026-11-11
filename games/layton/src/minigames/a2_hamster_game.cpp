@@ -2,6 +2,7 @@
 // itself is in a2_hamster_walk.cpp. See a2_hamster_game.hpp for how it plays.
 #include "minigames/a2_hamster_game.hpp"
 #include "story/a2_story_game.hpp"
+#include <algorithm>
 #include <cstdio>
 
 namespace picarat {

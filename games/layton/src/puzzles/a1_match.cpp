@@ -26,6 +26,7 @@
 #include "puzzles/a1_engines.hpp"
 #include "puzzles/a1_moves.hpp"
 #include "sound/a1_sound.hpp"
+#include <algorithm>
 #include <cmath>
 
 namespace picarat::adventure1 {

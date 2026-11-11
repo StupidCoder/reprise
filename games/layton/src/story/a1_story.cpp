@@ -18,6 +18,7 @@
 #include "story/a1_room.hpp"
 #include "story/a1_staff_roll.hpp"
 #include "system/a1_script.hpp"
+#include <algorithm>
 #include <fstream>
 #include <stdexcept>
 

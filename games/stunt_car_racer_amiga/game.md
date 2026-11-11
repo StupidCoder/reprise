@@ -1059,3 +1059,7 @@ and touches the player's car at frame 1319; all 1342 frames match.
   only).
 - `tools/dis68k`, built from RetroReverse's general 68000 disassembler
   (`go build ./cmd/dis68k` in `RetroReverse/tools`).
+
+## Technical article research (2026-10-30)
+
+The angular-camera and suspension articles have a separate [section-to-evidence map](../../docs/articles/stunt-car-racer-technical.md). The earlier user-owned physics oracle was rerun against a decoded program proven byte-identical to this image: all checks passed, including three 60-step sequences. This supports the explanations but does not mark the native playable physics complete. The opponent chapter is deferred; the older research has conflicting claims about its simulation, and its rendering oracle does not establish driving decisions.

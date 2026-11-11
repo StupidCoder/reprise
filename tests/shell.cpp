@@ -99,6 +99,33 @@ void animation_controls_check() {
 int main(int argc, char** argv) {
     try {
         animation_controls_check();
+        {
+            const auto root = std::filesystem::temp_directory_path() /
+                ("reprise-xr-surface-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+            app::Library library(root, app::catalog());
+            app::Launcher shell(library);
+            shell.select(0);
+            shell.open_details();
+            check(shell.details_open(), "External details presenter sees the active page");
+            const auto full = shell.draw_surface(10);
+            const auto separate_cover = shell.draw_surface(10, true);
+            const auto restored = shell.draw_surface(10);
+            constexpr auto rect = app::Launcher::landscape_cover_rect;
+            bool cover_changed = false;
+            for (int y = 0; y < full.height; ++y) for (int x = 0; x < full.width; ++x) {
+                const auto i = std::size_t(y * full.width + x);
+                const bool changed = std::memcmp(&full.pixels[i], &separate_cover.pixels[i], sizeof(full.pixels[i])) != 0;
+                if (x >= rect[0] && x < rect[0]+rect[2] && y >= rect[1] && y < rect[1]+rect[3])
+                    cover_changed |= changed;
+                else check(!changed, "Separating the XR cover preserves every other details pixel");
+            }
+            check(cover_changed, "XR presenter can own the moving cover");
+            check(std::memcmp(full.pixels.data(), restored.pixels.data(), full.pixels.size()*sizeof(full.pixels[0])) == 0,
+                  "Drawing an external surface does not leave the desktop cover hidden");
+            platform::Controls back; back.back = true;
+            shell.update(back, 11);
+            check(!shell.details_open(), "Shared Back action returns from external details");
+        }
         // Capability discovery must be cheap and must never start an engine.
         {
             const auto entries = app::catalog();

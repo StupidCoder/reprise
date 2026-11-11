@@ -15,6 +15,7 @@
 // (a1_moves.hpp). The second adventure has no counterpart.
 #include "puzzles/a1_engines.hpp"
 #include "puzzles/a1_moves.hpp"
+#include <algorithm>
 
 namespace picarat::adventure1 {
 

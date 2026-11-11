@@ -1,0 +1,344 @@
+Wed Nov 11 11:05:00 UTC 2026
+Linux StupidFrame 7.2.0-g509b71a1bdcd #1 SMP PREEMPT Mon, 26 Oct 2026 17:38:13 +0000 aarch64 GNU/Linux
+NAME="SteamOS"
+PRETTY_NAME="SteamOS"
+VERSION_CODENAME=holo
+ID=steamos
+ID_LIKE=arch
+ANSI_COLOR="1;35"
+HOME_URL="https://www.steampowered.com/"
+DOCUMENTATION_URL="https://support.steampowered.com/"
+SUPPORT_URL="https://support.steampowered.com/"
+BUG_REPORT_URL="https://support.steampowered.com/"
+LOGO=steamos
+BUILD_ID=20261103.6153902
+VARIANT_ID="vr"
+VERSION_ID=0.6.0
+c++ (GCC) 15.2.1 20260209
+Copyright (C) 2025 Free Software Foundation, Inc.
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+cmake version 4.2.3
+
+CMake suite maintained and supported by Kitware (kitware.com/cmake).
+3.4.2
+1.4.309
+6583dbced9d84b46f493d8de4f8500723eb72b0a01a385172e1ad43e0fc4b319  /home/steamos/reprise-dev/deps/include/openxr/openxr.h
+e5576a710cbfb648419a3da2ed1395bce57adf96893b776e61e1546603d56b66  /home/steamos/reprise-dev/deps/include/openxr/openxr_platform.h
+59a5369c34013beeea505aa0465768acad558ac016bab3320780e2a653a07bfb  /home/steamos/reprise-dev/deps/include/openxr/openxr_platform_defines.h
+131d09fa3b0a343c16bc24a2b0cf85ed4be2a53b84ae094a2d4bda4168027407  /home/steamos/reprise-dev/bundle/reprise-frame-probe
+9aee2978acda82fc3ffd91a536c1338c683d3e31134c22adb7b62a175ac5ef9b  /home/steamos/reprise-dev/source/targets/steam_frame/floor.cpp
+4769b7efba8a8637d3c326bc1263132afbf1122c0349a6624f8885738f15e5a8  /home/steamos/reprise-dev/source/targets/steam_frame/game_bridge.cpp
+0cb9b9508ab38faa551054362113a400c4e13b5254cc108966329fbf4d43814d  /home/steamos/reprise-dev/source/targets/steam_frame/gameplay.cpp
+404c6430971d0747e3d646361945374d6a8fe882fc864399d7dd84274bc3f733  /home/steamos/reprise-dev/source/targets/steam_frame/launcher_panel.cpp
+e902bca09499bb68c829f757ef571b61eca9a4c5a9682c82f5ffa94a188a3404  /home/steamos/reprise-dev/source/targets/steam_frame/probe.cpp
+a4d1b8d46886a91e4a5128144d317e4b376b69bad30043aaf8492415ea375c83  /home/steamos/reprise-dev/source/targets/steam_frame/ring.cpp
+472d03b4a2d0975d388618734515a888b082ff11fc42ee268a3c6149992c1235  /home/steamos/reprise-dev/source/targets/steam_frame/room_math_checks.cpp
+fb320470fa6515f16be111457f65528e7d34c67f7d299f5f4785467129fdce22  /home/steamos/reprise-dev/source/targets/steam_frame/xr_texture.cpp
+2eb8be34282e7a9b92cffa385770944e818543975943ff17db49016582b0e2b6  /home/steamos/reprise-dev/source/targets/steam_frame/floor.hpp
+e98ed538dc0159a1db47cbce09cae189df2ff722e9b078d04245b69198a8c128  /home/steamos/reprise-dev/source/targets/steam_frame/game_bridge.hpp
+7f099b319792036ce13b092f0924a484c8907bb5bf63314f4c38a02b31021efe  /home/steamos/reprise-dev/source/targets/steam_frame/gameplay.hpp
+26fa47e75697f71184ce6e96716678fc93294383fc498dba7f33d3a78120c5e5  /home/steamos/reprise-dev/source/targets/steam_frame/launcher_panel.hpp
+dfc5d93c5ffeee41ad4c5ac8b2e6567b44b897a341bc5d53d5b10d94f819ed33  /home/steamos/reprise-dev/source/targets/steam_frame/ring.hpp
+8fa7a4d5444b8f71f792ee1f311dcbf38b6b9ba38f0312e867afbcf483786bde  /home/steamos/reprise-dev/source/targets/steam_frame/room_math.hpp
+885e70a70bf869db75e8f6fd0826f64e2b2cd1bb281eb2c96ed9d3165f310284  /home/steamos/reprise-dev/source/targets/steam_frame/xr_texture.hpp
+39555f7601bf1e09616ed798f7381860ec92218b111348a7702f127a8bae511a  /home/steamos/reprise-dev/source/targets/steam_frame/CMakeLists.txt
+ELF Header:
+  Magic:   7f 45 4c 46 02 01 01 03 00 00 00 00 00 00 00 00 
+  Class:                             ELF64
+  Data:                              2's complement, little endian
+  Version:                           1 (current)
+  OS/ABI:                            UNIX - GNU
+  ABI Version:                       0
+  Type:                              DYN (Position-Independent Executable file)
+  Machine:                           AArch64
+  Version:                           0x1
+  Entry point address:               0xde500
+  Start of program headers:          64 (bytes into file)
+  Start of section headers:          35225032 (bytes into file)
+  Flags:                             0x0
+  Size of this header:               64 (bytes)
+  Size of program headers:           56 (bytes)
+  Number of program headers:         11
+  Size of section headers:           64 (bytes)
+  Number of section headers:         33
+  Section header string table index: 32
+
+Dynamic section at offset 0x1cced60 contains 38 entries:
+  Tag        Type                         Name/Value
+ 0x0000000000000001 (NEEDED)             Shared library: [libvulkan.so.1]
+ 0x0000000000000001 (NEEDED)             Shared library: [/opt/steamvr/bin/linuxarm64/libopenxr_loader.so]
+ 0x0000000000000001 (NEEDED)             Shared library: [libfreetype.so.6]
+ 0x0000000000000001 (NEEDED)             Shared library: [libpng16.so.16]
+ 0x0000000000000001 (NEEDED)             Shared library: [libbz2.so.1.0]
+ 0x0000000000000001 (NEEDED)             Shared library: [libSDL3.so.0]
+ 0x0000000000000001 (NEEDED)             Shared library: [libz.so.1]
+ 0x0000000000000001 (NEEDED)             Shared library: [libstdc++.so.6]
+ 0x0000000000000001 (NEEDED)             Shared library: [libm.so.6]
+ 0x0000000000000001 (NEEDED)             Shared library: [libgcc_s.so.1]
+ 0x0000000000000001 (NEEDED)             Shared library: [libc.so.6]
+ 0x0000000000000001 (NEEDED)             Shared library: [ld-linux-aarch64.so.1]
+ 0x000000000000001d (RUNPATH)            Library runpath: [$ORIGIN/lib]
+ 0x000000000000000c (INIT)               0xcd440
+ 0x000000000000000d (FINI)               0x184701c
+ 0x0000000000000019 (INIT_ARRAY)         0x1c82b70
+ 0x000000000000001b (INIT_ARRAYSZ)       1248 (bytes)
+ 0x000000000000001a (FINI_ARRAY)         0x1c83050
+ 0x000000000000001c (FINI_ARRAYSZ)       8 (bytes)
+ 0x000000006ffffef5 (GNU_HASH)           0x2e8
+ 0x0000000000000005 (STRTAB)             0x46c8
+ 0x0000000000000006 (SYMTAB)             0x3c0
+ 0x000000000000000a (STRSZ)              20423 (bytes)
+ 0x000000000000000b (SYMENT)             24 (bytes)
+ 0x0000000000000015 (DEBUG)              0x0
+ 0x0000000000000003 (PLTGOT)             0x1ccffe8
+ 0x0000000000000002 (PLTRELSZ)           15216 (bytes)
+ 0x0000000000000014 (PLTREL)             RELA
+ 0x0000000000000017 (JMPREL)             0xc98d0
+ 0x0000000000000007 (RELA)               0x9f18
+ 0x0000000000000008 (RELASZ)             784824 (bytes)
+ 0x0000000000000009 (RELAENT)            24 (bytes)
+ 0x000000006ffffffb (FLAGS_1)            Flags: PIE
+ 0x000000006ffffffe (VERNEED)            0x9c28
+ 0x000000006fffffff (VERNEEDNUM)         6
+ 0x000000006ffffff0 (VERSYM)             0x9690
+ 0x000000006ffffff9 (RELACOUNT)          29307
+ 0x0000000000000000 (NULL)               0x0
+
+Version symbols section '.gnu.version' contains 715 entries:
+ Addr: 0x0000000000009690  Offset: 0x00009690  Link: 4 (.dynsym)
+  000:   0 (*local*)       0 (*local*)       0 (*local*)       2 (GLIBCXX_3.4.26) 
+  004:   3 (GLIBCXX_3.4.21)    2 (GLIBCXX_3.4.26)    0 (*local*)       4 (SDL3_0.0.0) 
+  008:   5 (CXXABI_1.3.2)   4 (SDL3_0.0.0)    6 (GLIBC_2.17)    7 (GLIBC_2.43) 
+  00c:   8 (GLIBCXX_3.4)   9 (GLIBCXX_3.4.20)    8 (GLIBCXX_3.4)   8 (GLIBCXX_3.4)
+  010:   4 (SDL3_0.0.0)    4 (SDL3_0.0.0)    6 (GLIBC_2.17)    4 (SDL3_0.0.0) 
+  014:   a (CXXABI_1.3)    6 (GLIBC_2.17)    0 (*local*)       2 (GLIBCXX_3.4.26) 
+  018:   8 (GLIBCXX_3.4)   6 (GLIBC_2.17)    6 (GLIBC_2.17)    b (GLIBC_2.38) 
+  01c:   c (GLIBCXX_3.4.11)    4 (SDL3_0.0.0)    4 (SDL3_0.0.0)    4 (SDL3_0.0.0) 
+  020:   8 (GLIBCXX_3.4)   6 (GLIBC_2.17)    0 (*local*)       4 (SDL3_0.0.0) 
+  024:   2 (GLIBCXX_3.4.26)    4 (SDL3_0.0.0)    0 (*local*)       2 (GLIBCXX_3.4.26) 
+  028:   0 (*local*)       0 (*local*)       4 (SDL3_0.0.0)    0 (*local*)    
+  02c:   4 (SDL3_0.0.0)    4 (SDL3_0.0.0)    d (GLIBCXX_3.4.9)   8 (GLIBCXX_3.4)
+  030:   2 (GLIBCXX_3.4.26)    e (CXXABI_1.3.9)   f (GLIBC_2.17)    0 (*local*)    
+  034:   2 (GLIBCXX_3.4.26)    4 (SDL3_0.0.0)   10 (GLIBC_2.35)    6 (GLIBC_2.17) 
+  038:   8 (GLIBCXX_3.4)   4 (SDL3_0.0.0)    8 (GLIBCXX_3.4)   4 (SDL3_0.0.0) 
+  03c:   4 (SDL3_0.0.0)   11 (GLIBC_2.29)    6 (GLIBC_2.17)    4 (SDL3_0.0.0) 
+  040:   2 (GLIBCXX_3.4.26)    a (CXXABI_1.3)    0 (*local*)       8 (GLIBCXX_3.4)
+  044:   0 (*local*)       2 (GLIBCXX_3.4.26)    8 (GLIBCXX_3.4)   4 (SDL3_0.0.0) 
+  048:   4 (SDL3_0.0.0)    6 (GLIBC_2.17)    0 (*local*)       4 (SDL3_0.0.0) 
+  04c:  11 (GLIBC_2.29)    0 (*local*)       4 (SDL3_0.0.0)    2 (GLIBCXX_3.4.26) 
+  050:   3 (GLIBCXX_3.4.21)    0 (*local*)       4 (SDL3_0.0.0)    0 (*local*)    
+  054:   4 (SDL3_0.0.0)    0 (*local*)       0 (*local*)       4 (SDL3_0.0.0) 
+  058:  12 (GLIBCXX_3.4.18)    4 (SDL3_0.0.0)    3 (GLIBCXX_3.4.21)   13 (GLIBCXX_3.4.15) 
+  05c:   6 (GLIBC_2.17)    0 (*local*)       4 (SDL3_0.0.0)    8 (GLIBCXX_3.4)
+  060:   4 (SDL3_0.0.0)    0 (*local*)       4 (SDL3_0.0.0)    4 (SDL3_0.0.0) 
+  064:  14 (CXXABI_1.3.13)   0 (*local*)       8 (GLIBCXX_3.4)   d (GLIBCXX_3.4.9)
+  068:   f (GLIBC_2.17)    4 (SDL3_0.0.0)    6 (GLIBC_2.17)    0 (*local*)    
+  06c:   8 (GLIBCXX_3.4)   4 (SDL3_0.0.0)   13 (GLIBCXX_3.4.15)    0 (*local*)    
+  070:   d (GLIBCXX_3.4.9)   2 (GLIBCXX_3.4.26)    6 (GLIBC_2.17)    a (CXXABI_1.3) 
+  074:   4 (SDL3_0.0.0)    4 (SDL3_0.0.0)   14 (CXXABI_1.3.13)   0 (*local*)    
+  078:   0 (*local*)       0 (*local*)       4 (SDL3_0.0.0)    4 (SDL3_0.0.0) 
+  07c:   3 (GLIBCXX_3.4.21)    f (GLIBC_2.17)    2 (GLIBCXX_3.4.26)    6 (GLIBC_2.17) 
+  080:   3 (GLIBCXX_3.4.21)    2 (GLIBCXX_3.4.26)    3 (GLIBCXX_3.4.21)    4 (SDL3_0.0.0) 
+  084:   4 (SDL3_0.0.0)   15 (GCC_4.2.0)     3 (GLIBCXX_3.4.21)    4 (SDL3_0.0.0) 
+  088:  12 (GLIBCXX_3.4.18)   16 (CXXABI_1.3.3)   0 (*local*)       3 (GLIBCXX_3.4.21) 
+  08c:   4 (SDL3_0.0.0)    0 (*local*)       8 (GLIBCXX_3.4)   0 (*local*)    
+  090:  17 (GLIBC_2.34)   13 (GLIBCXX_3.4.15)    c (GLIBCXX_3.4.11)    0 (*local*)    
+  094:   4 (SDL3_0.0.0)    0 (*local*)       4 (SDL3_0.0.0)    6 (GLIBC_2.17) 
+  098:   0 (*local*)       4 (SDL3_0.0.0)    4 (SDL3_0.0.0)    2 (GLIBCXX_3.4.26) 
+  09c:   3 (GLIBCXX_3.4.21)    6 (GLIBC_2.17)    8 (GLIBCXX_3.4)   8 (GLIBCXX_3.4)
+  0a0:   8 (GLIBCXX_3.4)   6 (GLIBC_2.17)    8 (GLIBCXX_3.4)   6 (GLIBC_2.17) 
+  0a4:   4 (SDL3_0.0.0)    6 (GLIBC_2.17)    8 (GLIBCXX_3.4)   a (CXXABI_1.3) 
+  0a8:  18 (CXXABI_1.3.7)   0 (*local*)       6 (GLIBC_2.17)    8 (GLIBCXX_3.4)
+  0ac:   a (CXXABI_1.3)    d (GLIBCXX_3.4.9)  11 (GLIBC_2.29)    3 (GLIBCXX_3.4.21) 
+  0b0:   8 (GLIBCXX_3.4)   0 (*local*)      16 (CXXABI_1.3.3)   a (CXXABI_1.3) 
+  0b4:   3 (GLIBCXX_3.4.21)    8 (GLIBCXX_3.4)   7 (GLIBC_2.43)    7 (GLIBC_2.43) 
+  0b8:   8 (GLIBCXX_3.4)   b (GLIBC_2.38)    4 (SDL3_0.0.0)    d (GLIBCXX_3.4.9)
+  0bc:   4 (SDL3_0.0.0)    f (GLIBC_2.17)    3 (GLIBCXX_3.4.21)    8 (GLIBCXX_3.4)
+  0c0:   c (GLIBCXX_3.4.11)    4 (SDL3_0.0.0)    0 (*local*)       a (CXXABI_1.3) 
+  0c4:   0 (*local*)       0 (*local*)       0 (*local*)       4 (SDL3_0.0.0) 
+  0c8:  19 (GLIBCXX_3.4.22)    0 (*local*)       4 (SDL3_0.0.0)    d (GLIBCXX_3.4.9)
+  0cc:  11 (GLIBC_2.29)    0 (*local*)       c (GLIBCXX_3.4.11)    2 (GLIBCXX_3.4.26) 
+  0d0:   f (GLIBC_2.17)    a (CXXABI_1.3)    6 (GLIBC_2.17)    4 (SDL3_0.0.0) 
+  0d4:  1a (CXXABI_1.3.11)   6 (GLIBC_2.17)    2 (GLIBCXX_3.4.26)    8 (GLIBCXX_3.4)
+  0d8:  1b (GLIBC_2.27)    3 (GLIBCXX_3.4.21)    3 (GLIBCXX_3.4.21)    0 (*local*)    
+  0dc:   4 (SDL3_0.0.0)    6 (GLIBC_2.17)    6 (GLIBC_2.17)    4 (SDL3_0.0.0) 
+  0e0:   6 (GLIBC_2.17)    0 (*local*)      1c (GLIBCXX_3.4.29)   1c (GLIBCXX_3.4.29) 
+  0e4:   6 (GLIBC_2.17)    a (CXXABI_1.3)    8 (GLIBCXX_3.4)   3 (GLIBCXX_3.4.21) 
+  0e8:   6 (GLIBC_2.17)    4 (SDL3_0.0.0)    4 (SDL3_0.0.0)   1d (CXXABI_1.3.5)
+  0ec:   c (GLIBCXX_3.4.11)    8 (GLIBCXX_3.4)   8 (GLIBCXX_3.4)   6 (GLIBC_2.17) 
+  0f0:   0 (*local*)       0 (*local*)       2 (GLIBCXX_3.4.26)    4 (SDL3_0.0.0) 
+  0f4:   0 (*local*)       3 (GLIBCXX_3.4.21)    6 (GLIBC_2.17)    8 (GLIBCXX_3.4)
+  0f8:   0 (*local*)       4 (SDL3_0.0.0)    0 (*local*)       8 (GLIBCXX_3.4)
+  0fc:   4 (SDL3_0.0.0)    3 (GLIBCXX_3.4.21)   13 (GLIBCXX_3.4.15)    d (GLIBCXX_3.4.9)
+  100:   f (GLIBC_2.17)    4 (SDL3_0.0.0)    f (GLIBC_2.17)    0 (*local*)    
+  104:   6 (GLIBC_2.17)    4 (SDL3_0.0.0)    6 (GLIBC_2.17)    0 (*local*)    
+  108:   8 (GLIBCXX_3.4)   8 (GLIBCXX_3.4)  1e (GCC_4.0.0)     6 (GLIBC_2.17) 
+  10c:  1f (GCC_3.0)       4 (SDL3_0.0.0)    8 (GLIBCXX_3.4)   8 (GLIBCXX_3.4)
+  110:   4 (SDL3_0.0.0)    4 (SDL3_0.0.0)    4 (SDL3_0.0.0)    6 (GLIBC_2.17) 
+  114:   2 (GLIBCXX_3.4.26)    4 (SDL3_0.0.0)    4 (SDL3_0.0.0)    6 (GLIBC_2.17) 
+  118:   0 (*local*)       4 (SDL3_0.0.0)    8 (GLIBCXX_3.4)   8 (GLIBCXX_3.4)
+  11c:   0 (*local*)       8 (GLIBCXX_3.4)   0 (*local*)       8 (GLIBCXX_3.4)
+  120:   3 (GLIBCXX_3.4.21)    2 (GLIBCXX_3.4.26)    8 (GLIBCXX_3.4)   7 (GLIBC_2.43) 
+  124:   a (CXXABI_1.3)    6 (GLIBC_2.17)    8 (GLIBCXX_3.4)   4 (SDL3_0.0.0) 
+  128:   f (GLIBC_2.17)    4 (SDL3_0.0.0)   13 (GLIBCXX_3.4.15)    2 (GLIBCXX_3.4.26) 
+  12c:   0 (*local*)       4 (SDL3_0.0.0)    4 (SDL3_0.0.0)    0 (*local*)    
+  130:   4 (SDL3_0.0.0)    c (GLIBCXX_3.4.11)   1f (GCC_3.0)       3 (GLIBCXX_3.4.21) 
+  134:   0 (*local*)       2 (GLIBCXX_3.4.26)    4 (SDL3_0.0.0)    a (CXXABI_1.3) 
+  138:   6 (GLIBC_2.17)    0 (*local*)       d (GLIBCXX_3.4.9)   8 (GLIBCXX_3.4)
+  13c:   6 (GLIBC_2.17)    4 (SDL3_0.0.0)    4 (SDL3_0.0.0)   20 (CXXABI_1.3.15)
+  140:  21 (GLIBC_2.25)    0 (*local*)       8 (GLIBCXX_3.4)   0 (*local*)    
+  144:   2 (GLIBCXX_3.4.26)    4 (SDL3_0.0.0)    a (CXXABI_1.3)    6 (GLIBC_2.17) 
+  148:   4 (SDL3_0.0.0)    0 (*local*)      22 (GLIBCXX_3.4.30)    2 (GLIBCXX_3.4.26) 
+  14c:   0 (*local*)       6 (GLIBC_2.17)    7 (GLIBC_2.43)    4 (SDL3_0.0.0) 
+  150:   4 (SDL3_0.0.0)    f (GLIBC_2.17)    4 (SDL3_0.0.0)    4 (SDL3_0.0.0) 
+  154:   6 (GLIBC_2.17)    3 (GLIBCXX_3.4.21)   1f (GCC_3.0)       6 (GLIBC_2.17) 
+  158:   4 (SDL3_0.0.0)    6 (GLIBC_2.17)    4 (SDL3_0.0.0)    0 (*local*)    
+  15c:   0 (*local*)       8 (GLIBCXX_3.4)   0 (*local*)      1b (GLIBC_2.27) 
+  160:   0 (*local*)       0 (*local*)       4 (SDL3_0.0.0)    6 (GLIBC_2.17) 
+  164:   4 (SDL3_0.0.0)    3 (GLIBCXX_3.4.21)    3 (GLIBCXX_3.4.21)    4 (SDL3_0.0.0) 
+  168:   6 (GLIBC_2.17)    3 (GLIBCXX_3.4.21)    d (GLIBCXX_3.4.9)   3 (GLIBCXX_3.4.21) 
+  16c:   f (GLIBC_2.17)    4 (SDL3_0.0.0)    4 (SDL3_0.0.0)    0 (*local*)    
+  170:   4 (SDL3_0.0.0)    4 (SDL3_0.0.0)    4 (SDL3_0.0.0)    4 (SDL3_0.0.0) 
+  174:   0 (*local*)       c (GLIBCXX_3.4.11)    4 (SDL3_0.0.0)    4 (SDL3_0.0.0) 
+  178:   4 (SDL3_0.0.0)    0 (*local*)       4 (SDL3_0.0.0)    4 (SDL3_0.0.0) 
+  17c:   4 (SDL3_0.0.0)    8 (GLIBCXX_3.4)  1c (GLIBCXX_3.4.29)    d (GLIBCXX_3.4.9)
+  180:   6 (GLIBC_2.17)    4 (SDL3_0.0.0)   23 (GLIBCXX_3.4.19)    4 (SDL3_0.0.0) 
+  184:   0 (*local*)       7 (GLIBC_2.43)    4 (SDL3_0.0.0)    0 (*local*)    
+  188:   6 (GLIBC_2.17)    0 (*local*)      1b (GLIBC_2.27)    3 (GLIBCXX_3.4.21) 
+  18c:   4 (SDL3_0.0.0)    2 (GLIBCXX_3.4.26)    4 (SDL3_0.0.0)    f (GLIBC_2.17) 
+  190:   2 (GLIBCXX_3.4.26)    f (GLIBC_2.17)    8 (GLIBCXX_3.4)   2 (GLIBCXX_3.4.26) 
+  194:  24 (GLIBCXX_3.4.14)   12 (GLIBCXX_3.4.18)    0 (*local*)       0 (*local*)    
+  198:   4 (SDL3_0.0.0)    3 (GLIBCXX_3.4.21)    4 (SDL3_0.0.0)    4 (SDL3_0.0.0) 
+  19c:   6 (GLIBC_2.17)   19 (GLIBCXX_3.4.22)    d (GLIBCXX_3.4.9)   2 (GLIBCXX_3.4.26) 
+  1a0:   c (GLIBCXX_3.4.11)    4 (SDL3_0.0.0)    4 (SDL3_0.0.0)    a (CXXABI_1.3) 
+  1a4:   0 (*local*)       6 (GLIBC_2.17)    8 (GLIBCXX_3.4)  25 (GLIBC_2.38) 
+  1a8:   8 (GLIBCXX_3.4)   0 (*local*)       d (GLIBCXX_3.4.9)   6 (GLIBC_2.17) 
+  1ac:   4 (SDL3_0.0.0)    6 (GLIBC_2.17)    2 (GLIBCXX_3.4.26)    3 (GLIBCXX_3.4.21) 
+  1b0:   4 (SDL3_0.0.0)    6 (GLIBC_2.17)    4 (SDL3_0.0.0)    3 (GLIBCXX_3.4.21) 
+  1b4:   6 (GLIBC_2.17)    4 (SDL3_0.0.0)    4 (SDL3_0.0.0)    3 (GLIBCXX_3.4.21) 
+  1b8:   0 (*local*)      26 (GLIBCXX_3.4.17)    a (CXXABI_1.3)    4 (SDL3_0.0.0) 
+  1bc:   4 (SDL3_0.0.0)    2 (GLIBCXX_3.4.26)    6 (GLIBC_2.17)   11 (GLIBC_2.29) 
+  1c0:   4 (SDL3_0.0.0)    f (GLIBC_2.17)    0 (*local*)       4 (SDL3_0.0.0) 
+  1c4:   6 (GLIBC_2.17)    0 (*local*)       0 (*local*)       3 (GLIBCXX_3.4.21) 
+  1c8:   0 (*local*)       0 (*local*)       3 (GLIBCXX_3.4.21)    f (GLIBC_2.17) 
+  1cc:   6 (GLIBC_2.17)    4 (SDL3_0.0.0)    3 (GLIBCXX_3.4.21)    4 (SDL3_0.0.0) 
+  1d0:   a (CXXABI_1.3)    4 (SDL3_0.0.0)    0 (*local*)       4 (SDL3_0.0.0) 
+  1d4:   0 (*local*)       8 (GLIBCXX_3.4)   8 (GLIBCXX_3.4)  19 (GLIBCXX_3.4.22) 
+  1d8:  1b (GLIBC_2.27)    4 (SDL3_0.0.0)    2 (GLIBCXX_3.4.26)    2 (GLIBCXX_3.4.26) 
+  1dc:   4 (SDL3_0.0.0)    4 (SDL3_0.0.0)    6 (GLIBC_2.17)    8 (GLIBCXX_3.4)
+  1e0:   0 (*local*)       4 (SDL3_0.0.0)    4 (SDL3_0.0.0)    4 (SDL3_0.0.0) 
+  1e4:   2 (GLIBCXX_3.4.26)    c (GLIBCXX_3.4.11)    4 (SDL3_0.0.0)   27 (GLIBCXX_3.4.32) 
+  1e8:   6 (GLIBC_2.17)    f (GLIBC_2.17)    4 (SDL3_0.0.0)    8 (GLIBCXX_3.4)
+  1ec:   0 (*local*)       6 (GLIBC_2.17)   25 (GLIBC_2.38)    4 (SDL3_0.0.0) 
+  1f0:  28 (GLIBC_2.32)    2 (GLIBCXX_3.4.26)   29 (GLIBCXX_3.4.31)    f (GLIBC_2.17) 
+  1f4:   a (CXXABI_1.3)    2 (GLIBCXX_3.4.26)    2 (GLIBCXX_3.4.26)    4 (SDL3_0.0.0) 
+  1f8:   0 (*local*)      13 (GLIBCXX_3.4.15)    3 (GLIBCXX_3.4.21)    0 (*local*)    
+  1fc:   4 (SDL3_0.0.0)    8 (GLIBCXX_3.4)   4 (SDL3_0.0.0)    0 (*local*)    
+  200:   2 (GLIBCXX_3.4.26)    4 (SDL3_0.0.0)    0 (*local*)       4 (SDL3_0.0.0) 
+  204:   8 (GLIBCXX_3.4)   8 (GLIBCXX_3.4)   2 (GLIBCXX_3.4.26)    4 (SDL3_0.0.0) 
+  208:   6 (GLIBC_2.17)    6 (GLIBC_2.17)    3 (GLIBCXX_3.4.21)    0 (*local*)    
+  20c:   b (GLIBC_2.38)    6 (GLIBC_2.17)    4 (SDL3_0.0.0)    0 (*local*)    
+  210:   0 (*local*)      13 (GLIBCXX_3.4.15)    f (GLIBC_2.17)    b (GLIBC_2.38) 
+  214:   3 (GLIBCXX_3.4.21)    8 (GLIBCXX_3.4)   8 (GLIBCXX_3.4)   a (CXXABI_1.3) 
+  218:   6 (GLIBC_2.17)    f (GLIBC_2.17)    4 (SDL3_0.0.0)    6 (GLIBC_2.17) 
+  21c:   0 (*local*)       4 (SDL3_0.0.0)    4 (SDL3_0.0.0)    c (GLIBCXX_3.4.11) 
+  220:   2 (GLIBCXX_3.4.26)    0 (*local*)      23 (GLIBCXX_3.4.19)    2 (GLIBCXX_3.4.26) 
+  224:  13 (GLIBCXX_3.4.15)   24 (GLIBCXX_3.4.14)    2 (GLIBCXX_3.4.26)    8 (GLIBCXX_3.4)
+  228:   a (CXXABI_1.3)    7 (GLIBC_2.43)    f (GLIBC_2.17)    0 (*local*)    
+  22c:   3 (GLIBCXX_3.4.21)    8 (GLIBCXX_3.4)   0 (*local*)       6 (GLIBC_2.17) 
+  230:   f (GLIBC_2.17)    8 (GLIBCXX_3.4)   0 (*local*)       8 (GLIBCXX_3.4)
+  234:   4 (SDL3_0.0.0)    f (GLIBC_2.17)    6 (GLIBC_2.17)    4 (SDL3_0.0.0) 
+  238:   4 (SDL3_0.0.0)    8 (GLIBCXX_3.4)   4 (SDL3_0.0.0)    6 (GLIBC_2.17) 
+  23c:   d (GLIBCXX_3.4.9)   0 (*local*)       2 (GLIBCXX_3.4.26)    8 (GLIBCXX_3.4)
+  240:   2 (GLIBCXX_3.4.26)    8 (GLIBCXX_3.4)   6 (GLIBC_2.17)    0 (*local*)    
+  244:   6 (GLIBC_2.17)   12 (GLIBCXX_3.4.18)    2 (GLIBCXX_3.4.26)    f (GLIBC_2.17) 
+  248:   0 (*local*)       2 (GLIBCXX_3.4.26)    6 (GLIBC_2.17)    0 (*local*)    
+  24c:  1c (GLIBCXX_3.4.29)    3 (GLIBCXX_3.4.21)    2 (GLIBCXX_3.4.26)    4 (SDL3_0.0.0) 
+  250:   4 (SDL3_0.0.0)    4 (SDL3_0.0.0)    6 (GLIBC_2.17)    6 (GLIBC_2.17) 
+  254:   4 (SDL3_0.0.0)    0 (*local*)       8 (GLIBCXX_3.4)   4 (SDL3_0.0.0) 
+  258:   3 (GLIBCXX_3.4.21)   2a (GLIBC_2.17)    4 (SDL3_0.0.0)    f (GLIBC_2.17) 
+  25c:   4 (SDL3_0.0.0)    0 (*local*)       2 (GLIBCXX_3.4.26)   24 (GLIBCXX_3.4.14) 
+  260:  24 (GLIBCXX_3.4.14)    8 (GLIBCXX_3.4)   4 (SDL3_0.0.0)    4 (SDL3_0.0.0) 
+  264:   0 (*local*)       4 (SDL3_0.0.0)    0 (*local*)       8 (GLIBCXX_3.4)
+  268:   8 (GLIBCXX_3.4)   4 (SDL3_0.0.0)    6 (GLIBC_2.17)    3 (GLIBCXX_3.4.21) 
+  26c:   0 (*local*)       8 (GLIBCXX_3.4)   f (GLIBC_2.17)    0 (*local*)    
+  270:   0 (*local*)       f (GLIBC_2.17)    4 (SDL3_0.0.0)    0 (*local*)    
+  274:   2 (GLIBCXX_3.4.26)    2 (GLIBCXX_3.4.26)   13 (GLIBCXX_3.4.15)    2 (GLIBCXX_3.4.26) 
+  278:  1a (CXXABI_1.3.11)   8 (GLIBCXX_3.4)   4 (SDL3_0.0.0)   24 (GLIBCXX_3.4.14) 
+  27c:   4 (SDL3_0.0.0)    0 (*local*)       4 (SDL3_0.0.0)    0 (*local*)    
+  280:   8 (GLIBCXX_3.4)   6 (GLIBC_2.17)    0 (*local*)       6 (GLIBC_2.17) 
+  284:   2 (GLIBCXX_3.4.26)    4 (SDL3_0.0.0)    8 (GLIBCXX_3.4)   2 (GLIBCXX_3.4.26) 
+  288:   4 (SDL3_0.0.0)    6 (GLIBC_2.17)    0 (*local*)       4 (SDL3_0.0.0) 
+  28c:   2 (GLIBCXX_3.4.26)    0 (*local*)       6 (GLIBC_2.17)    4 (SDL3_0.0.0) 
+  290:   0 (*local*)       4 (SDL3_0.0.0)    6 (GLIBC_2.17)    8 (GLIBCXX_3.4)
+  294:  13 (GLIBCXX_3.4.15)    f (GLIBC_2.17)    2 (GLIBCXX_3.4.26)    0 (*local*)    
+  298:   0 (*local*)       8 (GLIBCXX_3.4)   4 (SDL3_0.0.0)    4 (SDL3_0.0.0) 
+  29c:   2 (GLIBCXX_3.4.26)    f (GLIBC_2.17)    c (GLIBCXX_3.4.11)    6 (GLIBC_2.17) 
+  2a0:   0 (*local*)      10 (GLIBC_2.35)    8 (GLIBCXX_3.4)   0 (*local*)    
+  2a4:   4 (SDL3_0.0.0)   13 (GLIBCXX_3.4.15)    8 (GLIBCXX_3.4)   b (GLIBC_2.38) 
+  2a8:   3 (GLIBCXX_3.4.21)    4 (SDL3_0.0.0)   17 (GLIBC_2.34)    f (GLIBC_2.17) 
+  2ac:   3 (GLIBCXX_3.4.21)    4 (SDL3_0.0.0)    4 (SDL3_0.0.0)    4 (SDL3_0.0.0) 
+  2b0:   d (GLIBCXX_3.4.9)   4 (SDL3_0.0.0)    1 (*global*)      1 (*global*)   
+  2b4:   1 (*global*)      1 (*global*)      1 (*global*)      1 (*global*)   
+  2b8:   1 (*global*)      1 (*global*)      1 (*global*)      1 (*global*)   
+  2bc:   1 (*global*)      1 (*global*)      1 (*global*)      1 (*global*)   
+  2c0:   1 (*global*)      1 (*global*)      1 (*global*)      1 (*global*)   
+  2c4:   1 (*global*)      1 (*global*)      1 (*global*)      1 (*global*)   
+  2c8:   1 (*global*)      1 (*global*)      1 (*global*)   
+
+Version needs section '.gnu.version_r' contains 6 entries:
+ Addr: 0x0000000000009c28  Offset: 0x00009c28  Link: 5 (.dynstr)
+  000000: Version: 1  File: ld-linux-aarch64.so.1  Cnt: 1
+  0x0010:   Name: GLIBC_2.17  Flags: none  Version: 42
+  0x0020: Version: 1  File: libgcc_s.so.1  Cnt: 3
+  0x0030:   Name: GCC_3.0  Flags: none  Version: 31
+  0x0040:   Name: GCC_4.0.0  Flags: none  Version: 30
+  0x0050:   Name: GCC_4.2.0  Flags: none  Version: 21
+  0x0060: Version: 1  File: libm.so.6  Cnt: 6
+  0x0070:   Name: GLIBC_2.38  Flags: none  Version: 37
+  0x0080:   Name: GLIBC_2.27  Flags: none  Version: 27
+  0x0090:   Name: GLIBC_2.29  Flags: none  Version: 17
+  0x00a0:   Name: GLIBC_2.35  Flags: none  Version: 16
+  0x00b0:   Name: GLIBC_2.17  Flags: none  Version: 15
+  0x00c0:   Name: GLIBC_2.43  Flags: none  Version: 7
+  0x00d0: Version: 1  File: libc.so.6  Cnt: 5
+  0x00e0:   Name: GLIBC_2.32  Flags: none  Version: 40
+  0x00f0:   Name: GLIBC_2.25  Flags: none  Version: 33
+  0x0100:   Name: GLIBC_2.34  Flags: none  Version: 23
+  0x0110:   Name: GLIBC_2.38  Flags: none  Version: 11
+  0x0120:   Name: GLIBC_2.17  Flags: none  Version: 6
+  0x0130: Version: 1  File: libSDL3.so.0  Cnt: 1
+  0x0140:   Name: SDL3_0.0.0  Flags: none  Version: 4
+  0x0150: Version: 1  File: libstdc++.so.6  Cnt: 25
+  0x0160:   Name: GLIBCXX_3.4.31  Flags: none  Version: 41
+  0x0170:   Name: GLIBCXX_3.4.32  Flags: none  Version: 39
+  0x0180:   Name: GLIBCXX_3.4.17  Flags: none  Version: 38
+  0x0190:   Name: GLIBCXX_3.4.14  Flags: none  Version: 36
+  0x01a0:   Name: GLIBCXX_3.4.19  Flags: none  Version: 35
+  0x01b0:   Name: GLIBCXX_3.4.30  Flags: none  Version: 34
+  0x01c0:   Name: CXXABI_1.3.15  Flags: none  Version: 32
+  0x01d0:   Name: CXXABI_1.3.5  Flags: none  Version: 29
+  0x01e0:   Name: GLIBCXX_3.4.29  Flags: none  Version: 28
+  0x01f0:   Name: CXXABI_1.3.11  Flags: none  Version: 26
+  0x0200:   Name: GLIBCXX_3.4.22  Flags: none  Version: 25
+  0x0210:   Name: CXXABI_1.3.7  Flags: none  Version: 24
+  0x0220:   Name: CXXABI_1.3.3  Flags: none  Version: 22
+  0x0230:   Name: CXXABI_1.3.13  Flags: none  Version: 20
+  0x0240:   Name: GLIBCXX_3.4.15  Flags: none  Version: 19
+  0x0250:   Name: GLIBCXX_3.4.18  Flags: none  Version: 18
+  0x0260:   Name: CXXABI_1.3.9  Flags: none  Version: 14
+  0x0270:   Name: GLIBCXX_3.4.9  Flags: none  Version: 13
+  0x0280:   Name: GLIBCXX_3.4.11  Flags: none  Version: 12
+  0x0290:   Name: CXXABI_1.3  Flags: none  Version: 10
+  0x02a0:   Name: GLIBCXX_3.4.20  Flags: none  Version: 9
+  0x02b0:   Name: GLIBCXX_3.4  Flags: none  Version: 8
+  0x02c0:   Name: CXXABI_1.3.2  Flags: none  Version: 5
+  0x02d0:   Name: GLIBCXX_3.4.21  Flags: none  Version: 3
+  0x02e0:   Name: GLIBCXX_3.4.26  Flags: none  Version: 2
+#Name	Version		Runtime	Runtime_Version	Comment
+depot	4.0.20261021.265997			# Overall version number
+pressure-vessel	0.20261007.0			
+scripts	0.20261007.0			# from steam-runtime-tools
+steamrt4	4.0.20261021.265997	steamrt4	4.0.20261021.265997	# steamrt4_platform_4.0.20261021.265997/

@@ -11,6 +11,7 @@
 // The second adventure has no counterpart; this engine is the first
 // adventure's own.
 #include "puzzles/a1_engines.hpp"
+#include <algorithm>
 #include <cmath>
 
 namespace picarat::adventure1 {

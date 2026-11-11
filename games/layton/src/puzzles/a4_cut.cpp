@@ -1,10 +1,13 @@
 // The cutting loop (overlay 18). See a4_cut.hpp.
 #include "puzzles/a4_cut.hpp"
 #include "puzzles/a4_loop_kit.hpp"
+#include <algorithm>
 #include <cstdio>
 
 // Each float operation rounds on its own, as the game's soft-float calls do.
+#if defined(__clang__)
 #pragma STDC FP_CONTRACT OFF
+#endif // GCC uses the target-wide -ffp-contract=off.
 
 namespace picarat::adventure4 {
 

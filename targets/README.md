@@ -7,3 +7,6 @@ cover artwork, SDL and licences, but no source images or imported game data.
 Android and portrait layouts are a follow-up; preserve Picarat’s existing
 Android target until a replacement is validated. Diorama XR will remain a
 separate OpenXR frontend sharing its engine and renderer.
+
+Steam Frame starts with an opt-in Linux ARM64 OpenXR/Vulkan
+[bring-up probe](steam_frame/README.md).

@@ -17,6 +17,7 @@
 // The second adventure has no river puzzle; this engine is the first
 // adventure's own.
 #include "puzzles/a1_engines.hpp"
+#include <algorithm>
 
 namespace picarat::adventure1 {
 

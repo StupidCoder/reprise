@@ -1,6 +1,7 @@
 // The screen: VDP settings, clearing, tile art and map rectangles.
 
 #include "triple_trouble_gg/game/game.hpp"
+#include <algorithm>
 
 namespace triple_trouble_gg {
 

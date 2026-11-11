@@ -17,6 +17,7 @@
 // the ink drawing (CircleInk::stamp, ARM9 02010378 / 0200fff4) is shared.
 #include "puzzles/a1_engines.hpp"
 #include "puzzles/circle_ink.hpp"
+#include <cmath>
 
 namespace picarat::adventure1 {
 

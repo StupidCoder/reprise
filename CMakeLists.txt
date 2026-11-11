@@ -11,6 +11,14 @@ if(ANDROID)
     # Every static engine library is linked into libmain.so on Android.
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 endif()
+# The headset bring-up probe can build without the desktop/game dependencies.
+option(REPRISE_STEAM_FRAME_PROBE "Build only the Linux ARM64 Steam Frame probe" OFF)
+option(REPRISE_STEAM_FRAME_LAUNCHER "Build the native XR frontend with the existing launcher and catalog" OFF)
+if(REPRISE_STEAM_FRAME_PROBE)
+    add_subdirectory(targets/steam_frame)
+    return()
+endif()
+
 find_package(SDL3 3.4 CONFIG REQUIRED)
 find_package(ZLIB REQUIRED)
 
@@ -508,6 +516,13 @@ endif()
 target_link_libraries(reprise PRIVATE fort_apocalypse_c64 bruce_lee_c64 wizball_c64 marble_madness_amiga mindwalker_amiga wings_of_fury_amiga cannon_fodder_amiga rock_n_roll_amiga tower_of_babel_amiga fa_18_interceptor_amiga spindizzy_worlds_amiga stunt_car_racer_amiga beach_volley_amiga spy_mouse_ios sonic layton captain_toad_module captain_toad_import_adapter beacon_assets ui)
 target_compile_options(reprise PRIVATE ${PROJECT_WARNINGS})
 
+# A presentation-only snapshot from the real catalog and artwork for XR room
+# bring-up. No imports, saves, game code or executable payloads are exported.
+add_executable(frame_catalog_export EXCLUDE_FROM_ALL tools/frame_catalog_export.cpp app/catalog.cpp)
+get_target_property(REPRISE_CATALOG_LIBRARIES reprise LINK_LIBRARIES)
+target_link_libraries(frame_catalog_export PRIVATE ${REPRISE_CATALOG_LIBRARIES})
+target_compile_options(frame_catalog_export PRIVATE ${PROJECT_WARNINGS})
+
 # --- tools ---------------------------------------------------------------------
 add_executable(fort_apocalypse_assets tools/fort_apocalypse_assets.cpp)
 target_link_libraries(fort_apocalypse_assets PRIVATE fort_apocalypse_c64)
@@ -602,6 +617,10 @@ include(CTest)
 add_subdirectory(games/astro_bot_ps4)
 # Keep the pending core compiling in target-only Android builds too.
 add_dependencies(reprise beacon_game beacon_audio)
+if(REPRISE_STEAM_FRAME_LAUNCHER)
+    set(REPRISE_FRAME_GAME_BRIDGE ON CACHE BOOL "Enable SDL presentation" FORCE)
+    add_subdirectory(targets/steam_frame)
+endif()
 if(BUILD_TESTING)
     add_executable(interceptor_lesson_checks tests/interceptor_lessons.cpp)
     target_link_libraries(interceptor_lesson_checks PRIVATE fa_18_interceptor_amiga)

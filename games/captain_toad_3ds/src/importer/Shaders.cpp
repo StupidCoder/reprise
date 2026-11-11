@@ -1,6 +1,7 @@
 // See Shaders.hpp.
 #include "Shaders.hpp"
 
+#include <cmath>
 #include <cstdio>
 #include <map>
 
