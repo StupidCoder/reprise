@@ -38,7 +38,10 @@ if args.action == 'build':
                   'games/spy_mouse_ios/tools/media_checks.cpp', 'games/spy_mouse_ios/tools/verify_traces.cpp',
                   'games/spy_mouse_ios/reprise', 'app', 'shared', 'collections']
     if args.launcher:
-        tracked = subprocess.check_output(['git', '-C', str(ROOT), 'ls-files', '-z']).decode().split('\0')
+        # Include new, non-ignored source files: development builds must not
+        # require staging or committing a new translation unit first.
+        tracked = subprocess.check_output(['git', '-C', str(ROOT), 'ls-files',
+                                          '--cached', '--others', '--exclude-standard', '-z']).decode().split('\0')
         source_suffixes = {'.c', '.cc', '.cpp', '.h', '.hpp', '.inc', '.inl', '.ipp', '.def', '.cmake'}
         paths = [name for name in tracked if name and
                  (pathlib.Path(name).suffix in source_suffixes or pathlib.Path(name).name == 'CMakeLists.txt') and

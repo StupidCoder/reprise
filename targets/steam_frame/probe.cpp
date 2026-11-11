@@ -116,6 +116,7 @@ private:
     XrSessionState state_{XR_SESSION_STATE_UNKNOWN};
     XrEnvironmentBlendMode blend_{};
     bool frame_profile_{}, running_{}, exiting_{};
+    bool cylinder_supported_{};
     std::array<Hand, 2> hands_{};
     std::array<Eye, 2> eyes_{};
     VkInstance vk_instance_{};
@@ -179,6 +180,8 @@ void Probe::open_xr() {
     if (!has(XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME))
         throw std::runtime_error("Runtime does not support XR_KHR_vulkan_enable2");
     std::vector<const char*> extensions{XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME};
+    cylinder_supported_ = has(XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME);
+    if (cylinder_supported_) extensions.push_back(XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME);
     frame_profile_ = has(frame_extension);
     if (frame_profile_) extensions.push_back(frame_extension);
 
@@ -756,6 +759,8 @@ void Probe::frame() {
                       game_controls_, {hands_[0].pressed,hands_[1].pressed});
         ring_->append_pointers(head, {hands_[0].aim,hands_[1].aim},
                                {hands_[0].pressed,hands_[1].pressed});
+        for (const auto& cylinder : ring_->cylinders())
+            layers.push_back(reinterpret_cast<const XrCompositionLayerBaseHeader*>(&cylinder));
         for (const auto& card : ring_->layers())
             layers.push_back(reinterpret_cast<const XrCompositionLayerBaseHeader*>(&card));
     }
@@ -818,7 +823,7 @@ void Probe::run(int seconds, const char* content, bool room, bool benchmark, con
 #ifdef REPRISE_FRAME_GAME_BRIDGE
     if (catalog) {
         ring_ = std::make_unique<Ring>();
-        ring_->open(session_, space_, physical_, device_, queue_, queue_family_, catalog, data);
+        ring_->open(session_, space_, physical_, device_, queue_, queue_family_, catalog, data, cylinder_supported_);
     }
     if (content) {
         bridge_ = std::make_unique<GameBridge>();

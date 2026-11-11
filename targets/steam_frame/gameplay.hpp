@@ -11,6 +11,8 @@ public:
     bool active() const;
     void update(const platform::Controls&, double now, bool focused);
     platform::Image draw(double now);
+    void set_world_surface_supported(bool);
+    const std::optional<app::WorldSurface>& world_surface() const;
     std::string take_message();
 private:
     struct Impl;

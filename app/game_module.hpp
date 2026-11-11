@@ -96,6 +96,15 @@ inline GameOption screen_filter_option(int level) {
             true};
 }
 
+// Optional periodic world presentation. Geometry and XR resources belong to the
+// host; games supply owned pixels. Empty during menus or unsupported effects.
+struct WorldSurface {
+    platform::Image image{1, 1}, hud{1, 1};
+    double pixel_aspect{1}, focus_x{};
+    int scene_id{};
+    long revision{};
+};
+
 class GameModule {
 public:
     virtual ~GameModule() = default;
@@ -108,6 +117,8 @@ public:
     // resolution (the launcher adds the VHS look; see shown_picture). Never
     // filtered: save pictures are taken from it.
     virtual platform::Image picture() const = 0;
+    virtual void set_world_surface_supported(bool) {}
+    virtual std::optional<WorldSurface> world_surface() const { return std::nullopt; }
     // The VHS look the player chose in the game's options (0 off, up to
     // ui::vhs_levels - 1; screen_filter_option). The launcher draws it over
     // picture(), or over a GPU-drawn game's frame (screen_effect).

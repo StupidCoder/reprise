@@ -23,6 +23,8 @@ struct Gameplay::Impl : platform::GpuSurface {
     float pending_dx{},pending_dy{};
     SDL_AudioStream* audio{};
     std::unique_ptr<app::GameModule> game;
+    bool world_supported{};
+    std::optional<app::WorldSurface> world;
     app::GameEntry entry;
     std::filesystem::path content;
     app::PauseMenu menu;
@@ -69,6 +71,7 @@ struct Gameplay::Impl : platform::GpuSurface {
         }
         next->set_canvas(960,640); next->attach_gpu(this);
         next->set_input_capabilities({false,false,true,false});
+        next->set_world_surface_supported(world_supported);
         app::restore_options(*next,content.parent_path().parent_path()/"options"/(entry.id+".txt"));
         if(resume && !next->load()) throw std::runtime_error(next->save_error());
         game=std::move(next); written_options=app::options_text(*game);
@@ -205,10 +208,19 @@ void Gameplay::update(const platform::Controls& controls,double now,bool focused
 }
 platform::Image Gameplay::draw(double now) {
     auto& p=*impl_;
+    p.world.reset();
     try {
     if(p.loading.valid()) return app::startup_screen(960,640,"Preparing "+p.entry.title,now);
     if(!p.game) return {960,640};
     if(p.menu.open()) return p.menu.draw(*p.game,p.entry.title,now,p.entry.id);
+    p.world=p.game->world_surface();
+    if(p.world) {
+        platform::Image image(960,640); ui::fill(image,{0,0,0,0});
+        const auto& hud=p.world->hud;
+        const int height=std::min(220,int(960.0*hud.height/(hud.width*p.world->pixel_aspect)));
+        ui::picture(image,hud,0,420,960,height);
+        return image;
+    }
     platform::Image source(1,1);
     if(const auto size=p.game->gpu_frame_size()) source=p.capture((*size)[0],(*size)[1],[&](const auto& frame){p.game->draw_gpu(frame);});
     else source=p.game->picture();
@@ -226,3 +238,8 @@ platform::Image Gameplay::draw(double now) {
         return app::startup_screen(960,640,p.message,now);
     }
 }
+void Gameplay::set_world_surface_supported(bool supported) {
+    impl_->world_supported=supported;
+    if(impl_->game) impl_->game->set_world_surface_supported(supported);
+}
+const std::optional<app::WorldSurface>& Gameplay::world_surface() const { return impl_->world; }

@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <fstream>
+#include <functional>
 #include <numbers>
 #include <sstream>
 #include <stdexcept>
@@ -21,6 +22,7 @@ struct Ring::Impl {
     std::vector<std::string> ids;
     std::vector<float> emphasis;
     std::vector<XrCompositionLayerQuad> quads;
+    std::vector<XrCompositionLayerCylinderKHR> cylinders;
     XrVector3f center{};
     float bearing{};
     bool anchored{};
@@ -37,14 +39,29 @@ struct Ring::Impl {
     XrPosef selected_pose{}, panel_pose{}, cover_from{};
     double last_draw=-100;
     std::optional<platform::Image> panel_image;
+    std::unique_ptr<XrTexture> world_texture;
+    std::function<void(XrTexture&,int,int)> open_world;
+    int world_width{}, world_height{}, world_scene=-1;
+    long world_revision=-1;
+    bool world_anchored{}, snap_ready{true};
+    float world_bearing{};
+    XrVector3f world_center{};
+    unsigned world_uploads{};
+    double world_upload_ms{};
 #endif
 };
 Ring::Ring() : impl_(std::make_unique<Impl>()) {}
 Ring::~Ring() = default;
-void Ring::recenter() { suspend(impl_->previous); impl_->anchored=false; impl_->focused=-1; }
+void Ring::recenter() {
+    suspend(impl_->previous); impl_->anchored=false; impl_->focused=-1;
+#ifdef REPRISE_FRAME_LAUNCHER
+    impl_->world_anchored=false;
+#endif
+}
 const std::vector<XrCompositionLayerQuad>& Ring::layers() const { return impl_->quads; }
+const std::vector<XrCompositionLayerCylinderKHR>& Ring::cylinders() const { return impl_->cylinders; }
 void Ring::open(XrSession session, XrSpace space, VkPhysicalDevice physical, VkDevice device,
-                VkQueue queue, unsigned family, const std::filesystem::path& catalog, const char* data) {
+                VkQueue queue, unsigned family, const std::filesystem::path& catalog, const char* data, bool cylinder) {
     auto& p=*impl_;
     p.space=space;
     std::ifstream manifest(catalog/"catalog.tsv");
@@ -92,6 +109,10 @@ void Ring::open(XrSession session, XrSpace space, VkPhysicalDevice physical, VkD
 #ifdef REPRISE_FRAME_LAUNCHER
     if (data) {
         p.panel=std::make_unique<LauncherPanel>(data);
+        p.panel->set_world_surface_supported(cylinder);
+        if(cylinder) p.open_world=[=](XrTexture& texture,int w,int h) {
+            texture.open(session,physical,device,queue,family,w,h);
+        };
         p.panel_texture.open(session,physical,device,queue,family,960,640);
         p.fade_texture.open(session,physical,device,queue,family,p.atlas_width,height);
         p.atlas_height=height;
@@ -101,6 +122,7 @@ void Ring::open(XrSession session, XrSpace space, VkPhysicalDevice physical, VkD
         std::printf("Live landscape launcher enabled; shared Library/Launcher services\n");
     }
 #else
+    (void)cylinder;
     if(data) throw std::runtime_error("Build --launcher to use the live details window");
 #endif
     // Four cached styles (each hand, released/pressed). Beam and contact glow
@@ -133,6 +155,7 @@ void Ring::update(double time, const XrPosef& head, const std::array<std::option
                   bool has_focus, bool back, float scroll, const platform::Controls& game_controls,
                   const std::array<bool,2>& held) {
     auto& p=*impl_;
+    p.cylinders.clear();
     if (!p.anchored) {
         if(!has_focus) { p.quads.clear(); return; }
         const auto forward=rotate(head.orientation,{0,0,-1});
@@ -260,6 +283,61 @@ void Ring::update(double time, const XrPosef& head, const std::array<std::option
             p.panel_texture.upload(image.pixels.data(),image.width*4);
             p.last_draw=time;
         }
+        if(!p.panel->playing()) p.world_anchored=false;
+        const auto& world=p.panel->world_surface();
+        if(p.panel->playing() && world && p.open_world && budget>=3) {
+            try {
+                const auto& image=world->image;
+                if(image.width<2 || image.width%2 || image.height<1 || world->pixel_aspect<=0)
+                    throw std::runtime_error("Invalid periodic world surface");
+                if(!p.world_texture || p.world_width!=image.width || p.world_height!=image.height) {
+                    auto texture=std::make_unique<XrTexture>();
+                    p.open_world(*texture,image.width,image.height);
+                    p.world_texture=std::move(texture);
+                    p.world_width=image.width; p.world_height=image.height; p.world_revision=-1;
+                    std::printf("World cylinder swapchain %dx%d; two half-cylinder layers\n",image.width,image.height);
+                }
+                if(!p.world_anchored || p.world_scene!=world->scene_id) {
+                    const auto forward=rotate(head.orientation,{0,0,-1});
+                    p.world_bearing=std::atan2(forward.x,-forward.z)+std::numbers::pi_v<float>/2-
+                        float(world->focus_x)*2*std::numbers::pi_v<float>;
+                    p.world_center=head.position; p.world_scene=world->scene_id;
+                    p.world_anchored=true; p.world_revision=-1;
+                    std::printf("World cylinder anchored: scene %d, focus %.4f\n",world->scene_id,world->focus_x);
+                }
+                const float snap=game_controls.camera_stick ? (*game_controls.camera_stick)[0] : 0;
+                if(!has_focus) p.snap_ready=false;
+                else if(std::abs(snap)<.3f) p.snap_ready=true;
+                if(has_focus && p.snap_ready && std::abs(snap)>.7f) {
+                    p.world_bearing+=(snap>0 ? -1.f : 1.f)*std::numbers::pi_v<float>/6;
+                    p.snap_ready=false;
+                }
+                if(world->revision!=p.world_revision) {
+                    const auto timing=p.world_texture->upload(image.pixels.data(),image.width*4);
+                    p.world_upload_ms+=timing.ownership_ms+timing.fence_ms;
+                    if(++p.world_uploads%360==0)
+                        std::printf("World cylinder: %u uploads, mean ownership+fence %.3f ms\n",p.world_uploads,p.world_upload_ms/p.world_uploads);
+                    p.world_revision=world->revision;
+                }
+                for(int half=0;half<2;++half) {
+                    XrCompositionLayerCylinderKHR layer{XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR};
+                    layer.space=p.space; layer.eyeVisibility=XR_EYE_VISIBILITY_BOTH;
+                    layer.subImage.swapchain=p.world_texture->swapchain();
+                    layer.subImage.imageRect={{half*image.width/2,0},{image.width/2,image.height}};
+                    const float angle=p.world_bearing+half*std::numbers::pi_v<float>;
+                    layer.pose={ {0,std::sin(-angle/2),0,std::cos(-angle/2)}, p.world_center };
+                    layer.radius=2.f; layer.centralAngle=std::numbers::pi_v<float>;
+                    layer.aspectRatio=float(image.width*.5*world->pixel_aspect/image.height);
+                    p.cylinders.push_back(layer);
+                }
+            } catch(const std::exception& error) {
+                std::printf("World cylinder unavailable; flat fallback: %s\n",error.what());
+                p.cylinders.clear(); p.open_world={};
+                p.panel->set_world_surface_supported(false);
+                p.panel_image=p.panel->draw(time,true);
+                p.panel_texture.upload(p.panel_image->pixels.data(),p.panel_image->width*4);
+            }
+        }
         XrCompositionLayerQuad panel{XR_TYPE_COMPOSITION_LAYER_QUAD};
         panel.space=p.space; panel.eyeVisibility=XR_EYE_VISIBILITY_BOTH;
         panel.layerFlags=XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT | XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT;
@@ -358,6 +436,7 @@ void Ring::append_pointers(const XrPosef& head,
 
 void Ring::suspend(double now) {
 #ifdef REPRISE_FRAME_LAUNCHER
+    impl_->snap_ready=false;
     if(impl_->panel && impl_->panel->playing()) impl_->panel->update({},now,false);
 #else
     (void)now;

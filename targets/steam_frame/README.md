@@ -165,3 +165,19 @@ existing game logic; all-game playability is not established. VHS filtering
 currently uses the existing CPU filter after readback. Native tests cover load,
 render/tick/audio submission and pause/return for representative engines; wearer
 validation of physical controls, audible sound and performance is separate.
+
+## Fort Apocalypse cylinder preview
+
+In Fort Apocalypse's shared pause menu, select **VR world → Cylinder (preview)**.
+For this first preview, turn **Particle effects**, **Smooth motion** and **Carnage
+mode** off. Otherwise the game uses its existing flat presentation. Title and
+pause screens remain flat; gameplay shows the full current level around the
+wearer with a separate HUD. The world image is unfiltered; flat VHS preferences
+are preserved. Right-stick horizontal deflection snap-rotates the world by 30°;
+release to center before rotating again. Thumbstick-click pauses and recenters,
+bringing the craft ahead on resume. View/Menu retains the normal pause controls.
+
+The user has validated alignment, seam and comfort in this development preview.
+Full gameplay coverage and consistent native-refresh performance remain open.
+See [the implementation plan](FORT_APOCALYPSE_VR_PLAN.md)
+and [Fort's current limitations](../../games/fort_apocalypse_c64/plan.md#planned-vr-presentation).

@@ -118,6 +118,7 @@ int main(int argc, char **argv) try {
         const auto entry = std::find_if(catalog.begin(), catalog.end(), [](const auto& e) { return e.id == "fort_apocalypse_c64"; });
         check(entry != catalog.end(), "Fort Apocalypse catalog entry");
         auto game = app::with_quick_save(*entry, content);
+        game->set_world_surface_supported(true);
         game->set_canvas(1920, 1080);
         advance(*game, 0, 30);
         check(game->save(), game->save_error()); // old save, before enabling enhancements
@@ -127,14 +128,17 @@ int main(int argc, char **argv) try {
                 if (options[i].name == name) { game->set_option(i, value); return; }
             throw std::runtime_error("Missing option " + std::string(name));
         };
-        set("Smooth motion", 1); set("Widescreen", 1); set("VHS tape", 2);
+        set("Smooth motion", 1); set("Widescreen", 1); set("VHS tape", 2); set("VR world", 1);
         const auto preferences = root / "options.txt";
         platform::write_text(preferences, app::options_text(*game));
         game.reset(); // simulate quitting: only files survive
         game = app::with_quick_save(*entry, content);
+        game->set_world_surface_supported(true);
         app::restore_options(*game, preferences);
         const auto expected = app::options_text(*game);
         check(game->vhs_level() == 2, "Fresh launch restores saved preferences");
+        check(game->options().back().name == "VR world" && game->options().back().value == 1,
+              "Fresh launch restores world preference through wrapper");
         check(game->load(), game->save_error()); // Continue from an older save
         check(app::options_text(*game) == expected, "Continue must preserve Fort visual preferences");
         game->set_canvas(1920, 1080);

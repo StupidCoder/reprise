@@ -84,6 +84,7 @@ add_library(fort_apocalypse_c64
     games/fort_apocalypse_c64/data/tables.cpp
     games/fort_apocalypse_c64/game/flow.cpp
     games/fort_apocalypse_c64/game/view.cpp
+    games/fort_apocalypse_c64/game/world.cpp
     games/fort_apocalypse_c64/game/player.cpp
     games/fort_apocalypse_c64/game/enemy.cpp
     games/fort_apocalypse_c64/game/objects.cpp
@@ -93,6 +94,7 @@ add_library(fort_apocalypse_c64
     games/fort_apocalypse_c64/enhanced/canvas.cpp
     games/fort_apocalypse_c64/enhanced/enhanced.cpp
     games/fort_apocalypse_c64/enhanced/widescreen.cpp
+    games/fort_apocalypse_c64/enhanced/world.cpp
     games/fort_apocalypse_c64/import/novaload.cpp
     games/fort_apocalypse_c64/import/tape_import.cpp)
 target_include_directories(fort_apocalypse_c64 PUBLIC ${SOURCE_ROOT})
@@ -545,6 +547,9 @@ target_link_libraries(bruce_lee_replay PRIVATE bruce_lee_c64)
 target_compile_options(bruce_lee_replay PRIVATE ${PROJECT_WARNINGS})
 
 add_executable(fort_apocalypse_replay tools/fort_apocalypse_replay.cpp)
+add_executable(fort_world_check tools/fort_world_check.cpp)
+target_link_libraries(fort_world_check PRIVATE fort_apocalypse_c64)
+target_compile_options(fort_world_check PRIVATE ${PROJECT_WARNINGS})
 target_link_libraries(fort_apocalypse_replay PRIVATE fort_apocalypse_c64)
 target_compile_options(fort_apocalypse_replay PRIVATE ${PROJECT_WARNINGS})
 
@@ -613,6 +618,9 @@ add_custom_target(reprise_resources ALL
 add_dependencies(reprise reprise_resources)
 
 include(CTest)
+if(BUILD_TESTING)
+    add_test(NAME fort_world_render COMMAND fort_world_check)
+endif()
 # Beacon portable core; launcher import/play adapters remain pending.
 add_subdirectory(games/astro_bot_ps4)
 # Keep the pending core compiling in target-only Android builds too.

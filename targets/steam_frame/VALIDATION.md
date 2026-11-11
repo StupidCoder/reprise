@@ -246,3 +246,80 @@ all controller combinations or comfort across every imported title.
 The next requested feature is an opt-in Fort Apocalypse VR presentation that
 wraps its horizontally repeating landscape around the player. No game-specific
 VR mode is included in this baseline.
+## Fort Apocalypse cylinder preview — 2026-11-11
+
+Implemented after baseline `b7780f7`, without committing or pushing. The optional
+module capability supplies a 1720 × 320 periodic image, HUD, pixel aspect, focus
+position and frame revision. Fort uses live map glyphs and sprite presentation;
+OpenXR remains in the target. The quick-save wrapper forwards the capability to
+fresh instances and retains the presentation choice through Continue/quick load.
+
+The target conditionally enables `XR_KHR_composition_layer_cylinder`, submits two
+180° layers sharing a swapchain, and retains normal flat title/pause UI. The
+world is stationary, with explicit recenter and right-stick 30° snap rotation.
+Uploads are skipped when the module revision is unchanged. Runtime upload timing
+is logged every 360 uploads. The observed run reached 10,800 uploads with a mean
+ownership-plus-fence wait of 0.290 ms. This excludes CPU panorama generation,
+copy time and total frame/compositor cost; it is not a complete performance result.
+One recorded 600-frame eye-render/fence window averaged 13.929 ms with a
+21.926 ms p95 (xrEndFrame mean 0.243 ms). That exceeds the 13.89 ms period at
+72 Hz in the tail; this preview has **not** met a consistent native-refresh
+performance gate. These existing eye-pass timings exclude the later panorama
+work, so full-loop profiling and comparison with the flat baseline are still
+required before attributing the cost.
+
+Validated:
+
+- `./build.sh`: macOS build and package succeeded.
+- `./build-android.sh`: Android APK build/package succeeded; no physical Android
+  interaction test for this change.
+- CTest: `fort_world_render`, `library_validation_cache`, `shell_navigation`,
+  `shell_motion`, `persistent_saves`, `host_touch_coordinates` all passed.
+- `./build/fort_world_check <installed Fort content> /tmp/fort-world.png`: 1,200
+  ticks, 35 panorama samples; repeated drawing preserves state, audio and flat
+  pixels, and state round trip passes. Synthetic wrap and foreground priority
+  checks pass. Exported panorama inspected on the Mac.
+- Same renderer check built natively and passed inside Steam runtime 4 ARM64
+  against the headset's installed content. No import/save data was modified.
+- `./build/persistence_checks --fort-options <installed Fort content>`: VR choice
+  survives fresh instance, Continue and quick load alongside existing preferences;
+  uses temporary test data.
+- `./build.sh --steam-frame build --launcher`: native executable linked and
+  runtime dependency resolution succeeded. Source packaging now includes new
+  non-ignored C/C++ files without requiring a Git commit or staging.
+- Stop/launch through the existing development service succeeded. Logs showed
+  OpenXR/Vulkan initialization and both eye swapchains. A subsequent focused run
+  started Fort, created the panorama swapchain and submitted two half-cylinder
+  layers for over 10,800 uploads. Pause-menu entry and focus-loss pause were
+  observed without a reported rendering error. This establishes execution,
+  not visual correctness or comfort.
+
+Compact native output and binary hash:
+[fort-cylinder-preview.txt](evidence/2026-11-11/fort-cylinder-preview.txt).
+That live run used binary `a2f911639868d2e0557c1e1cccbd7ae464f687e8734160f6d91176dd90b4932b`.
+After tightening snap-turn rearming while unfocused, the target was rebuilt and
+relaunched as binary `15ebf2fdc7665a64edbb8e886903024c3721fd531d42b85722dafa2d50957d80`;
+the service is active. The earlier timing observations apply to the earlier
+binary, not a new measurement of the final input-only adjustment.
+
+The user confirmed that alignment, the seam and comfort are good, and that the
+mode appears completely playable and feels great. This establishes wearer
+validation of those aspects for the tested play session; it is not an all-level
+playthrough or a measured native-refresh result. Separate explicit checks of HUD
+legibility, snap/recenter and pause/resume remain useful. The test flight
+does not cover all levels, teleport, every death state or divergent map aliases.
+Original camera-window projectile/collision behavior is retained. Particle,
+smooth-motion and Carnage renderers are not integrated: those choices trigger
+flat fallback. Panorama uses no VHS filter and preserves the flat preference.
+See [the plan](FORT_APOCALYPSE_VR_PLAN.md) for remaining gates.
+
+The user also observed the normally offscreen enemy helicopter wiggling
+horizontally by a few pixels. Static inspection finds a plausible existing-rule
+cause: `Game::enemy_tick` continues offscreen pursuit but pushes a hidden enemy
+back inside columns $30/$D8 at the map edges ($9D46). Horizontal subcell movement
+continues between these clamps. The panorama now exposes this behavior. The
+offscreen presentation coordinates contain no camera offset, making ordinary
+head/camera motion an unlikely cause while it stays hidden. This is a supported
+explanation, not a replay-confirmed diagnosis of the exact observed instance;
+visibility-boundary snapshot timing remains another known presentation risk.
+No enemy rules or movement were changed in response to this observation.

@@ -4,6 +4,7 @@
 #include "fort_apocalypse_c64/data/assets.hpp"
 #include "fort_apocalypse_c64/data/tables.hpp"
 #include "fort_apocalypse_c64/game/controls.hpp"
+#include "fort_apocalypse_c64/enhanced/world.hpp"
 #include <array>
 #include <cstdint>
 #include <functional>
@@ -119,6 +120,7 @@ public:
     // One PAL frame; returns its picture.
     const c64::Picture& tick(const Controls&, const Options&);
     const c64::Picture& picture() const { return picture_; }
+    std::optional<enhanced::WorldScene> world_scene() const;
 
     // The original reads its random numbers from the SID's noise
     // generator; here they come from a generator of our own.

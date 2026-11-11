@@ -19,6 +19,8 @@ public:
     double step_seconds() const override { return 312.0 * 63.0 / 985248.0; }
     void tick(const app::GameInput&) override;
     platform::Image picture() const override;
+    void set_world_surface_supported(bool supported) override { world_supported_ = supported; }
+    std::optional<app::WorldSurface> world_surface() const override;
     int vhs_level() const override { return vhs_; }
     // A PAL C64 pixel is slightly narrower than tall.
     double pixel_aspect() const override { return 0.9365; }
@@ -46,6 +48,7 @@ private:
     std::unique_ptr<Game> game_, saved_;
     Options options_;
     bool particles_{}, smooth_{}, widescreen_{};
+    bool world_supported_{}, world_enabled_{}; // presentation only; not save state
     // The particle effects run when chosen, and in carnage mode (its debris).
     bool particles() const { return particles_ || options_.carnage; }
     // With particle effects, a crash's last frame holds until the wreck has

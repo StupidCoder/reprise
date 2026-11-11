@@ -93,3 +93,43 @@ settings and save files remain compatible. Regression: `persistence_checks
 --fort-options <imported-fort-folder>` uses a temporary copy, saves with defaults,
 changes preferences, destroys/recreates the module, restores settings from disk,
 and verifies both Continue and repeated quick load retain the chosen presentation.
+
+## Planned VR presentation
+
+The optional whole-level cylindrical mode is planned in
+[the Steam Frame implementation plan](../../targets/steam_frame/FORT_APOCALYPSE_VR_PLAN.md).
+An initial portable world renderer and optional module surface capability now
+feed a two-half-cylinder OpenXR preview. Enable `VR world → Cylinder (preview)`
+in the Steam Frame pause menu. Particle effects, Smooth motion and Carnage must
+be off; incompatible combinations and non-playfield screens retain flat output.
+The panorama is unfiltered and leaves the saved flat VHS choice intact.
+
+The renderer draws 215 × 40 live terrain cells (including map-backed actors) and
+sprites, wraps sprite pixels at the seam, and preserves foreground priority.
+It keeps the original simulation camera, collision picture and projectile rules.
+Duplicate map columns are not synchronized by ordinary game writes: presentation
+chooses the alias nearest the simulation camera. This policy can expose changes
+when aliases disagree; the test reports their count. The special stored column
+255 is not a new physical world column.
+
+Validated on macOS and native Linux ARM64: `fort_world_check <installed-content>`
+runs 1,200 ticks with 35 sampled panoramas and checks repeated rendering, unchanged
+serialized state, flat pixels and audio against an undrawn instance, plus state
+round trip. Synthetic tests cover both seam directions and foreground priority.
+This run had no alias disagreements; it does not prove divergent-alias behavior,
+all three levels, teleport/death transitions or every offscreen enemy placement.
+The offscreen enemy's position is derived from the existing visibility equations;
+it still needs visual comparison at visibility boundaries.
+
+`persistence_checks --fort-options <installed-content>` now also checks the VR
+preference through the quick-save wrapper, fresh launch, Continue and quick load.
+macOS packaging, Android packaging and six relevant CTests passed. Native XR
+startup and live cylinder submission succeeded (over 10,800 uploads; mean
+ownership-plus-fence wait 0.290 ms, excluding CPU drawing and total frame cost).
+The user confirmed good alignment, seam and comfort, and reported that the mode
+appears completely playable and feels great. They observed a few-pixel horizontal
+wiggle of the normally hidden enemy. Its existing edge clamp ($9D46) combined
+with continued offscreen pursuit is a plausible cause; the exact instance has
+not been reproduced in a trace. Preserve those rules pending diagnosis.
+Remaining work includes enhanced effects, consistent actor/snapshot
+timing around camera-copy lag, transition coverage and measured live frame cost.

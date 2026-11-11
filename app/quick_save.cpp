@@ -149,6 +149,7 @@ class SavedGame final : public GameModule {
     bool available_{};
     int width_{}, height_{};
     platform::GpuSurface* surface_{};
+    bool world_surface_supported_{};
     platform::InputCapabilities input_capabilities_{};
 
   public:
@@ -159,6 +160,10 @@ class SavedGame final : public GameModule {
     double step_seconds() const override { return game_->step_seconds(); }
     void tick(const GameInput &in) override { game_->tick(in); }
     platform::Image picture() const override { return game_->picture(); }
+    void set_world_surface_supported(bool supported) override {
+        world_surface_supported_ = supported; game_->set_world_surface_supported(supported);
+    }
+    std::optional<WorldSurface> world_surface() const override { return game_->world_surface(); }
     platform::Image save_picture() const override { return game_->save_picture(); }
     void set_frame_fraction(double fraction) override { game_->set_frame_fraction(fraction); }
     void set_display_pointer(std::optional<std::array<int, 2>> at) override { game_->set_display_pointer(at); }
@@ -217,6 +222,7 @@ class SavedGame final : public GameModule {
             fresh->set_canvas(width_, height_);
             fresh->attach_gpu(surface_);
             fresh->set_input_capabilities(input_capabilities_);
+            fresh->set_world_surface_supported(world_surface_supported_);
             // The save's own game options; presentation options (the screen filter) keep the
             // player's current choice.
             const auto opts = fresh->options();

@@ -1,0 +1,77 @@
+PASS synthetic wrap and foreground priority
+PASS 1200 ticks, 35 panorama samples; repeated rendering/state/audio/flat/save checks; max alias disagreements=0
+a2f911639868d2e0557c1e1cccbd7ae464f687e8734160f6d91176dd90b4932b  /home/steamos/reprise-dev/bundle/reprise-frame-probe
+Frame waits=31200 skipped=12498 state=3
+Frame waits=31800 skipped=13098 state=3
+Frame waits=32400 skipped=13698 state=3
+Frame waits=33000 skipped=14298 state=3
+Frame waits=33600 skipped=14898 state=3
+Frame waits=34200 skipped=15498 state=3
+Frame waits=34800 skipped=16098 state=3
+Frame waits=35400 skipped=16698 state=3
+Frame waits=36000 skipped=17298 state=3
+Frame waits=36600 skipped=17898 state=3
+Frame waits=37200 skipped=18498 state=3
+Frame waits=37800 skipped=19098 state=3
+Frame waits=38400 skipped=19698 state=3
+Frame waits=39000 skipped=20298 state=3
+Frame render-and-fences n=600 mean=13.901 p95=22.889 max=28.440 ms
+Frame xrEndFrame n=600 mean=0.278 p95=0.555 max=0.833 ms
+Gameplay pause menu
+Frame render-and-fences n=600 mean=13.524 p95=15.903 max=30.930 ms
+Frame xrEndFrame n=600 mean=0.280 p95=0.520 max=0.761 ms
+World cylinder: 4680 uploads, mean ownership+fence 0.286 ms
+Frame render-and-fences n=600 mean=13.836 p95=22.645 max=29.697 ms
+Frame xrEndFrame n=600 mean=0.274 p95=0.536 max=0.744 ms
+World cylinder: 5040 uploads, mean ownership+fence 0.287 ms
+Frame render-and-fences n=600 mean=14.085 p95=23.195 max=31.351 ms
+Frame xrEndFrame n=600 mean=0.269 p95=0.548 max=0.801 ms
+World cylinder: 5400 uploads, mean ownership+fence 0.289 ms
+Frame render-and-fences n=600 mean=14.065 p95=23.109 max=27.596 ms
+Frame xrEndFrame n=600 mean=0.271 p95=0.531 max=0.704 ms
+World cylinder: 5760 uploads, mean ownership+fence 0.291 ms
+Frame render-and-fences n=600 mean=13.922 p95=22.558 max=30.281 ms
+Frame xrEndFrame n=600 mean=0.266 p95=0.535 max=0.849 ms
+World cylinder: 6120 uploads, mean ownership+fence 0.292 ms
+World cylinder: 6480 uploads, mean ownership+fence 0.292 ms
+Frame render-and-fences n=600 mean=13.966 p95=22.896 max=28.106 ms
+Frame xrEndFrame n=600 mean=0.274 p95=0.545 max=0.766 ms
+World cylinder: 6840 uploads, mean ownership+fence 0.292 ms
+Frame render-and-fences n=600 mean=13.884 p95=22.460 max=28.883 ms
+Frame xrEndFrame n=600 mean=0.262 p95=0.519 max=0.675 ms
+World cylinder: 7200 uploads, mean ownership+fence 0.292 ms
+Frame render-and-fences n=600 mean=13.752 p95=21.585 max=26.933 ms
+Frame xrEndFrame n=600 mean=0.268 p95=0.511 max=0.847 ms
+World cylinder: 7560 uploads, mean ownership+fence 0.291 ms
+Frame render-and-fences n=600 mean=13.811 p95=21.648 max=28.049 ms
+Frame xrEndFrame n=600 mean=0.256 p95=0.488 max=0.669 ms
+World cylinder: 7920 uploads, mean ownership+fence 0.292 ms
+Frame render-and-fences n=600 mean=13.743 p95=21.044 max=27.805 ms
+Frame xrEndFrame n=600 mean=0.255 p95=0.490 max=3.260 ms
+World cylinder: 8280 uploads, mean ownership+fence 0.290 ms
+Frame render-and-fences n=600 mean=13.744 p95=20.768 max=26.543 ms
+Frame xrEndFrame n=600 mean=0.241 p95=0.470 max=1.076 ms
+World cylinder: 8640 uploads, mean ownership+fence 0.288 ms
+World cylinder: 9000 uploads, mean ownership+fence 0.288 ms
+Frame render-and-fences n=600 mean=13.947 p95=21.319 max=26.845 ms
+Frame xrEndFrame n=600 mean=0.240 p95=0.496 max=0.717 ms
+Frame render-and-fences n=600 mean=14.058 p95=22.218 max=27.262 ms
+Frame xrEndFrame n=600 mean=0.252 p95=0.525 max=0.875 ms
+World cylinder: 9360 uploads, mean ownership+fence 0.289 ms
+World cylinder: 9720 uploads, mean ownership+fence 0.289 ms
+Frame render-and-fences n=600 mean=14.096 p95=23.329 max=29.453 ms
+Frame xrEndFrame n=600 mean=0.262 p95=0.525 max=0.782 ms
+World cylinder: 10080 uploads, mean ownership+fence 0.289 ms
+Frame render-and-fences n=600 mean=13.909 p95=22.113 max=27.068 ms
+Frame xrEndFrame n=600 mean=0.253 p95=0.518 max=0.760 ms
+World cylinder: 10440 uploads, mean ownership+fence 0.289 ms
+Frame render-and-fences n=600 mean=13.854 p95=22.238 max=28.760 ms
+Frame xrEndFrame n=600 mean=0.250 p95=0.524 max=0.725 ms
+World cylinder: 10800 uploads, mean ownership+fence 0.290 ms
+Frame render-and-fences n=600 mean=13.929 p95=21.926 max=28.823 ms
+Frame xrEndFrame n=600 mean=0.243 p95=0.508 max=0.702 ms
+Session state 4
+Session state 3
+Gameplay paused on focus/tracking loss
+Frame render-and-fences n=263 mean=13.746 p95=20.386 max=27.124 ms
+Frame xrEndFrame n=263 mean=0.238 p95=0.501 max=0.658 ms

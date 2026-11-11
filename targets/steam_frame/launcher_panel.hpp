@@ -13,6 +13,8 @@ public:
     app::Launcher::Request update(const platform::Controls&, double now, bool focused = true);
     platform::Image draw(double now, bool omit_cover) const;
     bool playing() const { return gameplay_.active(); }
+    void set_world_surface_supported(bool supported) { gameplay_.set_world_surface_supported(supported); }
+    const std::optional<app::WorldSurface>& world_surface() const { return gameplay_.world_surface(); }
     bool separate_cover() const { return !playing() && !choosing_ && !import_work_.valid(); }
     bool open() const { return launcher_.details_open(); }
     bool reduced_motion() const { return launcher_.reduced_motion(); }

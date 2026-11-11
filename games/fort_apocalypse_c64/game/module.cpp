@@ -151,6 +151,25 @@ void Module::audio(std::span<float> stereo, int sample_rate) {
     }
 }
 
+std::optional<app::WorldSurface> Module::world_surface() const {
+    // These effects need world-space renderers of their own. Keep their saved
+    // choices and fall back to flat output rather than silently dropping them.
+    if (!world_supported_ || !world_enabled_ || particles() || smooth_ || world_ || after_hold_)
+        return std::nullopt;
+    const auto scene = game_->world_scene();
+    if (!scene) return std::nullopt;
+    app::WorldSurface surface;
+    surface.image = enhanced::world_image(*scene);
+    surface.pixel_aspect = pixel_aspect();
+    surface.focus_x = scene->focus_x;
+    surface.scene_id = scene->level;
+    surface.revision = frames_;
+    surface.hud = platform::Image(320, Game::hud_lines);
+    const auto flat = game_->picture().to_image(0, 0);
+    std::copy_n(flat.pixels.begin(), surface.hud.pixels.size(), surface.hud.pixels.begin());
+    return surface;
+}
+
 std::vector<std::uint8_t> Module::write_state() {
     state::Writer a;
     persist_runtime(a);
@@ -179,7 +198,7 @@ bool Module::load() {
 }
 
 std::vector<app::GameOption> Module::options() const {
-    return {{"Enemy pilot",
+    std::vector<app::GameOption> result{{"Enemy pilot",
              {"Original", "Fixed"},
              options_.fixed_enemy_climb ? 1 : 0,
              "Original: a corrupt byte makes the enemy climb into rock, and brown rock cannot "
@@ -239,6 +258,12 @@ std::vector<app::GameOption> Module::options() const {
              "tanks, towers and laser emitters fall, depots blow up; combos, overdrive and "
              "momentum flight.",
              "Carnage"}};
+    if (world_supported_) result.push_back({"VR world", {"Flat screen", "Cylinder (preview)"},
+        world_enabled_ ? 1 : 0,
+        "Shows the whole level around you. Preview requires Particle effects, Smooth motion "
+        "and Carnage mode off; otherwise uses the flat screen. The panorama is unfiltered. "
+        "Recenter to bring the craft in front of you.", "", true});
+    return result;
 }
 
 void Module::set_option(std::size_t index, int value) {
@@ -269,6 +294,8 @@ void Module::set_option(std::size_t index, int value) {
         options_.slow_walls = value == 1;
     } else if (index == 10) {
         options_.carnage = value == 1;
+    } else if (index == 11) {
+        world_enabled_ = value == 1;
     }
     if (!particles() && !smooth_) {
         draw(); // the effects' picture follows with the next frame
