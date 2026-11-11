@@ -43,7 +43,7 @@ def main():
          '-DSDL3_DIR=' + str(prefix / 'lib/cmake/SDL3'),
          '-DFREETYPE_INCLUDE=' + str(prefix / 'include/freetype2'),
          '-DFREETYPE_STATIC=' + str(prefix / 'lib/libfreetype.a')])
-    run(['cmake', '--build', build, '--target', 'reprise', 'shell_checks', 'stunt_lesson_checks', 'library_cache_checks', 'interceptor_lesson_checks', '-j', jobs])
+    run(['cmake', '--build', build, '--target', 'reprise', 'shell_checks', 'stunt_lesson_checks', 'library_cache_checks', 'interceptor_lesson_checks', 'zip_import_checks', 'host_touch_checks', '-j', jobs])
 
 
 if __name__ == '__main__':

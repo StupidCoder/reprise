@@ -67,6 +67,7 @@ def main():
     parser.add_argument('--install', action='store_true', help='Install the built APK using adb')
     parser.add_argument('--serial', help='adb device serial (with --install)')
     parser.add_argument('--version-code', type=int, default=1)
+    parser.add_argument('--release', action='store_true', help='Use the release version without the -dev suffix (same signing key)')
     parser.add_argument('--jobs', type=int, default=min(8, os.cpu_count() or 4))
     args = parser.parse_args()
     if args.version_code < 1 or args.jobs < 1: parser.error('version-code and jobs must be positive')
@@ -125,11 +126,12 @@ def main():
     shutil.copy2(ft / 'docs/FTL.TXT', notices / 'FreeType.txt')
     shutil.copy2(ft / 'LICENSE.TXT', notices / 'FreeType-license-selection.txt')
     version = re.search(r'project\(Reprise VERSION ([\d.]+)', (ROOT / 'CMakeLists.txt').read_text()).group(1)
+    version_name = version if args.release else version + '-dev'
     run([tools / 'aapt2', 'compile', '--dir', android / 'res', '-o', apk / 'res.zip'])
     unaligned = apk / 'unaligned.apk'
     run([tools / 'aapt2', 'link', '-o', unaligned, '-I', android_jar, '--manifest', android / 'AndroidManifest.xml',
          '--min-sdk-version', MIN_API, '--target-sdk-version', TARGET_API, '--version-code', args.version_code,
-         '--version-name', version + '-dev', '-A', assets, apk / 'res.zip'])
+         '--version-name', version_name, '-A', assets, apk / 'res.zip'])
     binaries = next((ndk / 'toolchains/llvm/prebuilt').glob('*/bin'))
     libs = apk / 'lib' / ABI; libs.mkdir(parents=True)
     for name, original in [('libSDL3.so', sdl_install / 'lib/libSDL3.so'), ('libmain.so', build / 'app/libmain.so')]:
@@ -156,7 +158,7 @@ def main():
         forbidden = {'.ipa', '.nds', '.3ds', '.cia', '.adf', '.tap', '.d64', '.sav', '.keystore'}
         if any(Path(n).suffix.lower() in forbidden for n in package.namelist()):
             raise RuntimeError('Source game data or signing material found in APK')
-    (build / 'build-info.json').write_text(json.dumps({'version': version, 'version_code': args.version_code,
+    (build / 'build-info.json').write_text(json.dumps({'version': version_name, 'version_code': args.version_code,
         'abi': ABI, 'min_sdk': MIN_API, 'target_sdk': TARGET_API, 'ndk': str(ndk), 'sdl': SDL_VERSION,
         'freetype': FT_VERSION, 'apk_sha256': digest(result)}, indent=2) + '\n')
     print('Built ' + str(result) + ' (' + str(round(result.stat().st_size / 1048576, 1)) + ' MiB)', flush=True)

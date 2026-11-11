@@ -22,12 +22,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Check release version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: python3 tools/check_release_version.py "${GITHUB_REF_NAME}"
       - name: Install build tools
         run: brew install cmake ninja
       - name: Build pinned dependencies, Reprise and shell checks
         run: python3 tools/build_ci_macos.py
       - name: Check shell without game images
-        run: ctest --test-dir build --output-on-failure -R '^(shell_navigation|shell_motion|import_progress|development_articles|technical_articles|library_validation_cache|interceptor_lessons)$'
+        run: ctest --test-dir build --output-on-failure -R '^(shell_navigation|shell_motion|import_progress|development_articles|technical_articles|library_validation_cache|interceptor_lessons|zip_collection_import|host_touch_coordinates)$'
       - name: Package app
         run: |
           python3 tools/package_macos.py
@@ -49,6 +52,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Check release version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: python3 tools/check_release_version.py "${GITHUB_REF_NAME}"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -89,7 +95,9 @@ jobs:
       - name: Build and verify APK
         run: |
           unset ANDROID_NDK_HOME ANDROID_NDK_ROOT
-          ./build-android.sh --jobs 4 --version-code "$((1000 + GITHUB_RUN_NUMBER))"
+          release_args=()
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then release_args+=(--release); fi
+          ./build-android.sh --jobs 4 --version-code "$((1000 + GITHUB_RUN_NUMBER))" "${release_args[@]}"
           mkdir -p dist
           cp build-android/Reprise.apk dist/Reprise-Android-arm64.apk
           cp build-android/build-info.json dist/Android-build-info.json
@@ -112,6 +120,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -125,6 +136,6 @@ jobs:
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
           else
-            gh release create "$RELEASE_TAG" --verify-tag --draft --title "Reprise $RELEASE_TAG" --notes "Test builds: Apple Silicon macOS app (ad-hoc signed, not notarized) and ARM64 Android APK (debug signed). Supply your own game images. Review and edit these notes before publishing."
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "Reprise $RELEASE_TAG" --notes-file "docs/releases/${RELEASE_TAG}.md"
           fi
           gh release upload "$RELEASE_TAG" dist/* --clobber

@@ -21,7 +21,7 @@ in a ZIP; the macOS artifact contains a second ZIP preserving the app bundle.
 
 Dependencies use the existing checksum-pinned SDL / FreeType sources. Android
 SDK/NDK versions come from tools/build_android.py. The Mac build also runs the
-three image-independent shell checks. No caches of game data or signing keys
+image-independent shell, article, touch-coordinate and ZIP-import checks. No caches of game data or signing keys
 are uploaded. Builds have 60-minute limits; overlapping requests on the same
 ref are queued rather than cancelling work already in progress.
 
@@ -56,13 +56,16 @@ distribution; that is separate from this test pipeline.
 
 ## Prepare a release
 
-Push a version tag such as v0.2.1 when the source is ready. It triggers both
+Push a version tag such as v0.1.0 when the source is ready. It triggers both
 builds and, only after they succeed, creates a **draft** GitHub Release with the
 downloads attached. Review the notes and publish it when ready. Published
 releases are never overwritten by a rerun; existing drafts can be updated.
 
-Update CMakeLists.txt's project version before tagging. The Mac packager reads
-that version too. Workflow files alone do not run on GitHub until committed and
+Update CMakeLists.txt's project version and add `docs/releases/v<VERSION>.md`
+before tagging. Both build jobs reject a mismatching tag or missing notes. The
+Mac packager reads that version too. Tagged Android builds use `--release` to
+omit the usual `-dev` suffix; this does not change the signing identity or
+debuggable manifest. The release draft uses the checked-in notes. Workflow files alone do not run on GitHub until committed and
 pushed. The signing secret must also be configured separately.
 
 Apple Developer ID signing/notarization and Intel/universal Mac builds are

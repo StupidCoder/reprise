@@ -16,7 +16,7 @@ font/imagery exceptions are identified in [NOTICE.md](NOTICE.md).
 
 ## What works today
 
-Status as of **30 October 2026**. Support ranges from asset viewers to games
+Status for **0.1.0 (11 November 2026)**. Support ranges from asset viewers to games
 playable through their endings. Each game's `plan.md` records remaining work,
 known bugs and validation gaps.
 
@@ -28,13 +28,13 @@ known bugs and validation gaps.
 | Mind Walker | Amiga | Playable through all four stages to the finale, with saved worlds and a player guide |
 | Marble Madness | Amiga | All six courses and one-player flow; three lessons |
 | Wings of Fury | Amiga | Story, rank selection and all fifteen missions |
-| Cannon Fodder | Amiga | First ten maps; front end, briefings, recruits and vehicles remain incomplete |
+| Cannon Fodder | Amiga | All 72 campaign phases, vehicles, recruits and front end; some paths still need reference validation |
 | Rock ’n Roll | Amiga | Playable from title to ending, with all levels, items, records, music and sound |
-| F/A-18 Interceptor | Amiga | Free flight with take-off, landing, cockpit instruments and sound; menus, weapons and other aircraft remain incomplete |
+| F/A-18 Interceptor | Amiga | Free flight, both aircraft, weapons and mission flow; touch controls and illustrated lessons; some collision and presentation details remain |
 | Spindizzy Worlds | Amiga | Playable through both clusters and all 30 worlds to both endings, with menus, music and saves |
 | Tower of Babel | Amiga | Playable game, tower designer, custom towers, saved positions, music and sound |
-| Beach Volley | Amiga | Intro with music and voices, players menu and court previews; matches are not playable yet |
-| Stunt Car Racer | Amiga | Import, loading picture and eight circuits viewable as 3D models; no playable racing yet |
+| Beach Volley | Amiga | Single-player tour through all eight venues and the ending; two-player matches remain incomplete |
+| Stunt Car Racer | Amiga | Playable racing, computer opponent and single-player league; illustrated technical lessons; some presentation and validation work remains |
 | Sonic the Hedgehog | Game Gear | Playable through both endings |
 | Sonic the Hedgehog 2 | Game Gear | Playable through both endings; some paths still need comparison with the original |
 | Sonic Triple Trouble | Game Gear | Playable to the ending; some paths remain incomplete or unverified |
@@ -45,6 +45,8 @@ known bugs and validation gaps.
 | Professor Layton and the Spectre’s Call | Nintendo DS | Story through the credits, 228 puzzles, minigames and bonus section; some scenery and faces are approximated |
 | Professor Layton and the Miracle Mask | Nintendo 3DS | Story through the credits, all 150 puzzles and side games; some side-game features remain incomplete or unverified |
 | Professor Layton and the Azran Legacy | Nintendo 3DS | Import and image previews; no playable story yet |
+| Captain Toad: Treasure Tracker | Nintendo 3DS | Opening, course book and first four reconstructed courses; scene-entry checkpoints; later courses remain incomplete |
+| Astro Bot Rescue Mission | PlayStation 4 | Asset import, animated character viewer and music; gameplay is not connected yet |
 | Spy Mouse | iOS | Worlds 1–4, including secret levels and bosses, using version 1.1.1; later worlds and some accuracy work remain |
 
 The Sonic games currently require physical controls. Layton uses touch or mouse
@@ -74,6 +76,8 @@ accessed through SDL. Filters affect gameplay, keeping app menus and save/load
 notifications sharp. Original gameplay remains separate from optional enhancements.
 
 ## Build downloads
+
+Download the macOS app or Android APK from [GitHub Releases](https://github.com/StupidCoder/reprise/releases). The macOS build is Apple Silicon-only, ad-hoc signed and not notarized; the Android ARM64 APK uses the existing debug signing identity and is intended for sideloading, not the Play Store.
 
 GitHub can build the macOS app and Android APK on demand, or when a version tag
 is pushed. Ordinary commits do not trigger builds. See [Build downloads](docs/BUILD_DOWNLOADS.md)
