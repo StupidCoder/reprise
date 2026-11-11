@@ -1,0 +1,35 @@
+Live stereo practice preview, 2026-11-11
+Binary SHA256: a0598096054f3a20561d64cf6f1c7c060019056531808d1bad5bcfbc1727dba6
+Installed: ~/reprise-dev/bundle/reprise-frame-probe
+Build: ./build.sh --steam-frame build --launcher
+Launch: ./build.sh --steam-frame stop; ./build.sh --steam-frame launch --launcher
+
+Checks:
+./build.sh: passed, packaged macOS
+./build-android.sh: passed
+Native ARM64 build/install: passed
+CTest stunt_scene_geometry, fort_world_render, shell_navigation, host_touch_coordinates: 4/4 passed
+stunt_scene_check --module <installed SCR content>: 500 ticks, 1080 repeated scene samples; flat/future pictures and timing unchanged
+stunt_car_racer_physcheck <installed SCR content> .analysis/stunt_car_racer_amiga/work/race_lr1.bin 0 race 2: 467/467 exact
+
+Headset log excerpts:
+Live stereo scene: 7200 frames, both-eye wall mean 0.979 ms, fence wait mean 0.909 ms; no readback
+Stereo frame 10200, predicted period 13.89 ms, submit wall time 15.96 ms
+Frame render-and-fences n=600 mean=13.968 p95=23.105 max=29.695 ms
+Frame xrEndFrame n=600 mean=0.251 p95=0.513 max=0.777 ms
+Session state 4
+Session state 3
+Gameplay paused on focus/tracking loss
+
+These are CPU wall/fence timings, not GPU timestamp measurements. Whole-frame
+budget is not consistently met. Live scene execution is established; wearer
+visual and comfort validation remains pending. Frozen study depth/no-garbling
+was confirmed by the wearer before this implementation.
+
+Bank-direction correction deployed and launcher restarted.
+Corrected binary SHA256: 14ad37519cd88887a6141fe9254c51c4ef56c59030b009f5810dbf751ebea1f9
+Regression checks both roll signs against the original angular projector.
+Synthetic CTest and 500-tick module comparison passed again.
+Wearer confirmed corrected banking and live presentation: "it works now and
+still feels distinctly like Stunt Car Racer, but in cleaner, smoother stereo
+graphics." This does not establish all-track or prolonged-comfort coverage.

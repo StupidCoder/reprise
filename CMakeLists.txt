@@ -33,6 +33,7 @@ set(SOURCE_ROOT ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/shared $
 
 # --- platform: host services (window, input, audio, files) --------------------
 add_library(platform
+    shared/platform/scene3d.cpp
     shared/platform/host_sdl.cpp
     shared/platform/sha256.cpp
     shared/platform/resources.cpp
@@ -399,6 +400,7 @@ add_library(stunt_car_racer_amiga
     games/stunt_car_racer_amiga/render/front_end_screen.cpp
     games/stunt_car_racer_amiga/render/race_screen.cpp
     games/stunt_car_racer_amiga/render/race_view.cpp
+    games/stunt_car_racer_amiga/render/scene.cpp
     games/stunt_car_racer_amiga/lessons/technical_article.cpp)
 target_include_directories(stunt_car_racer_amiga PUBLIC ${SOURCE_ROOT})
 target_link_libraries(stunt_car_racer_amiga PUBLIC amiga platform ui)
@@ -590,6 +592,9 @@ add_executable(fa_18_interceptor_assets tools/fa_18_interceptor_assets.cpp)
 target_link_libraries(fa_18_interceptor_assets PRIVATE fa_18_interceptor_amiga)
 target_compile_options(fa_18_interceptor_assets PRIVATE ${PROJECT_WARNINGS})
 add_executable(stunt_car_racer_assets tools/stunt_car_racer_assets.cpp)
+add_executable(stunt_scene_check tools/stunt_scene_check.cpp)
+target_link_libraries(stunt_scene_check PRIVATE stunt_car_racer_amiga)
+target_compile_options(stunt_scene_check PRIVATE ${PROJECT_WARNINGS})
 target_link_libraries(stunt_car_racer_assets PRIVATE stunt_car_racer_amiga)
 target_compile_options(stunt_car_racer_assets PRIVATE ${PROJECT_WARNINGS})
 add_executable(stunt_car_racer_physcheck tools/stunt_car_racer_physcheck.cpp)
@@ -618,6 +623,9 @@ add_custom_target(reprise_resources ALL
 add_dependencies(reprise reprise_resources)
 
 include(CTest)
+if(BUILD_TESTING)
+    add_test(NAME stunt_scene_geometry COMMAND stunt_scene_check)
+endif()
 if(BUILD_TESTING)
     add_test(NAME fort_world_render COMMAND fort_world_check)
 endif()

@@ -22,6 +22,7 @@ parser.add_argument('--room', action='store_true', help='Show the shader-rendere
 parser.add_argument('--benchmark', action='store_true', help='Diagnostic: tick/upload even when not visible')
 parser.add_argument('--catalog', action='store_true', help='Show the exported real catalog ring')
 parser.add_argument('--reduced-motion', action='store_true')
+parser.add_argument('--stereo-study', help='Headset folder with frozen stereo.txt/left.png/right.png; launch diagnostic only')
 args = parser.parse_args()
 ssh = ['ssh', '-i', args.identity, '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes',
        '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=10',
@@ -113,6 +114,10 @@ elif args.action == 'launch':
         command += ['--room', '--catalog', '/home/steamos/reprise-dev/bundle/catalog', '--data', args.data]
     if args.reduced_motion:
         command += ['--reduced-motion']
+    if args.stereo_study:
+        if args.launcher or args.catalog or args.content:
+            parser.error('--stereo-study cannot be combined with launcher/catalog/content')
+        command += ['--stereo-study', args.stereo_study]
     remote(shlex.join(command))
 elif args.action == 'stop':
     remote('systemctl --user stop reprise-frame-probe')

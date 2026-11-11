@@ -1,9 +1,11 @@
 #include "ring.hpp"
 #include "room_math.hpp"
+#include "window_follow.hpp"
 #include "xr_texture.hpp"
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <functional>
 #include <numbers>
@@ -12,6 +14,7 @@
 #include <string>
 #ifdef REPRISE_FRAME_LAUNCHER
 #include "launcher_panel.hpp"
+#include "stereo_scene.hpp"
 #endif
 
 using namespace frame_room;
@@ -31,12 +34,21 @@ struct Ring::Impl {
     double hover_time{};
 #ifdef REPRISE_FRAME_LAUNCHER
     std::unique_ptr<LauncherPanel> panel;
+    std::unique_ptr<StereoScene> stereo;
+    std::function<std::unique_ptr<StereoScene>()> open_stereo;
     XrTexture panel_texture, fade_texture;
+    std::unique_ptr<XrTexture> scene_overlay;
+    std::function<void(XrTexture&,int,int)> open_overlay;
+    std::optional<platform::Image> uploaded_overlay;
+    bool native_overlay{};
+    unsigned overlay_frames{},overlay_uploads{};
     std::vector<unsigned char> fade_pixels;
     int atlas_height{}, selected=-1;
     float progress{}, scroll_remainder{};
     bool closing{};
     XrPosef selected_pose{}, panel_pose{}, cover_from{};
+    WindowFollow window_follow;
+    bool following_window{};
     double last_draw=-100;
     std::optional<platform::Image> panel_image;
     std::unique_ptr<XrTexture> world_texture;
@@ -56,6 +68,7 @@ void Ring::recenter() {
     suspend(impl_->previous); impl_->anchored=false; impl_->focused=-1;
 #ifdef REPRISE_FRAME_LAUNCHER
     impl_->world_anchored=false;
+    impl_->window_follow.reset();
 #endif
 }
 const std::vector<XrCompositionLayerQuad>& Ring::layers() const { return impl_->quads; }
@@ -109,10 +122,18 @@ void Ring::open(XrSession session, XrSpace space, VkPhysicalDevice physical, VkD
 #ifdef REPRISE_FRAME_LAUNCHER
     if (data) {
         p.panel=std::make_unique<LauncherPanel>(data);
+        p.panel->set_scene_surface_supported(true);
+        p.open_stereo=[=] {
+            auto scene=std::make_unique<StereoScene>();
+            scene->open(session,space,physical,device,queue,family,
+                std::filesystem::read_symlink("/proc/self/exe").parent_path()/"shaders");
+            return scene;
+        };
         p.panel->set_world_surface_supported(cylinder);
         if(cylinder) p.open_world=[=](XrTexture& texture,int w,int h) {
             texture.open(session,physical,device,queue,family,w,h);
         };
+        p.open_overlay=[=](XrTexture& texture,int w,int h) {texture.open(session,physical,device,queue,family,w,h);};
         p.panel_texture.open(session,physical,device,queue,family,960,640);
         p.fade_texture.open(session,physical,device,queue,family,p.atlas_width,height);
         p.atlas_height=height;
@@ -153,7 +174,7 @@ void Ring::open(XrSession session, XrSpace space, VkPhysicalDevice physical, VkD
 void Ring::update(double time, const XrPosef& head, const std::array<std::optional<XrPosef>,2>& aim,
                   const std::array<bool,2>& clicked, bool reduced, unsigned budget,
                   bool has_focus, bool back, float scroll, const platform::Controls& game_controls,
-                  const std::array<bool,2>& held) {
+                  const std::array<bool,2>& held, const std::array<XrView,2>& eyes) {
     auto& p=*impl_;
     p.cylinders.clear();
     if (!p.anchored) {
@@ -188,7 +209,7 @@ void Ring::update(double time, const XrPosef& head, const std::array<std::option
     if(p.panel) reduced = reduced || p.panel->reduced_motion();
     if(p.selected<0) p.hover_time+=dt;
 #else
-    (void)back; (void)scroll; (void)game_controls; (void)held;
+    (void)back; (void)scroll; (void)game_controls; (void)held; (void)eyes;
     p.hover_time+=dt;
 #endif
     const float radius=std::max(3.f,float(p.ids.size())*.74f/(2*std::numbers::pi_v<float>));
@@ -228,6 +249,12 @@ void Ring::update(double time, const XrPosef& head, const std::array<std::option
         const float opacity=ease(p.progress);
         const float t=reduced ? 1.f : opacity;
         if(!has_focus) p.scroll_remainder=0;
+        // Update before pointer hit testing so input and rendered layers share
+        // exactly the same pose. Immersive world surfaces retain their anchor.
+        const bool follow=p.panel->playing() && !p.world_anchored && !p.panel->world_surface();
+        if(follow!=p.following_window) p.window_follow.reset();
+        p.following_window=follow;
+        if(follow && has_focus) p.panel_pose=p.window_follow.update(head,dt,reduced);
         bool dirty=false;
         if(p.progress==1 && !p.closing) {
             platform::Controls controls=game_controls;
@@ -278,9 +305,27 @@ void Ring::update(double time, const XrPosef& head, const std::array<std::option
         }
         if(dirty || p.progress<1 || p.panel->playing() || time-p.last_draw>1./30) {
             if(!p.closing || !p.panel_image) p.panel_image=p.panel->draw(time,true);
-            auto image=*p.panel_image;
-            for(auto& pixel:image.pixels) pixel.a=static_cast<unsigned char>(pixel.a*opacity);
-            p.panel_texture.upload(image.pixels.data(),image.width*4);
+            p.native_overlay=bool(p.panel->scene_surface()) || p.panel_image->width!=960 || p.panel_image->height!=640;
+            if(p.native_overlay) {
+                const auto& image=*p.panel_image;
+                if(!p.uploaded_overlay || p.uploaded_overlay->width!=image.width || p.uploaded_overlay->height!=image.height) {
+                    p.scene_overlay=std::make_unique<XrTexture>();
+                    p.open_overlay(*p.scene_overlay,image.width,image.height);
+                    p.uploaded_overlay.reset();
+                }
+                if(!p.uploaded_overlay || std::memcmp(p.uploaded_overlay->pixels.data(),image.pixels.data(),image.pixels.size()*sizeof(platform::Color))) {
+                    p.scene_overlay->upload(image.pixels.data(),image.width*4);
+                    p.uploaded_overlay=image; ++p.overlay_uploads;
+                }
+                if(++p.overlay_frames%600==0) std::printf("Native cockpit overlay: %ux%u, %u uploads / %u frames\n",
+                    image.width,image.height,p.overlay_uploads,p.overlay_frames);
+            } else if(opacity==1) {
+                p.panel_texture.upload(p.panel_image->pixels.data(),p.panel_image->width*4);
+            } else {
+                auto image=*p.panel_image;
+                for(auto& pixel:image.pixels) pixel.a=static_cast<unsigned char>(pixel.a*opacity);
+                p.panel_texture.upload(image.pixels.data(),image.width*4);
+            }
             p.last_draw=time;
         }
         if(!p.panel->playing()) p.world_anchored=false;
@@ -338,6 +383,19 @@ void Ring::update(double time, const XrPosef& head, const std::array<std::option
                 p.panel_texture.upload(p.panel_image->pixels.data(),p.panel_image->width*4);
             }
         }
+        if(p.panel->playing() && p.panel->scene_surface() && p.open_stereo) {
+            try {
+                if(budget<3) throw std::runtime_error("Insufficient layer budget for stereo scene");
+                if(!p.stereo) p.stereo=p.open_stereo();
+                p.stereo->draw(*p.panel->scene_surface(),p.panel_pose,eyes);
+                for(const auto& eye:p.stereo->layers()) p.quads.push_back(eye);
+            } catch(const std::exception& error) {
+                std::printf("Stereo scene flat fallback: %s\n",error.what());
+                p.panel->set_scene_surface_supported(false);p.open_stereo={};p.native_overlay=false;
+                p.panel_image=p.panel->draw(time,true);
+                p.panel_texture.upload(p.panel_image->pixels.data(),p.panel_image->width*4);
+            }
+        }
         XrCompositionLayerQuad panel{XR_TYPE_COMPOSITION_LAYER_QUAD};
         panel.space=p.space; panel.eyeVisibility=XR_EYE_VISIBILITY_BOTH;
         panel.layerFlags=XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT | XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT;
@@ -346,6 +404,11 @@ void Ring::update(double time, const XrPosef& head, const std::array<std::option
         panel.pose=p.panel_pose;
         panel.pose.position=add(mul(p.selected_pose.position,1-t),mul(p.panel_pose.position,t));
         panel.size={.65f+(.85f*t),.65f*p.card_height/p.card_width+(1-.65f*p.card_height/p.card_width)*t};
+        if(p.native_overlay) {
+            panel.subImage.swapchain=p.scene_overlay->swapchain();
+            panel.subImage.imageRect.extent={p.uploaded_overlay->width,p.uploaded_overlay->height};
+            panel.size={1.5f,1.5f*p.uploaded_overlay->height/p.uploaded_overlay->width};
+        }
         p.quads.push_back(panel);
         constexpr auto rect=app::Launcher::landscape_cover_rect;
         const XrVector3f offset{((rect[0]+rect[2]/2.f)/960-.5f)*1.5f,(.5f-(rect[1]+rect[3]/2.f)/640),.002f};

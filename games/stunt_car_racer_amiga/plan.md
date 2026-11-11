@@ -144,3 +144,59 @@ Next:
 
 - [x] Illustrated angular-camera and three-support suspension articles, with imported road diagrams and portable SDL reading layouts.
 - [ ] After the playable reconstruction, add the opponent-driving lesson; resolve state ownership and validate decisions before presenting AI behaviour. See [lesson evidence](../../docs/articles/stunt-car-racer-technical.md).
+
+## VR presentation investigation (2026-11-11)
+
+[The Steam Frame VR plan](../../targets/steam_frame/STUNT_CAR_RACER_VR_PLAN.md)
+compares a stereo floating window with immersive seated rendering and recommends
+a shared 3D scene/perspective renderer, validating the window first. Important
+constraints are the original angular projection, 130 ms race ticks, restricted
+track visibility and partly screen-space opponent geometry. Currently,
+the frozen stereo study is followed by an opt-in live GPU practice preview.
+
+- `render/scene.*` extracts all eight circuits into portable indexed triangles
+  with material IDs and road UV coordinates. Heights retain the 1/4 plan scale.
+  Road sides use the original $200 base height. No physics or track data changes.
+- `platform/scene3d.*` supplies camera math and a deterministic depth-buffered
+  CPU reference renderer. This is a diagnostic backend, not the intended
+  real-time GPU implementation. Ground and track surfaces are two-sided for now;
+  no newly modelled road thickness is claimed.
+- `stunt_scene_check` checks depth order, near clipping, stereo convergence and
+  height normalization. Against installed content it checks every circuit's
+  interval/triangle coverage and unchanged original rendered start view, and
+  exports overview/underside and cockpit-composited eye pairs. Original palette
+  material alternation is provisional: profile-group shading, edge/start marks,
+  scenery and the opponent are not integrated.
+- The frozen Little Ramp pair is deployed through the Steam Frame stereo study
+  command. Both eyes show the same cockpit art; only the windscreen view differs.
+  It uses a documented provisional scale, 64 mm eye separation, off-axis
+  convergence at the panel and supersampling. It does not simulate driving or
+  respond to head translation. The wearer confirmed visible depth and no garbling; live comfort remains unvalidated.
+- macOS and Android builds and four relevant CTests passed. The existing Little
+  Ramp reference check still matches 467/467 frames when started at frame 2,
+  after the capture's documented missing first driving frame.
+
+The live practice preview now exports immutable scene snapshots and a cockpit
+overlay to the host Vulkan renderer, with optional camera interpolation. Physics
+timing stays unchanged; league races use the original flat view. Mac/Android and
+native ARM64 builds passed, as did a 500-tick scene-sampling invariance check.
+The wearer confirmed live driving presentation and corrected banking, retaining
+the game's feel with cleaner, smoother stereo graphics. Next: check broader track
+coverage, head translation and smoothing before immersive seating. Details,
+limitations and commands are in the Steam Frame plan.
+
+VR follow-up: the wearer validated textured road/grass as substantially improving
+depth perception. Source art and built-in image-generation prompts are recorded
+in `resources/stunt_car_racer_amiga/materials/README.md`. Track-details and league
+stereo now compile and are deployed for visual validation: profile shading,
+edge/start markings, decoded horizon polygons, and a new world-space opponent
+anchored to original race data. Practice and league 500-tick comparisons pass.
+Next priorities remain frame pacing, then immersive cockpit VR; detailed status
+and limitations are in the Steam Frame plan. No game logic changes claimed.
+
+Steam Frame pacing pass validated: native cockpit overlay with unchanged-image
+reuse plus CPU preparation overlapping the room submission reduced representative
+render-and-fence p95 from22–24ms to13.4ms. Wearer verified alignment, pause menus
+and the overlap build. Occasional over-budget frames remain; measurements exclude
+xrEndFrame and are not a controlled replay benchmark. See `stunt-pacing.txt` in
+the Steam Frame evidence. Immersive cockpit is the next requested milestone.

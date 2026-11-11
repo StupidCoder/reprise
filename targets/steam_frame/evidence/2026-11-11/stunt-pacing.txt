@@ -1,0 +1,42 @@
+Frame pacing, 2026-11-11, SteamVR OpenXR / Turnip Adreno750 / 72Hz
+Before: focused stereo driving, d4121e062f806528bcd5a24c4b360bd4e941f151b17171bbfe622f725ee9fc4b
+Frame render-and-fences n600 mean13.954 p95 22.304 max29.723ms
+Frame room-submit-fence n600 mean8.273 p95 10.045 max11.809ms
+Frame content n600 mean5.415 p95 13.856 max20.527ms
+
+Native overlay optimization, invocation fe1f13cf9b6443fd8da4eedcbba465b5
+Native cockpit overlay: 320x200, 4461 uploads / 15000 frames
+Frame render-and-fences n600 mean13.599 p95 15.073 max16.939ms
+Frame content n600 mean2.303 p95 3.619 max5.472ms
+Frame room-GPU n600 mean1.017 p95 1.198 max1.200ms
+Frame room-image-ownership n600 mean0.007 p95 0.015 max0.084ms
+Frame room-queue-fence n600 mean11.037 p95 11.692 max12.445ms
+Wearer: "Done. Still works." after driving and pause-menu check.
+
+Native ARM64 build passed. Host CTests shell_navigation/host_touch_coordinates
+passed2/2. Local room-math checks include native overlay versus logical panel
+coordinate mapping and passed.
+
+Overlap build invocation 7f581b7ab4014a7283bba9ea20f59e28 deployed next.
+Native build/startup succeeded; measurements pending.
+Comparisons use different wearer-driven runs, not an identical-input benchmark.
+
+Overlap final binary SHA256:
+5c608857c8febf3b0ba2d8742c94996048bd7c712d8349ccd2214c9b699bc4ec
+Over 10000 submitted frames, pause-menu events and focus-loss pause observed.
+Frame render-and-fences n600 mean12.504 p95 13.424 max14.882ms
+Frame xrEndFrame n600 mean0.221 p95 0.424 max0.774ms
+Frame room-record-submit n600 mean0.037 p95 0.072 max0.296ms
+Frame content n600 mean12.204 p95 13.146 max14.681ms
+Frame room-GPU n600 mean1.015 p95 1.174 max1.179ms
+Frame room-image-ownership n600 mean0.008 p95 0.015 max0.069ms
+Frame room-final-fence-wait n600 mean0.005 p95 0.010 max0.033ms
+Native cockpit overlay: 320x200, 3191 uploads / 8400 frames
+Wearer: "Done. Everything good so far."
+
+Important: content/scene wall measurements now include queued room work, so
+substage values are not directly comparable with the prior serial schedule.
+Render-and-fences excludes xrEndFrame. Occasional frames still exceed13.89ms;
+these runs do not prove all-frame72Hz or an identical-input controlled speedup.
+Native builds passed; room math/native overlay pointer mapping checks passed.
+No shared game logic changes; macOS/Android source paths unchanged by this slice.

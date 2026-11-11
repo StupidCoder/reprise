@@ -13,6 +13,8 @@ public:
     platform::Image draw(double now);
     void set_world_surface_supported(bool);
     const std::optional<app::WorldSurface>& world_surface() const;
+    void set_scene_surface_supported(bool);
+    const std::optional<app::SceneSurface>& scene_surface() const;
     std::string take_message();
 private:
     struct Impl;

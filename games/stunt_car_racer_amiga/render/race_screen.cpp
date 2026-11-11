@@ -192,6 +192,17 @@ platform::Image draw_race_screen(const data::CockpitArt& art, const View& view, 
     return image;
 }
 
+platform::Image cockpit_overlay(const data::CockpitArt& art, const Palette& palette, const Cockpit& cockpit) {
+    View zero, one; zero.pixels.fill(0); one.pixels.fill(1);
+    auto overlay=draw_race_screen(art,zero,palette,cockpit);
+    const auto mask=draw_race_screen(art,one,palette,cockpit);
+    for(std::size_t i=0;i<overlay.pixels.size();++i) {
+        auto& a=overlay.pixels[i]; const auto b=mask.pixels[i];
+        if(a.r!=b.r || a.g!=b.g || a.b!=b.b) a={0,0,0,0};
+    }
+    return overlay;
+}
+
 platform::Image start_screen(const data::Program& program, const data::Circuits& circuits, const data::Scenery& scenery,
                              const data::CockpitArt& art, const data::Track& track) {
     // DROP / START (message $2C, four groups), the chains at their lowest

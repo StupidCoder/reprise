@@ -1,0 +1,21 @@
+Eye-level gameplay window follow, 2026-11-11
+Implementation: window_follow.hpp, ring.cpp
+Native ARM64 build/install via ./build.sh --steam-frame build --launcher: passed
+Local room_math_checks compiled against pinned OpenXR headers: passed
+CTest shell_navigation and host_touch_coordinates: passed
+Launcher restarted successfully; wearable visual/comfort validation pending.
+
+Contract: eye-level upright window 2m ahead; translation/yaw only, 0.5s dwell,
+8cm/8degree dead zone, critically damped spring rate6. Reduced motion keeps
+the initial anchor; recenter places immediately. Immersive cylinder excluded.
+
+Deployed binary SHA256: 58e6781ec94f16c9de13de1f33213c8081efd9599d11b99ad415c0254f3bd38c
+OpenXR initialized, catalog loaded, stereo frame 1 submitted; session state3.
+
+Follow revision after wearer feedback:
+Threshold increased to 20 cm / 25 degrees; dwell remains 500 ms.
+Spring rate8; stops within 1 cm / 0.5 degrees, clears velocity/dwell, no snap.
+Local room checks passed including edge glance, arrival, subsequent small
+movement and fresh dwell. Host CTests passed 2/2. Native build/install and
+launcher restart succeeded. Revised comfort/feel not yet wearer-validated.
+Binary SHA256: e07fc84e3c621606de6c9bf0e360da39c490a7f92506abfc6d4009b1c98671b1

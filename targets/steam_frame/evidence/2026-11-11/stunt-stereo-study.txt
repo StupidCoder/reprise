@@ -1,0 +1,38 @@
+Frozen stereo geometry study, baseline 5fe894a plus uncommitted development.
+This is execution evidence, not wearer validation or live gameplay.
+
+Native log excerpts:
+Frozen stereo study loaded: 1280x800, panel 1.500x0.938 at 2.000m, nominal IPD 64.0mm; no simulation
+Session state 1
+Session state 2
+Frozen stereo anchored; runtime eye separation 64.0mm, nominal 64.0mm. Fixed images: no head-translation parallax.
+Stereo frame 1, predicted period 13.89 ms, submit wall time 16.27 ms
+Session state 3
+
+SHA-256 (headset files):
+0f8012346c832d01019ac388593284e40967ced454914f6c21bdf226af776968  reprise-frame-probe
+00502e4dc1a78aaefb1d83f98856a0d8660d1589c6a7fd2835aa31f82df417f9  left.png
+a2262e77fbc38a005606de98b5c2b5220e00cc5500c2c2a2aadc803c4099ecc9  right.png
+
+Local content-backed check summaries:
+PASS depth order, near clipping, off-axis stereo convergence, height normalization
+PASS Little Ramp: 398 road intervals, 2390 triangles, original view unchanged
+PASS Stepping Stones: 456 road intervals, 2738 triangles, original view unchanged
+PASS Hump Back: 442 road intervals, 2654 triangles, original view unchanged
+PASS Big Ramp: 398 road intervals, 2390 triangles, original view unchanged
+PASS Ski Jump: 379 road intervals, 2276 triangles, original view unchanged
+PASS Draw Bridge: 640 road intervals, 3842 triangles, original view unchanged
+PASS High Jump: 438 road intervals, 2630 triangles, original view unchanged
+PASS Roller Coaster: 640 road intervals, 3842 triangles, original view unchanged
+
+Original Little Ramp race replay (race_lr1.bin, track 0, race 2):
+467 of 467 frames exact
+Frame 2 is required because the original capture missed its first driving frame.
+The initial frame-0 invocation produced 1/469 exact and is not a passed check.
+
+CTest: stunt_scene_geometry, fort_world_render, shell_navigation,
+host_touch_coordinates: 4/4 passed.
+macOS package, Android APK, native ARM64 build/runtime linkage succeeded.
+Local final tool-only correction: underside overview camera no longer has a
+degenerate vertical basis. Rebuilt and visually inspected Roller Coaster's
+underside. This does not change deployed Little Ramp eye images or XR binary.

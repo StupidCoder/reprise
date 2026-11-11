@@ -51,6 +51,7 @@ struct Cockpit {
 };
 
 platform::Image draw_race_screen(const data::CockpitArt&, const View&, const Palette&, const Cockpit&);
+platform::Image cockpit_overlay(const data::CockpitArt&, const Palette&, const Cockpit&);
 
 // A still for the launcher: the car hanging from the crane at the start of
 // `track`, "DROP / START" in the view, the opponent a step and a half ahead

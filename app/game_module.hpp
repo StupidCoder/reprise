@@ -1,6 +1,8 @@
 #pragma once
 #include "platform/host.hpp"
 #include "platform/image.hpp"
+#include "platform/scene3d.hpp"
+#include <memory>
 #include "ui/vhs.hpp"
 #include <algorithm>
 #include <array>
@@ -105,6 +107,20 @@ struct WorldSurface {
     long revision{};
 };
 
+// Immutable mesh and one presentation sample shared by both eyes. The host
+// supplies stereo projection and owns GPU/XR resources. Overlay has a transparent
+// aperture (normalized x/y/width/height) for the scene. No physics runs here.
+struct SceneSurface {
+    std::shared_ptr<const platform::scene3d::Mesh> mesh;
+    // Small per-frame geometry; material indices refer to the static mesh.
+    std::shared_ptr<const platform::scene3d::Mesh> dynamic_mesh;
+    platform::scene3d::View camera;
+    platform::Image overlay{1,1};
+    platform::Color background;
+    std::array<double,4> aperture{};
+    double metres_per_unit{10};
+};
+
 class GameModule {
 public:
     virtual ~GameModule() = default;
@@ -119,6 +135,8 @@ public:
     virtual platform::Image picture() const = 0;
     virtual void set_world_surface_supported(bool) {}
     virtual std::optional<WorldSurface> world_surface() const { return std::nullopt; }
+    virtual void set_scene_surface_supported(bool) {}
+    virtual std::optional<SceneSurface> scene_surface() const { return std::nullopt; }
     // The VHS look the player chose in the game's options (0 off, up to
     // ui::vhs_levels - 1; screen_filter_option). The launcher draws it over
     // picture(), or over a GPU-drawn game's frame (screen_effect).

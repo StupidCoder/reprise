@@ -8,6 +8,8 @@
 #include "stunt_car_racer_amiga/race/race.hpp"
 #include "stunt_car_racer_amiga/render/race_screen.hpp"
 #include "stunt_car_racer_amiga/render/race_view.hpp"
+#include "stunt_car_racer_amiga/render/scene.hpp"
+#include <cmath>
 #include <algorithm>
 #include <optional>
 
@@ -93,7 +95,14 @@ class Module final : public app::GameModule {
             return;
         }
         fire_held_ = controls.fire;
+        previous_camera_=camera_now();
+        previous_opponent_=opponent_now();
+        const auto phase=race_->state().phase;
+        const auto recovering=race_->player().recovery;
         race_->step(controls);
+        // Recovery is a countdown, not a discontinuity. Only entering recovery
+        // (teleport to the crane) or changing race phase invalidates history.
+        if(phase!=race_->state().phase || (!recovering && race_->player().recovery)) previous_camera_=camera_now();
         spin_wheels(0);
         // The player's completed laps, for the track records.
         const auto laps = race_->state().cars[0].laps;
@@ -114,13 +123,7 @@ class Module final : public app::GameModule {
         if (!race_) return front_.picture();
         const auto& car = race_->player();
         const auto& state = race_->state();
-        render::Camera camera;
-        camera.x = car.x / 4096.0;
-        camera.z = car.z / 4096.0;
-        camera.eye = car.eye;
-        camera.yaw = std::uint16_t(car.yaw);
-        camera.pitch = car.view_pitch;
-        camera.roll = car.view_roll;
+        const auto camera=camera_now();
         std::optional<render::Opponent> opponent;
         if (state.league) {
             const auto& o = state.opponent;
@@ -137,6 +140,30 @@ class Module final : public app::GameModule {
                                                     : render::Beside::right;
         const auto view =
             render::draw_race_view(circuits_, scenery_, race_->track(), car.segment, camera, opponent, beside);
+        return render::draw_race_screen(art_, view, palette_, cockpit_now());
+    }
+
+    std::optional<render::Opponent> opponent_now() const {
+        if(!race_ || !race_->state().league) return {};
+        const auto& o=race_->state().opponent;
+        const int left=o.road[0],right=o.road[1],middle=o.road[2],half=(right-left)/2;
+        return render::Opponent{o.segment,(int(o.progress)-rear_axle)/256.,double(o.lane),
+            {double(o.lift[0]-left),double(o.lift[1]-right),double(o.lift[2]-(middle-half)),double(o.lift[3]-(middle+half))}};
+    }
+    render::Camera camera_now() const {
+        const auto& car=race_->player();
+        render::Camera camera;
+        camera.x = car.x / 4096.0;
+        camera.z = car.z / 4096.0;
+        camera.eye = car.eye;
+        camera.yaw = std::uint16_t(car.yaw);
+        camera.pitch = car.view_pitch;
+        camera.roll = car.view_roll;
+        return camera;
+    }
+    render::Cockpit cockpit_now() const {
+        const auto& car=race_->player();
+        const auto& state=race_->state();
         render::Cockpit cockpit;
         cockpit.wheel_frame = spin_.frame;
         cockpit.left_wheel_y = state.wheel_rows[0];
@@ -168,7 +195,7 @@ class Module final : public app::GameModule {
         bar = bar < 0 ? 0 : int((std::uint32_t(bar) * speed_bar_gain) >> 23);
         cockpit.speed_bar = std::min(bar, 127);
         cockpit.boost = car.boosting;
-        return render::draw_race_screen(art_, view, palette_, cockpit);
+        return cockpit;
     }
 
     // Touch buttons on a phone or tablet without a gamepad: left and right
@@ -192,16 +219,55 @@ class Module final : public app::GameModule {
 
     // The wheels turn on the 50 Hz vertical blank, between the race's frames.
     void set_frame_fraction(double fraction) override {
+        frame_fraction_=std::clamp(fraction,0.,1.);
         if (race_) spin_wheels(fraction);
     }
 
-    std::vector<app::GameOption> options() const override { return {app::screen_filter_option(vhs_)}; }
+    void set_scene_surface_supported(bool supported) override { scene_supported_=supported; }
+    std::vector<app::GameOption> options() const override {
+        std::vector<app::GameOption> out{app::screen_filter_option(vhs_)};
+        if(scene_supported_) {
+            out.push_back({"VR view", {"Flat", "Stereo window"}, stereo_ ? 1 : 0,
+                "High resolution stereo track in the floating cockpit. Includes practice and league races. Scene is unfiltered.", "", true});
+            out.push_back({"VR smooth motion", {"Off", "On"}, smooth_ ? 1 : 0,
+                "Interpolates the camera between original physics ticks. Adds up to 130 ms visual delay; does not change physics.", "", true});
+            out.push_back({"VR materials", {"Flat colours", "Textured"}, textured_ ? 1 : 0,
+                "Road and grass surface detail provides distance and motion cues. Presentation only.", "", true});
+        }
+        return out;
+    }
+    std::optional<app::SceneSurface> scene_surface() const override {
+        if(!scene_supported_ || !stereo_ || !race_ || !mesh_) return std::nullopt;
+        auto camera=camera_now();
+        if(smooth_) camera=render::interpolate_camera(previous_camera_,camera,frame_fraction_);
+        app::SceneSurface scene;
+        scene.mesh=mesh_; scene.camera=render::perspective_camera(camera);
+        auto opponent=opponent_now();
+        if(smooth_ && opponent && previous_opponent_)
+            opponent=render::interpolate_opponent(race_->track(),*previous_opponent_,*opponent,frame_fraction_);
+        scene.dynamic_mesh=std::make_shared<const platform::scene3d::Mesh>(render::moving_scene(circuits_,race_->track(),scenery_,camera,opponent));
+        scene.overlay=render::cockpit_overlay(art_,palette_,cockpit_now());
+        const auto sky=palette_[7]; scene.background={sky.r,sky.g,sky.b,255};
+        scene.aperture={.1,.08,.8,.64};
+        return scene;
+    }
     void set_option(std::size_t index, int value) override {
         if (index == 0) vhs_ = value;
+        if (index == 1) stereo_ = value==1;
+        if (index == 2) smooth_ = value==1;
+        if (index == 3 && textured_!=(value==1)) {
+            textured_=value==1;
+            if(race_) mesh_=std::make_shared<const platform::scene3d::Mesh>(render::track_scene(circuits_,race_->track(),palette_,textured_));
+        }
     }
     int vhs_level() const override { return vhs_; }
 
   private:
+    bool scene_supported_{}, stereo_{}, smooth_{}, textured_{true};
+    double frame_fraction_{};
+    render::Camera previous_camera_{};
+    std::optional<render::Opponent> previous_opponent_;
+    std::shared_ptr<const platform::scene3d::Mesh> mesh_;
     data::Assets assets_;
     data::Circuits circuits_;
     data::Scenery scenery_;
@@ -215,6 +281,9 @@ class Module final : public app::GameModule {
         race_.emplace(assets_.program, circuits_, r.track, r.super_league, r.opponent, random_, r.roll_bar_marks);
         chains_ = chains_down, pull_ = chain_first_pull;
         race_->step({}); // the crane lowers the car
+        previous_camera_=camera_now();
+        previous_opponent_=opponent_now();
+        mesh_=std::make_shared<const platform::scene3d::Mesh>(render::track_scene(circuits_,race_->track(),palette_,textured_));
         ticks_ = blanks_ = 0;
         fire_held_ = true;
         lap_times_.clear();
@@ -234,6 +303,7 @@ class Module final : public app::GameModule {
         result.finished = state.cars[0].laps >= state.laps_to_finish && !quit;
         random_ = state.random;
         race_.reset();
+        mesh_.reset();
         front_.race_over(result);
     }
 

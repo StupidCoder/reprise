@@ -94,6 +94,29 @@ XrTexture::Timing XrTexture::upload(const void* rgba, int pitch) {
     for (int y = 0; y < p.height; ++y)
         std::memcpy(static_cast<char*>(p.mapped)+size_t(y)*p.width*4,
                     static_cast<const char*>(rgba)+size_t(y)*pitch, size_t(p.width)*4);
+    return render([&](VkCommandBuffer command,VkImage image) {
+    VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    barrier.srcQueueFamilyIndex = barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = image;
+    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
+    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED; // Acquired image is fully overwritten.
+    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         0,0,nullptr,0,nullptr,1,&barrier);
+    VkBufferImageCopy copy{};
+    copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};
+    copy.imageExtent = {uint32_t(p.width),uint32_t(p.height),1};
+    vkCmdCopyBufferToImage(command,p.buffer,barrier.image,barrier.newLayout,1,&copy);
+    barrier.oldLayout = barrier.newLayout;
+    barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL; // OpenXR release contract.
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT; barrier.dstAccessMask = 0;
+    vkCmdPipelineBarrier(command,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                         0,0,nullptr,0,nullptr,1,&barrier);
+    });
+}
+XrTexture::Timing XrTexture::render(const std::function<void(VkCommandBuffer,VkImage)>& record) {
+    auto& p=*impl_;
     const auto ownership_start = Clock::now();
     uint32_t index{};
     XrSwapchainImageAcquireInfo acquire{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
@@ -105,25 +128,16 @@ XrTexture::Timing XrTexture::upload(const void* rgba, int pitch) {
     VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     check(vkBeginCommandBuffer(p.command, &begin), "begin texture command");
-    VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-    barrier.srcQueueFamilyIndex = barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = p.images[index].image;
-    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
-    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED; // Acquired image is fully overwritten.
-    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    vkCmdPipelineBarrier(p.command, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         0,0,nullptr,0,nullptr,1,&barrier);
-    VkBufferImageCopy copy{};
-    copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};
-    copy.imageExtent = {uint32_t(p.width),uint32_t(p.height),1};
-    vkCmdCopyBufferToImage(p.command,p.buffer,barrier.image,barrier.newLayout,1,&copy);
-    barrier.oldLayout = barrier.newLayout;
-    barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL; // OpenXR release contract.
-    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT; barrier.dstAccessMask = 0;
-    vkCmdPipelineBarrier(p.command,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-                         0,0,nullptr,0,nullptr,1,&barrier);
-    check(vkEndCommandBuffer(p.command), "end texture command");
+    try {
+        record(p.command,p.images[index].image);
+        check(vkEndCommandBuffer(p.command), "end texture command");
+    } catch(...) {
+        // No commands were submitted: discard recording and return ownership.
+        vkResetCommandBuffer(p.command,0);
+        XrSwapchainImageReleaseInfo release{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+        xrReleaseSwapchainImage(p.chain,&release);
+        throw;
+    }
     VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO}; submit.commandBufferCount=1; submit.pCommandBuffers=&p.command;
     const auto fence_start = Clock::now();
     check(vkQueueSubmit(p.queue,1,&submit,p.fence), "submit texture");

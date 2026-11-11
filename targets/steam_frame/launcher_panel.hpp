@@ -15,6 +15,8 @@ public:
     bool playing() const { return gameplay_.active(); }
     void set_world_surface_supported(bool supported) { gameplay_.set_world_surface_supported(supported); }
     const std::optional<app::WorldSurface>& world_surface() const { return gameplay_.world_surface(); }
+    void set_scene_surface_supported(bool supported) { gameplay_.set_scene_surface_supported(supported); }
+    const std::optional<app::SceneSurface>& scene_surface() const { return gameplay_.scene_surface(); }
     bool separate_cover() const { return !playing() && !choosing_ && !import_work_.valid(); }
     bool open() const { return launcher_.details_open(); }
     bool reduced_motion() const { return launcher_.reduced_motion(); }

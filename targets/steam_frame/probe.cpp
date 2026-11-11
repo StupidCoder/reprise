@@ -27,6 +27,7 @@
 #ifdef REPRISE_FRAME_GAME_BRIDGE
 #include "game_bridge.hpp"
 #include "ring.hpp"
+#include "stereo_study.hpp"
 #endif
 
 namespace {
@@ -77,7 +78,7 @@ struct Eye {
 class Probe {
 public:
     ~Probe();
-    void run(int seconds, const char* content, bool room, bool benchmark, const char* catalog, bool reduced, const char* data);
+    void run(int seconds, const char* content, bool room, bool benchmark, const char* catalog, bool reduced, const char* data, const char* stereo);
 
 private:
     void open_xr();
@@ -128,9 +129,13 @@ private:
     VkCommandPool pool_{};
     VkCommandBuffer commands_{};
     VkFence fence_{};
+    VkQueryPool room_queries_{};
+    float timestamp_period_{};
+    unsigned timestamp_bits_{};
+    std::vector<double> room_gpu_times_,room_ownership_times_,room_fence_times_;
     uint64_t submitted_{};
     uint64_t waited_{}, skipped_{};
-    std::vector<double> render_times_, end_times_;
+    std::vector<double> render_times_, end_times_, begin_times_, locate_times_, room_times_, content_times_;
     std::unique_ptr<Floor> floor_;
     bool benchmark_{};
     bool reduced_motion_{};
@@ -138,6 +143,7 @@ private:
 #ifdef REPRISE_FRAME_GAME_BRIDGE
     std::unique_ptr<GameBridge> bridge_;
     std::unique_ptr<Ring> ring_;
+    std::unique_ptr<StereoStudy> stereo_;
 #endif
 };
 
@@ -146,9 +152,11 @@ Probe::~Probe() {
     floor_.reset();
 #ifdef REPRISE_FRAME_GAME_BRIDGE
     ring_.reset();
+    stereo_.reset();
     bridge_.reset();
 #endif
     if (device_) vkDeviceWaitIdle(device_);
+    if (room_queries_) vkDestroyQueryPool(device_,room_queries_,nullptr);
     if (fence_) vkDestroyFence(device_, fence_, nullptr);
     if (pool_) vkDestroyCommandPool(device_, pool_, nullptr);
     for (auto& eye : eyes_) {
@@ -293,6 +301,12 @@ void Probe::open_vulkan() {
     check(vkAllocateCommandBuffers(device_, &alloc, &commands_), "vkAllocateCommandBuffers");
     VkFenceCreateInfo fence{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
     check(vkCreateFence(device_, &fence, nullptr, &fence_), "vkCreateFence");
+    timestamp_bits_=families.at(queue_family_).timestampValidBits;
+    timestamp_period_=properties.limits.timestampPeriod;
+    if(timestamp_bits_) {
+        VkQueryPoolCreateInfo query{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};query.queryType=VK_QUERY_TYPE_TIMESTAMP;query.queryCount=2;
+        check(vkCreateQueryPool(device_,&query,nullptr,&room_queries_),"room GPU timestamp pool");
+    }
 }
 
 void Probe::open_session() {
@@ -689,6 +703,7 @@ void Probe::frame() {
     XrFrameBeginInfo begin{XR_TYPE_FRAME_BEGIN_INFO};
     const auto began = xrBeginFrame(session_, &begin);
     check(began, "xrBeginFrame");
+    const auto after_begin=Clock::now();
     input(info.predictedDisplayTime);
 
     std::array<XrView, 2> views{};
@@ -704,6 +719,7 @@ void Probe::frame() {
     constexpr auto valid = XR_VIEW_STATE_POSITION_VALID_BIT | XR_VIEW_STATE_ORIENTATION_VALID_BIT;
     const bool render = count == views.size() && (located.viewStateFlags & valid) == valid;
 
+    const auto after_locate=Clock::now();
     std::array<XrCompositionLayerProjectionView, 2> layer_views{};
     XrCompositionLayerProjection layer{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
     if (render) {
@@ -711,14 +727,21 @@ void Probe::frame() {
         VkCommandBufferBeginInfo command{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
         command.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         check(vkBeginCommandBuffer(commands_, &command), "vkBeginCommandBuffer");
+        if(room_queries_) {
+            vkCmdResetQueryPool(commands_,room_queries_,0,2);
+            vkCmdWriteTimestamp(commands_,VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,room_queries_,0);
+        }
+        double ownership_ms=0;
         for (std::size_t i = 0; i < eyes_.size(); ++i) {
             auto& eye = eyes_[i];
+            const auto ownership_start=Clock::now();
             XrSwapchainImageAcquireInfo acquire{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
             uint32_t image{};
             check(xrAcquireSwapchainImage(eye.chain, &acquire, &image), "xrAcquireSwapchainImage");
             XrSwapchainImageWaitInfo ready{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
             ready.timeout = XR_INFINITE_DURATION;
             check(xrWaitSwapchainImage(eye.chain, &ready), "xrWaitSwapchainImage");
+            ownership_ms+=std::chrono::duration<double,std::milli>(Clock::now()-ownership_start).count();
             draw_eye(eye, image, views[i]);
             auto& out = layer_views[i];
             out.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
@@ -727,23 +750,22 @@ void Probe::frame() {
             out.subImage.swapchain = eye.chain;
             out.subImage.imageRect.extent = {int32_t(eye.size.width), int32_t(eye.size.height)};
         }
+        if(room_queries_) vkCmdWriteTimestamp(commands_,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,room_queries_,1);
         check(vkEndCommandBuffer(commands_), "vkEndCommandBuffer");
+        room_ownership_times_.push_back(ownership_ms);
         VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
         submit.commandBufferCount = 1;
         submit.pCommandBuffers = &commands_;
         check(vkQueueSubmit(queue_, 1, &submit, fence_), "vkQueueSubmit");
-        // Deliberate serialization for the bring-up probe. The eventual renderer
-        // can pipeline work once compositor ownership is validated on hardware.
-        check(vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX), "vkWaitForFences");
-        check(vkResetFences(device_, 1, &fence_), "vkResetFences");
-        XrSwapchainImageReleaseInfo release{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
-        for (auto& eye : eyes_)
-            check(xrReleaseSwapchainImage(eye.chain, &release), "xrReleaseSwapchainImage");
+        // Keep this submission in flight while the CPU prepares game/UI
+        // content. Independent content commands use the same ordered queue.
+        // The fence and XR release happen below, before xrEndFrame.
         layer.space = space_;
         layer.viewCount = layer_views.size();
         layer.views = layer_views.data();
     }
 
+    const auto after_room=Clock::now();
     std::vector<const XrCompositionLayerBaseHeader*> layers;
     if (render) layers.push_back(reinterpret_cast<const XrCompositionLayerBaseHeader*>(&layer));
 #ifdef REPRISE_FRAME_GAME_BRIDGE
@@ -756,13 +778,17 @@ void Probe::frame() {
                       {hands_[0].clicked, hands_[1].clicked}, reduced_motion_,
                       max_layers_ > reserved ? max_layers_ - reserved : 0,
                       state_ == XR_SESSION_STATE_FOCUSED && (hands_[0].aim || hands_[1].aim), back_pressed_, scroll_value_,
-                      game_controls_, {hands_[0].pressed,hands_[1].pressed});
+                      game_controls_, {hands_[0].pressed,hands_[1].pressed}, {views[0],views[1]});
         ring_->append_pointers(head, {hands_[0].aim,hands_[1].aim},
                                {hands_[0].pressed,hands_[1].pressed});
         for (const auto& cylinder : ring_->cylinders())
             layers.push_back(reinterpret_cast<const XrCompositionLayerBaseHeader*>(&cylinder));
         for (const auto& card : ring_->layers())
             layers.push_back(reinterpret_cast<const XrCompositionLayerBaseHeader*>(&card));
+    }
+    if(render && stereo_) {
+        stereo_->update(views[0],views[1],recenter_pending_);
+        for(const auto& eye:stereo_->layers()) layers.push_back(reinterpret_cast<const XrCompositionLayerBaseHeader*>(&eye));
     }
     if(!render && ring_) ring_->suspend(info.predictedDisplayTime/1e9);
     if (!render && !benchmark_ && bridge_) bridge_->pause();
@@ -771,6 +797,21 @@ void Probe::frame() {
         if (auto* screen = bridge_->layer(); render && screen) layers.push_back(screen);
     }
 #endif
+    if(render) {
+        const auto fence_start=Clock::now();
+        check(vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX), "vkWaitForFences");
+        check(vkResetFences(device_, 1, &fence_), "vkResetFences");
+        room_fence_times_.push_back(std::chrono::duration<double,std::milli>(Clock::now()-fence_start).count());
+        if(room_queries_) {
+            uint64_t timestamps[2]{};
+            check(vkGetQueryPoolResults(device_,room_queries_,0,2,sizeof(timestamps),timestamps,sizeof(uint64_t),VK_QUERY_RESULT_64_BIT),"room GPU timestamps");
+            const uint64_t mask=timestamp_bits_==64 ? UINT64_MAX : (uint64_t{1}<<timestamp_bits_)-1;
+            room_gpu_times_.push_back(((timestamps[1]-timestamps[0])&mask)*timestamp_period_/1e6);
+        }
+        XrSwapchainImageReleaseInfo release{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+        for (auto& eye : eyes_)
+            check(xrReleaseSwapchainImage(eye.chain, &release), "xrReleaseSwapchainImage");
+    }
     XrFrameEndInfo end{XR_TYPE_FRAME_END_INFO};
     end.displayTime = info.predictedDisplayTime;
     end.environmentBlendMode = blend_;
@@ -780,6 +821,11 @@ void Probe::frame() {
     check(xrEndFrame(session_, &end), "xrEndFrame");
     const auto finished = Clock::now();
     if (render) {
+        const auto ms=[](auto a,auto b){return std::chrono::duration<double,std::milli>(b-a).count();};
+        begin_times_.push_back(ms(start,after_begin));
+        locate_times_.push_back(ms(after_begin,after_locate));
+        room_times_.push_back(ms(after_locate,after_room));
+        content_times_.push_back(ms(after_room,before_end));
         render_times_.push_back(std::chrono::duration<double, std::milli>(before_end-start).count());
         end_times_.push_back(std::chrono::duration<double, std::milli>(finished-before_end).count());
     } else ++skipped_;
@@ -795,6 +841,13 @@ void Probe::frame() {
         };
         report("render-and-fences", render_times_);
         report("xrEndFrame", end_times_);
+        report("xrBeginFrame", begin_times_);
+        report("input-locate", locate_times_);
+        report("room-record-submit", room_times_);
+        report("content", content_times_);
+        report("room-GPU", room_gpu_times_);
+        report("room-image-ownership", room_ownership_times_);
+        report("room-final-fence-wait", room_fence_times_);
         std::printf("Frame waits=%llu skipped=%llu state=%d\n", (unsigned long long)waited_,
                     (unsigned long long)skipped_, state_);
     }
@@ -805,7 +858,7 @@ void Probe::frame() {
     }
 }
 
-void Probe::run(int seconds, const char* content, bool room, bool benchmark, const char* catalog, bool reduced, const char* data) {
+void Probe::run(int seconds, const char* content, bool room, bool benchmark, const char* catalog, bool reduced, const char* data, const char* stereo) {
     benchmark_ = benchmark;
     reduced_motion_ = reduced;
     if (benchmark_) std::printf("DIAGNOSTIC: run game bridge while unfocused; timings may exclude visible scene/compositor load\n");
@@ -821,6 +874,12 @@ void Probe::run(int seconds, const char* content, bool room, bool benchmark, con
         std::printf("Room floor enabled: charcoal tiles, amber seams, radial fade\n");
     }
 #ifdef REPRISE_FRAME_GAME_BRIDGE
+    if(stereo) {
+        if(catalog || content) throw std::runtime_error("Frozen stereo study cannot run with catalog/game bridge");
+        if(max_layers_<3) throw std::runtime_error("Frozen stereo study needs three composition layers");
+        stereo_=std::make_unique<StereoStudy>();
+        stereo_->open(session_,space_,physical_,device_,queue_,queue_family_,stereo);
+    }
     if (catalog) {
         ring_ = std::make_unique<Ring>();
         ring_->open(session_, space_, physical_, device_, queue_, queue_family_, catalog, data, cylinder_supported_);
@@ -830,7 +889,7 @@ void Probe::run(int seconds, const char* content, bool room, bool benchmark, con
         bridge_->open(session_, space_, physical_, device_, queue_, queue_family_, content);
     }
 #else
-    if (content || catalog) throw std::runtime_error("Build with REPRISE_FRAME_GAME_BRIDGE for SDL presentation");
+    if (content || catalog || stereo) throw std::runtime_error("Build with REPRISE_FRAME_GAME_BRIDGE for SDL presentation");
 #endif
     const auto started = std::chrono::steady_clock::now();
     bool exit_requested = false;
@@ -863,6 +922,7 @@ int main(int argc, char** argv) {
         const char* catalog = nullptr;
         const char* data = nullptr;
         const char* smoke = nullptr;
+        const char* stereo = nullptr;
         bool smoke_save=false;
         std::vector<std::filesystem::path> imports;
         for (int i = 1; i < argc; ++i) {
@@ -874,6 +934,7 @@ int main(int argc, char** argv) {
             else if (std::strcmp(argv[i], "--benchmark") == 0) benchmark = true;
             else if (std::strcmp(argv[i], "--reduced-motion") == 0) reduced = true;
             else if (std::strcmp(argv[i], "--catalog") == 0 && i+1<argc) catalog = argv[++i];
+            else if (std::strcmp(argv[i], "--stereo-study") == 0 && i+1<argc) stereo = argv[++i];
             else if (std::strcmp(argv[i], "--smoke-save") == 0) smoke_save=true;
             else if (std::strcmp(argv[i], "--game-smoke") == 0 && i+1<argc) smoke=argv[++i];
             else if (std::strcmp(argv[i], "--import") == 0 && i+1<argc) imports.emplace_back(argv[++i]);
@@ -952,7 +1013,7 @@ int main(int argc, char** argv) {
         std::signal(SIGINT, request_stop);
         std::signal(SIGTERM, request_stop);
         Probe probe;
-        probe.run(seconds, content, room, benchmark, catalog, reduced, data);
+        probe.run(seconds, content, room, benchmark, catalog, reduced, data, stereo);
         return 0;
     } catch (const std::exception& error) {
         std::fprintf(stderr, "reprise-frame-probe: %s\n", error.what());

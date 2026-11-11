@@ -1,0 +1,53 @@
+Track details / 3D opponent preview, 2026-11-11
+Binary SHA256 c12457f3b7a6995c171c82d56f66362483765d1a8834a13138d20765b2289c9f
+Mac/Android/native ARM64 builds passed. Native installed and launcher started.
+OpenXR initialized; first frame submitted. Headset subsequently idle (state3).
+Wearer league/opponent validation pending.
+
+Tests: 500 ticks each practice/league, 1080/1140 scene samples, materials
+toggled during runs, original/future flat images and clock unchanged.
+All eight tracks: finite scenery and opponent present across every segment join.
+Track geometry/material tests passed; markings produce 3794..6404 triangles.
+CPU diagnostic opponent.png visually inspected in ignored build/stunt-details-check.
+CTest stunt_scene_geometry, shell_navigation, host_touch_coordinates: 3/3 passed.
+Physics oracle Little Ramp race_lr1.bin from frame2: 467/467 exact.
+
+Limits: opponent body/wheel vertical proportions are a new 3D interpretation
+of original screen-space artwork. Motion remains at original tick cadence.
+No road-side vertical seams/shadow enhancement yet. Horizon represented by
+decoded polygons on distant dome. Native GPU dynamic mesh awaits wearable run.
+
+Timing-only follow-up built/installed and launcher restarted:
+SHA256 75cd16e92787d4eb7a7c6851e02b63559750d0ca62d308fe88c23000eaba9cad
+Adds xrBeginFrame, input/locate, room submission/fence, content wall timings
+for the subsequent frame-pacing investigation. No visual change.
+
+Wearer corrections implemented:
+- Ground extends beyond far plane; scenery anchored at ground height.
+- Original body/axle width ratios; wheels inside axle ends.
+- Opponent interpolation across segment/lap seams follows VR smooth option.
+- Recovery countdown no longer clears camera history each tick.
+Practice and league 500-tick comparisons pass; initial drop/start continuity
+assertion passes. Synthetic lap-seam interpolation passes. All eight tracks
+finite/segment-join checks pass. CPU diagnostic inspected with connected horizon
+and narrower opponent body. Mac/Android/native builds pass; 3/3 CTests pass.
+Original Little Ramp physics 467/467 exact. Headset feedback pending.
+Corrected binary SHA256: 3bd6fafa394274e1530d73783a372702211016f860e18577f3397d464ff9c8dc
+
+Wearer validated previous horizon/proportion/smoothing fixes; reported floating tyres.
+New 3D-only correction removes $50 drawing lift plus $28/$7C suspension rest
+from tyre-bottom anchor, preserving relative suspension/jump displacement.
+Eight-track rest-contact and +64 height-unit jump checks pass. Practice/league
+500-tick invariance and continuity pass. Three CTests, Mac/Android/native builds
+pass. Physics 467/467 exact. Tyre-height headset confirmation pending.
+Tyre-contact build SHA256: d591e09291806776359f390be7c18bf2e9c92dc13fe2c690cf095cb34e89b107
+
+Superseding previous tyre-contact correction: $28/$7C are preload, not ride
+height. Subtracting them was an overcorrection, confirmed by wearer sinking
+tyres. New real-simulation test (Little Ramp league, Driver9 habits0, 200 empty
+input ticks) settles body-road0/0 and drawing-reference-road80/80. Mesh removes
+only $50; eight-track flat contact/jump checks use that independent equilibrium.
+Practice/league invariance, 3 CTests, Mac/Android/native builds pass.
+Visual contact confirmation pending.
+Revised contact binary SHA256: d4121e062f806528bcd5a24c4b360bd4e941f151b17171bbfe622f725ee9fc4b
+OpenXR startup and first submitted frame confirmed.

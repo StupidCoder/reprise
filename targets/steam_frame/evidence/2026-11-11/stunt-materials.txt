@@ -1,0 +1,11 @@
+Generated asphalt/grass preview, 2026-11-11
+Binary SHA256 ced4d7a6c05bb4e8325d4ce01b0dd7bfdc55775fc6ab1820817ebd791aaf1bbc
+Mac, Android and native ARM64 builds passed.
+All eight circuits: material toggle leaves vertex positions/topology unchanged.
+500-tick module comparison with material toggles: 1080 scene samples, original
+pictures/future state observable pictures and clock unchanged.
+CTest stunt_scene_geometry, shell_navigation, host_touch_coordinates: 3/3.
+Headset live scene: 11880 frames, both-eye wall mean 1.032ms, fence 0.917ms.
+Whole-frame render/fences n600 mean14.023ms p95 23.525ms max28.633ms.
+Wearer: "The textures work great. Much easier to judge depth now."
+Sources/prompts: resources/stunt_car_racer_amiga/materials/README.md
